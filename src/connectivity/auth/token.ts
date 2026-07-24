@@ -75,7 +75,10 @@ function extractToken(
 ): string | undefined {
   const auth = headers['authorization']
   if (typeof auth === 'string' && auth.startsWith('Bearer ')) return auth.slice(7).trim()
-  if (url && url.includes('?')) {
+  // Query-string tokens are accepted ONLY for the WS upgrade path (/ws) — the
+  // caller decides by passing `url`. Browsers can't set headers on a WebSocket,
+  // but a ?token= on a normal URL would leak into history/referer logs.
+  if (url && url.startsWith('/ws') && url.includes('?')) {
     const q = new URLSearchParams(url.split('?')[1])
     const t = q.get('token')
     if (t) return t
@@ -114,7 +117,7 @@ export function createTokenAuth(opts: TokenAuthOptions): AuthStrategy {
         try {
           for (const [k, v] of (raw?.headers ?? new Headers()).entries()) rawHeaders[k] = v
         } catch { /* ignore */ }
-        const candidate = extractToken(rawHeaders, raw?.url ?? c.req.url)
+        const candidate = extractToken(rawHeaders)
         if (tokenMatches(candidate, expected)) { c.set('user', user); return next() }
         return c.json({ error: 'Unauthorized' }, 401)
       }

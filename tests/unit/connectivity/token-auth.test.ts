@@ -83,4 +83,8 @@ describe('createTokenAuth.httpMiddleware', () => {
       .request('/x', { headers: { authorization: 'Bearer wrong' } })
     expect(res.status).toBe(401)
   })
+  it('rejects a ?token= query on plain HTTP requests (WS-upgrade only)', async () => {
+    const res = await appWith({ token: 'secret' }).request('/x?token=secret')
+    expect(res.status).toBe(401)
+  })
 })

@@ -1,5 +1,8 @@
 import type { Hono } from 'hono'
 import type { IncomingMessage } from '../../../core/types.js'
+import { createLogger } from '../../../utils/logger.js'
+
+const log = createLogger('web')
 
 export function registerMessage(
   app: Hono,
@@ -29,7 +32,7 @@ export function registerMessage(
       sessionId: typeof body.sessionId === 'string' && body.sessionId ? body.sessionId : undefined,
       origin: 'web',
     }
-    void onMessage(msg)
+    void onMessage(msg).catch((e) => log.warn(`onMessage handler rejected: ${(e as Error).message}`))
     return c.json({ messageId })
   })
 }

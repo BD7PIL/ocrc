@@ -65,6 +65,15 @@ describe('verifyUpgradeJwt', () => {
     expect(jwtVerify).toHaveBeenCalledWith('query-jwt', expect.anything(), expect.anything())
   })
 
+  it('ignores the query JWT outside the /ws upgrade path', async () => {
+    ; (jwtVerify as any).mockResolvedValue({ payload: { email: 'u@example.com', sub: '123' } })
+    const user = await verifyUpgradeJwt(
+      { headers: {}, url: '/api/sessions?cf_access_jwt=query-jwt' },
+      { team: 'test', aud: 'app' },
+    )
+    expect(user).toBeNull()
+  })
+
   it('extracts JWT from cookie', async () => {
     ; (jwtVerify as any).mockResolvedValue({ payload: { email: 'u@example.com', sub: '123' } })
     const user = await verifyUpgradeJwt(

@@ -284,4 +284,139 @@ describe('web routes', () => {
     expect(res.status).toBe(200)
     expect(backend.resolvePermission).toHaveBeenCalledWith('ses_a', 'r1', 'once')
   })
+
+  it('POST /api/abort 400s on missing sessionId or unparseable body', async () => {
+    const app = buildServer(baseOpts(fakeState(), fakeBackend()))
+    const missing = await app.request('/api/abort', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    }, LOOPBACK)
+    expect(missing.status).toBe(400)
+    const badJson = await app.request('/api/abort', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: 'not-json',
+    }, LOOPBACK)
+    expect(badJson.status).toBe(400)
+  })
+
+  it('POST /api/approval 400s on missing/invalid fields', async () => {
+    const backend = fakeBackend()
+    const app = buildServer(baseOpts(fakeState(), backend))
+    const post = (body: string) => app.request('/api/approval', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body,
+    }, LOOPBACK)
+    expect((await post('{}')).status).toBe(400)
+    expect((await post(JSON.stringify({ sessionId: 'ses_a' }))).status).toBe(400)
+    expect((await post(JSON.stringify({ sessionId: 'ses_a', requestId: 'r1' }))).status).toBe(400)
+    expect((await post(JSON.stringify({ sessionId: 'ses_a', requestId: 'r1', decision: 'maybe' }))).status).toBe(400)
+    expect((await post('not-json')).status).toBe(400)
+    expect(backend.resolvePermission).not.toHaveBeenCalled()
+  })
+
+  it('POST /api/sessions/:id/delete does not leak backend error details', async () => {
+    const backend = fakeBackend({
+      deleteSession: vi.fn().mockRejectedValue(new Error('internal secret path /var/lib/x')),
+    })
+    const app = buildServer(baseOpts(fakeState(), backend))
+    const res = await app.request('/api/sessions/ses_a/delete', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    }, LOOPBACK)
+    expect(res.status).toBe(500)
+    const body = await res.json() as any
+    expect(body.ok).toBe(false)
+    expect(JSON.stringify(body)).not.toContain('internal secret')
+  })
+
+  describe('short sessionId normalization', () => {
+    // Short display suffixes must resolve to the full id before backend routing,
+    // otherwise they silently land on the primary backend.
+    const normState = () => ({
+      ...fakeState(),
+      normalizeSessionId: (id: string) => (id === 'short1' ? 'ses_full1' : id),
+    }) as any
+
+    it('GET /api/session/:id/diff normalizes the id', async () => {
+      const backend = fakeBackend()
+      const app = buildServer(baseOpts(normState(), backend))
+      const res = await app.request('/api/session/short1/diff', undefined, LOOPBACK)
+      expect(res.status).toBe(200)
+      expect(backend.getDiff).toHaveBeenCalledWith('ses_full1')
+    })
+
+    it('GET /api/session/:id/todo normalizes the id', async () => {
+      const backend = fakeBackend()
+      const app = buildServer(baseOpts(normState(), backend))
+      const res = await app.request('/api/session/short1/todo', undefined, LOOPBACK)
+      expect(res.status).toBe(200)
+      expect(backend.getTodos).toHaveBeenCalledWith('ses_full1')
+    })
+
+    it('GET /api/session/:id/context normalizes the id', async () => {
+      const backend = fakeBackend()
+      const app = buildServer(baseOpts(normState(), backend))
+      const res = await app.request('/api/session/short1/context', undefined, LOOPBACK)
+      expect(res.status).toBe(200)
+      expect(backend.getContext).toHaveBeenCalledWith('ses_full1')
+    })
+
+    it('GET /api/session/:id/controls normalizes the id', async () => {
+      const getControls = vi.fn().mockResolvedValue({ modes: [] })
+      const backend = fakeBackend({ getControls })
+      const app = buildServer(baseOpts(normState(), backend))
+      const res = await app.request('/api/session/short1/controls', undefined, LOOPBACK)
+      expect(res.status).toBe(200)
+      expect(getControls).toHaveBeenCalledWith('ses_full1')
+    })
+
+    it('POST /api/session/:id/mode normalizes the id', async () => {
+      const setMode = vi.fn().mockResolvedValue(undefined)
+      const backend = fakeBackend({ setMode })
+      const app = buildServer(baseOpts(normState(), backend))
+      const res = await app.request('/api/session/short1/mode', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ modeId: 'm1' }),
+      }, LOOPBACK)
+      expect(res.status).toBe(200)
+      expect(setMode).toHaveBeenCalledWith('ses_full1', 'm1')
+    })
+
+    it('POST /api/sessions/:id/rename normalizes the id', async () => {
+      const backend = fakeBackend()
+      const app = buildServer(baseOpts(normState(), backend))
+      const res = await app.request('/api/sessions/short1/rename', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: 'T' }),
+      }, LOOPBACK)
+      expect(res.status).toBe(200)
+      expect(backend.renameSession).toHaveBeenCalledWith('ses_full1', 'T')
+    })
+
+    it('POST /api/sessions/:id/delete normalizes the id', async () => {
+      const backend = fakeBackend()
+      const app = buildServer(baseOpts(normState(), backend))
+      const res = await app.request('/api/sessions/short1/delete', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+      }, LOOPBACK)
+      expect(res.status).toBe(200)
+      expect(backend.deleteSession).toHaveBeenCalledWith('ses_full1')
+    })
+
+    it('POST /api/command normalizes the id', async () => {
+      const backend = fakeBackend()
+      const app = buildServer(baseOpts(normState(), backend))
+      const res = await app.request('/api/command', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: 'short1', command: 'review' }),
+      }, LOOPBACK)
+      expect(res.status).toBe(200)
+      expect(backend.runCommand).toHaveBeenCalledWith('ses_full1', 'review', undefined)
+    })
+
+    it('POST /api/approval normalizes the id', async () => {
+      const backend = fakeBackend()
+      const app = buildServer(baseOpts(normState(), backend))
+      const res = await app.request('/api/approval', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: 'short1', requestId: 'r1', decision: 'always' }),
+      }, LOOPBACK)
+      expect(res.status).toBe(200)
+      expect(backend.resolvePermission).toHaveBeenCalledWith('ses_full1', 'r1', 'always')
+    })
+  })
 })

@@ -1,19 +1,20 @@
 import type { Hono } from 'hono'
 import type { BackendRegistry } from '../../../core/agent/registry.js'
+import type { SessionState } from '../../../core/state.js'
 
 /**
  * Session controls — read the switchable mode + model for a session, and switch
  * them. Backed by the optional getControls/setMode/setModel (present only when the
  * backend's `sessionControls` capability is true; ACP/kimi). Missing → 404/empty.
  */
-export function registerControls(app: Hono, reg: BackendRegistry) {
+export function registerControls(app: Hono, reg: BackendRegistry, state: SessionState) {
   app.get('/api/session/:id/controls', async (c) => {
-    const id = c.req.param('id')
+    const id = state.normalizeSessionId(c.req.param('id'))
     return c.json((await reg.forSession(id).getControls?.(id)) ?? {})
   })
 
   app.post('/api/session/:id/mode', async (c) => {
-    const id = c.req.param('id')
+    const id = state.normalizeSessionId(c.req.param('id'))
     const { modeId } = await c.req.json<{ modeId?: string }>().catch(() => ({ modeId: undefined }))
     if (!modeId) return c.json({ error: 'modeId required' }, 400)
     const b = reg.forSession(id)
@@ -23,7 +24,7 @@ export function registerControls(app: Hono, reg: BackendRegistry) {
   })
 
   app.post('/api/session/:id/model', async (c) => {
-    const id = c.req.param('id')
+    const id = state.normalizeSessionId(c.req.param('id'))
     const { modelId } = await c.req.json<{ modelId?: string }>().catch(() => ({ modelId: undefined }))
     if (!modelId) return c.json({ error: 'modelId required' }, 400)
     const b = reg.forSession(id)

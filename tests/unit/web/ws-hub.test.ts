@@ -107,4 +107,41 @@ describe('WsHub', () => {
     hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_1', sinceSeq: 1 })
     expect(ws.sent.filter((m: any) => m.type === 'card').length).toBe(0)
   })
+
+  it('registers the client synchronously: subscribe sent before attach resolves is not lost', async () => {
+    const bus = createCardBus()
+    let resolveSummaries!: (rows: any[]) => void
+    const registry = {
+      all: () => [{ id: 'b', backend: { listSessionSummaries: () => new Promise<any[]>((r) => { resolveSummaries = r }) } }],
+      tag: vi.fn(),
+    } as any
+    const hub = createWsHub({ cardBus: bus, registry, state: fakeState() })
+    const ws = fakeWs()
+    const attached = hub.attach(ws as any, { email: 'u@x' } as any)
+    // Message arrives in the window before the summaries fetch resolves.
+    hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_1' })
+    resolveSummaries([])
+    await attached
+    expect(ws.sent.some((m: any) => m.type === 'hello')).toBe(true)
+    bus.publish({ kind: 'thinking', sessionId: 'ses_1', showStop: true })
+    expect(ws.sent.some((m: any) => m.type === 'card')).toBe(true)
+  })
+
+  it('detach during a pending attach leaves no dead client and skips hello', async () => {
+    const bus = createCardBus()
+    let resolveSummaries!: (rows: any[]) => void
+    const registry = {
+      all: () => [{ id: 'b', backend: { listSessionSummaries: () => new Promise<any[]>((r) => { resolveSummaries = r }) } }],
+      tag: vi.fn(),
+    } as any
+    const hub = createWsHub({ cardBus: bus, registry, state: fakeState() })
+    const ws = fakeWs()
+    const attached = hub.attach(ws as any, { email: 'u@x' } as any)
+    ws.readyState = 0 // socket closed while summaries were loading
+    hub.detach(ws as any)
+    resolveSummaries([])
+    await attached
+    bus.publish({ kind: 'thinking', sessionId: 'ses_1', showStop: true })
+    expect(ws.sent.length).toBe(0)
+  })
 })

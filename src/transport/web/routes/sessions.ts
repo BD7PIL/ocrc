@@ -2,6 +2,9 @@ import type { Hono } from 'hono'
 import type { BackendRegistry } from '../../../core/agent/registry.js'
 import type { SessionState } from '../../../core/state.js'
 import { fetchSessionSummaries, cleanupSubagentSessions } from '../session-summary.js'
+import { createLogger } from '../../../utils/logger.js'
+
+const log = createLogger('web')
 
 export function registerSessions(app: Hono, reg: BackendRegistry, state: SessionState) {
   app.get('/api/sessions', async (c) => {
@@ -15,12 +18,13 @@ export function registerSessions(app: Hono, reg: BackendRegistry, state: Session
   })
 
   app.post('/api/sessions/:id/delete', async (c) => {
-    const id = c.req.param('id')
+    const id = state.normalizeSessionId(c.req.param('id'))
     try {
       await reg.forSession(id).deleteSession(id)
       return c.json({ ok: true })
     } catch (e) {
-      return c.json({ ok: false, error: (e as Error).message }, 500)
+      log.warn(`delete session ${id} failed: ${(e as Error).message}`)
+      return c.json({ ok: false, error: 'failed to delete session' }, 500)
     }
   })
 }

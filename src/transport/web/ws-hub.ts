@@ -39,8 +39,12 @@ export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry;
 
   return {
     async attach(ws, user) {
-      const sessions = await fetchSessionSummaries(opts.registry, opts.state).catch(() => [])
+      // Register synchronously: messages arriving while summaries load must not
+      // be silently dropped, and detach() during the await must not leak a dead
+      // client into the map.
       clients.set(ws, { ws, user })
+      const sessions = await fetchSessionSummaries(opts.registry, opts.state).catch(() => [])
+      if (ws.readyState !== 1) return
       try { ws.send(JSON.stringify({ type: 'hello', sessions })) } catch {}
     },
     handleClientMessage(ws, msg) {

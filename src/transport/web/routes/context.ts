@@ -4,7 +4,7 @@ import type { SessionState } from '../../../core/state.js'
 
 export function registerContext(app: Hono, reg: BackendRegistry, state: SessionState) {
   app.get('/api/session/:id/context', async (c) => {
-    const id = c.req.param('id')
+    const id = state.normalizeSessionId(c.req.param('id'))
     const ctx = await reg.forSession(id).getContext(id)
     return c.json({
       sessionId: id,

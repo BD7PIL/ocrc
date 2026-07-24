@@ -63,21 +63,22 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
       // index.html, the browser sees text/html where it expects JS and the
       // whole module graph silently stalls.
       const indexHtmlPath = join(cfg.staticRoot, 'index.html')
+      // Read once at startup — the previous per-request readFileSync put a
+      // synchronous disk hit on every unmatched GET.
+      const indexHtml = readFileSync(indexHtmlPath, 'utf-8')
       app.get('*', (c) => {
         const path = c.req.path
         if (path.startsWith('/api/') || path === '/ws') return c.notFound()
-        const filePath = join(cfg.staticRoot, path)
-        if (existsSync(filePath)) {
-          return new Response(readFileSync(filePath))
-        }
-        return c.html(readFileSync(indexHtmlPath, 'utf-8'))
+        return c.html(indexHtml)
       })
 
       server = serve({ fetch: app.fetch, hostname: cfg.host, port: cfg.port }, (info) => {
         log.info(`web transport listening on http://${info.address}:${info.port}`)
       })
 
-      wss = new WebSocketServer({ noServer: true })
+      // Clients only ever send ping/subscribe — cap frames well below the 100MiB
+      // default so a rogue client can't exhaust memory.
+      wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 })
       ;(server as any).on('upgrade', async (req: any, socket: any, head: any) => {
         const hasCookie = !!req.headers?.cookie
         const hasAccessHdr = !!req.headers?.['cf-access-jwt-assertion']
@@ -88,10 +89,18 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
           socket.destroy()
           return
         }
-        // Auth: delegate to the configured strategy (token or CF Access).
-        const user = await cfg.auth.verifyUpgrade(
-          { headers: req.headers, url: req.url, socket: req.socket },
-        )
+        // Auth: delegate to the configured strategy (token or CF Access). A throw
+        // here would otherwise hang the TCP socket and raise unhandledRejection.
+        let user
+        try {
+          user = await cfg.auth.verifyUpgrade(
+            { headers: req.headers, url: req.url, socket: req.socket },
+          )
+        } catch (e) {
+          log.warn(`ws upgrade rejected: verifyUpgrade threw: ${(e as Error).message}`)
+          socket.destroy()
+          return
+        }
         if (!user) {
           log.warn(`ws upgrade rejected: JWT verify failed (cookie=${hasCookie} cf-access-hdr=${hasAccessHdr})`)
           socket.destroy()

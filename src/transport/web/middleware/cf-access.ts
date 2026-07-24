@@ -65,7 +65,7 @@ export async function verifyUpgradeJwt(
   if (devBypassAllowed(req.socket?.remoteAddress, opts)) {
     return { email: opts.devEmail ?? 'dev@localhost', sub: 'dev' }
   }
-  const query = req.url ? req.url.split('?')[1] : undefined
+  const query = req.url?.startsWith('/ws') ? req.url.split('?')[1] : undefined
   const jwt = extractJwt(req.headers, query)
   if (!jwt) return null
   try {
@@ -91,9 +91,11 @@ export function cfAccessMiddleware(opts: CfAccessOpts): MiddlewareHandler {
       return next()
     }
 
+    // No query-string JWT here: ?cf_access_jwt= on a normal HTTP URL would leak
+    // into browser history/referer. It is accepted only on the WS upgrade path
+    // (/ws) — see verifyUpgradeJwt — because browsers can't set WS headers.
     const jwt =
       c.req.header('cf-access-jwt-assertion') ||
-      c.req.query('cf_access_jwt') ||
       c.req.header('cookie')?.match(/CF_Authorization=([^;]+)/)?.[1]
 
     if (!jwt) {

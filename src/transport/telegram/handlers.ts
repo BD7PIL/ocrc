@@ -515,35 +515,43 @@ export function registerHandlers(deps: HandlersDeps): void {
     }
   })
 
-  deps.bot.telegram
-    .setMyCommands([
-      { command: 'start', description: 'Handshake and health' },
-      { command: 'status', description: 'Server + last session' },
-      { command: 'sessions', description: 'List all sessions' },
-      { command: 'session', description: 'Pin a session' },
-      { command: 'files', description: 'Files touched in last session' },
-      { command: 'diff', description: 'Pending git diff' },
-      { command: 'todo', description: 'Session todo list' },
-      { command: 'context', description: 'Tokens + cost + model' },
-      { command: 'agent', description: 'Set next agent' },
-      { command: 'model', description: 'Set next model' },
-      { command: 'current', description: 'Last session used' },
-      { command: 'abort', description: 'Stop the current generation' },
-      { command: 'version', description: 'Bot version + uptime' },
-      { command: 'pair', description: 'Pair a device (URL + token)' },
-      { command: 'workspaces', description: 'List/switch workspaces' },
-      { command: 'new', description: 'New session in active workspace' },
-      { command: 'rename', description: 'Rename the pinned/last session' },
-      { command: 'help', description: 'Show help' },
-    ])
-    .catch((err) => log.warn('setMyCommands failed', err))
-  // Clear narrower scopes so the default menu is not shadowed by stale overrides
-  deps.bot.telegram
-    .deleteMyCommands({ scope: { type: 'all_private_chats' } })
-    .catch((err) => log.warn('deleteMyCommands(all_private_chats) failed', err))
-  deps.bot.telegram
-    .deleteMyCommands({ scope: { type: 'all_group_chats' } })
-    .catch((err) => log.warn('deleteMyCommands(all_group_chats) failed', err))
+  const commands = [
+    { command: 'start', description: 'Handshake and health' },
+    { command: 'status', description: 'Server + last session' },
+    { command: 'sessions', description: 'List all sessions' },
+    { command: 'session', description: 'Pin a session' },
+    { command: 'files', description: 'Files touched in last session' },
+    { command: 'diff', description: 'Pending git diff' },
+    { command: 'todo', description: 'Session todo list' },
+    { command: 'context', description: 'Tokens + cost + model' },
+    { command: 'agent', description: 'Set next agent' },
+    { command: 'model', description: 'Set next model' },
+    { command: 'current', description: 'Last session used' },
+    { command: 'abort', description: 'Stop the current generation' },
+    { command: 'version', description: 'Bot version + uptime' },
+    { command: 'pair', description: 'Pair a device (URL + token)' },
+    { command: 'workspaces', description: 'List/switch workspaces' },
+    { command: 'new', description: 'New session in active workspace' },
+    { command: 'rename', description: 'Rename the pinned/last session' },
+    { command: 'help', description: 'Show help' },
+  ]
+
+  // Register the same command list for every scope so a stale or competing bot
+  // instance cannot shadow the default menu with a narrower (e.g. private-chat)
+  // scope that only exposes a subset of commands.
+  const scopes: Array<{ type: 'default' } | { type: 'all_private_chats' } | { type: 'all_group_chats' }> = [
+    { type: 'default' },
+    { type: 'all_private_chats' },
+    { type: 'all_group_chats' },
+  ]
+  for (const scope of scopes) {
+    const label = scope.type === 'default' ? 'default' : scope.type
+    const extra = scope.type === 'default' ? undefined : { scope }
+    deps.bot.telegram
+      .setMyCommands(commands, extra)
+      .then(() => log.info(`setMyCommands OK [${label}]`))
+      .catch((err) => log.warn(`setMyCommands [${label}] failed`, err))
+  }
 
   // ── Callbacks ──
 

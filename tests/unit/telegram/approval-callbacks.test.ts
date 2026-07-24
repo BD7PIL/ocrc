@@ -40,11 +40,16 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
   return { bot, backend, pendingApprovals, deps }
 }
 
-describe('command scope cleanup on init', () => {
-  it('clears all_private_chats and all_group_chats scopes so default menu is authoritative', () => {
+describe('command scope setup on init', () => {
+  it('sets the same command list for default, all_private_chats and all_group_chats scopes', () => {
     const { bot } = makeDeps()
-    expect(bot.telegram.deleteMyCommands).toHaveBeenCalledWith({ scope: { type: 'all_private_chats' } })
-    expect(bot.telegram.deleteMyCommands).toHaveBeenCalledWith({ scope: { type: 'all_group_chats' } })
+    expect(bot.telegram.setMyCommands).toHaveBeenCalledTimes(3)
+    const calls = bot.telegram.setMyCommands.mock.calls as any[]
+    const commands = calls[0][0]
+    expect(calls.some((c) => c[1] === undefined)).toBe(true)                          // default scope
+    expect(calls.some((c) => c[1]?.scope?.type === 'all_private_chats')).toBe(true)
+    expect(calls.some((c) => c[1]?.scope?.type === 'all_group_chats')).toBe(true)
+    expect(commands).toEqual(expect.arrayContaining([{ command: 'start', description: expect.any(String) }]))
   })
 })
 

@@ -10,6 +10,8 @@ interface InfoDeps {
   bot: Telegraf
   backend: AgentBackend
   state: SessionState
+  /** Project directory where opencode.json lives — same scope as /agent uses. */
+  opencodeProject?: string
 }
 
 export function registerInfoCommands(deps: InfoDeps): void {
@@ -71,7 +73,7 @@ export function registerInfoCommands(deps: InfoDeps): void {
     if (!last) { await ctx.reply('No session yet.', { parse_mode: 'HTML' }); return }
     try {
       const s = await deps.backend.getContext(last)
-      const agents = await deps.backend.getAgents()
+      const agents = await deps.backend.getAgents(deps.opencodeProject)
       const agentCfg = s.agent ? agents.find(a => a.name === s.agent) : undefined
       const model = agentCfg?.model
       const tokens = s.tokens as { input?: number; output?: number; cache?: number } | undefined

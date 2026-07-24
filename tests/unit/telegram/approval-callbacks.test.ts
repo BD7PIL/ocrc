@@ -23,21 +23,22 @@ function findApprove(bot: ReturnType<typeof captureBot>) {
 
 function makeDeps(overrides: Record<string, unknown> = {}) {
   const pendingApprovals = new Map<string, PendingApproval>()
+  const approvalTokens = new Map<string, string>()
   const bot = captureBot()
   const backend = { resolvePermission: vi.fn().mockResolvedValue(undefined) }
   const deps: any = {
     bot,
     backend,
     state: {} as any,
-    chatId: 1,
     isGenerating: () => false,
     abortGeneration: vi.fn(),
     baseUrl: '',
     pendingApprovals,
+    approvalTokens,
     ...overrides,
   }
   registerHandlers(deps)
-  return { bot, backend, pendingApprovals, deps }
+  return { bot, backend, pendingApprovals, approvalTokens, deps }
 }
 
 describe('command scope setup on init', () => {
@@ -56,7 +57,7 @@ describe('command scope setup on init', () => {
 describe('approve: button callback', () => {
   it('replies the decision to opencode and clears the pending approval', async () => {
     const { bot, backend, pendingApprovals } = makeDeps()
-    pendingApprovals.set('perm_1', { sessionId: 'ses_a', permissionId: 'perm_1', messageId: 42, title: 'Edit foo.ts' })
+    pendingApprovals.set('perm_1', { sessionId: 'ses_a', permissionId: 'perm_1', messageId: 42, title: 'Edit foo.ts', createdAt: Date.now() })
 
     const { trigger, handler } = findApprove(bot)
     const ctx = {
@@ -72,9 +73,67 @@ describe('approve: button callback', () => {
     expect(ctx.answerCbQuery).toHaveBeenCalled()
   })
 
+  it('resolves a short callback token back to the full permission id', async () => {
+    const { bot, backend, pendingApprovals, approvalTokens } = makeDeps()
+    const longPermId = 'per_' + 'x'.repeat(80) // would exceed the 64-byte callback_data limit raw
+    approvalTokens.set('tok_abc123', longPermId)
+    pendingApprovals.set(longPermId, { sessionId: 'ses_a', permissionId: longPermId, messageId: 42, title: 'Edit foo.ts', createdAt: Date.now() })
+
+    const { trigger, handler } = findApprove(bot)
+    const ctx = {
+      match: 'approve:once:tok_abc123'.match(trigger),
+      answerCbQuery: vi.fn().mockResolvedValue(undefined),
+      editMessageText: vi.fn().mockResolvedValue(undefined),
+    }
+    await handler(ctx)
+
+    expect(backend.resolvePermission).toHaveBeenCalledWith('ses_a', longPermId, 'once')
+    expect(pendingApprovals.has(longPermId)).toBe(false)
+  })
+
+  it('a fast double-click resolves only once (entry deleted before resolve)', async () => {
+    const { bot, backend, pendingApprovals } = makeDeps()
+    let release!: () => void
+    backend.resolvePermission.mockImplementation(() => new Promise<void>((r) => { release = r }))
+    pendingApprovals.set('perm_1', { sessionId: 'ses_a', permissionId: 'perm_1', messageId: 42, title: 'Edit foo.ts', createdAt: Date.now() })
+
+    const { trigger, handler } = findApprove(bot)
+    const mkCtx = () => ({
+      match: 'approve:once:perm_1'.match(trigger),
+      answerCbQuery: vi.fn().mockResolvedValue(undefined),
+      editMessageText: vi.fn().mockResolvedValue(undefined),
+    })
+    const first = mkCtx()
+    const second = mkCtx()
+    const p1 = handler(first)          // still awaiting resolvePermission…
+    await handler(second)              // …when the second tap arrives
+
+    expect(backend.resolvePermission).toHaveBeenCalledTimes(1)
+    expect(second.answerCbQuery).toHaveBeenCalledWith(expect.stringMatching(/already been handled/i))
+    release()
+    await p1
+  })
+
+  it('drops the pending entry even when resolvePermission fails', async () => {
+    const { bot, backend, pendingApprovals } = makeDeps()
+    backend.resolvePermission.mockRejectedValue(new Error('expired'))
+    pendingApprovals.set('perm_1', { sessionId: 'ses_a', permissionId: 'perm_1', messageId: 42, title: 'Edit foo.ts', createdAt: Date.now() })
+
+    const { trigger, handler } = findApprove(bot)
+    const ctx = {
+      match: 'approve:reject:perm_1'.match(trigger),
+      answerCbQuery: vi.fn().mockResolvedValue(undefined),
+      editMessageText: vi.fn().mockResolvedValue(undefined),
+    }
+    await handler(ctx)
+
+    expect(ctx.answerCbQuery).toHaveBeenCalledWith(expect.stringMatching(/failed to reply/i))
+    expect(pendingApprovals.has('perm_1')).toBe(false)
+  })
+
   it('escapes HTML in the approval title when editing the card', async () => {
     const { bot, pendingApprovals } = makeDeps()
-    pendingApprovals.set('perm_1', { sessionId: 'ses_a', permissionId: 'perm_1', messageId: 42, title: 'Edit <b>foo</b> & bar' })
+    pendingApprovals.set('perm_1', { sessionId: 'ses_a', permissionId: 'perm_1', messageId: 42, title: 'Edit <b>foo</b> & bar', createdAt: Date.now() })
 
     const { trigger, handler } = findApprove(bot)
     const ctx = {

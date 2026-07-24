@@ -15,7 +15,6 @@ export interface HandlersDeps {
   bot: Telegraf
   backend: AgentBackend
   state: SessionState
-  chatId: number
   isGenerating: () => boolean
   /** Abort the local generation; returns the single resolved target session id (normalized pinned ?? last), if any. */
   abortGeneration: () => string | undefined
@@ -23,6 +22,8 @@ export interface HandlersDeps {
   baseUrl?: string
   /** Shared pending-approval map. */
   pendingApprovals: Map<string, PendingApproval>
+  /** Short token → permissionId map for approval callback_data (64-byte limit). */
+  approvalTokens: Map<string, string>
   /** CardBus — optional, available after transport start. */
   cardBus?: CardBus
   /** Project directory where opencode.json lives, used as `directory` query param for /config endpoints. */
@@ -120,6 +121,16 @@ export function registerHandlers(deps: HandlersDeps): void {
   const wsToken = (dir: string) => {
     const t = createHash('sha1').update(dir).digest('base64url').slice(0, 16)
     wsTokens.set(t, dir)
+    return t
+  }
+
+  // Same token-map pattern for model callbacks: a "providerID:modelID" pair
+  // (e.g. openrouter's vendor/model slugs) easily exceeds Telegram's 64-byte
+  // callback_data limit, which fails the whole keyboard with BUTTON_DATA_INVALID.
+  const modelTokens = new Map<string, string>()
+  const modelToken = (providerID: string, modelID: string) => {
+    const t = createHash('sha1').update(`model:${providerID}/${modelID}`).digest('base64url').slice(0, 16)
+    modelTokens.set(t, `${providerID}/${modelID}`)
     return t
   }
 
@@ -665,9 +676,15 @@ export function registerHandlers(deps: HandlersDeps): void {
     }
   })
 
-  deps.bot.action(/^model:set:([^:]+):(.+)$/, async (ctx) => {
-    const providerID = ctx.match[1]
-    const modelID = ctx.match[2]
+  deps.bot.action(/^model:set:(.+)$/, async (ctx) => {
+    const key = modelTokens.get(ctx.match[1])
+    if (!key) {
+      await ctx.answerCbQuery('Stale — re-run /model')
+      return
+    }
+    const idx = key.indexOf('/')
+    const providerID = key.slice(0, idx)
+    const modelID = key.slice(idx + 1)
     log.info(`model:set callback: provider=${providerID} model=${modelID}`)
     const parsed = { providerID, modelID }
     deps.state.setNextModel(parsed)
@@ -718,7 +735,7 @@ export function registerHandlers(deps: HandlersDeps): void {
       for (const m of (provider.models ?? [])) {
         const sel = nextModel?.providerID === providerID && nextModel?.modelID === m.id ? '●' : '○'
         lines.push(`${sel} ${m.name ?? m.id}`)
-        rows.push([Markup.button.callback(m.name ?? m.id, `model:set:${providerID}:${m.id}`)])
+        rows.push([Markup.button.callback(m.name ?? m.id, `model:set:${modelToken(providerID, m.id)}`)])
       }
 
       rows.push([Markup.button.callback('◀ Back', 'model:back')])
@@ -766,39 +783,31 @@ export function registerHandlers(deps: HandlersDeps): void {
     }
   })
 
-  deps.bot.action(/^relay:abort:(.+)$/, async (ctx) => {
-    const sessionId = ctx.match[1]
-    const ac = deps.state.getActiveAbort(sessionId)
-    if (ac) {
-      ac.abort()
-      await ctx.answerCbQuery('Aborting…')
-      try {
-        await ctx.editMessageText('🛑 Generation aborted.', { parse_mode: 'HTML' })
-      } catch {}
-    } else {
-      await ctx.answerCbQuery('No active generation for this session.')
-    }
-  })
-
   deps.bot.action('card:dismiss', async (ctx) => {
     await ctx.answerCbQuery()
     await ctx.deleteMessage().catch(() => {})
   })
 
   // ── Info commands (split to separate file) ──
-  registerInfoCommands({ bot: deps.bot, backend: deps.backend, state: deps.state })
+  registerInfoCommands({ bot: deps.bot, backend: deps.backend, state: deps.state, opencodeProject: deps.opencodeProject })
 
   // ── Approval callbacks — always registered so buttons work in both modes ──
   deps.bot.action(/^approve:(once|always|reject):(.+)$/, async (ctx) => {
     const match = ctx.match as RegExpMatchArray
     const response = match[1] as ApprovalResponse
-    const permId = match[2]
+    // callback_data carries a short token (64-byte limit); resolve it back to
+    // the permission id. Fall back to the raw value for pre-token cards.
+    const permId = deps.approvalTokens.get(match[2]) ?? match[2]
     const p = deps.pendingApprovals.get(permId)
 
     if (!p) {
       await ctx.answerCbQuery('This request has already been handled.')
       return
     }
+
+    // Delete BEFORE resolving: a fast double-click must see "already handled"
+    // on the second tap instead of racing the resolvePermission call.
+    deps.pendingApprovals.delete(permId)
 
     try {
       await deps.backend.resolvePermission(p.sessionId, p.permissionId, response)
@@ -807,8 +816,6 @@ export function registerHandlers(deps: HandlersDeps): void {
       await ctx.answerCbQuery('Failed to reply. The request may have expired.')
       return
     }
-
-    deps.pendingApprovals.delete(permId)
 
     const labels: Record<ApprovalResponse, string> = {
       once: 'Allowed (once)',
@@ -828,6 +835,8 @@ export interface PendingApproval {
   permissionId: string
   messageId: number
   title: string
+  /** Epoch ms when the approval card was sent — used by the TTL sweep. */
+  createdAt: number
 }
 
 export type ApprovalResponse = 'once' | 'always' | 'reject'

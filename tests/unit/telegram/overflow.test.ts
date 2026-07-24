@@ -50,6 +50,86 @@ describe('TelegramSessionRenderer overflow', () => {
   })
 })
 
+describe('Telegram 429 rate-limit handling', () => {
+  const err429 = (retryAfter = 1) => ({
+    response: { error_code: 429, parameters: { retry_after: retryAfter } },
+    message: '429: Too Many Requests',
+  })
+
+  it('waits retry_after and resends on 429', async () => {
+    vi.useFakeTimers()
+    try {
+      let calls = 0
+      const bot = {
+        sent: [] as Array<{ text: string; options: any }>,
+        sendMessage: vi.fn(async function (this: any, _c: string, text: string, options: any) {
+          calls++
+          if (calls < 3) throw err429(2)
+          this.sent.push({ text, options })
+          return { message_id: calls }
+        }),
+        deleteMessage: vi.fn(async () => {}),
+      }
+      const r = new TelegramSessionRenderer({ chatId: '100', sessionId: 'ses', bot: bot as any })
+      const p = r.onCard({ kind: 'error', sessionId: 'ses', message: 'boom' })
+      await vi.advanceTimersByTimeAsync(10_000)
+      await p
+      expect(calls).toBe(3)
+      expect(bot.sent).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('gives up after 3 retries when 429 persists', async () => {
+    vi.useFakeTimers()
+    try {
+      const bot = {
+        sendMessage: vi.fn(async () => { throw err429() }),
+        deleteMessage: vi.fn(async () => {}),
+      }
+      const r = new TelegramSessionRenderer({ chatId: '100', sessionId: 'ses', bot: bot as any })
+      // startThinking swallows the failure, so onCard resolves either way
+      const p = r.onCard({ kind: 'thinking', sessionId: 'ses', showStop: true })
+      await vi.advanceTimersByTimeAsync(30_000)
+      await p
+      expect(bot.sendMessage).toHaveBeenCalledTimes(4) // initial + 3 retries
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not retry non-429 errors', async () => {
+    const bot = {
+      sendMessage: vi.fn(async () => { throw new Error('400: chat not found') }),
+      deleteMessage: vi.fn(async () => {}),
+    }
+    const r = new TelegramSessionRenderer({ chatId: '100', sessionId: 'ses', bot: bot as any })
+    await r.onCard({ kind: 'thinking', sessionId: 'ses', showStop: true })
+    expect(bot.sendMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it('throttles back-to-back chunk sends instead of tight-looping', async () => {
+    vi.useFakeTimers()
+    try {
+      const bot = fakeBot()
+      const r = new TelegramSessionRenderer({ chatId: '100', sessionId: 'ses', bot: bot as any })
+      const longMd = Array.from({ length: 20 }, (_, i) => `Paragraph ${i}: ${'x'.repeat(200)}`).join('\n\n')
+      const p = r.onCard({ kind: 'assistant', sessionId: 'ses', blocks: [{ type: 'text', text: longMd }], meta: {} })
+      // Flush the microtask chain without advancing timers: only the first
+      // chunk(s) can be out — the rest wait on the inter-chunk delay timer.
+      for (let i = 0; i < 30; i++) await Promise.resolve()
+      const sentImmediately = bot.sent.length
+      expect(sentImmediately).toBeGreaterThanOrEqual(1)
+      await vi.advanceTimersByTimeAsync(5_000)
+      await p
+      expect(bot.sent.length).toBeGreaterThan(sentImmediately)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('splitMarkdown', () => {
   it('breaks only at line boundaries and stays under the limit', () => {
     const md = Array.from({ length: 40 }, (_, i) => `line ${i} **bold${i}**`).join('\n')

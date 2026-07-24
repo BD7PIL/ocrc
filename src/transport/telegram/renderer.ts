@@ -8,6 +8,27 @@ const log = createLogger('tg-renderer')
 const RESERVE_META = 200
 const RESERVE_ANSWER_FRAC = 0.7
 const DEFAULT_CHUNK_SOFT_LIMIT = 3500
+/** Pause between paginated chunks to stay under Telegram's send-rate limits. */
+const CHUNK_DELAY_MS = 300
+/** Max retries when Telegram answers 429 (rate limited). */
+const MAX_429_RETRIES = 3
+/** Cap on the server-provided retry_after wait. */
+const MAX_RETRY_AFTER_MS = 60_000
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * Extract the retry_after wait (ms) from a telegraf 429 error, or undefined
+ * for any other error. Telegraf surfaces it as
+ * err.response.parameters.retry_after (seconds).
+ */
+function retryAfterMs(err: unknown): number | undefined {
+  const e = err as { response?: { error_code?: number; parameters?: { retry_after?: number } } }
+  if (e?.response?.error_code === 429 && typeof e.response.parameters?.retry_after === 'number') {
+    return Math.min(e.response.parameters.retry_after * 1000, MAX_RETRY_AFTER_MS)
+  }
+  return undefined
+}
 
 interface RendererOpts {
   chatId: string
@@ -31,11 +52,19 @@ function stripTags(html: string): string {
 
 /** Wrap a promise with a 10s timeout to prevent hanging on stuck TCP connections. */
 async function withTimeout<T>(p: Promise<T>, label: string): Promise<T> {
-  const result = await Promise.race([
-    p,
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${label} timeout`)), 10_000)),
-  ])
-  return result
+  let timer: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      p,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timeout`)), 10_000)
+      }),
+    ])
+  } finally {
+    // Clear the timeout when the send wins the race — otherwise the timer
+    // stays alive for 10s per message and rejects into the void.
+    if (timer) clearTimeout(timer)
+  }
 }
 
 function fmtK(n: number): string {
@@ -127,21 +156,30 @@ export class TelegramSessionRenderer {
   }
 
   /**
-   * sendMessage with a 10s timeout to prevent TCP hang. If Telegram rejects the
-   * HTML (can't parse entities), retry once as plain text so the content is
-   * still delivered rather than silently dropped.
+   * sendMessage with a 10s timeout to prevent TCP hang. On a Telegram 429
+   * (rate limit), wait the server-provided retry_after and resend. If Telegram
+   * rejects the HTML (can't parse entities), retry once as plain text so the
+   * content is still delivered rather than silently dropped.
    */
   private async sendTimed(text: string, extra?: Record<string, unknown>): Promise<{ message_id: number }> {
-    try {
-      return await withTimeout(this.bot.sendMessage(this.chatId, text, extra ?? {}), 'sendMessage')
-    } catch (err) {
-      const msg = (err as Error).message ?? ''
-      if (extra && 'parse_mode' in extra && /parse entities|parse_mode|unsupported start tag|can't find end/i.test(msg)) {
-        log.warn(`sendMessage HTML parse error, retrying as plain text: ${msg}`)
-        const { parse_mode, ...rest } = extra
-        return await withTimeout(this.bot.sendMessage(this.chatId, stripTags(text), rest), 'sendMessage(plain)')
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await withTimeout(this.bot.sendMessage(this.chatId, text, extra ?? {}), 'sendMessage')
+      } catch (err) {
+        const wait = retryAfterMs(err)
+        if (wait !== undefined && attempt < MAX_429_RETRIES) {
+          log.warn(`sendMessage rate-limited (429), retrying in ${wait}ms`)
+          await sleep(wait)
+          continue
+        }
+        const msg = (err as Error).message ?? ''
+        if (extra && 'parse_mode' in extra && /parse entities|parse_mode|unsupported start tag|can't find end/i.test(msg)) {
+          log.warn(`sendMessage HTML parse error, retrying as plain text: ${msg}`)
+          const { parse_mode, ...rest } = extra
+          return await this.sendTimed(stripTags(text), rest)
+        }
+        throw err
       }
-      throw err
     }
   }
 
@@ -196,6 +234,8 @@ export class TelegramSessionRenderer {
       log.debug(`finalize: md=${md.length} chars, ${pieces.length} piece(s)`)
 
       for (let i = 0; i < pieces.length; i++) {
+        // Throttle back-to-back chunk sends to avoid tripping Telegram's rate limit.
+        if (i > 0) await sleep(CHUNK_DELAY_MS)
         const isLast = i === pieces.length - 1
         const body = this.renderChunkBody(pieces[i], i === 0 ? tools : [], isLast ? { meta } : {})
         await this.sendTimed(body, { parse_mode: 'HTML' })

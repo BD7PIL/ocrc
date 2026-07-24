@@ -27,11 +27,11 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
       normalizeSessionId: (s: string) => s,
       setPinnedSessionId: vi.fn(),
     },
-    chatId: 1,
     isGenerating: () => false,
     abortGeneration: vi.fn(() => undefined),
     baseUrl: '',
     pendingApprovals: new Map<string, PendingApproval>(),
+    approvalTokens: new Map<string, string>(),
     ...overrides,
   }
   registerHandlers(deps)
@@ -156,5 +156,68 @@ describe('HTML escaping', () => {
       expect.stringContaining('fix &lt;b&gt; &amp; friends'),
       expect.anything(),
     )
+  })
+})
+
+describe('model callback_data token map (64-byte limit)', () => {
+  function findAction(bot: ReturnType<typeof captureBot>, data: string) {
+    const entry = bot.actions.find((a) => a.trigger instanceof RegExp && a.trigger.test(data))
+    if (!entry) throw new Error(`action for ${data} not registered`)
+    return entry
+  }
+
+  it('emits ≤64-byte callback_data for long provider/model ids and resolves them back', async () => {
+    const providerID = 'openrouter'
+    const modelID = 'anthropic/claude-3.5-sonnet-with-a-very-long-vendor-slug'
+    const backend = {
+      getModels: vi.fn().mockResolvedValue([
+        { id: providerID, name: 'OpenRouter', models: [{ id: modelID, name: 'Claude' }] },
+      ]),
+    }
+    const state = {
+      getNextModel: () => undefined,
+      setNextModel: vi.fn(),
+    }
+    const { bot } = makeDeps({ backend, state })
+
+    // Open the provider's model list (model:pick)
+    const pick = findAction(bot, `model:pick:${providerID}`)
+    const pickCtx = {
+      match: `model:pick:${providerID}`.match(pick.trigger),
+      editMessageText: vi.fn().mockResolvedValue(undefined),
+      answerCbQuery: vi.fn().mockResolvedValue(undefined),
+    }
+    await pick.handler(pickCtx)
+
+    const kb = pickCtx.editMessageText.mock.calls[0][1].reply_markup.inline_keyboard
+    const data: string = kb[0][0].callback_data
+    expect(Buffer.byteLength(data, 'utf8')).toBeLessThanOrEqual(64)
+    expect(data).not.toContain(modelID)
+
+    // Click the button — the token must resolve back to the full ids
+    const set = findAction(bot, data)
+    const setCtx = {
+      match: data.match(set.trigger),
+      answerCbQuery: vi.fn().mockResolvedValue(undefined),
+      editMessageText: vi.fn().mockResolvedValue(undefined),
+    }
+    await set.handler(setCtx)
+
+    expect(state.setNextModel).toHaveBeenCalledWith({ providerID, modelID })
+  })
+
+  it('answers "Stale" for an unknown model token instead of setting garbage', async () => {
+    const state = { setNextModel: vi.fn() }
+    const { bot } = makeDeps({ state })
+    const set = findAction(bot, 'model:set:nosuchtoken')
+    const ctx = {
+      match: 'model:set:nosuchtoken'.match(set.trigger),
+      answerCbQuery: vi.fn().mockResolvedValue(undefined),
+      editMessageText: vi.fn().mockResolvedValue(undefined),
+    }
+    await set.handler(ctx)
+
+    expect(state.setNextModel).not.toHaveBeenCalled()
+    expect(ctx.answerCbQuery).toHaveBeenCalledWith(expect.stringMatching(/stale/i))
   })
 })

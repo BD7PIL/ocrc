@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { Telegraf, Markup } from 'telegraf'
 import type { Context } from 'telegraf'
 import type { AgentBackend } from '../../core/agent/backend.js'
@@ -43,11 +44,11 @@ export interface TelegramTransport extends Transport {
 export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport {
   const bot = new Telegraf(cfg.token, { handlerTimeout: 600_000, telegram: { agent: false as any } })
 
-  // Whitelist middleware
+  // Whitelist middleware — silently drop strangers. Replying "Unauthorized"
+  // would confirm to anyone that this bot exists and is access-controlled.
   bot.use(async (ctx, next) => {
     if (!cfg.allowedUserIds.includes(ctx.from?.id ?? -1)) {
       if (ctx.from) log.warn(`rejected from ${ctx.from.id}`)
-      await ctx.reply('Unauthorized').catch(() => {})
       return
     }
     await next()
@@ -58,7 +59,16 @@ export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport 
   // local flag. The relay returns immediately (the response arrives via the
   // event hook), so a local flag would clear before generation finishes. The
   // registry is set when a run starts and cleared on session.idle/error/abort.
-  const isGenerating = () => cfg.state.hasActiveGeneration()
+  // The gate is per-session: a busy session must not block input targeted at
+  // another (idle) session.
+  const targetSessionId = (): string | undefined => {
+    const raw = cfg.state.getPinnedSessionId() ?? cfg.state.getLastSessionId()
+    return raw ? cfg.state.normalizeSessionId(raw) : undefined
+  }
+  const isGenerating = () => {
+    const sid = targetSessionId()
+    return sid ? cfg.state.hasActiveGeneration(sid) : false
+  }
 
   /** Abort the in-flight generation for the bot's target session (normalized pinned ?? last). Returns the resolved session id. */
   function abortGeneration(): string | undefined {
@@ -97,6 +107,32 @@ export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport 
 
   // Plugin-mode approval state
   const pendingApprovals = new Map<string, PendingApproval>()
+  // Short token → permissionId, so approve:* callback_data stays under
+  // Telegram's 64-byte limit (same sha1 pattern as the workspace tokens).
+  const approvalTokens = new Map<string, string>()
+  const approvalToken = (permId: string) => {
+    const t = createHash('sha1').update(`approve:${permId}`).digest('base64url').slice(0, 16)
+    approvalTokens.set(t, permId)
+    return t
+  }
+
+  // Entries are normally removed on click or on the permission.replied event;
+  // if that event is lost the entry would leak forever. Sweep expired ones.
+  const APPROVAL_TTL_MS = 30 * 60 * 1000
+  const approvalSweep = setInterval(() => {
+    const now = Date.now()
+    for (const [permId, p] of pendingApprovals) {
+      if (now - p.createdAt > APPROVAL_TTL_MS) {
+        pendingApprovals.delete(permId)
+        log.warn(`pending approval ${permId} expired (TTL), dropping`)
+      }
+    }
+    // Tokens whose approval is gone (clicked, replied, expired) are dead weight.
+    for (const [t, permId] of approvalTokens) {
+      if (!pendingApprovals.has(permId)) approvalTokens.delete(t)
+    }
+  }, 60_000)
+  approvalSweep.unref?.()
 
   // Register commands + callbacks
   registerHandlers({
@@ -104,10 +140,10 @@ export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport 
     backend: cfg.backend,
     baseUrl: cfg.baseUrl ?? '',
     state: cfg.state,
-    chatId: cfg.allowedUserIds[0],
     isGenerating,
     abortGeneration,
     pendingApprovals,
+    approvalTokens,
     opencodeProject: cfg.opencodeProject,
   })
 
@@ -161,8 +197,6 @@ export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport 
         }
       })
 
-      let attempt = 0
-      let conflictCount = 0
       const MAX_CONFLICT = 8
       const MAX_RETRIES = 10
       while (true) {
@@ -176,7 +210,10 @@ export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport 
           } catch (err) {
             const e = err as { response?: { error_code?: number }; message?: string }
             if (e?.response?.error_code === 409) {
-              if (++conflictCount >= MAX_CONFLICT) throw new Error('Telegram 409 persisted')
+              if (++conflictCount >= MAX_CONFLICT) {
+                log.error('FATAL: Telegram 409 conflict persisted — another instance is polling this bot token; transport stopped')
+                throw new Error('Telegram 409 persisted')
+              }
               log.warn(`409 #${conflictCount}, releasing stale lock and retrying`)
               try { bot.stop('manual') } catch { /* bot may not have fully started */ }
               try {
@@ -184,7 +221,7 @@ export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport 
               } catch { /* ignore — if this fails the next launch will tell us */ }
               await new Promise((r) => setTimeout(r, 5000))
             } else if (e?.response?.error_code === 401) {
-              log.error('bot token invalid (401), giving up')
+              log.error('FATAL: bot token invalid or revoked (401) — Telegram transport stopped; fix the token and restart')
               return
             } else {
               attempt += 1
@@ -200,8 +237,7 @@ export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport 
     },
     async stop() {
       bot.stop('manual')
-      const cleanup = (bot as any)._approvalCleanup
-      if (typeof cleanup === 'function') cleanup()
+      clearInterval(approvalSweep)
     },
     async send(_chatId, _card) {
       throw new Error('Transport.send not implemented for Telegram in v0.5.0')
@@ -225,12 +261,13 @@ export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport 
 
         const escaped = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         const text = `⚠️  <b>Permission Required</b>\n\n<code>${escaped}</code>`
+        const token = approvalToken(permId)
         const keyboard = {
           ...Markup.inlineKeyboard([
             [
-              Markup.button.callback('✅ Once', `approve:once:${permId}`),
-              Markup.button.callback('🔓 Always', `approve:always:${permId}`),
-              Markup.button.callback('❌ Reject', `approve:reject:${permId}`),
+              Markup.button.callback('✅ Once', `approve:once:${token}`),
+              Markup.button.callback('🔓 Always', `approve:always:${token}`),
+              Markup.button.callback('❌ Reject', `approve:reject:${token}`),
             ],
           ]),
           parse_mode: 'HTML' as const,
@@ -243,6 +280,7 @@ export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport 
             permissionId: permId,
             messageId: msg.message_id,
             title,
+            createdAt: Date.now(),
           })
           log.info(`[plugin] approval card sent permId=${permId}`)
         } catch (err) {

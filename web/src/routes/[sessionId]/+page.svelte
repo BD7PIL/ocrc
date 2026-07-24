@@ -72,7 +72,9 @@
   $: scrollKey = `${sessionId}:${feed?.lastSeq ?? 0}:${cards.length}`
   $: if (scrollKey !== lastSeen) {
     lastSeen = scrollKey
-    tick().then(() => { pinBottom(); pinnedToBottom = true })
+    // Only re-pin if the user was already at the bottom — streaming deltas
+    // must not yank the view down while they're scrolled up reading.
+    tick().then(() => { if (pinnedToBottom) pinBottom() })
   }
 
   // The composer floats over the chat (mobile), so the chat reserves its height

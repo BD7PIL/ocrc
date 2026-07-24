@@ -1,11 +1,10 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte'
+  import { onDestroy } from 'svelte'
   import type { ExtractStructuredCard, ToolBlock, TextBlock } from '../api/types.js'
   import MarkdownView from './MarkdownView.svelte'
   import ToolCallList from './ToolCallList.svelte'
 
   export let card: ExtractStructuredCard<'assistant'>
-  const dispatch = createEventDispatcher<{ retry: void }>()
 
   $: tools = card.blocks
     .filter((b): b is ToolBlock => b.type === 'tool')
@@ -29,6 +28,7 @@
     if (copyTimer) clearTimeout(copyTimer)
     copyTimer = setTimeout(() => (copied = false), 1300)
   }
+  onDestroy(() => clearTimeout(copyTimer))
 </script>
 
 <div class="card assistant">
@@ -46,9 +46,6 @@
       <div class="actions">
         <button class="icon" class:copied title="Copy" aria-label="Copy" on:click={copy}>
           {#if copied}✓{:else}⧉{/if}
-        </button>
-        <button class="icon" title="Retry" aria-label="Retry" on:click={() => dispatch('retry')}>
-          ↻
         </button>
       </div>
     </div>

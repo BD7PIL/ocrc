@@ -23,14 +23,26 @@ export function ansiToHtml(raw: string): string {
     if (!m) { out.push(part); continue }
 
     const codes = m[1].split(';').filter(Boolean).map(Number)
-    if (codes.length === 0 || codes.includes(0)) {
-      while (open > 0) { out.push('</span>'); open-- }
-      continue
-    }
+    if (codes.length === 0) codes.push(0)
 
     const css: string[] = []
-    for (const c of codes) {
-      if (c === 1) css.push('font-weight:bold')
+    for (let i = 0; i < codes.length; i++) {
+      const c = codes[i]
+      if (c === 0) {
+        // Reset: close open spans, then keep processing the rest of the
+        // sequence (\x1b[0;31m = reset + red, not just reset).
+        while (open > 0) { out.push('</span>'); open-- }
+      } else if (c === 38 || c === 48) {
+        // Extended colors: 38;5;n / 38;2;r;g;b (48 = background). Consume the
+        // parameter bytes so they aren't misread as standalone SGR codes.
+        const mode = codes[i + 1]
+        if (mode === 5) {
+          i += 2 // skip mode + palette index (256-color palette not mapped)
+        } else if (mode === 2) {
+          if (c === 38) css.push(`color:rgb(${codes[i + 2]},${codes[i + 3]},${codes[i + 4]})`)
+          i += 4 // skip mode + r,g,b
+        }
+      } else if (c === 1) css.push('font-weight:bold')
       else if (c === 2) css.push('opacity:0.7')
       else if (c === 3) css.push('font-style:italic')
       else if (c === 4) css.push('text-decoration:underline')

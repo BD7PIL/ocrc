@@ -11,10 +11,13 @@
   export let dels: number | undefined = undefined
 
   const MAX_LINES = 20
-  let expanded = false
+  let userExpanded = false
 
   $: lines = text.split('\n')
   $: collapsible = lines.length > MAX_LINES
+  // While running, always show the full output — otherwise the newest lines
+  // (the interesting part) sit hidden behind "show more".
+  $: expanded = status === 'running' || userExpanded
   $: shown = collapsible && !expanded ? lines.slice(0, MAX_LINES).join('\n') : text
   $: html = ansiToHtml(shown)
 
@@ -44,8 +47,8 @@
     {/if}
   </div>
   <div class="term-body mono">{@html html}</div>
-  {#if collapsible}
-    <button class="toggle mono" on:click={() => (expanded = !expanded)}>
+  {#if collapsible && status !== 'running'}
+    <button class="toggle mono" on:click={() => (userExpanded = !userExpanded)}>
       {expanded ? '▴ show less' : `▾ show more · ${lines.length - MAX_LINES} more lines`}
     </button>
   {/if}

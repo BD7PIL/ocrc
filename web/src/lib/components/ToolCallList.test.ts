@@ -42,6 +42,19 @@ describe('ToolCallList terminal rendering', () => {
     })
     expect(container.querySelector('.term')).not.toBeNull()
   })
+
+  it('keeps an entry long once it crossed the threshold (no inline↔terminal flip)', async () => {
+    const { container, rerender } = render(ToolCallList, {
+      props: { tools: [{ tool: 'bash', args: 'short', status: 'running' }] },
+    })
+    expect(container.querySelector('.term')).toBeNull()
+    // Streaming args grow past the threshold → terminal block.
+    await rerender({ tools: [{ tool: 'bash', args: 'x'.repeat(120), status: 'running' }] })
+    expect(container.querySelector('.term')).not.toBeNull()
+    // Args shrink again → stays a terminal block (hysteresis, no layout jump).
+    await rerender({ tools: [{ tool: 'bash', args: 'short again', status: 'running' }] })
+    expect(container.querySelector('.term')).not.toBeNull()
+  })
 })
 
 describe('TerminalBlock', () => {
@@ -71,5 +84,20 @@ describe('TerminalBlock', () => {
   it('does not offer a toggle for short output', () => {
     const { container } = render(TerminalBlock, { props: { text: 'a\nb', status: 'done' } })
     expect(container.querySelector('.toggle')).toBeNull()
+  })
+
+  it('shows full output while running (no collapse, no toggle)', () => {
+    const text = Array.from({ length: 25 }, (_, i) => `line${i + 1}`).join('\n')
+    const { container } = render(TerminalBlock, { props: { text, status: 'running' } })
+    expect(container.querySelector('.term-body')!.textContent).toContain('line25')
+    expect(container.querySelector('.toggle')).toBeNull()
+  })
+
+  it('collapses once the tool finishes (toggle reappears)', async () => {
+    const text = Array.from({ length: 25 }, (_, i) => `line${i + 1}`).join('\n')
+    const { container, rerender } = render(TerminalBlock, { props: { text, status: 'running' } })
+    await rerender({ text, status: 'done' })
+    expect(container.querySelector('.term-body')!.textContent).not.toContain('line25')
+    expect(container.querySelector('.toggle')).not.toBeNull()
   })
 })

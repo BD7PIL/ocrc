@@ -33,6 +33,11 @@ export function createWsClient(opts: WsClientOpts): WsClient {
   let pongTimer: ReturnType<typeof setTimeout> | null = null
   let pingSentAt = 0
   let closed = false
+  // True once a connection has succeeded — onReconnect fires only for real
+  // reconnects, not the first connect (the initial subscribe rides the queue).
+  let everConnected = false
+  // Messages sent while the socket isn't OPEN yet, flushed on open.
+  const pending: string[] = []
 
   function setStatus(s: ConnectionStatus) {
     connection.set(s)
@@ -71,7 +76,9 @@ export function createWsClient(opts: WsClientOpts): WsClient {
     ws.onopen = () => {
       reconnectAttempt = 0
       setStatus('connected')
-      opts.onReconnect?.()
+      for (const data of pending.splice(0)) ws?.send(data)
+      if (everConnected) opts.onReconnect?.()
+      everConnected = true
       schedulePing()
     }
 
@@ -111,13 +118,14 @@ export function createWsClient(opts: WsClientOpts): WsClient {
 
   return {
     send(msg) {
-      if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(msg))
-      }
+      const data = JSON.stringify(msg)
+      if (ws?.readyState === WebSocket.OPEN) ws.send(data)
+      else pending.push(data)
     },
     close() {
       closed = true
       clearTimers()
+      pending.length = 0
       ws?.close()
       ws = null
       setStatus('offline')

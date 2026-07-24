@@ -67,8 +67,21 @@ export function upsertCard(card: StructuredCard) {
   })
 }
 
-/** Replace a session's feed with historical cards (REST snapshot). */
-export function setHistory(sessionId: string, cards: StructuredCard[], lastSeq = 0) {
+/** Remove a card by id — e.g. an optimistic user card whose send failed. */
+export function removeCard(id: string) {
+  feeds.update((map) => {
+    for (const sid of Object.keys(map)) {
+      const feed = map[sid]
+      if (!(id in feed.byId)) continue
+      const byId = { ...feed.byId }
+      delete byId[id]
+      return { ...map, [sid]: { ...feed, order: feed.order.filter((x) => x !== id), byId } }
+    }
+    return map
+  })
+}
+
+/** Replace a session's feed with historical cards (REST snapshot). */export function setHistory(sessionId: string, cards: StructuredCard[], lastSeq = 0) {
   feeds.update((map) => {
     const feed = emptyFeed()
     feed.lastSeq = lastSeq

@@ -48,4 +48,40 @@ describe('createWsClient', () => {
     expect(ws.sent[0]).toBe(JSON.stringify({ type: 'subscribe', sessionId: 'ses_1' }))
     client.close()
   })
+
+  it('queues messages sent while CONNECTING and flushes them on open', async () => {
+    const client = createWsClient({ url: 'ws://test' })
+    const ws = FakeWebSocket.instances[0]
+    expect(ws.readyState).toBe(0) // still CONNECTING
+    client.send({ type: 'subscribe', sessionId: 'ses_1' })
+    expect(ws.sent).toHaveLength(0)
+    await new Promise((r) => setTimeout(r, 10))
+    expect(ws.sent[0]).toBe(JSON.stringify({ type: 'subscribe', sessionId: 'ses_1' }))
+    client.close()
+  })
+
+  it('does not fire onReconnect on the first connect', async () => {
+    const onReconnect = vi.fn()
+    const client = createWsClient({ url: 'ws://test', onReconnect })
+    await new Promise((r) => setTimeout(r, 10))
+    expect(onReconnect).not.toHaveBeenCalled()
+    client.close()
+  })
+
+  it('fires onReconnect after a real reconnect', async () => {
+    const onReconnect = vi.fn()
+    const client = createWsClient({ url: 'ws://test', onReconnect })
+    await new Promise((r) => setTimeout(r, 10))
+    vi.useFakeTimers()
+    try {
+      FakeWebSocket.instances[0].onclose?.() // simulate a dropped connection
+      await vi.advanceTimersByTimeAsync(2100) // BACKOFF[0] = 2000 → new socket
+      await vi.advanceTimersByTimeAsync(10) // its setTimeout(0) open
+      expect(onReconnect).toHaveBeenCalledTimes(1)
+      expect(FakeWebSocket.instances).toHaveLength(2)
+      client.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

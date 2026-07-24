@@ -19,9 +19,18 @@
   $: total = typed.length
   $: done = typed.filter((t) => t.status === 'done').length
 
-  function isLong(t: ToolCallExtra): boolean {
+  // Hysteresis: once an entry renders long (terminal block) it stays long, so
+  // args streaming across the threshold don't remount the row inline↔terminal
+  // and jump the layout. Keyed by position — tool order is stable as entries
+  // only append.
+  const longIdx = new Set<number>()
+
+  function isLong(t: ToolCallExtra, i: number): boolean {
+    if (longIdx.has(i)) return true
     const a = t.args ?? ''
-    return a.includes('\n') || a.length > INLINE_MAX
+    const long = a.includes('\n') || a.length > INLINE_MAX
+    if (long) longIdx.add(i)
+    return long
   }
 
   function fmtDur(s?: number): string {
@@ -39,8 +48,8 @@
       <span class="count mono">{done}/{total} steps</span>
     </div>
     <div class="rows">
-      {#each shown as t}
-        {#if isLong(t)}
+      {#each shown as t, i}
+        {#if isLong(t, i)}
           <TerminalBlock text={t.args} tool={t.tool} status={t.status} dur={t.dur} adds={t.adds} dels={t.dels} />
         {:else}
           <div class="row {t.status}">

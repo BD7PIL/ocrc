@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { tick, onDestroy } from 'svelte'
   import { api } from '../api/client.js'
   import { connection } from '../stores/connection.js'
-  import { upsertCard } from '../stores/sessions.js'
+  import { upsertCard, removeCard } from '../stores/sessions.js'
   import { can, backendName } from '../stores/capabilities.js'
   import { paletteOpen } from '../stores/palette.js'
   import AgentModelChip from './AgentModelChip.svelte'
@@ -126,6 +126,8 @@
       await api.sendMessage({ sessionId, text: body, clientId, ...(images.length ? { images } : {}) })
     } catch (e) {
       error = `Send failed: ${(e as Error).message}`
+      // The server never saw this message — drop the optimistic bubble too.
+      removeCard(`user:${clientId}`)
       text = body
       pendingImages = savedImages
     } finally {
@@ -151,6 +153,8 @@
     textarea.style.height = 'auto'
     textarea.style.height = Math.min(textarea.scrollHeight, 140) + 'px'
   }
+
+  onDestroy(() => clearTimeout(mentionTimer))
 </script>
 
 <div class="composer">

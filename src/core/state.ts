@@ -38,8 +38,13 @@ export interface SessionState {
   setActiveWorkspace(dir: string | undefined): void
   getActiveAbort(sessionId: string): AbortController | undefined
   setActiveAbort(sessionId: string, ac: AbortController | undefined): void
-  /** True while any session has an in-flight generation (abort registered). */
-  hasActiveGeneration(): boolean
+  /**
+   * True while a generation is in flight (abort registered). With a sessionId,
+   * checks only that session (short suffixes are normalized first, and both the
+   * raw and normalized forms are matched); without one, keeps the global
+   * any-session semantics.
+   */
+  hasActiveGeneration(sessionId?: string): boolean
   /** Record that the relay just delivered an assistant card for this session. */
   markAssistantDelivered(sessionId: string): void
   /** Epoch ms of the last relay-delivered assistant card for this session. */
@@ -71,6 +76,28 @@ export function createFileBackedState(path: string): SessionState {
   const aborts = new Map<string, AbortController>()
   const sessionCosts = new Map<string, number>()
   const assistantDeliveredAt = new Map<string, number>()
+
+  const normalizeSessionId = (sessionId: string): string => {
+    // Guard: undefined throws on startsWith, and '' matches EVERY key via
+    // endsWith('') — pass both through untouched.
+    if (!sessionId) return sessionId
+    // Full IDs (opencode ses_*, ACP session_*, raw UUIDs) pass through.
+    if (sessionId.startsWith('ses_') || sessionId.startsWith('session_') || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
+      return sessionId
+    }
+    // Short display suffix — too short to disambiguate reliably.
+    if (sessionId.length < MIN_SUFFIX_LEN) return sessionId
+    // Scan sessionBackends for full keys ending in the suffix.
+    const backs = cache.sessionBackends ?? {}
+    const matches = Object.keys(backs).filter((key) => key.endsWith(sessionId))
+    if (matches.length === 1) return matches[0]
+    // Ambiguous — fail loud instead of silently picking an arbitrary session.
+    if (matches.length > 1) {
+      log.warn(`normalizeSessionId: suffix "${sessionId}" matches ${matches.length} sessions; leaving unresolved`)
+    }
+    // No match found; return input as-is (graceful fallback).
+    return sessionId
+  }
 
   // Debounced atomic write. All set() calls within the debounce window share a
   // single pending promise that resolves once the write lands — earlier code
@@ -147,7 +174,11 @@ export function createFileBackedState(path: string): SessionState {
       if (ac === undefined) aborts.delete(sid)
       else aborts.set(sid, ac)
     },
-    hasActiveGeneration: () => aborts.size > 0,
+    hasActiveGeneration: (sessionId?: string) => {
+      if (sessionId === undefined) return aborts.size > 0
+      const normalized = normalizeSessionId(sessionId)
+      return aborts.has(normalized) || (normalized !== sessionId && aborts.has(sessionId))
+    },
     markAssistantDelivered: (sid) => { assistantDeliveredAt.set(sid, Date.now()) },
     getAssistantDeliveredAt: (sid) => assistantDeliveredAt.get(sid),
     dropSession: (sid) => {
@@ -182,27 +213,7 @@ export function createFileBackedState(path: string): SessionState {
       else cache.activeBackend = backendId
       void persist()
     },
-    normalizeSessionId: (sessionId) => {
-      // Guard: undefined throws on startsWith, and '' matches EVERY key via
-      // endsWith('') — pass both through untouched.
-      if (!sessionId) return sessionId
-      // Full IDs (opencode ses_*, ACP session_*, raw UUIDs) pass through.
-      if (sessionId.startsWith('ses_') || sessionId.startsWith('session_') || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
-        return sessionId
-      }
-      // Short display suffix — too short to disambiguate reliably.
-      if (sessionId.length < MIN_SUFFIX_LEN) return sessionId
-      // Scan sessionBackends for full keys ending in the suffix.
-      const backs = cache.sessionBackends ?? {}
-      const matches = Object.keys(backs).filter((key) => key.endsWith(sessionId))
-      if (matches.length === 1) return matches[0]
-      // Ambiguous — fail loud instead of silently picking an arbitrary session.
-      if (matches.length > 1) {
-        log.warn(`normalizeSessionId: suffix "${sessionId}" matches ${matches.length} sessions; leaving unresolved`)
-      }
-      // No match found; return input as-is (graceful fallback).
-      return sessionId
-    },
+    normalizeSessionId,
     flush: async () => persist(),
   }
 }

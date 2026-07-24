@@ -235,7 +235,7 @@ describe('createRelay', () => {
     expect(state.getActiveAbort('ses_test')).toBeUndefined()
   })
 
-  it('clears the provisional abort key after resolving to a different session', async () => {
+  it('keeps the provisional abort key mapped until the turn ends (abort works by either id)', async () => {
     const state = fakeState()
     state.setLastSessionId(undefined) // provisional key falls back to 'pending'
     const relay = createRelay({
@@ -245,12 +245,31 @@ describe('createRelay', () => {
       chatTimeoutMs: 5000,
       tuiVisible: false,    })
     await relay({ userId: '1', chatId: '100', text: 'hi', messageId: 'm', sessionId: 'ses_web' })
-    // the 'pending' entry must not linger — it would wedge hasActiveGeneration()
-    expect(state.setActiveAbort).toHaveBeenCalledWith('pending', undefined)
-    expect(state.getActiveAbort('pending')).toBeUndefined()
-    expect(state.getActiveAbort('ses_web')).toBeInstanceOf(AbortController)
-    // cleanup for following tests
+    // While the turn is in flight BOTH keys map to the same controller — an
+    // abort by the provisional id must not fall through during the race window.
+    const ac = state.getActiveAbort('ses_web')
+    expect(ac).toBeInstanceOf(AbortController)
+    expect(state.getActiveAbort('pending')).toBe(ac)
+    // turn end clears both keys — nothing lingers to wedge hasActiveGeneration()
     await relay.handleEvent({ kind: 'idle', sessionId: 'ses_web' })
+    expect(state.setActiveAbort).toHaveBeenCalledWith('pending', undefined)
+    expect(state.getActiveAbort('ses_web')).toBeUndefined()
+    expect(state.getActiveAbort('pending')).toBeUndefined()
+  })
+
+  it('aborts the in-flight turn via the provisional key', async () => {
+    const state = fakeState()
+    state.setLastSessionId(undefined)
+    const relay = createRelay({
+      cardBus: createCardBus(),
+      backend: fakeBackend(),
+      state,
+      chatTimeoutMs: 5000,
+      tuiVisible: false,    })
+    await relay({ userId: '1', chatId: '100', text: 'hi', messageId: 'm', sessionId: 'ses_web' })
+    state.getActiveAbort('pending')!.abort()
+    expect(state.getActiveAbort('ses_web')).toBeUndefined()
+    expect(state.getActiveAbort('pending')).toBeUndefined()
   })
 
   it('normalizes the pinned fallback session id (short suffix pinned by Telegram)', async () => {
@@ -266,9 +285,11 @@ describe('createRelay', () => {
       tuiVisible: false,    })
     await relay({ userId: '1', chatId: '100', text: 'hi', messageId: 'm' })
     expect(backend.prompt).toHaveBeenCalledWith('ses_full_abcdef', expect.objectContaining({ text: 'hi' }))
-    // provisional key (the short pinned id) is cleared after re-registration
-    expect(state.setActiveAbort).toHaveBeenCalledWith('abcdef', undefined)
+    // provisional key (the short pinned id) stays mapped during the turn…
+    expect(state.getActiveAbort('abcdef')).toBe(state.getActiveAbort('ses_full_abcdef'))
+    // …and is cleared when the turn ends
     await relay.handleEvent({ kind: 'idle', sessionId: 'ses_full_abcdef' })
+    expect(state.setActiveAbort).toHaveBeenCalledWith('abcdef', undefined)
   })
 
   it('ends the turn with an error card when hasSession throws (no fallback reroute)', async () => {
@@ -311,10 +332,12 @@ describe('createRelay', () => {
       tuiVisible: false,    })
     await relay({ userId: '1', chatId: '100', text: 'hi', messageId: 'm' })
     expect(backend.prompt).toHaveBeenCalledWith('ses_newest', expect.objectContaining({ text: 'hi' }))
-    // provisional key 'ses_deleted' cleared after rerouting to 'ses_newest'
+    // provisional key 'ses_deleted' stays mapped to the turn's controller…
+    expect(state.getActiveAbort('ses_deleted')).toBe(state.getActiveAbort('ses_newest'))
+    // …and is cleared when the turn ends
+    await relay.handleEvent({ kind: 'idle', sessionId: 'ses_newest' })
     expect(state.setActiveAbort).toHaveBeenCalledWith('ses_deleted', undefined)
     expect(state.getActiveAbort('ses_deleted')).toBeUndefined()
-    await relay.handleEvent({ kind: 'idle', sessionId: 'ses_newest' })
   })
 
   // ── Streaming + finalization via the plugin event hook ──
@@ -500,6 +523,154 @@ describe('createRelay', () => {
       const bashBlocks = final.blocks.filter((b: any) => b.type === 'tool' && b.tool === 'bash')
       expect(bashBlocks.length).toBe(1)
       expect(bashBlocks[0].status).toBe('done')
+    })
+
+    it('registers an abort for an adopted (TUI) turn and clears it on idle', async () => {
+      const state = fakeState()
+      const relay = createRelay({
+        cardBus: createCardBus(),
+        backend: fakeBackend(),
+        state,
+        chatTimeoutMs: 5000,
+        tuiVisible: false,      })
+      await relay.handleEvent({
+        kind: 'part', sessionId: 'ses_tui',
+        part: { id: 'x1', type: 'text', text: 'typed in the TUI' },
+      })
+      // adopted turns count as active generation too (per-session gating)
+      expect(state.getActiveAbort('ses_tui')).toBeInstanceOf(AbortController)
+      await relay.handleEvent({ kind: 'idle', sessionId: 'ses_tui' })
+      expect(state.getActiveAbort('ses_tui')).toBeUndefined()
+    })
+
+    it('cleans up a leaked adopted turn when its real timeout fires', async () => {
+      vi.useFakeTimers()
+      try {
+        const state = fakeState()
+        const relay = createRelay({
+          cardBus: createCardBus(),
+          backend: fakeBackend(),
+          state,
+          chatTimeoutMs: 5000,
+          tuiVisible: false,        })
+        await relay.handleEvent({
+          kind: 'part', sessionId: 'ses_tui',
+          part: { id: 'x1', type: 'text', text: 'no idle ever arrives' },
+        })
+        expect(state.getActiveAbort('ses_tui')).toBeInstanceOf(AbortController)
+        await vi.advanceTimersByTimeAsync(5000)
+        expect(state.getActiveAbort('ses_tui')).toBeUndefined()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
+
+  // ── Per-session turn serialization ──
+
+  describe('per-session turn serialization', () => {
+    it('queues a second message for the same session until the first turn idles', async () => {
+      const backend = fakeBackend()
+      const state = fakeState()
+      state.getPinnedSessionId = () => 'ses_test'
+      const relay = createRelay({
+        cardBus: createCardBus(),
+        backend,
+        state,
+        chatTimeoutMs: 5000,
+        tuiVisible: false,      })
+      await relay({ userId: '1', chatId: '100', text: 'first', messageId: 'm1' })
+      expect(backend.prompt).toHaveBeenCalledTimes(1)
+
+      // Second message while turn 1 is still streaming: must NOT submit yet
+      // (an immediate submit would clobber turn 1's ctx/timer/abort).
+      const p2 = relay({ userId: '1', chatId: '100', text: 'second', messageId: 'm2' })
+      await new Promise((r) => setTimeout(r, 20))
+      expect(backend.prompt).toHaveBeenCalledTimes(1)
+
+      await relay.handleEvent({ kind: 'idle', sessionId: 'ses_test' })
+      await p2
+      expect(backend.prompt).toHaveBeenCalledTimes(2)
+      expect(backend.prompt).toHaveBeenLastCalledWith('ses_test', expect.objectContaining({ text: 'second' }))
+      await relay.handleEvent({ kind: 'idle', sessionId: 'ses_test' })
+    })
+
+    it('runs messages for different sessions concurrently', async () => {
+      const backend = fakeBackend()
+      const state = fakeState()
+      const relay = createRelay({
+        cardBus: createCardBus(),
+        backend,
+        state,
+        chatTimeoutMs: 5000,
+        tuiVisible: false,      })
+      await Promise.all([
+        relay({ userId: '1', chatId: '100', text: 'a', messageId: 'm1', sessionId: 'ses_a' }),
+        relay({ userId: '1', chatId: '100', text: 'b', messageId: 'm2', sessionId: 'ses_b' }),
+      ])
+      expect(backend.prompt).toHaveBeenCalledTimes(2)
+      await relay.handleEvent({ kind: 'idle', sessionId: 'ses_a' })
+      await relay.handleEvent({ kind: 'idle', sessionId: 'ses_b' })
+    })
+
+    it('does not wedge the queue when a turn fails before installing a ctx', async () => {
+      const backend = fakeBackend()
+      backend.prompt = vi.fn()
+        .mockRejectedValueOnce(new Error('no session found')) // non-network: no retry
+        .mockResolvedValue(undefined)
+      const state = fakeState()
+      state.getPinnedSessionId = () => 'ses_test'
+      const relay = createRelay({
+        cardBus: createCardBus(),
+        backend,
+        state,
+        chatTimeoutMs: 5000,
+        tuiVisible: false,      })
+      await relay({ userId: '1', chatId: '100', text: 'boom', messageId: 'm1' })
+      // the failed turn released the queue — the next message submits normally
+      await relay({ userId: '1', chatId: '100', text: 'ok', messageId: 'm2' })
+      expect(backend.prompt).toHaveBeenCalledTimes(2)
+      expect(backend.prompt).toHaveBeenLastCalledWith('ses_test', expect.objectContaining({ text: 'ok' }))
+      await relay.handleEvent({ kind: 'idle', sessionId: 'ses_test' })
+    })
+  })
+
+  // ── Network-error classification ──
+
+  describe('isNetworkError classification', () => {
+    it('does not retry errors that merely mention "timeout"/"network" in the message', async () => {
+      const backend = fakeBackend()
+      backend.prompt = vi.fn().mockRejectedValue(new Error('model generation timeout exceeded'))
+      const state = fakeState()
+      state.getPinnedSessionId = () => 'ses_test'
+      const relay = createRelay({
+        cardBus: createCardBus(),
+        backend,
+        state,
+        chatTimeoutMs: 5000,
+        tuiVisible: false,      })
+      await relay({ userId: '1', chatId: '100', text: 'hi', messageId: 'm' })
+      expect(backend.prompt).toHaveBeenCalledTimes(1)
+    })
+
+    it('retries when the error carries a network cause code (undici)', async () => {
+      const backend = fakeBackend()
+      let calls = 0
+      backend.prompt = vi.fn().mockImplementation(async () => {
+        calls++
+        if (calls < 2) throw Object.assign(new Error('request failed'), { cause: { code: 'ECONNRESET' } })
+      })
+      const state = fakeState()
+      state.getPinnedSessionId = () => 'ses_test'
+      const relay = createRelay({
+        cardBus: createCardBus(),
+        backend,
+        state,
+        chatTimeoutMs: 120000,
+        tuiVisible: false,      })
+      await relay({ userId: '1', chatId: '100', text: 'hi', messageId: 'm' })
+      expect(calls).toBe(2)
+      await relay.handleEvent({ kind: 'idle', sessionId: 'ses_test' })
     })
   })
 })

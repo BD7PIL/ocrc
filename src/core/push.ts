@@ -9,6 +9,8 @@ const log = createLogger('push')
 
 /** Skip the "Session finished" push if the relay delivered the result this recently. */
 const RELAY_DELIVERY_DEDUP_MS = 60_000
+/** Cap on per-session bookkeeping maps — beyond this, the oldest entries are evicted. */
+const MAX_TRACKED_SESSIONS = 500
 
 export interface PushDeps {
   cardBus: CardBus
@@ -27,6 +29,18 @@ export function startPushNotifications(deps: PushDeps) {
   const engagedAt = new Map<string, number>()
   const busySince = new Map<string, number>()
 
+  // LRU-bounded set: re-inserting a key refreshes its recency; past the cap the
+  // oldest entry is evicted. Without this the per-session maps grew forever.
+  function boundedSet(map: Map<string, number>, key: string, value: number) {
+    map.delete(key)
+    map.set(key, value)
+    while (map.size > MAX_TRACKED_SESSIONS) {
+      const oldest = map.keys().next().value
+      if (oldest === undefined) break
+      map.delete(oldest)
+    }
+  }
+
   function canPush(sessionId: string): boolean {
     const now = Date.now()
     while (recentPushes.length && now - recentPushes[0] > 60 * 60 * 1000) recentPushes.shift()
@@ -39,11 +53,11 @@ export function startPushNotifications(deps: PushDeps) {
   function recordPush(sessionId: string) {
     const now = Date.now()
     recentPushes.push(now)
-    lastSessionPush.set(sessionId, now)
+    boundedSet(lastSessionPush, sessionId, now)
   }
 
   function recordEngagement(sessionId: string) {
-    engagedAt.set(sessionId, Date.now())
+    boundedSet(engagedAt, sessionId, Date.now())
   }
 
   function publish(card: StructuredCard) {
@@ -85,7 +99,7 @@ export function startPushNotifications(deps: PushDeps) {
     recordEngagement(sid)
 
     if (e.type === 'session.status' && p?.status?.type === 'busy') {
-      if (!busySince.has(sid)) busySince.set(sid, Date.now())
+      if (!busySince.has(sid)) boundedSet(busySince, sid, Date.now())
     } else if (e.type === 'session.idle' || (e.type === 'session.status' && p?.status?.type === 'idle')) {
       const start = busySince.get(sid)
       busySince.delete(sid)

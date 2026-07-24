@@ -89,6 +89,25 @@ describe('SessionState', () => {
     expect(s.hasActiveGeneration()).toBe(false)
   })
 
+  it('hasActiveGeneration(sessionId) scopes the check to one session', () => {
+    const s = createFileBackedState(join(dir, 'state.json'))
+    s.setActiveAbort('ses_a', new AbortController())
+    expect(s.hasActiveGeneration('ses_a')).toBe(true)
+    expect(s.hasActiveGeneration('ses_b')).toBe(false)
+    expect(s.hasActiveGeneration()).toBe(true) // global semantics preserved
+    s.setActiveAbort('ses_a', undefined)
+    expect(s.hasActiveGeneration('ses_a')).toBe(false)
+    expect(s.hasActiveGeneration()).toBe(false)
+  })
+
+  it('hasActiveGeneration(sessionId) resolves short suffixes before checking', () => {
+    const s = createFileBackedState(join(dir, 'state.json'))
+    s.setSessionBackend('ses_full_abcdef', 'opencode')
+    s.setActiveAbort('ses_full_abcdef', new AbortController())
+    expect(s.hasActiveGeneration('abcdef')).toBe(true)
+    expect(s.hasActiveGeneration('000000')).toBe(false)
+  })
+
   it('round-trips session→backend tags and active backend', async () => {
     const path = join(dir, 'state.json')
     const s = createFileBackedState(path)

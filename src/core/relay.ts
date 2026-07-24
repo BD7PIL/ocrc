@@ -24,15 +24,28 @@ export interface RelayDeps {
 const SUBMIT_MAX_RETRIES = 5
 const SUBMIT_RETRY_BASE_MS = 2000
 
+/** Node/undici transport error codes worth retrying. */
+const NETWORK_ERROR_CODES = new Set([
+  'ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'ETIMEDOUT', 'EAI_AGAIN',
+  'EPIPE', 'EHOSTUNREACH', 'ENETUNREACH',
+  'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_SOCKET',
+])
+
 function isNetworkError(err: Error): boolean {
+  // Prefer structured error codes (undici fetch failures carry them on cause).
+  const code = (err as { code?: string }).code ?? (err.cause as { code?: string } | undefined)?.code
+  if (code) return NETWORK_ERROR_CODES.has(code)
+  // Message fallback, kept narrow — bare 'network'/'timeout' substrings would
+  // misclassify ordinary errors (e.g. "operation timeout from the model") and
+  // burn 5 retries on a non-transport failure.
   const msg = err.message.toLowerCase()
   return msg.includes('fetch failed') ||
     msg.includes('econnrefused') ||
     msg.includes('econnreset') ||
     msg.includes('enotfound') ||
-    msg.includes('network') ||
-    msg.includes('timeout') ||
-    msg.includes('socket hang up')
+    msg.includes('etimedout') ||
+    msg.includes('socket hang up') ||
+    msg.includes('network timeout')
 }
 
 async function submitWithRetry(
@@ -96,6 +109,10 @@ interface PluginSessionCtx {
   partTextAcc: Map<string, string>
   signal: AbortSignal
   timer: ReturnType<typeof setTimeout>
+  /** Provisional abort key kept registered alongside sessionId until the turn ends. */
+  abortKey?: string
+  /** Releases the per-session turn queue so the next queued message may start. */
+  releaseTurn?: () => void
 }
 
 export function createRelay(deps: RelayDeps) {
@@ -104,22 +121,67 @@ export function createRelay(deps: RelayDeps) {
   )
   /** Per-session response contexts, keyed by session id. */
   const pluginSessions = new Map<string, PluginSessionCtx>()
+  /**
+   * Per-session turn queues. Two concurrent messages for the same session used
+   * to clobber each other (the second cleanupPluginSession killed the first
+   * turn's timer/abort/accumulator mid-stream); now a later message waits until
+   * the previous turn's ctx finishes (idle / error / abort / timeout).
+   */
+  const turnQueues = new Map<string, Promise<void>>()
 
   function cleanupPluginSession(sessionId: string) {
     const ctx = pluginSessions.get(sessionId)
     if (ctx) {
       clearTimeout(ctx.timer)
       pluginSessions.delete(sessionId)
+      if (ctx.abortKey) deps.state.setActiveAbort(ctx.abortKey, undefined)
+      ctx.releaseTurn?.()
     }
   }
 
+  /** The session a message will target, normalized — the turn-queue key. */
+  function queueKeyFor(msg: IncomingMessage): string {
+    const raw = msg.sessionId
+      ?? deps.state.getPinnedSessionId()
+      ?? (deps.tuiVisible ? deps.state.getTuiSelectedSession() : undefined)
+      ?? deps.state.getLastSessionId()
+    return raw ? deps.state.normalizeSessionId(raw) : '__default__'
+  }
+
   const relay = async function handleIncoming(msg: IncomingMessage): Promise<void> {
+    // Chain onto the previous turn for this session; errors never block the
+    // queue (the gate resolves in a finally) and the map entry is dropped once
+    // the chain settles so it can't grow unbounded.
+    const key = queueKeyFor(msg)
+    const prev = turnQueues.get(key) ?? Promise.resolve()
+    let release!: () => void
+    const gate = new Promise<void>((res) => { release = res })
+    const tail = prev.then(() => gate)
+    turnQueues.set(key, tail)
+    void tail.then(() => { if (turnQueues.get(key) === tail) turnQueues.delete(key) })
+    await prev
+    // Released by cleanupPluginSession once a ctx is installed; if the turn
+    // ends before that (error path), release here so the queue never wedges.
+    let ctxInstalled = false
+    try {
+      await runTurn(msg, (ctx) => {
+        ctx.releaseTurn = release
+        ctxInstalled = true
+      })
+    } finally {
+      if (!ctxInstalled) release()
+    }
+  }
+
+  async function runTurn(msg: IncomingMessage, onCtxInstalled: (ctx: PluginSessionCtx) => void): Promise<void> {
     const ac = new AbortController()
     const timer = setTimeout(() => ac.abort(), deps.chatTimeoutMs)
 
-    // Registered under a provisional key until the real session id is known;
-    // the re-registration below removes this entry so it never leaks (a stale
-    // entry would wedge hasActiveGeneration() at true forever).
+    // Registered under a provisional key until the real session id is known.
+    // After resolution the controller stays mapped under BOTH keys until the
+    // turn ends (cleanupPluginSession / catch below) so an abort by either id
+    // lands — clearing the provisional key at re-registration opened a window
+    // where /api/abort with the old id found nothing.
     const provisionalKey = deps.state.getPinnedSessionId() ?? deps.state.getLastSessionId() ?? 'pending'
     let sessionId = provisionalKey
     deps.state.setActiveAbort(provisionalKey, ac)
@@ -178,7 +240,9 @@ export function createRelay(deps: RelayDeps) {
       sessionId = resolvedId
       deps.state.setLastSessionId(sessionId)
       deps.state.setActiveAbort(sessionId, ac)
-      if (sessionId !== provisionalKey) deps.state.setActiveAbort(provisionalKey, undefined)
+      // Keep the provisional key mapped to the same controller until the turn
+      // ends — /api/abort with either id must find it during the whole run.
+      // It's cleared in cleanupPluginSession / the catch below.
 
       // Publish thinking + user cards now that sessionId is known. The user card
       // id is derived from the incoming messageId so a web client's optimistic
@@ -198,7 +262,9 @@ export function createRelay(deps: RelayDeps) {
         partTextAcc: new Map(),
         signal: ac.signal,
         timer,
+        abortKey: sessionId !== provisionalKey ? provisionalKey : undefined,
       }
+      onCtxInstalled(ctx)
       pluginSessions.set(sessionId, ctx)
       ac.signal.addEventListener('abort', () => {
         cleanupPluginSession(sessionId)
@@ -259,20 +325,29 @@ export function createRelay(deps: RelayDeps) {
 
     // Adopt externally-initiated turns: a streaming event arrives for a session
     // we never submitted to (a TUI/command turn), so there's no context — create
-    // one so it streams/renders in Web/Telegram like any other turn. The signal
-    // never aborts (we don't own this turn); the card's stop button still calls
-    // the backend's abort directly.
+    // one so it streams/renders in Web/Telegram like any other turn. The ctx gets
+    // a REAL timeout + abort registration: without them a leaked turn (no idle
+    // ever arrives) lived forever, wedged hasActiveGeneration(), and the next
+    // turn for the session reused its stale accumulator. Aborting only stops our
+    // mirroring — the TUI turn itself is owned by opencode; the card's stop
+    // button calls the backend's abort directly.
     if (!ctx && (e.kind === 'part' || e.kind === 'delta')) {
+      const ac = new AbortController()
       ctx = {
         sessionId: sid,
         cardId: `turn:${sid}:${Date.now()}`,
         acc: createStreamAccumulator(),
         processedPartIds: new Set(),
         partTextAcc: new Map(),
-        signal: new AbortController().signal,
-        timer: setTimeout(() => {}, deps.chatTimeoutMs),
+        signal: ac.signal,
+        timer: setTimeout(() => ac.abort(), deps.chatTimeoutMs),
       }
       pluginSessions.set(sid, ctx)
+      deps.state.setActiveAbort(sid, ac)
+      ac.signal.addEventListener('abort', () => {
+        cleanupPluginSession(sid)
+        deps.state.setActiveAbort(sid, undefined)
+      }, { once: true })
     }
 
     if (e.kind === 'part') {

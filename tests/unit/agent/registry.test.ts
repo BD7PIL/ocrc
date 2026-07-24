@@ -78,6 +78,13 @@ describe('createBackendRegistry', () => {
     expect(r.activeId()).toBe('opencode')
   })
 
+  it('active() works when destructured (closure, no this dependency)', () => {
+    const { active } = make()
+    expect(active().id).toBe('opencode')
+    state.setActiveBackend('acp:kimi')
+    expect(active().id).toBe('acp:kimi')
+  })
+
   it('get/has work by id', () => {
     const r = make()
     expect(r.has('acp:kimi')).toBe(true)

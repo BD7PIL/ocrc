@@ -82,19 +82,21 @@ export function createBackendRegistry(opts: BackendRegistryOpts): BackendRegistr
     return primary
   }
 
+  const activeId = (): string => {
+    const a = state.getActiveBackend()
+    return a && byId.has(a) ? a : primary
+  }
+
   return {
     list: () => opts.backends.map((b) => ({ id: b.id, capabilities: b.backend.capabilities })),
     all: () => opts.backends.slice(),
     get: (id) => byId.get(id),
     has: (id) => byId.has(id),
     primaryId: () => primary,
-    activeId: () => {
-      const a = state.getActiveBackend()
-      return a && byId.has(a) ? a : primary
-    },
-    active() {
-      return byId.get(this.activeId())!
-    },
+    activeId,
+    // Closure arrow like every other member — a method shorthand relying on
+    // `this` breaks when destructured (e.g. `const { active } = registry`).
+    active: () => byId.get(activeId())!,
     idForSession: resolveId,
     forSession: (sid) => byId.get(resolveId(sid))!,
     tag: (sid, backendId) => {

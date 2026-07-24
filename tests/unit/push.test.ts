@@ -134,4 +134,21 @@ describe('startPushNotifications', () => {
     expect(card.sections[1].body).toContain('chunkStartOffset')
     expect(card.sections[1].body).toContain('markdownSrc')
   })
+
+  it('bounds per-session tracking maps (evicts the oldest beyond the cap)', () => {
+    const cb = fakeCardBus()
+    const p = startPushNotifications({
+      cardBus: cb as any as CardBus,
+      backend: fakeBackend() as any as AgentBackend,
+      maxPerHour: 10000, // keep the hour cap out of the way
+    })
+    // Each FAIL event recordPush()es its session synchronously.
+    for (let i = 0; i < 600; i++) {
+      p.handleEvent({
+        type: 'message.part.updated',
+        properties: { sessionID: `ses_${i}`, part: { type: 'tool', tool: 'bash', state: { output: 'FAIL' } } },
+      })
+    }
+    expect(p.stats().trackedSessions).toBe(500)
+  })
 })

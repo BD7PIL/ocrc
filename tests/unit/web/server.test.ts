@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { Hono } from 'hono'
 import { buildServer } from '../../../src/transport/web/server'
 import { createTokenAuth } from '../../../src/connectivity/auth/token'
@@ -10,9 +10,7 @@ describe('buildServer', () => {
       client: {} as any,
       state: {} as any,
       cardBus: {} as any,
-      wsHub: { subscribe: vi.fn(), broadcast: vi.fn() },
-      cacheSize: 100,
-    })
+    } as any)
     const res = await app.request('/api/me', undefined, { incoming: { socket: { remoteAddress: '127.0.0.1' } } })
     expect(res.status).toBe(200)
     const body = await res.json()
@@ -25,9 +23,7 @@ describe('buildServer', () => {
       client: {} as any,
       state: {} as any,
       cardBus: {} as any,
-      wsHub: { subscribe: vi.fn(), broadcast: vi.fn() },
-      cacheSize: 100,
-    })
+    } as any)
     const res = await app.request('/api/me')
     expect(res.status).toBe(401)
   })

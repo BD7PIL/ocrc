@@ -172,8 +172,6 @@ export async function main(): Promise<void> {
       registry,
       auth,
       staticRoot: config.webStaticRoot,
-      cacheSize: config.webCacheSize,
-      baseUrl: '',
     })
     webTransport.onMessage(relay)
     transports.push(webTransport)
@@ -187,6 +185,9 @@ export async function main(): Promise<void> {
     push.stop()
     await disposeBackends()
     await Promise.allSettled(transports.map((t) => t.stop()))
+    // Flush debounced writes (100ms debounce would otherwise be lost on exit).
+    try { await state.flush() } catch { /* best effort */ }
+    try { await acpStore.flush() } catch { /* best effort */ }
     process.exit(0)
   }
   process.on('SIGINT', dispose)

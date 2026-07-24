@@ -10,6 +10,14 @@ export function registerOverrides(app: Hono, state: SessionState) {
       agent?: string | null
       model?: { providerID: string; modelID: string } | null
     }
+    if ('model' in body) {
+      // Validate before persisting — a malformed model would be written to disk
+      // and silently break the next session's model selection.
+      const m = body.model
+      if (m != null && (typeof m !== 'object' || typeof m.providerID !== 'string' || typeof m.modelID !== 'string')) {
+        return c.json({ error: 'model must be { providerID: string, modelID: string } or null' }, 400)
+      }
+    }
     if ('agent' in body) state.setNextAgent(body.agent ?? undefined)
     if ('model' in body) state.setNextModel(body.model ?? undefined)
     return c.json({ ok: true })

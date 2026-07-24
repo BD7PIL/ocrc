@@ -4,6 +4,8 @@ import { createRemoteJWKSet, jwtVerify } from 'jose'
 export interface CfAccessOpts {
   team: string
   aud: string
+  /** Local-dev auth bypass for loopback peers. DANGER behind a same-host tunnel
+   * (cloudflared): all remote traffic then looks loopback and skips auth. */
   devBypass?: boolean
   devEmail?: string
   host?: string
@@ -25,6 +27,11 @@ function isLoopbackAddr(addr?: string): boolean {
  * real client is remote) would defeat CF Access. Only when the peer address is
  * unavailable (Bun/Nitropack, where raw socket info isn't exposed) do we fall
  * back to opts.host.
+ *
+ * WARNING: with devBypass on, a same-host cloudflared/quick-tunnel makes ALL
+ * remote traffic arrive from 127.0.0.1 — every request looks loopback and auth
+ * is silently wide open. Never combine devBypass with a tunnel; a startup
+ * warning is logged when devBypass is enabled (see createCfAccessAuth).
  */
 function devBypassAllowed(peer: string | undefined, opts: CfAccessOpts): boolean {
   if (!opts.devBypass) return false

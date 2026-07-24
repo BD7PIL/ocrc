@@ -9,8 +9,7 @@ describe('createWebTransport', () => {
       client: {} as any,
       auth: createTokenAuth({ token: 'test-token', devBypass: true, devEmail: 'd@l', host: '127.0.0.1' }),
       staticRoot: '/tmp/nonexistent',
-      cacheSize: 100,
-    })
+    } as any)
     expect(t.name).toBe('web')
     expect(t.capabilities.streaming).toBe(true)
   })
@@ -21,8 +20,7 @@ describe('createWebTransport', () => {
       client: {} as any,
       auth: createTokenAuth({ token: 'test-token', devBypass: true, devEmail: 'd@l', host: '127.0.0.1' }),
       staticRoot: '/tmp/definitely-not-here-xyz',
-      cacheSize: 100,
-    })
+    } as any)
     await expect(t.start({ cardBus: { subscribeAll: () => () => {} } as any, state: {} as any })).rejects.toThrow()
   })
 })

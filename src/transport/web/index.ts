@@ -20,8 +20,6 @@ export interface WebTransportConfig {
   registry: BackendRegistry
   auth: AuthStrategy
   staticRoot: string
-  cacheSize: number
-  baseUrl?: string
 }
 
 const CAPS: ChannelCapabilities = {
@@ -47,9 +45,6 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         registry: cfg.registry,
         state: deps.state,
         cardBus: deps.cardBus,
-        wsHub,
-        cacheSize: cfg.cacheSize,
-        baseUrl: cfg.baseUrl ?? '',
         onMessage: (msg) => messageHandler ? messageHandler(msg) : Promise.resolve(),
       })
 

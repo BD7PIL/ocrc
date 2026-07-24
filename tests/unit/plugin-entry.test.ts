@@ -198,6 +198,22 @@ describe('remoteControlPlugin', () => {
     expect(tgTransport.start).toHaveBeenCalledWith({ cardBus, state })
   })
 
+  it('retries a failed transport start with backoff instead of dying permanently', async () => {
+    vi.useFakeTimers()
+    try {
+      tgTransport.start.mockClear()
+      tgTransport.start.mockRejectedValueOnce(new Error('telegram unreachable at boot'))
+      const p = await remoteControlPlugin(ctx, { telegramBotToken: '123:abc', allowedUserIds: '123456' })
+      // First attempt failed synchronously; the retry waits out the 1s backoff.
+      expect(tgTransport.start).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(tgTransport.start).toHaveBeenCalledTimes(2)
+      await p.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   // ── Event routing ──
 
   it('routes session.idle to relay.handleEvent', async () => {
@@ -312,6 +328,11 @@ describe('remoteControlPlugin', () => {
     expect(globalStop).toHaveBeenCalled()
     expect(tgTransport.stop).toHaveBeenCalled()
     expect(push.stop).toHaveBeenCalled()
+  })
+
+  it('dispose flushes debounced state writes', async () => {
+    await plug.dispose()
+    expect(state.flush).toHaveBeenCalled()
   })
 
   // ── TUI agent poll ──

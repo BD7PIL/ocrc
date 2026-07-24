@@ -93,7 +93,7 @@ export function parseBackendsSpec(spec: string, fallbackAcpCmd: string): Backend
 }
 
 export interface RelayLike { handleEvent(e: AgentEvent): Promise<void> }
-export interface PushLike { handleEvent(ev: unknown): void }
+export interface PushLike { handleEvent(ev: unknown): void | Promise<void> }
 
 export interface BuildHostBackendsDeps {
   cwd: string
@@ -117,6 +117,30 @@ export interface BuiltHostBackends {
 
 const PERMISSION_TYPES = new Set(['permission.asked', 'permission.updated', 'permission.replied'])
 
+/** How many consecutive ports to probe when spawning an opencode server. */
+const PORT_PROBE_ATTEMPTS = 10
+
+/**
+ * Spawn an opencode server, probing forward from `startPort` when a port is
+ * taken (previously a busy 4096 silently dropped the whole opencode backend).
+ * Returns the server and the port it bound; rethrows the last error when every
+ * probe fails.
+ */
+async function spawnOpencodeServer(startPort: number): Promise<{ server: any; port: number }> {
+  let lastErr: unknown
+  for (let port = startPort; port < startPort + PORT_PROBE_ATTEMPTS; port++) {
+    try {
+      const server = await createOpencodeServer({ hostname: '127.0.0.1', port, timeout: 15000 })
+      if (port !== startPort) log.warn(`port ${startPort} unavailable — opencode backend bound to ${port} instead`)
+      return { server, port }
+    } catch (err) {
+      lastErr = err
+      log.warn(`opencode server failed on port ${port}: ${(err as Error).message}`)
+    }
+  }
+  throw lastErr
+}
+
 export async function buildHostBackends(specs: BackendSpec[], deps: BuildHostBackendsDeps): Promise<BuiltHostBackends> {
   const backends: RegisteredBackend[] = []
   const opencodeServers: Array<{ id: string; client: any; close: () => Promise<void> }> = []
@@ -127,7 +151,8 @@ export async function buildHostBackends(specs: BackendSpec[], deps: BuildHostBac
   for (const spec of specs) {
     if (spec.kind === 'opencode') {
       try {
-        const server = await createOpencodeServer({ hostname: '127.0.0.1', port: nextPort++, timeout: 15000 })
+        const { server, port } = await spawnOpencodeServer(nextPort)
+        nextPort = port + 1
         const client = createOpencodeClient({ baseUrl: server.url })
         const backend = createOpencodeBackend({ client, baseUrl: server.url })
         backends.push({ id: spec.id, backend })
@@ -160,13 +185,21 @@ export async function buildHostBackends(specs: BackendSpec[], deps: BuildHostBac
     wire(relay, push, onOpencodePermission) {
       const disposers: Array<() => void> = []
 
+      // push.handleEvent is async — fire-and-forget, but never let a rejection
+      // escape to the global guard.
+      const safePush = (ev: unknown) => {
+        void Promise.resolve(push.handleEvent(ev)).catch((err) =>
+          log.warn('push.handleEvent failed', err as Error),
+        )
+      }
+
       // ACP backends: own their stream.
       for (const { backend } of backends) {
         if (!backend.onEvent) continue
         const off = backend.onEvent((e) => {
           relay.handleEvent(e).catch((err) => log.error('relay.handleEvent failed', err as Error))
-          if (e.kind === 'idle') push.handleEvent({ type: 'session.idle', properties: { sessionID: e.sessionId } })
-          else if (e.kind === 'part' || e.kind === 'delta') push.handleEvent({ type: 'session.status', properties: { sessionID: e.sessionId, status: { type: 'busy' } } })
+          if (e.kind === 'idle') safePush({ type: 'session.idle', properties: { sessionID: e.sessionId } })
+          else if (e.kind === 'part' || e.kind === 'delta') safePush({ type: 'session.status', properties: { sessionID: e.sessionId, status: { type: 'busy' } } })
         })
         disposers.push(off)
       }
@@ -176,7 +209,7 @@ export async function buildHostBackends(specs: BackendSpec[], deps: BuildHostBac
         const handle = startGlobalEvents({
           client,
           onEvent: (ev) => {
-            push.handleEvent(ev) // opencode events are already the shape push expects
+            safePush(ev) // opencode events are already the shape push expects
             if (PERMISSION_TYPES.has(ev.type ?? '')) { onOpencodePermission(ev); return }
             const ae = normalizeOpencodeEvent(ev)
             if (ae) relay.handleEvent(ae).catch((err) => log.error('relay.handleEvent failed', err as Error))

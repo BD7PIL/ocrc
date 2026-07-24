@@ -81,9 +81,6 @@ const baseOpts = (state: any, backend: any) => ({
   auth: createTokenAuth({ token: 'test-token', devBypass: true, devEmail: 'd@l', host: '127.0.0.1' }),
   registry: singleBackendRegistry(backend), state,
   cardBus: { publish: vi.fn(), subscribeAll: () => () => {}, currentSeq: () => 7 } as any,
-  wsHub: { subscribe: () => () => {}, broadcast: vi.fn() } as any,
-  cacheSize: 100,
-  baseUrl: 'http://localhost:4096',
 })
 
 const LOOPBACK = { incoming: { socket: { remoteAddress: '127.0.0.1' } } }
@@ -271,6 +268,21 @@ describe('web routes', () => {
     }, LOOPBACK)
     expect(state.setNextAgent).toHaveBeenCalledWith(undefined)
     expect(state.setNextModel).toHaveBeenCalledWith(undefined)
+  })
+
+  it('POST /api/overrides rejects a malformed model with 400 and persists nothing', async () => {
+    const state = fakeState()
+    const app = buildServer(baseOpts(state, fakeBackend()))
+    for (const model of ['kimi/k2p6', { providerID: 'kimi' }, { providerID: 1, modelID: 'k2p6' }, ['kimi', 'k2p6']]) {
+      const res = await app.request('/api/overrides', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ agent: 'plan', model }),
+      }, LOOPBACK)
+      expect(res.status).toBe(400)
+    }
+    expect(state.setNextModel).not.toHaveBeenCalled()
+    // Rejected before any mutation — the agent override must not be applied either.
+    expect(state.setNextAgent).not.toHaveBeenCalled()
   })
 
   it('POST /api/approval proxies the decision to opencode', async () => {

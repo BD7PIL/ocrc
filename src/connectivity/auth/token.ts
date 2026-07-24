@@ -16,7 +16,8 @@ export interface TokenAuthOptions {
   tokenPath?: string
   /** Identity email for the single user (used for token auth too, not just dev-bypass). */
   devEmail?: string
-  /** Bypass auth for a real loopback peer (local dev). */
+  /** Bypass auth for a real loopback peer (local dev). DANGER behind a same-host
+   * tunnel (cloudflared): all remote traffic then looks loopback and skips auth. */
   devBypass?: boolean
   /** Bind host, used as the bypass signal when the socket peer is unknown. */
   host?: string
@@ -94,6 +95,13 @@ function extractToken(
 export function createTokenAuth(opts: TokenAuthOptions): AuthStrategy {
   const expected = loadOrCreateToken(opts)
   const user: AuthUser = { email: opts.devEmail ?? 'you@local', sub: 'token' }
+  if (opts.devBypass) {
+    log.warn(
+      '⚠ token-auth devBypass is ON — requests from a loopback peer skip the token check entirely. ' +
+      'If cloudflared (or any same-host tunnel/proxy) fronts this server, ALL remote traffic arrives ' +
+      'from 127.0.0.1 and is let through UNAUTHENTICATED. Never combine devBypass with a tunnel.',
+    )
+  }
   const bypass = (peer: string | undefined): boolean => {
     if (!opts.devBypass) return false
     const peerKnown = peer !== undefined && peer !== ''

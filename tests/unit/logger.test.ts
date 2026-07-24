@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createLogger, recentLogs } from '../../src/utils/logger'
@@ -44,5 +44,28 @@ describe('logger', () => {
     a.b = b
     expect(() => log.error('guard', a)).not.toThrow()
     expect(recentLogs().some((l) => l.includes('guard') && l.includes('[unserializable]'))).toBe(true)
+  })
+
+  it('rotates the log file to a single .old generation past the size threshold', () => {
+    const fp = join(tmp, 'opencode-remote-control.log')
+    process.env.OCRC_LOG_MAX_BYTES = '64'
+    try {
+      writeFileSync(fp, 'x'.repeat(128))
+      log.info('trigger-rotation')
+      // Previous content moved to .old …
+      expect(readFileSync(`${fp}.old`, 'utf-8')).toContain('x'.repeat(128))
+      // … and the fresh file holds only the new line.
+      const cur = readFileSync(fp, 'utf-8')
+      expect(cur).toContain('trigger-rotation')
+      expect(cur).not.toContain('x'.repeat(128))
+      // A second rotation clobbers the first .old (single generation).
+      writeFileSync(fp, 'y'.repeat(128))
+      log.info('trigger-rotation-2')
+      expect(readFileSync(`${fp}.old`, 'utf-8')).toContain('y'.repeat(128))
+      expect(readFileSync(fp, 'utf-8')).toContain('trigger-rotation-2')
+      expect(existsSync(`${fp}.old.old`)).toBe(false)
+    } finally {
+      delete process.env.OCRC_LOG_MAX_BYTES
+    }
   })
 })

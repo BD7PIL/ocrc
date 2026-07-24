@@ -34,21 +34,11 @@ import { registerCreateSession } from './routes/create-session.js'
 import { registerCommands } from './routes/commands.js'
 import { registerRename } from './routes/rename.js'
 
-export interface WsHub {
-  attach(ws: any, user: { email: string }): void
-  handleClientMessage(ws: any, msg: any): void
-  detach(ws: any): void
-  broadcast(msg: any): void
-}
-
 export interface BuildServerOpts {
   auth: AuthStrategy
   registry: BackendRegistry
   state: SessionState
   cardBus: CardBus
-  wsHub: WsHub
-  cacheSize: number
-  baseUrl: string
   onMessage?: (msg: IncomingMessage) => Promise<void>
 }
 

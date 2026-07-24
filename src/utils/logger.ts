@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync } from 'node:fs'
+import { appendFileSync, mkdirSync, renameSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 
@@ -14,6 +14,24 @@ function currentLevel(): number {
 function logFilePath(): string {
   const dir = process.env.OPENCODE_CONFIG_DIR ?? join(homedir(), '.opencode')
   return join(dir, 'opencode-remote-control.log')
+}
+
+// Single-generation rotation: once the log passes the threshold it is renamed
+// to `<file>.old` (clobbering any previous .old) and a fresh file is started.
+// Keeps the on-disk footprint bounded at ~2× the threshold. The threshold is
+// env-overridable mainly so tests don't have to write 10MB.
+const DEFAULT_MAX_LOG_BYTES = 10 * 1024 * 1024
+function maxLogBytes(): number {
+  const raw = Number(process.env.OCRC_LOG_MAX_BYTES)
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_MAX_LOG_BYTES
+}
+
+function rotateIfNeeded(fp: string): void {
+  try {
+    if (statSync(fp).size >= maxLogBytes()) renameSync(fp, `${fp}.old`)
+  } catch {
+    // missing file (ENOENT) or rename failure — the append below handles it
+  }
 }
 
 let logFileReady = false
@@ -63,7 +81,9 @@ function write(level: Level, mod: string, msg: string, extra: unknown[]): void {
   // Write to file only — console would pollute the opencode TUI
   ensureLogFile()
   try {
-    appendFileSync(logFilePath(), line + '\n')
+    const fp = logFilePath()
+    rotateIfNeeded(fp)
+    appendFileSync(fp, line + '\n')
   } catch {
     // fallback to stderr if file writing fails
     if (level === 'error' || level === 'warn') console.error(line)

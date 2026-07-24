@@ -125,8 +125,6 @@ export const remoteControlPlugin: Plugin = async (ctx, options) => {
         registry,
         auth,
         staticRoot: config.webStaticRoot,
-        cacheSize: config.webCacheSize,
-        baseUrl: serverUrl,
         })
       webTransport.onMessage(relay)
       transports.push(webTransport)
@@ -134,13 +132,31 @@ export const remoteControlPlugin: Plugin = async (ctx, options) => {
 
     // Start transports in background — bot.launch() blocks on polling and must not hold up plugin init.
     // The event hook must be returned immediately so opencode can dispatch events.
-    Promise.all(transports.map((t) => t.start({ cardBus, state })))
-      .then(() => {
-        log.info(`${transports.length} transport(s) started successfully`)
-      })
-      .catch((err) => {
-        log.error('transport start failed', err as Error)
-      })
+    // Each transport retries independently with exponential backoff (base 1s, cap
+    // 30s — same pattern as opencode/global-events.ts), so a boot-time failure
+    // (Telegram unreachable, web port briefly taken) recovers instead of leaving
+    // the transport permanently dead, and one failing transport never blocks another.
+    let shuttingDown = false
+    const startTransport = (t: Transport): void => {
+      const run = async () => {
+        let attempt = 0
+        while (!shuttingDown) {
+          try {
+            await t.start({ cardBus, state })
+            log.info(`transport ${t.name} started`)
+            return
+          } catch (err) {
+            if (shuttingDown) return
+            const delay = Math.min(1000 * 2 ** attempt, 30000)
+            attempt++
+            log.warn(`transport ${t.name} start failed (retry ${attempt} in ${delay}ms): ${(err as Error).message}`)
+            await new Promise((r) => setTimeout(r, delay))
+          }
+        }
+      }
+      void run()
+    }
+    for (const t of transports) startTransport(t)
 
     // Push notifications — driven by the plugin event hook
     const push = startPushNotifications({ cardBus, backend, state })
@@ -165,8 +181,11 @@ export const remoteControlPlugin: Plugin = async (ctx, options) => {
       const eventType = ev.type
       if (!eventType) return
 
-      // Feed all events to push notification engine
-      push.handleEvent(ev)
+      // Feed all events to push notification engine (fire-and-forget, but never
+      // let a rejection escape to the global guard).
+      void Promise.resolve(push.handleEvent(ev)).catch((err) =>
+        log.warn('push.handleEvent failed', err as Error),
+      )
 
       switch (eventType) {
         case 'permission.asked':
@@ -268,10 +287,13 @@ export const remoteControlPlugin: Plugin = async (ctx, options) => {
       },
       dispose: async () => {
         log.info('plugin disposing, stopping transports...')
+        shuttingDown = true
         globalEvents.stop()
         clearInterval(pollTimer)
         push.stop()
         await Promise.allSettled(transports.map((t) => t.stop()))
+        // Flush debounced state writes (100ms debounce would otherwise be lost on exit).
+        try { await state.flush() } catch { /* best effort */ }
         primary.release()
         log.info('plugin disposed')
       },

@@ -57,6 +57,24 @@ describe('TelegramSessionRenderer', () => {
     expect(assistantMsg!.text).toMatch(/build/)
   })
 
+  it('error card deletes the thinking placeholder', async () => {
+    const bot = fakeBot()
+    const r = new TelegramSessionRenderer({ chatId: '100', sessionId: 'ses', bot: bot as any })
+    await r.onCard({ kind: 'thinking', sessionId: 'ses', showStop: true })
+    await r.onCard({ kind: 'error', sessionId: 'ses', message: 'boom' })
+    expect(bot.deleteMessage).toHaveBeenCalledWith('100', 1)
+    const errorMsg = bot.sent.find((s: any) => s.text.includes('boom'))
+    expect(errorMsg).toBeDefined()
+  })
+
+  it('error card escapes HTML in the error message', async () => {
+    const bot = fakeBot()
+    const r = new TelegramSessionRenderer({ chatId: '100', sessionId: 'ses', bot: bot as any })
+    await r.onCard({ kind: 'error', sessionId: 'ses', message: 'bad <tag> & co' })
+    const errorMsg = bot.sent.find((s: any) => s.text.includes('bad'))
+    expect(errorMsg!.text).toContain('bad &lt;tag&gt; &amp; co')
+  })
+
   it('collapses tools list: first 2 + last 5 with … N more when count is 8-15', async () => {
     const bot = fakeBot()
     const r = new TelegramSessionRenderer({ chatId: '100', sessionId: 'ses', bot: bot as any })

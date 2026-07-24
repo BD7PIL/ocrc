@@ -176,13 +176,17 @@ export class TelegramSessionRenderer {
     }
   }
 
+  /** Delete the '⏳ Working…' placeholder if one is pending. */
+  private async clearThinkingPlaceholder(): Promise<void> {
+    if (this.thinkingMessageId) {
+      await this.bot.deleteMessage(this.chatId, Number(this.thinkingMessageId)).catch(() => {})
+      this.thinkingMessageId = undefined
+    }
+  }
+
   private async finalize(blocks: ContentBlock[], meta: AssistantMeta): Promise<void> {
     try {
-      // Delete thinking placeholder if present
-      if (this.thinkingMessageId) {
-        await this.bot.deleteMessage(this.chatId, Number(this.thinkingMessageId)).catch(() => {})
-        this.thinkingMessageId = undefined
-      }
+      await this.clearThinkingPlaceholder()
 
       const md = blocksToText(blocks)
       const tools = blocksToTools(blocks)
@@ -212,6 +216,7 @@ export class TelegramSessionRenderer {
   }
 
   private async markError(message: string): Promise<void> {
+    await this.clearThinkingPlaceholder()
     const text = `❌  <b>Error</b>\n\n<code>${escHtml(message)}</code>`
     await this.sendTimed(text, { parse_mode: 'HTML' })
   }

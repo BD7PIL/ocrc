@@ -7,6 +7,7 @@ import type { CardBus } from '../../core/card-bus.js'
 import { createLogger } from '../../utils/logger.js'
 import { getVersionInfo } from '../../utils/version.js'
 import { registerInfoCommands } from './handlers/info-commands.js'
+import { esc } from './esc.js'
 
 const log = createLogger('handlers')
 
@@ -16,7 +17,8 @@ export interface HandlersDeps {
   state: SessionState
   chatId: number
   isGenerating: () => boolean
-  abortGeneration: () => void
+  /** Abort the local generation; returns the single resolved target session id (normalized pinned ?? last), if any. */
+  abortGeneration: () => string | undefined
   /** opencode server base URL (in-process plugin server). */
   baseUrl?: string
   /** Shared pending-approval map. */
@@ -189,7 +191,7 @@ export function registerHandlers(deps: HandlersDeps): void {
         const s = sessions[i]
         const pinEmoji = s.id === pinned ? '📌 ' : ''
         lines.push(`${i + 1}. ${pinEmoji}<code>…${s.id.slice(-8)}</code>`)
-        lines.push(`   ${s.title ?? 'Untitled'} · ${s.when}`)
+        lines.push(`   ${esc(s.title ?? 'Untitled')} · ${s.when}`)
         lines.push('')
       }
       if (pinned) {
@@ -204,7 +206,7 @@ export function registerHandlers(deps: HandlersDeps): void {
       })
     } catch (err) {
       log.error('failed to list sessions', err as Error)
-      await ctx.reply(`❌ ${(err as Error).message}`, { parse_mode: 'HTML' })
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }
   })
 
@@ -212,9 +214,10 @@ export function registerHandlers(deps: HandlersDeps): void {
     const text = ctx.message && 'text' in ctx.message ? ctx.message.text : ''
     const args = text ? text.split(' ').slice(1)[0]?.trim() : undefined
     if (args && args.length > 0) {
-      deps.state.setPinnedSessionId(args)
+      const sid = deps.state.normalizeSessionId(args)
+      deps.state.setPinnedSessionId(sid)
       await ctx.reply(
-        `<b>📌 Pinned</b>\n\n<code>${args}</code>`,
+        `<b>📌 Pinned</b>\n\n<code>${esc(sid)}</code>`,
         {
           parse_mode: 'HTML',
           ...Markup.inlineKeyboard([
@@ -295,7 +298,7 @@ export function registerHandlers(deps: HandlersDeps): void {
       await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' })
     } catch (err) {
       log.error('failed to fetch files', err as Error)
-      await ctx.reply(`❌ ${(err as Error).message}`, { parse_mode: 'HTML' })
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }
   })
 
@@ -328,7 +331,7 @@ export function registerHandlers(deps: HandlersDeps): void {
       })
     } catch (err) {
       log.error('failed to list agents', err as Error)
-      await ctx.reply(`❌ ${(err as Error).message}`, { parse_mode: 'HTML' })
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }
   })
 
@@ -363,7 +366,7 @@ export function registerHandlers(deps: HandlersDeps): void {
       })
     } catch (err) {
       log.error('failed to list models', err as Error)
-      await ctx.reply(`❌ ${(err as Error).message}`, { parse_mode: 'HTML' })
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }
   })
 
@@ -388,17 +391,16 @@ export function registerHandlers(deps: HandlersDeps): void {
   })
 
   deps.bot.command('abort', async (ctx: Context) => {
-    const last = deps.state.getLastSessionId()
-    if (!last) {
+    const sid = deps.abortGeneration()
+    if (!sid) {
       await ctx.reply('No session to abort.', { parse_mode: 'HTML' })
       return
     }
-    deps.abortGeneration()
     try {
-      await deps.backend.abort(last)
-      await ctx.reply(`<b>🛑 Aborted</b>\n\n<code>…${last.slice(-8)}</code>`, { parse_mode: 'HTML' })
+      await deps.backend.abort(sid)
+      await ctx.reply(`<b>🛑 Aborted</b>\n\n<code>…${sid.slice(-8)}</code>`, { parse_mode: 'HTML' })
     } catch (err) {
-      await ctx.reply(`❌ Abort failed: ${(err as Error).message}`, { parse_mode: 'HTML' })
+      await ctx.reply(`❌ Abort failed: ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }
   })
 
@@ -424,7 +426,7 @@ export function registerHandlers(deps: HandlersDeps): void {
       // acceptable: the user already trusts this bot channel for control.
       await ctx.reply(`🔗 <b>Pair a device</b>\n\nOpen this once on the device:\n<code>${pairUrl}</code>`, { parse_mode: 'HTML' })
     } catch (err) {
-      await ctx.reply(`❌ ${(err as Error).message}`, { parse_mode: 'HTML' })
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }
   })
 
@@ -477,7 +479,7 @@ export function registerHandlers(deps: HandlersDeps): void {
       const rows = ws.slice(0, 20).map((w) => [Markup.button.callback(`📂 ${w.name}`, `ws:set:${wsToken(w.directory)}`)])
       await ctx.reply(lines.join('\n'), { parse_mode: 'HTML', ...Markup.inlineKeyboard(rows) })
     } catch (err) {
-      await ctx.reply(`❌ ${(err as Error).message}`, { parse_mode: 'HTML' })
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }
   })
 
@@ -498,7 +500,7 @@ export function registerHandlers(deps: HandlersDeps): void {
       deps.state.setPinnedSessionId(id)
       await ctx.reply(`🆕 <b>New session</b> in <code>${dir.split('/').pop()}</code>\n<code>…${id.slice(-8)}</code> (pinned). Send a message to start.`, { parse_mode: 'HTML' })
     } catch (err) {
-      await ctx.reply(`❌ ${(err as Error).message}`, { parse_mode: 'HTML' })
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }
   })
 
@@ -509,9 +511,9 @@ export function registerHandlers(deps: HandlersDeps): void {
     if (!text) { await ctx.reply('Usage: <code>/rename New Title</code>', { parse_mode: 'HTML' }); return }
     try {
       await deps.backend.renameSession(sid, text.slice(0, 100))
-      await ctx.reply(`✏️ Renamed <code>…${sid.slice(-8)}</code> → <b>${text.slice(0, 100)}</b>`, { parse_mode: 'HTML' })
+      await ctx.reply(`✏️ Renamed <code>…${sid.slice(-8)}</code> → <b>${esc(text.slice(0, 100))}</b>`, { parse_mode: 'HTML' })
     } catch (err) {
-      await ctx.reply(`❌ ${(err as Error).message}`, { parse_mode: 'HTML' })
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }
   })
 
@@ -604,11 +606,10 @@ export function registerHandlers(deps: HandlersDeps): void {
   })
 
   deps.bot.action('status:abort', async (ctx) => {
-    deps.abortGeneration()
-    const last = deps.state.getLastSessionId()
-    if (last) {
+    const sid = deps.abortGeneration()
+    if (sid) {
       try {
-        await deps.backend.abort(last)
+        await deps.backend.abort(sid)
       } catch {}
     }
     await ctx.answerCbQuery('Aborting…')
@@ -815,7 +816,7 @@ export function registerHandlers(deps: HandlersDeps): void {
       reject: 'Rejected',
     }
     const display = labels[response]
-    await ctx.editMessageText(`${display}\n\n${p.title}`, { parse_mode: 'HTML' }).catch(() => {})
+    await ctx.editMessageText(`${display}\n\n${esc(p.title)}`, { parse_mode: 'HTML' }).catch(() => {})
     await ctx.answerCbQuery(display)
   })
 }

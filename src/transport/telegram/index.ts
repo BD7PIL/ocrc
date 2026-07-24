@@ -8,6 +8,7 @@ import type { CardBus } from '../../core/card-bus.js'
 import { TelegramSessionRenderer } from './renderer.js'
 import { registerHandlers } from './handlers.js'
 import type { PendingApproval, ApprovalResponse } from './handlers.js'
+import { esc } from './esc.js'
 import { createLogger } from '../../utils/logger.js'
 
 const log = createLogger('telegram')
@@ -59,10 +60,13 @@ export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport 
   // registry is set when a run starts and cleared on session.idle/error/abort.
   const isGenerating = () => cfg.state.hasActiveGeneration()
 
-  /** Abort the in-flight generation for the bot's target session (pinned ?? last). */
-  function abortGeneration() {
-    const sid = cfg.state.getPinnedSessionId() ?? cfg.state.getLastSessionId()
-    if (sid) cfg.state.getActiveAbort(sid)?.abort()
+  /** Abort the in-flight generation for the bot's target session (normalized pinned ?? last). Returns the resolved session id. */
+  function abortGeneration(): string | undefined {
+    const raw = cfg.state.getPinnedSessionId() ?? cfg.state.getLastSessionId()
+    if (!raw) return undefined
+    const sid = cfg.state.normalizeSessionId(raw)
+    cfg.state.getActiveAbort(sid)?.abort()
+    return sid
   }
 
   // Wire text handler
@@ -74,7 +78,9 @@ export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport 
     if (!messageHandler) return next()
 
     if (isGenerating()) {
-      void ctx.reply('Session is already generating. Wait for it or /abort.')
+      void ctx.reply('Session is already generating. Wait for it or /abort.').catch((err) => {
+        log.warn('failed to send busy notice', (err as Error).message)
+      })
       return
     }
 
@@ -272,7 +278,7 @@ export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport 
             String(cfg.allowedUserIds[0]),
             p.messageId,
             undefined,
-            `${display} (from TUI)\n\n${p.title}`,
+            `${display} (from TUI)\n\n${esc(p.title)}`,
             { parse_mode: 'HTML' },
           )
         } catch (err) {

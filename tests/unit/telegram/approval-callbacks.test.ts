@@ -72,6 +72,24 @@ describe('approve: button callback', () => {
     expect(ctx.answerCbQuery).toHaveBeenCalled()
   })
 
+  it('escapes HTML in the approval title when editing the card', async () => {
+    const { bot, pendingApprovals } = makeDeps()
+    pendingApprovals.set('perm_1', { sessionId: 'ses_a', permissionId: 'perm_1', messageId: 42, title: 'Edit <b>foo</b> & bar' })
+
+    const { trigger, handler } = findApprove(bot)
+    const ctx = {
+      match: 'approve:once:perm_1'.match(trigger),
+      answerCbQuery: vi.fn().mockResolvedValue(undefined),
+      editMessageText: vi.fn().mockResolvedValue(undefined),
+    }
+    await handler(ctx)
+
+    expect(ctx.editMessageText).toHaveBeenCalledWith(
+      expect.stringContaining('Edit &lt;b&gt;foo&lt;/b&gt; &amp; bar'),
+      expect.anything(),
+    )
+  })
+
   it('answers "already handled" when the approval is unknown', async () => {
     const { bot, backend } = makeDeps()
     const { trigger, handler } = findApprove(bot)

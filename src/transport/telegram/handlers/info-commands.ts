@@ -2,6 +2,7 @@ import type { Telegraf, Context } from 'telegraf'
 import type { AgentBackend } from '../../../core/agent/backend.js'
 import type { SessionState } from '../../../core/state.js'
 import { createLogger } from '../../../utils/logger.js'
+import { esc } from '../esc.js'
 
 const log = createLogger('info-commands')
 
@@ -24,7 +25,6 @@ export function registerInfoCommands(deps: InfoDeps): void {
         await ctx.reply(`<b>📝 Diff — …${last.slice(-8)}</b>\n\nNo diffs yet.`, { parse_mode: 'HTML' })
         return
       }
-      const esc = (s: string) => s.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]!))
       const lines: string[] = [`<b>📝 Diff — …${last.slice(-8)}</b>`, '']
       let totalAdd = 0
       let totalDel = 0
@@ -40,7 +40,7 @@ export function registerInfoCommands(deps: InfoDeps): void {
       await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' })
     } catch (err) {
       log.error('diff failed', err as Error)
-      await ctx.reply(`❌ ${(err as Error).message}`, { parse_mode: 'HTML' })
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }
   })
 
@@ -56,13 +56,13 @@ export function registerInfoCommands(deps: InfoDeps): void {
       const mark = (s: string) => s === 'completed' ? '✓' : s === 'in_progress' ? '▶' : '○'
       const lines = [`✅  <b>Todos</b>  ·  <code>…${last.slice(-8)}</code>`, '']
       for (const t of todos) {
-        const label = t.status === 'completed' ? `<s>${t.content}</s>` : t.content
+        const label = t.status === 'completed' ? `<s>${esc(t.content)}</s>` : esc(t.content)
         lines.push(`${mark(t.status)}  ${label}`)
       }
       await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' })
     } catch (err) {
       log.error('todo failed', err as Error)
-      await ctx.reply(`❌ ${(err as Error).message}`, { parse_mode: 'HTML' })
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }
   })
 
@@ -95,7 +95,7 @@ export function registerInfoCommands(deps: InfoDeps): void {
       await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' })
     } catch (err) {
       log.error('context failed', err as Error)
-      await ctx.reply(`❌ ${(err as Error).message}`, { parse_mode: 'HTML' })
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }
   })
 }

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 import { join, resolve, dirname } from 'node:path'
 import { homedir } from 'node:os'
@@ -49,7 +49,14 @@ function upsertEnv(updates: Record<string, string>): void {
     return line
   })
   for (const [k, v] of Object.entries(remaining)) out.push(`${k}=${v}`)
-  writeFileSync(ENV_FILE, out.join('\n').replace(/\n*$/, '\n'))
+  // Contains the bot token — owner-only, like the web token file (token.ts).
+  writeFileSync(ENV_FILE, out.join('\n').replace(/\n*$/, '\n'), { mode: 0o600 })
+  try {
+    // mode only applies at creation; tighten permissions of a pre-existing file too.
+    chmodSync(ENV_FILE, 0o600)
+  } catch {
+    /* best effort */
+  }
 }
 
 /** Create the ~/.config/opencode/plugins/ bridge that re-invokes our built plugin. */

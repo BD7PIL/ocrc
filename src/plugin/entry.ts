@@ -16,8 +16,20 @@ import { startGlobalEvents } from '../opencode/global-events.js'
 import type { OcEvent } from '../core/opencode-events.js'
 import type { Transport } from '../transport/interface.js'
 import { createLogger } from '../utils/logger.js'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 
-const VERSION = '0.7.1'
+// Read from package.json at runtime (tsc emits unbundled JS, so ../../package.json
+// resolves from both src/plugin and dist/plugin) — never hardcode a version here.
+const VERSION = (() => {
+  try {
+    const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../package.json')
+    return (JSON.parse(readFileSync(pkgPath, 'utf-8')) as { version: string }).version
+  } catch {
+    return 'unknown'
+  }
+})()
 const log = createLogger('plugin')
 
 // opencode 1.17 runs plugins in a worker thread. Any unhandled rejection or

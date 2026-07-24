@@ -4,13 +4,17 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const pkg = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf-8')) as { version: string }
+// OCRC's own root (src/utils or dist/utils → two levels up). The plugin runs
+// with cwd = the USER's project, so anything resolved against cwd (package.json,
+// git) must anchor here instead.
+const OCRC_ROOT = join(__dirname, '..', '..')
+const pkg = JSON.parse(readFileSync(join(OCRC_ROOT, 'package.json'), 'utf-8')) as { version: string }
 
 const START_TIME = Date.now()
 
 function getGitCommit(): string {
   try {
-    return execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim()
+    return execSync('git rev-parse --short HEAD', { encoding: 'utf-8', cwd: OCRC_ROOT }).trim()
   } catch {
     return 'unknown'
   }

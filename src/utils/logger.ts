@@ -30,10 +30,19 @@ function ensureLogFile() {
 
 function format(level: Level, mod: string, msg: string, extra: unknown[]): string {
   const ts = new Date().toISOString()
-  const extras = extra.length
-    ? ' ' + extra.map((e) => (e instanceof Error ? e.stack ?? e.message : JSON.stringify(e))).join(' ')
-    : ''
+  const extras = extra.length ? ' ' + extra.map(formatExtra).join(' ') : ''
   return `[${ts}] [${level.toUpperCase()}] [${mod}] ${msg}${extras}`
+}
+
+// JSON.stringify throws on circular structures; this runs inside the process
+// crash guards (unhandledRejection/uncaughtException), so it must never throw.
+function formatExtra(e: unknown): string {
+  if (e instanceof Error) return e.stack ?? e.message
+  try {
+    return JSON.stringify(e)
+  } catch {
+    return '[unserializable]'
+  }
 }
 
 // In-memory ring buffer of recent log lines, surfaced via GET /api/logs for

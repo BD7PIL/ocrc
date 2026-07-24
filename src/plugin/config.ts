@@ -1,6 +1,9 @@
 import { config as dotenvConfig } from 'dotenv'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createLogger } from '../utils/logger.js'
+
+const log = createLogger('config')
 
 export interface PluginConfig {
   telegramBotToken: string
@@ -47,18 +50,27 @@ const PLUGIN_ROOT = (() => {
   }
 })()
 
-function loadDotEnv(): void {
-  const cwd = process.cwd()
-  dotenvConfig({ path: resolve(cwd, '.env') })
-  if (process.env.OPENCODE_PROJECT) {
-    dotenvConfig({ path: resolve(process.env.OPENCODE_PROJECT, '.env'), override: false })
-    dotenvConfig({ path: resolve(process.env.OPENCODE_PROJECT, '.opencode', '.env'), override: false })
-  }
+// dotenv never overrides an already-set variable, so the FIRST file loaded
+// wins. The plugin's own install directory is authoritative: opencode can be
+// launched from any folder, and a project-level .env must not be able to
+// hijack the bot identity / allowlist / web token. cwd is loaded LAST (lowest
+// priority — it can still supply keys nothing else defines).
+// Exported for tests.
+export function dotEnvPaths(): string[] {
+  const paths = [resolve(PLUGIN_ROOT, '.env')]
   if (process.env.OPENCODE_CONFIG_DIR) {
-    dotenvConfig({ path: resolve(process.env.OPENCODE_CONFIG_DIR, '.env'), override: false })
+    paths.push(resolve(process.env.OPENCODE_CONFIG_DIR, '.env'))
   }
-  // Finally, the plugin's own install directory — works regardless of cwd.
-  dotenvConfig({ path: resolve(PLUGIN_ROOT, '.env'), override: false })
+  if (process.env.OPENCODE_PROJECT) {
+    paths.push(resolve(process.env.OPENCODE_PROJECT, '.env'))
+    paths.push(resolve(process.env.OPENCODE_PROJECT, '.opencode', '.env'))
+  }
+  paths.push(resolve(process.cwd(), '.env'))
+  return paths
+}
+
+function loadDotEnv(): void {
+  for (const path of dotEnvPaths()) dotenvConfig({ path, override: false })
 }
 
 function env(key: string, optionsVal?: string): string | undefined {
@@ -90,8 +102,12 @@ export function loadPluginConfig(
     .map(Number)
     .filter((n) => Number.isFinite(n))
 
-  if (ids.length === 0 && requireTelegram) {
-    throw new Error('ALLOWED_USER_IDS is required (comma-separated Telegram user IDs).')
+  // Token and allowlist must come as a pair: with a token but no IDs the
+  // transport would start and address every push to chat "undefined".
+  if (ids.length === 0 && (requireTelegram || token)) {
+    throw new Error(
+      'ALLOWED_USER_IDS is required (comma-separated Telegram user IDs) whenever Telegram is enabled. Set it, or unset TELEGRAM_BOT_TOKEN to run web-only.',
+    )
   }
 
   const webHost = env('WEB_HOST', options?.webHost as string) ?? '127.0.0.1'
@@ -104,10 +120,10 @@ export function loadPluginConfig(
     allowedUserIds: ids,
     webEnabled: bool(options?.webEnabled as string) ?? process.env.WEB_ENABLED === 'true',
     webHost,
-    webPort: Number(options?.webPort ?? process.env.WEB_PORT ?? 17081),
+    webPort: num(options?.webPort ?? process.env.WEB_PORT, 17081, 'WEB_PORT'),
     webPublicUrl: env('WEB_PUBLIC_URL', options?.webPublicUrl as string) ?? '',
     webStaticRoot: env('WEB_STATIC_ROOT', options?.webStaticRoot as string) ?? resolve(PLUGIN_ROOT, 'web', 'dist'),
-    webCacheSize: Number(options?.webCacheSize ?? process.env.WEB_SESSION_CACHE_SIZE ?? 100),
+    webCacheSize: num(options?.webCacheSize ?? process.env.WEB_SESSION_CACHE_SIZE, 100, 'WEB_SESSION_CACHE_SIZE'),
     webCfAccessTeam: env('WEB_CF_ACCESS_TEAM', options?.webCfAccessTeam as string) ?? '',
     webCfAccessAud: env('WEB_CF_ACCESS_AUD', options?.webCfAccessAud as string) ?? '',
     // Default OFF: a loopback bind is not a safe bypass signal when traffic
@@ -120,9 +136,9 @@ export function loadPluginConfig(
     statePath: env('STATE_PATH', options?.statePath as string) ?? './data/state.json',
     tuiVisible: bool(options?.tuiVisible as string) ?? process.env.TUI_VISIBLE !== 'false',
     transport: env('TRANSPORT', options?.transport as string) ?? 'telegram',
-    chatTimeoutMs: Number(options?.chatTimeoutMs ?? process.env.CHAT_TIMEOUT_MS ?? 600000),
+    chatTimeoutMs: num(options?.chatTimeoutMs ?? process.env.CHAT_TIMEOUT_MS, 600000, 'CHAT_TIMEOUT_MS'),
     baseUrl: env('OPENCODE_BASE_URL', options?.baseUrl as string) ?? '',
-    tgChunkSoftLimit: Number(options?.tgChunkSoftLimit ?? process.env.TG_CHUNK_SOFT_LIMIT ?? 3500),
+    tgChunkSoftLimit: num(options?.tgChunkSoftLimit ?? process.env.TG_CHUNK_SOFT_LIMIT, 3500, 'TG_CHUNK_SOFT_LIMIT'),
     acpCommand: env('OCRC_ACP_CMD', options?.acpCommand as string) ?? 'kimi acp',
     backends: env('OCRC_BACKENDS', options?.backends as string) ?? '',
   }
@@ -133,4 +149,15 @@ function bool(val?: string): boolean | undefined {
   if (val === 'true' || val === '1' || val === 'yes') return true
   if (val === 'false' || val === '0' || val === 'no') return false
   return undefined
+}
+
+/** Parse a numeric setting; a non-finite value falls back to the default with a warning. */
+function num(raw: unknown, fallback: number, name: string): number {
+  if (raw === undefined || raw === null || raw === '') return fallback
+  const n = Number(raw)
+  if (!Number.isFinite(n)) {
+    log.warn(`invalid number for ${name}: ${JSON.stringify(String(raw))} — using default ${fallback}`)
+    return fallback
+  }
+  return n
 }

@@ -132,6 +132,75 @@ describe('createAcpBackend', () => {
     expect(events).toEqual([])
   })
 
+  it('serializes concurrent getHistory replays for the same session (one load, no leak)', async () => {
+    let client!: AcpClient
+    const events: AgentEvent[] = []
+    let resolveGate!: () => void
+    const gate = new Promise<void>((r) => { resolveGate = r })
+    let loadCalls = 0
+    const conn: AcpConnection = {
+      newSession: vi.fn(async () => ({ sessionId: 'ses_n' })),
+      loadSession: vi.fn(async (p: { sessionId: string }) => {
+        loadCalls++
+        await client.sessionUpdate({ sessionId: p.sessionId, update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'hi there' } } })
+        await gate // hold the first load open while the second getHistory arrives
+        await client.sessionUpdate({ sessionId: p.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hello back' } } })
+        return {}
+      }),
+      authenticate: vi.fn(async () => ({})),
+      prompt: vi.fn(async () => ({ stopReason: 'end_turn' })),
+      cancel: vi.fn(async () => ({})),
+    }
+    const connect = async (c: AcpClient) => { client = c; return { conn, authMethodId: 'login' } }
+    const b = createAcpBackend({ id: 'acp:kimi', cwd: '/tmp', connect })
+    b.onEvent!((e) => events.push(e))
+
+    const h1 = b.getHistory('ses_native')
+    await flush() // first load is in-flight, replay buffer installed
+    const h2 = b.getHistory('ses_native') // concurrent — must share, not start a 2nd load
+    await flush()
+    expect(loadCalls).toBe(1) // old bug: 2 (buffer overwritten, then deleted mid-replay)
+    resolveGate()
+    const [c1, c2] = await Promise.all([h1, h2])
+    expect(loadCalls).toBe(1)
+    // both callers get the same complete history
+    expect(c1.map((c) => c.kind)).toEqual(['user', 'assistant'])
+    expect(c2).toEqual(c1)
+    // nothing replayed leaked out as live events
+    expect(events).toEqual([])
+  })
+
+  it('buffers live updates that arrive mid-load instead of emitting them (they join the cards)', async () => {
+    let client!: AcpClient
+    const events: AgentEvent[] = []
+    let resolveGate!: () => void
+    const gate = new Promise<void>((r) => { resolveGate = r })
+    const conn: AcpConnection = {
+      newSession: vi.fn(async () => ({ sessionId: 'ses_n' })),
+      loadSession: vi.fn(async (p: { sessionId: string }) => {
+        await client.sessionUpdate({ sessionId: p.sessionId, update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'old question' } } })
+        await gate // hold the load open: replay buffer stays installed
+        return {}
+      }),
+      authenticate: vi.fn(async () => ({})),
+      prompt: vi.fn(async () => ({ stopReason: 'end_turn' })),
+      cancel: vi.fn(async () => ({})),
+    }
+    const connect = async (c: AcpClient) => { client = c; return { conn, authMethodId: 'login' } }
+    const b = createAcpBackend({ id: 'acp:kimi', cwd: '/tmp', connect })
+    b.onEvent!((e) => events.push(e))
+
+    const historyP = b.getHistory('ses_native')
+    await flush() // load started; replay buffer is installed (loadSession gated)
+    // an update arriving mid-load is appended to the replay buffer, not emitted live
+    await client.sessionUpdate({ sessionId: 'ses_native', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'late live chunk' } } })
+    expect(events).toEqual([])
+    resolveGate()
+    const cards = await historyP
+    expect(events).toEqual([]) // never emitted as a live event
+    expect(cards.map((c) => c.kind)).toEqual(['user', 'assistant']) // joined the rebuilt cards
+  })
+
   it('createSession returns the agent sessionId and tracks it', async () => {
     const h = makeHarness()
     const b = createAcpBackend({ id: 'acp:kimi', cwd: '/tmp', connect: h.connect })

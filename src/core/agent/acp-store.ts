@@ -16,6 +16,13 @@ import { createLogger } from '../../utils/logger.js'
 
 const log = createLogger('acp-store')
 
+/**
+ * Max cards kept per session. The history read side caps at 50 (history.ts);
+ * the write side keeps a little more (100) and evicts the oldest beyond that,
+ * so the state file can't grow without bound for a long-lived session.
+ */
+export const MAX_CARDS_PER_SESSION = 100
+
 interface StoredSession {
   id: string
   title: string
@@ -125,6 +132,8 @@ export function createAcpStore(path: string): AcpStore {
       const i = cid ? s.cards.findIndex((c) => (c as { id?: string }).id === cid) : -1
       if (i >= 0) s.cards[i] = card
       else s.cards.push(card)
+      // Bounded: evict the oldest cards past the cap (runs before every persist).
+      if (s.cards.length > MAX_CARDS_PER_SESSION) s.cards.splice(0, s.cards.length - MAX_CARDS_PER_SESSION)
       s.updatedAt = now
       void persist()
     },

@@ -145,6 +145,9 @@ export function createAcpBackend(deps: AcpBackendDeps): AgentBackend {
   /** Sessions being history-loaded: their replayed session/update stream is buffered
    *  here (→ buildReplayCards) instead of emitted as live events. */
   const replayBuffers = new Map<string, AcpUpdate[]>()
+  /** In-flight history loads per session — concurrent getHistory calls SHARE one
+   *  load instead of racing on replayBuffers (see loadHistory). */
+  const historyLoads = new Map<string, Promise<StructuredCard[]>>()
   /** Switchable mode + model per session (ACP modes + config options). `modelConfigId`
    *  is the config option id setModel must target. Served via getControls. */
   const controls = new Map<string, SessionControls & { modelConfigId?: string }>()
@@ -323,8 +326,23 @@ export function createAcpBackend(deps: AcpBackendDeps): AgentBackend {
 
   /** Rebuild a session's history by replaying it via session/load (kimi re-streams its
    *  past updates; we buffer them and build cards). For native/unstreamed sessions
-   *  OCRC has no recorded cards for. Caches the result so later opens are instant. */
+   *  OCRC has no recorded cards for. Caches the result so later opens are instant.
+   *  Concurrent loads for the SAME session share one in-flight promise: a second
+   *  load would overwrite the first's replay buffer and its finally would then
+   *  delete the buffer mid-replay (half history + replayed updates leaking out as
+   *  live events). Updates arriving while a load is in flight append to the ONE
+   *  buffer, so they land in the rebuilt cards instead of being swallowed. */
   async function loadHistory(sid: string): Promise<StructuredCard[]> {
+    const inflight = historyLoads.get(sid)
+    if (inflight) return inflight
+    const p = doLoadHistory(sid)
+    historyLoads.set(sid, p)
+    const cleanup = () => { if (historyLoads.get(sid) === p) historyLoads.delete(sid) }
+    p.then(cleanup, cleanup)
+    return p
+  }
+
+  async function doLoadHistory(sid: string): Promise<StructuredCard[]> {
     const { conn } = await connection()
     if (!conn.loadSession) return []
     const buffer: AcpUpdate[] = []

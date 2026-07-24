@@ -6,7 +6,7 @@
   import { afterNavigate } from '$app/navigation'
   import { api } from '$lib/api/client.js'
   import { createWsClient } from '$lib/ws/client.js'
-  import { sessionList, feeds, upsertCard, setHistory } from '$lib/stores/sessions.js'
+  import { sessionList, feeds, upsertCard, setHistory, pruneFeeds } from '$lib/stores/sessions.js'
   import { capabilities, loadCapabilities, backends, loadBackends, viewedSessionId, applyAgentTheme } from '$lib/stores/capabilities.js'
   import { paletteOpen } from '$lib/stores/palette.js'
   import { leftPanelOpen, plusMenuOpen, newSessionOpen, inspectorOpen } from '$lib/stores/ui.js'
@@ -56,6 +56,9 @@
   function loadSession(id: string | undefined) {
     // Capability gating keys off the viewed session's backend.
     viewedSessionId.set(id)
+    // Only the viewed session is subscribed, so evict every other feed —
+    // visited sessions' histories must not accumulate in memory forever.
+    pruneFeeds(id)
     if (!id || id === lastLoaded) return
     lastLoaded = id
     api.history(id)

@@ -26,9 +26,12 @@
       // The working dir comes from context (every backend has it); the diff file
       // list only when the backend supports it.
       const ctx = await api.context(id)
+      // Session switched while the request was in flight — drop the stale result.
+      if (id !== sessionId) return
       dir = (ctx as any)?.directory ?? ''
       if (showDiff) {
         const diff = await api.diff(id)
+        if (id !== sessionId) return
         files = (Array.isArray(diff) ? diff : [])
           .map((d: any) => ({
             path: String(d?.path ?? ''),

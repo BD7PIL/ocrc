@@ -96,3 +96,19 @@ export function removeCard(id: string) {
     return { ...map, [sessionId]: feed }
   })
 }
+
+/**
+ * Drop feeds of sessions that are neither viewed nor subscribed anymore —
+ * otherwise every visited session's history (up to 500 cards each) stays in
+ * memory forever. Live cards for an evicted session simply recreate its feed.
+ */
+export function pruneFeeds(keep: string | string[] | undefined) {
+  const keepSet = new Set(Array.isArray(keep) ? keep : keep ? [keep] : [])
+  feeds.update((map) => {
+    const next: Record<string, SessionFeed> = {}
+    for (const sid of Object.keys(map)) {
+      if (keepSet.has(sid)) next[sid] = map[sid]
+    }
+    return next
+  })
+}

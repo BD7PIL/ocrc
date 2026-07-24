@@ -96,4 +96,22 @@ describe('WorkingDirPanel', () => {
     await tick()
     expect(container.querySelector('.diff')).toBeNull()
   })
+
+  it('drops a stale response when the session switches mid-load', async () => {
+    let resolveS1: (v: any) => void = () => {}
+    vi.mocked(api.context).mockImplementation(((id: string) =>
+      id === 's1'
+        ? new Promise((r) => { resolveS1 = r })
+        : Promise.resolve({ sessionId: id, directory: `/dir-${id}` })) as any)
+    vi.mocked(api.diff).mockResolvedValue([])
+    const { container, rerender } = render(WorkingDirPanel, { props: { sessionId: 's1' } })
+    await tick()
+    // Switch session before s1's context request resolves.
+    await rerender({ sessionId: 's2' })
+    await vi.waitFor(() => expect(container.textContent).toContain('dir-s2'))
+    resolveS1({ sessionId: 's1', directory: '/dir-s1' })
+    await tick()
+    expect(container.textContent).toContain('dir-s2')
+    expect(container.textContent).not.toContain('dir-s1')
+  })
 })

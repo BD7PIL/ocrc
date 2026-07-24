@@ -11,7 +11,15 @@
   let openPanel: 'mode' | 'model' | null = null
 
   async function load() {
-    try { controls = await api.controls(sessionId) } catch { controls = {} }
+    const sid = sessionId
+    try {
+      const res = await api.controls(sid)
+      // Session switched while the request was in flight — drop the stale result.
+      if (sid !== sessionId) return
+      controls = res
+    } catch {
+      if (sid === sessionId) controls = {}
+    }
   }
 
   $: if (sessionId) load()

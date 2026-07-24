@@ -21,7 +21,10 @@
       toggled = new Set()
     }
     try {
-      s = summarizeTodos(await api.todo(id))
+      const todos = await api.todo(id)
+      // Session switched while the request was in flight — drop the stale result.
+      if (id !== sessionId) return
+      s = summarizeTodos(todos)
     } catch {
       /* keep last valid summary on transient failures */
     }

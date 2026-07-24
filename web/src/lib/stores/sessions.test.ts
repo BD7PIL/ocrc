@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { get } from 'svelte/store'
-import { feeds, upsertCard, setHistory, cardsOf } from './sessions.js'
+import { feeds, upsertCard, setHistory, pruneFeeds, cardsOf } from './sessions.js'
 import type { StructuredCard } from '../api/types.js'
 
 function feed(sid: string) {
@@ -60,5 +60,21 @@ describe('session feed store', () => {
     setHistory('s', [{ kind: 'user', sessionId: 's', text: 'h', ts: 0, id: 'h1' } as StructuredCard], 10)
     expect(cardsOf(feed('s')).map((c) => c.id)).toEqual(['h1'])
     expect(feed('s').lastSeq).toBe(10)
+  })
+
+  it('pruneFeeds drops sessions that are no longer viewed/subscribed', () => {
+    setHistory('a', [{ kind: 'user', sessionId: 'a', text: 'A', ts: 0, id: 'a1' } as StructuredCard], 1)
+    setHistory('b', [{ kind: 'user', sessionId: 'b', text: 'B', ts: 0, id: 'b1' } as StructuredCard], 1)
+    pruneFeeds('b')
+    expect(feed('a')).toBeUndefined()
+    expect(cardsOf(feed('b')).map((c) => c.id)).toEqual(['b1'])
+  })
+
+  it('pruneFeeds(undefined) evicts everything; live cards recreate a feed', () => {
+    setHistory('a', [{ kind: 'user', sessionId: 'a', text: 'A', ts: 0, id: 'a1' } as StructuredCard], 1)
+    pruneFeeds(undefined)
+    expect(feed('a')).toBeUndefined()
+    upsertCard({ kind: 'user', sessionId: 'a', text: 'new', ts: 0, id: 'a2', seq: 2 })
+    expect(cardsOf(feed('a')).map((c) => c.id)).toEqual(['a2'])
   })
 })

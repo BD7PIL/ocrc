@@ -15,7 +15,10 @@
       return
     }
     try {
-      ctx = await api.context(id)
+      const res = await api.context(id)
+      // Session switched while the request was in flight — drop the stale result.
+      if (id !== sessionId) return
+      ctx = res
     } catch {
       /* keep last valid context on transient failures */
     }

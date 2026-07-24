@@ -41,15 +41,25 @@
     return last?.kind === 'thinking' || last?.kind === 'streaming' || last?.kind === 'think-stream'
   })()
 
+  // Session the running-timer currently belongs to — jumping directly from one
+  // busy session to another must restart the clock instead of keeping A's start.
+  let runSession = ''
+
   $: if (busy) {
+    if (runSession !== sessionId) {
+      runSession = sessionId
+      runStart = 0
+    }
     if (!runStart && typeof window !== 'undefined') {
       runStart = Date.now()
       runElapsed = 0
+      if (runTimer) clearInterval(runTimer)
       runTimer = setInterval(() => { runElapsed = Math.floor((Date.now() - runStart) / 1000) }, 1000)
     }
   } else {
     runStart = 0
     runElapsed = 0
+    runSession = ''
     if (runTimer) { clearInterval(runTimer); runTimer = undefined }
   }
 

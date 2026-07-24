@@ -1,5 +1,86 @@
 # Changelog
 
+## v0.8.1 — 2026-07-24
+
+Headline: **big review pass — core correctness, transport hardening, and
+frontend accessibility / motion hygiene.**
+
+### Core & transport fixes
+- **Session routing hardening**
+  - `SessionState.normalizeSessionId()` now guards `undefined`/`""` input,
+    requires a `>=6` char suffix, and refuses ambiguous suffix matches so a
+    short display id can no longer silently resolve to the wrong session.
+  - All ingress points now normalize short ids: relay fallbacks, Telegram
+    approval/pin, web routes (`/session`, `/abort`, `/diff`, `/todo`, `/context`,
+    `/controls`, `/files`, `/rename`, `/commands`, `/approval`), and WebSocket
+    subscribe.
+- **Relay correctness**
+  - Fixed an `AbortController` leak that kept `hasActiveGeneration()` stuck
+    `true` forever, blocking Telegram input.
+  - Per-session serialization so two messages targeting the same session can't
+    clobber each other's timers, abort registration, or stream accumulator.
+  - External/TUI-adopted turns now get a real timeout and register in the abort
+    map.
+  - `hasSession()` no longer swallows network errors; transient backend failures
+    surface an error card instead of rerouting the prompt to a different session.
+- **ACP lifecycle**
+  - Canceled/rejected ACP connection promises are cleared so the backend can
+    reconnect.
+  - Spawned ACP children are killed on initialize failure and on host shutdown.
+- **Telegram hardening**
+  - HTML output is escaped everywhere (approval titles, `/sessions`, `/rename`,
+    `/todo`, error replies) so `<`/`&` no longer 400 the reply.
+  - 429 `retry_after` is honored with backoff; multi-chunk sends are paced.
+  - `callback_data` ids that exceed Telegram's 64-byte limit are mapped to
+    sha1 tokens.
+  - Local and remote `/abort` now target the same resolved session.
+  - Persistent 409 (another bot) / 401 (bad token) are logged as FATAL instead
+    of silently dying.
+- **Web transport**
+  - WebSocket clients register synchronously on attach so early subscribes are
+    not dropped and dead sockets can't leak.
+  - `maxPayload` capped at 64KB; unexpected `verifyUpgrade` errors destroy the
+    socket cleanly.
+  - Query-param credentials (`?token=`, `?cf_access_jwt=`) are now only accepted
+    on the `/ws` upgrade path, never on plain HTTP.
+  - `/api/abort` and `/api/approval` validate their bodies and return 400 for
+    malformed input instead of 500.
+- **Plugin / host**
+  - `.env` precedence reversed: the plugin's own `.env` is authoritative; the
+    cwd `.env` can only supplement, not hijack token/allowlist.
+  - `.env` written by the installer is created with `0600` permissions.
+  - Transport start failures retry with exponential backoff instead of giving up
+    on a transient boot error.
+  - State and ACP store are flushed on SIGINT/SIGTERM so debounced writes aren't
+    lost.
+  - Log file rotates at 10MB.
+
+### Web UI — terminal output & design audit
+- **Terminal-style tool output** ships as production: multi-line or long tool
+  args render in `TerminalBlock`, ANSI SGR colors convert to spans, and output
+  over 20 lines collapses behind a show-more toggle.
+- **Accessibility & motion**
+  - Global `prefers-reduced-motion` fallback.
+  - Session-row action buttons are visible on `:focus-within`, not just hover.
+  - Focus trap + focus restore for NewSessionModal and CommandPalette.
+  - Chip dropdowns (`AgentModelChip`, `SessionControls`) get
+    `aria-haspopup`/`aria-expanded`, Escape, and click-outside dismissal.
+  - Status dots carry accessible text; busy vs idle are distinguished by color
+    (`--ok` vs `--accent`) as well as pulse.
+  - Placeholder-only inputs receive `aria-label`s.
+- **Theming / anti-patterns**
+  - Banned 2px side-stripes removed from error and think-stream cards.
+  - Added `--scrim`, `--bg-code`, and a semantic `--z-*` scale; swept ~15
+    hard-coded colors and duplicated scrims onto tokens.
+  - Layout-property animations (rail width, progress-bar width, modal padding)
+    moved to transform-based animations.
+
+### Also
+- `TerminalBlock` ANSI parsing fixed for combined reset+color sequences
+  (`\x1b[0;31m`) and 256/truecolor parameter groups.
+- Web `feeds` store prunes inactive sessions to bound memory.
+- Inspector panels discard stale async results when the user switches sessions.
+
 ## v0.8.0 — 2026-06-22
 
 Headline: **OCRC becomes Pactify Linx** — a full console redesign around an

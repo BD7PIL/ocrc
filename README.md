@@ -3,11 +3,13 @@
 > **Drive your local opencode from your phone or browser.** An [opencode](https://opencode.ai)
 > **plugin** that runs a **Telegram bot + a Web PWA** in-process — fire off a prompt from
 > anywhere and watch the assistant code in real time, even when you're away from your desk.
+> Now also drives any [ACP](https://agentclientprotocol.com) agent (e.g. Kimi) in standalone host mode.
 
 [![Release](https://img.shields.io/github/v/release/agentjoey/opencode-remote-control?color=10b981)](https://github.com/agentjoey/opencode-remote-control/releases)
 [![License: MIT](https://img.shields.io/github/license/agentjoey/opencode-remote-control?color=10b981)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/agentjoey/opencode-remote-control/ci.yml?branch=main&label=CI)](https://github.com/agentjoey/opencode-remote-control/actions)
 [![opencode plugin](https://img.shields.io/badge/opencode-plugin-10b981)](https://opencode.ai)
+[![tests](https://img.shields.io/badge/tests-413%20backend%20%2B%2093%20web-10b981)](./CHANGELOG.md)
 
 <p align="center">
   <img src="docs/assets/ocrc-web.png" width="840" alt="OCRC — the Web PWA driving a live opencode session (sessions, live chat, task & cost inspector)">

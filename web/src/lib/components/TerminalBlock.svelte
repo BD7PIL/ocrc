@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
   import { ansiToHtml } from '../ansi.js'
 
   /** Terminal-styled block for tool/command output: monospace, dark,
@@ -19,7 +20,33 @@
   // (the interesting part) sit hidden behind "show more".
   $: expanded = status === 'running' || userExpanded
   $: shown = collapsible && !expanded ? lines.slice(0, MAX_LINES).join('\n') : text
-  $: html = ansiToHtml(shown)
+
+  let html = ''
+  let lastApplied: string | undefined
+  let raf = 0
+  let pending = ''
+
+  function apply(s: string) {
+    if (s === lastApplied) return // memoize — skip re-render of unchanged text
+    lastApplied = s
+    html = ansiToHtml(s)
+  }
+
+  // While running, deltas arrive per-token: coalesce the ansiToHtml render to
+  // one per animation frame. Once done (or without rAF), apply synchronously so
+  // the final output is always complete.
+  $: {
+    const s = shown
+    if (status === 'running' && typeof requestAnimationFrame !== 'undefined') {
+      pending = s
+      if (!raf) raf = requestAnimationFrame(() => { raf = 0; apply(pending) })
+    } else {
+      if (raf) { cancelAnimationFrame(raf); raf = 0 }
+      apply(s)
+    }
+  }
+
+  onDestroy(() => { if (raf) cancelAnimationFrame(raf) })
 
   $: glyph = status === 'done' ? '✓' : status === 'running' ? '●' : '✗'
 
@@ -120,6 +147,7 @@
   .toggle {
     display: block;
     width: 100%;
+    min-height: 32px;
     padding: 4px 10px;
     background: transparent;
     border: none;

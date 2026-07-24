@@ -86,7 +86,40 @@
   }
 
   function onKey(e: KeyboardEvent) {
-    if (e.key === 'Escape') close()
+    if (e.key === 'Escape') { close(); return }
+    if (e.key === 'Tab') trapTab(e)
+  }
+
+  let modalEl: HTMLElement
+
+  function focusableIn(node: HTMLElement): HTMLElement[] {
+    return Array.from(
+      node.querySelectorAll<HTMLElement>('button, input, [tabindex]'),
+    ).filter((el) => !el.hasAttribute('disabled'))
+  }
+
+  // On mount: remember the trigger and move focus into the dialog. On destroy
+  // (the modal closes) focus goes back to the trigger.
+  function manageFocus(node: HTMLElement) {
+    const trigger = document.activeElement as HTMLElement | null
+    const first = node.querySelector<HTMLElement>('input:not([disabled])') ?? focusableIn(node)[0]
+    first?.focus()
+    return {
+      destroy() {
+        trigger?.focus?.()
+      },
+    }
+  }
+
+  // Lightweight focus trap: Tab wraps between the first and last focusable.
+  function trapTab(e: KeyboardEvent) {
+    if (!modalEl) return
+    const items = focusableIn(modalEl)
+    if (items.length === 0) return
+    const first = items[0]
+    const last = items[items.length - 1]
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
   }
 </script>
 
@@ -95,7 +128,7 @@
 {#if $newSessionOpen}
   <div class="overlay">
     <button class="backdrop" aria-label="Close" on:click={close}></button>
-    <div class="modal" role="dialog" aria-modal="true" aria-label="Create new session">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Create new session" bind:this={modalEl} use:manageFocus>
       <div class="header">
         <span class="title">New session</span>
         <button class="close" aria-label="Close" on:click={close}>✕</button>
@@ -125,7 +158,7 @@
                   >
                     {glyph(a)}
                   </span>
-                  <span class="chip-status {statusClass(a.status)}" style="--dot:{ACCENT_HEX[theme]}"></span>
+                  <span class="chip-status {statusClass(a.status)}" style="--dot:{ACCENT_HEX[theme]}"><span class="sr-only">{statusClass(a.status)}</span></span>
                   <span class="chip-name">{a.name ?? a.id}</span>
                 </button>
               {/each}
@@ -194,12 +227,12 @@
     justify-content: center;
     align-items: flex-start;
     padding-top: 84px;
-    z-index: 300;
+    z-index: var(--z-modal);
   }
   .backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(8, 7, 6, .62);
+    background: var(--scrim);
     border: none;
     padding: 0;
     margin: 0;
@@ -325,6 +358,18 @@
     flex-shrink: 0;
     box-sizing: border-box;
   }
+  /* Visually hidden, still read by screen readers (text alternative for status dots). */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
   .chip-status.online { background: var(--dot, var(--ok)); border-color: var(--dot, var(--ok)); }
   .chip-status.connecting { background: var(--warn); border-color: var(--warn); animation: ocrc-pulse 1.2s ease-in-out infinite; }
   .chip-status.offline { background: transparent; border: 1.5px solid var(--text-4); }
@@ -439,8 +484,8 @@
 
   .error {
     padding: 10px 12px;
-    background: rgba(224, 121, 107, .12);
-    border: 1px solid rgba(224, 121, 107, .35);
+    background: color-mix(in srgb, var(--err) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--err) 35%, transparent);
     border-radius: var(--radius-sm);
     color: var(--err);
     font-size: 12px;

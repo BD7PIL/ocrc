@@ -17,13 +17,13 @@
     text-align: center;
     font-size: 0.8em;
     padding: 4px 8px;
-    background: #3a2f12;
-    color: #fbbf24;
-    border-bottom: 1px solid #4a3c18;
+    background: color-mix(in srgb, var(--warn) 14%, var(--bg));
+    color: var(--warn);
+    border-bottom: 1px solid color-mix(in srgb, var(--warn) 32%, transparent);
   }
   .banner.offline {
-    background: #3a1212;
-    color: #f87171;
-    border-bottom-color: #4a1818;
+    background: color-mix(in srgb, var(--err) 14%, var(--bg));
+    color: var(--err);
+    border-bottom-color: color-mix(in srgb, var(--err) 32%, transparent);
   }
 </style>

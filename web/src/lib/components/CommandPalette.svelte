@@ -117,10 +117,21 @@
     return out
   }
 
+  let returnFocus: HTMLElement | null = null
+  let paletteEl: HTMLElement
+
+  // Mounted when the palette opens: remember the trigger, take its place.
+  function initFocus(node: HTMLInputElement) {
+    returnFocus = document.activeElement as HTMLElement | null
+    node.focus()
+  }
+
   export function close() {
     dispatch('close')
     query = ''
     cmdError = ''
+    returnFocus?.focus?.()
+    returnFocus = null
   }
 
   function choose(id: string) {
@@ -166,6 +177,7 @@
 
   function onKey(e: KeyboardEvent) {
     if (e.key === 'Escape') { close(); return }
+    if (e.key === 'Tab') { trapTab(e); return }
     if (selectableCount === 0) return
     if (e.key === 'ArrowDown') {
       e.preventDefault()
@@ -185,6 +197,19 @@
     }
   }
 
+  // Lightweight focus trap: Tab wraps between the first and last focusable row.
+  function trapTab(e: KeyboardEvent) {
+    if (e.key !== 'Tab' || !paletteEl) return
+    const items = Array.from(
+      paletteEl.querySelectorAll<HTMLElement>('input, button:not(:disabled)'),
+    )
+    if (items.length === 0) return
+    const first = items[0]
+    const last = items[items.length - 1]
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+  }
+
   async function scrollActive() {
     await tick()
     const el = document.querySelector('.palette .row.active') as HTMLElement | null
@@ -200,26 +225,26 @@
 {#if open}
   <div class="overlay">
     <button class="backdrop" aria-label="Close" on:click={close}></button>
-    <div class="palette" role="dialog" aria-modal="true" aria-label="Search sessions and commands" tabindex="-1">
+    <div class="palette" role="dialog" aria-modal="true" aria-label="Search sessions and commands" tabindex="-1" bind:this={paletteEl} on:keydown={trapTab}>
       <div class="header">
         <span class="search-icon" aria-hidden="true">⌕</span>
-        <!-- svelte-ignore a11y_autofocus -->
         <input
           class="q"
-          autofocus
+          use:initFocus
           placeholder="Jump to a session, or run a command…"
+          aria-label="Search sessions and commands"
           bind:value={query}
           on:keydown={onKey}
         />
         <kbd class="keycap mono" aria-label="Press Escape to close">esc</kbd>
       </div>
-      <div class="results">
+      <div class="results" role="listbox" aria-label="Results">
         {#if flatItems.length === 0}
           <div class="empty">No matches</div>
         {:else}
           {#each flatItems as item (item.agent?.id ?? item.session?.id ?? item.command?.name ?? item.label ?? '')}
             {#if item.type === 'group'}
-              <div class="group">
+              <div class="group" role="presentation">
                 <span class="group-icon" aria-hidden="true">{item.icon}</span>
                 <span class="group-label mono">{item.label}</span>
               </div>
@@ -227,6 +252,8 @@
               <button
                 class="row"
                 class:active={item.selectableIndex === active}
+                role="option"
+                aria-selected={item.selectableIndex === active}
                 on:click={() => { if (item.agent) switchAgent(item.agent.id) }}
                 on:mouseenter={() => { if (item.selectableIndex != null) active = item.selectableIndex }}
               >
@@ -238,6 +265,8 @@
               <button
                 class="row"
                 class:active={item.selectableIndex === active}
+                role="option"
+                aria-selected={item.selectableIndex === active}
                 on:click={() => { if (item.session) choose(item.session.id) }}
                 on:mouseenter={() => { if (item.selectableIndex != null) active = item.selectableIndex }}
               >
@@ -251,6 +280,8 @@
                 class:active={item.selectableIndex === active}
                 class:disabled={item.disabled}
                 disabled={item.disabled || running === item.command?.name}
+                role="option"
+                aria-selected={item.selectableIndex === active}
                 on:click={() => { if (item.command) runCommand(item.command.name) }}
                 on:mouseenter={() => { if (item.selectableIndex != null) active = item.selectableIndex }}
               >
@@ -278,12 +309,12 @@
     justify-content: center;
     align-items: flex-start;
     padding-top: 84px;
-    z-index: 200;
+    z-index: var(--z-overlay);
   }
   .backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(8, 7, 6, .62);
+    background: var(--scrim);
     border: none;
     padding: 0;
     margin: 0;

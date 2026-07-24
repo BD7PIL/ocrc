@@ -175,7 +175,7 @@
   .sub-header {
     position: sticky;
     top: 0;
-    z-index: 5;
+    z-index: var(--z-sticky);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -211,7 +211,7 @@
     .expand { display: none; }
     .back, .inspect {
       display: inline-flex; align-items: center; justify-content: center;
-      width: 36px; height: 36px; flex-shrink: 0;
+      width: 44px; height: 44px; flex-shrink: 0;
       background: var(--bg-elev); border: 1px solid var(--border);
       border-radius: 9px; color: var(--text-2); cursor: pointer;
     }
@@ -288,7 +288,7 @@
     .composer-float {
       position: absolute;
       left: 0; right: 0; bottom: 0;
-      z-index: 5;
+      z-index: var(--z-sticky);
       background: transparent;
       /* (B) Follow the keyboard/toolbar by translating up --kb on the GPU — no app
          resize, no reflow. The transition makes the snap-back (and open) glide. */

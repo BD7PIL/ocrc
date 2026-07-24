@@ -55,6 +55,7 @@
           <div class="row {t.status}">
             <div class="row-main">
               <span class="status" aria-hidden="true"></span>
+              <span class="sr-only">{t.status}</span>
               <span class="name mono">{t.tool}</span>
               <span class="arg mono">{t.args}</span>
               {#if t.adds || t.dels}
@@ -141,6 +142,18 @@
     border: 1.5px solid transparent;
     flex-shrink: 0;
     box-sizing: border-box;
+  }
+  /* Visually hidden, still read by screen readers (text alternative for the dot). */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
   .row.running .status {
     background: var(--accent);

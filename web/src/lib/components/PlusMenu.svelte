@@ -51,7 +51,7 @@
   .overlay {
     position: fixed;
     inset: 0;
-    z-index: 250;
+    z-index: var(--z-overlay);
     pointer-events: none;
   }
   .backdrop {
@@ -134,7 +134,7 @@
       justify-content: center;
       padding: 0 0 env(safe-area-inset-bottom, 0);
       pointer-events: auto;
-      background: rgba(8, 7, 6, .45);
+      background: var(--scrim);
     }
     /* backdrop stays tappable to dismiss the sheet (no Esc on touch). */
     .menu {

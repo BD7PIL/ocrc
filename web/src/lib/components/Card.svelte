@@ -38,7 +38,7 @@
 <style>
   .placeholder {
     padding: 10px;
-    color: #888;
+    color: var(--text-3);
     font-style: italic;
   }
 </style>

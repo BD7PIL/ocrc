@@ -100,7 +100,7 @@
     >
       {glyph(activeAgent)}
     </span>
-    <span class="status-dot {statusClass(activeAgent?.status)}"></span>
+    <span class="status-dot {statusClass(activeAgent?.status)}"><span class="sr-only">{statusClass(activeAgent?.status)}</span></span>
     <span class="title">{title}</span>
     <span class="caret" aria-hidden="true">▾</span>
   </button>
@@ -110,7 +110,7 @@
       <div class="list">
         {#each sessions as s (s.id)}
           <button class="row" class:active={s.id === activeId} on:click={() => select(s.id)}>
-            <span class="dot {s.id === activeId ? 'active' : ''}"></span>
+            <span class="dot {s.id === activeId ? 'active' : ''}" aria-hidden="true"></span>
             <span class="info">
               <span class="row-title">{s.title || 'Untitled session'}</span>
               <span class="row-meta mono">{shortId(s.id)} · {formatTime(s.lastActiveAt)}</span>
@@ -170,6 +170,18 @@
     flex-shrink: 0;
     box-sizing: border-box;
   }
+  /* Visually hidden, still read by screen readers (text alternative for the status dot). */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
   .status-dot.online { background: var(--accent); border-color: var(--accent); }
   .status-dot.connecting { background: var(--warn); border-color: var(--warn); animation: ocrc-pulse 1.2s ease-in-out infinite; }
   .status-dot.offline { background: transparent; border: 1.5px solid var(--text-4); }
@@ -196,7 +208,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: 0 18px 50px rgba(0,0,0,.55);
-    z-index: 50;
+    z-index: var(--z-popover);
     overflow: hidden;
     animation: ocrc-pop .14s ease;
   }

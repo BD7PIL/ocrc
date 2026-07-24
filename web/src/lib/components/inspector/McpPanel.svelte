@@ -9,7 +9,7 @@
 <div class="mcp">
   <div class="label">MCP</div>
   <div class="list">
-    {#each servers as m}<div class="row" class:off={m.status === 'disabled'}><span class="dot"></span>{m.name}</div>{/each}
+    {#each servers as m}<div class="row" class:off={m.status === 'disabled'}><span class="dot" aria-hidden="true"></span><span>{m.name}</span><span class="sr-only">{m.status}</span></div>{/each}
     {#if servers.length === 0}<div class="label">none</div>{/if}
   </div>
 </div>
@@ -20,4 +20,16 @@
   .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex-shrink: 0; }
   .row.off { color: var(--text-3); }
   .row.off .dot { background: var(--text-3); }
+  /* Visually hidden, still read by screen readers (text alternative for the dot). */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
 </style>

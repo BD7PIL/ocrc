@@ -114,7 +114,7 @@
         >
           {glyph(activeAgent)}
         </span>
-        <span class="status-dot {statusClass(activeAgent?.status)}" style="--dot:{ACCENT_HEX[activeTheme]}"></span>
+        <span class="status-dot {statusClass(activeAgent?.status)}" style="--dot:{ACCENT_HEX[activeTheme]}"><span class="sr-only">{statusClass(activeAgent?.status)}</span></span>
         <span class="name mono">{activeAgent?.name ?? activeAgent?.id ?? 'Agent'}</span>
         {#if activeAgent?.host}<span class="host mono">{activeAgent.host}</span>{/if}
         <span class="caret" aria-hidden="true">▾</span>
@@ -142,7 +142,7 @@
                   <span class="row-name mono">{a.name ?? a.id}</span>
                   <span class="row-host mono">{a.host ?? 'local'} · {(sessionCounts[a.id] ?? 0)} ses</span>
                 </span>
-                <span class="status-dot {statusClass(a.status)}" style="--dot:{ACCENT_HEX[theme]}"></span>
+                <span class="status-dot {statusClass(a.status)}" style="--dot:{ACCENT_HEX[theme]}"><span class="sr-only">{statusClass(a.status)}</span></span>
                 {#if selected}<span class="check">✓</span>{/if}
               </button>
             {/each}
@@ -178,7 +178,7 @@
           {@const theme = agentThemes[a.id] ?? agentAccent(a.id)}
           <button class="switch-pill" class:active={a.id === activeBackendId} on:click={() => switchAgentOnly(a.id)}>
             <span class="switch-tile" style="background:{ACCENT_BG[theme]}; color:{ACCENT_HEX[theme]}; border-color:{ACCENT_LINE[theme]}">{glyph(a)}</span>
-            <span class="status-dot {statusClass(a.status)}" style="--dot:{ACCENT_HEX[theme]}"></span>
+            <span class="status-dot {statusClass(a.status)}" style="--dot:{ACCENT_HEX[theme]}"><span class="sr-only">{statusClass(a.status)}</span></span>
             <span class="switch-name mono">{a.name ?? a.id}</span>
             <span class="switch-count mono">{(sessionCounts[a.id] ?? 0)}</span>
           </button>
@@ -262,6 +262,18 @@
     flex-shrink: 0;
     box-sizing: border-box;
   }
+  /* Visually hidden, still read by screen readers (text alternative for status dots). */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
   /* Online/idle dot follows the agent's own theme color (--dot, set inline per agent),
      falling back to --ok. connecting/offline keep their semantic colors. */
   .status-dot.online {
@@ -324,7 +336,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: 0 18px 50px rgba(0,0,0,.55);
-    z-index: 50;
+    z-index: var(--z-popover);
     overflow: hidden;
     animation: ocrc-pop .14s ease;
   }

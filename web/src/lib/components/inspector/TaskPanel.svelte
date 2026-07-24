@@ -52,7 +52,7 @@
     {#if s.total}<span class="meta">{effDone}/{s.total}</span>{/if}
   </div>
   {#if s.total}
-    <div class="bar"><div class="fill" style="width:{pct}%"></div></div>
+    <div class="bar"><div class="fill" style="transform:scaleX({pct / 100})"></div></div>
   {/if}
   <div class="items">
     {#each effItems as it, i (it.text + '-' + i)}
@@ -100,8 +100,10 @@
   }
   .fill {
     height: 100%;
-    background: var(--user-bubble);
-    transition: width .3s ease;
+    width: 100%;
+    background: var(--accent);
+    transform-origin: left;
+    transition: transform .3s ease;
   }
   .items {
     display: flex;

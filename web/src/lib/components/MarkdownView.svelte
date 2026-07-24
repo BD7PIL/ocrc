@@ -103,7 +103,7 @@
   .md :global(p:last-child) { margin-bottom: 0; }
 
   .md :global(.code-block) {
-    background: #151412;
+    background: var(--bg-code);
     border: 1px solid var(--border-2);
     border-radius: 9px;
     overflow: hidden;
@@ -129,7 +129,7 @@
     text-transform: lowercase;
   }
   .md :global(pre) {
-    background: #151412;
+    background: var(--bg-code);
     margin: 0;
     padding: 10px 12px;
     overflow-x: auto;

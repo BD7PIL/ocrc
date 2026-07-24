@@ -15,7 +15,13 @@
   ]
 
   function pick(a: Action) { a.run(); close() }
+
+  function onKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' && open) close()
+  }
 </script>
+
+<svelte:window on:keydown={onKey} />
 
 <div class="fab-root" class:open>
   {#if open}<button class="scrim" aria-label="Close" on:click={close}></button>{/if}
@@ -44,14 +50,14 @@
   }
 
   .scrim {
-    position: fixed; inset: 0; z-index: 40;
-    background: rgba(8, 7, 6, .5); border: none; padding: 0; cursor: default;
+    position: fixed; inset: 0; z-index: var(--z-fab);
+    background: var(--scrim); border: none; padding: 0; cursor: default;
     animation: fade .16s ease;
   }
   @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 
   .fab {
-    position: fixed; z-index: 42;
+    position: fixed; z-index: var(--z-fab);
     right: 18px; bottom: calc(76px + env(safe-area-inset-bottom));
     width: 56px; height: 56px; border-radius: 50%;
     display: grid; place-items: center;
@@ -65,7 +71,7 @@
   .fab.rot:active { transform: rotate(45deg) scale(.94); }
 
   .dial {
-    position: fixed; z-index: 42;
+    position: fixed; z-index: var(--z-fab);
     right: 20px; bottom: calc(146px + env(safe-area-inset-bottom));
     display: flex; flex-direction: column; align-items: flex-end; gap: 12px;
   }

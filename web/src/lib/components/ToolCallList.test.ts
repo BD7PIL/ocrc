@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, fireEvent } from '@testing-library/svelte'
+import { tick } from 'svelte'
 import ToolCallList from './ToolCallList.svelte'
 import TerminalBlock from './TerminalBlock.svelte'
 
@@ -86,9 +87,12 @@ describe('TerminalBlock', () => {
     expect(container.querySelector('.toggle')).toBeNull()
   })
 
-  it('shows full output while running (no collapse, no toggle)', () => {
+  it('shows full output while running (no collapse, no toggle)', async () => {
     const text = Array.from({ length: 25 }, (_, i) => `line${i + 1}`).join('\n')
     const { container } = render(TerminalBlock, { props: { text, status: 'running' } })
+    // Running output is throttled to the next animation frame — flush it.
+    await new Promise((r) => requestAnimationFrame(() => r(null)))
+    await tick()
     expect(container.querySelector('.term-body')!.textContent).toContain('line25')
     expect(container.querySelector('.toggle')).toBeNull()
   })

@@ -51,7 +51,7 @@
     {/if}
   </div>
   {#if pct != null}
-    <div class="bar"><div class="fill" style="width:{pct}%"></div></div>
+    <div class="bar"><div class="fill" style="transform:scaleX({pct / 100})"></div></div>
   {/if}
   {#if model}
     <div class="model mono"><span class="sq"></span>{model}</div>
@@ -104,8 +104,10 @@
   }
   .fill {
     height: 100%;
-    background: var(--user-bubble);
-    transition: width .3s ease;
+    width: 100%;
+    background: var(--accent);
+    transform-origin: left;
+    transition: transform .3s ease;
   }
   .model {
     display: flex;

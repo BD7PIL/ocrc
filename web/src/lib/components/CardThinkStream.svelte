@@ -37,10 +37,10 @@
   .caret.open { transform: rotate(90deg); }
   .body {
     margin: 6px 0 8px;
-    padding: 8px 10px 8px 12px;
-    border-left: 2px solid var(--hl-purple);
-    background: rgba(180, 140, 240, .06);
-    border-radius: 0 8px 8px 0;
+    padding: 8px 10px;
+    border: 1px solid var(--hl-purple);
+    background: color-mix(in srgb, var(--hl-purple) 6%, transparent);
+    border-radius: 8px;
   }
   .body pre {
     margin: 0;

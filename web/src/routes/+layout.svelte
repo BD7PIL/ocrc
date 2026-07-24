@@ -259,9 +259,17 @@
     width: 250px;
     flex-shrink: 0;
     overflow: hidden;
-    transition: width .22s ease;
+    /* Slide on the GPU (transform) instead of animating width — a width
+       transition reflows the chat on every frame. The negative margin hands
+       the rail's flex space to <main> instantly while the rail slides out. */
+    position: relative;
+    z-index: 1;
+    transition: transform .22s ease;
   }
-  .rail-wrap.collapsed { width: 0; }
+  .rail-wrap.collapsed {
+    transform: translateX(-100%);
+    margin-right: -250px;
+  }
   .inspector-wrap { display: contents; }
   .backdrop { display: none; }
 
@@ -270,19 +278,19 @@
        there's no active session (or ☰), and slid away to reveal the Chat screen. */
     .rail-wrap {
       display: block;
-      position: absolute; top: 0; bottom: 0; left: 0; z-index: 30;
+      position: absolute; top: 0; bottom: 0; left: 0; z-index: var(--z-drawer);
       width: 100%;
       overflow: hidden;
+      margin-right: 0;
       transition: transform .24s ease;
       transform: translateX(-100%);
     }
-    .rail-wrap.collapsed { width: 100%; }
     .rail-wrap.open { transform: translateX(0); }
 
     /* Inspector = bottom sheet (rises over a scrim) per v2 mobile. */
     .inspector-wrap {
       display: block;
-      position: absolute; left: 0; right: 0; bottom: 0; top: auto; z-index: 35;
+      position: absolute; left: 0; right: 0; bottom: 0; top: auto; z-index: var(--z-sheet);
       width: 100%; height: min(82vh, 580px);
       overflow: hidden;
       transition: transform .24s ease;
@@ -294,11 +302,12 @@
 
     .rail-wrap :global(.agent-panel), .rail-wrap :global(.panel) { width: 100%; }
     .inspector-wrap :global(.inspector) { width: 100%; height: 100%; }
-    /* MUST sit below the rail (30) AND the inspector sheet (35) so taps on an open
-       drawer hit the drawer, not the backdrop. It only dims the content behind. */
+    /* MUST sit below the rail (--z-drawer) AND the inspector sheet (--z-sheet)
+       so taps on an open drawer hit the drawer, not the backdrop. It only dims
+       the content behind. */
     .backdrop {
-      display: block; position: absolute; inset: 0; z-index: 25;
-      background: rgba(0,0,0,.5); border: none; padding: 0; cursor: default;
+      display: block; position: absolute; inset: 0; z-index: var(--z-backdrop);
+      background: var(--scrim); border: none; padding: 0; cursor: default;
       animation: fade .18s ease;
     }
     @keyframes fade { from { opacity: 0; } to { opacity: 1; } }

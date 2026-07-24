@@ -38,12 +38,18 @@
   }
 
   type Status = 'busy' | 'wait' | 'idle' | 'offline'
-  function sessionStatus(s: SessionSummary): Status {
-    if (isBusy(s.id, $feeds)) return 'busy'
-    if (isWaiting(s.id, $feeds)) return 'wait'
-    if (isOnline(s.lastActiveAt, $connection)) return 'idle'
+  function statusFor(s: SessionSummary, all: typeof $feeds, conn: string): Status {
+    if (isBusy(s.id, all)) return 'busy'
+    if (isWaiting(s.id, all)) return 'wait'
+    if (isOnline(s.lastActiveAt, conn)) return 'idle'
     return 'offline'
   }
+
+  // Reactive so statuses recompute when the feed/connection/list changes — a plain
+  // function reading $stores in the template is NOT tracked by legacy Svelte.
+  $: statuses = new Map<string, Status>(
+    $sessionList.map((s) => [s.id, statusFor(s, $feeds, $connection)]),
+  )
 
   function formatTime(ts: number): string {
     const diff = Date.now() - ts
@@ -169,17 +175,18 @@
           href="/{s.id}/"
           class="session"
           class:active={activeId === s.id}
-          class:busy={sessionStatus(s) === 'busy'}
+          class:busy={statuses.get(s.id) === 'busy'}
           on:click={(e) => handleClick(e, s.id)}
         >
           <div class="line1">
-            <span class="dot {sessionStatus(s)}"></span>
+            <span class="dot {statuses.get(s.id) ?? 'offline'}"><span class="sr-only">{statuses.get(s.id) ?? 'offline'}</span></span>
             {#if editing === s.id}
               <input
                 class="rename-input"
                 bind:value={draft}
                 disabled={renaming === s.id}
                 placeholder="Session title"
+                aria-label="Session title"
                 use:focusInput
                 on:click={(e) => e.preventDefault()}
                 on:keydown={(e) => onRenameKey(e, s.id)}
@@ -228,7 +235,7 @@
               {#if s.deletions}<span class="del">−{s.deletions}</span>{/if}
             {/if}
           </div>
-          {#if sessionStatus(s) === 'busy'}
+          {#if statuses.get(s.id) === 'busy'}
             <div class="progress" aria-hidden="true"><span class="progress-fill"></span></div>
           {/if}
         </a>
@@ -299,6 +306,18 @@
   }
 
   .line1 { display: flex; align-items: center; gap: 7px; }
+  /* Visually hidden, still read by screen readers (text alternative for status dots). */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
   .dot {
     width: 7px;
     height: 7px;
@@ -316,10 +335,11 @@
     background: var(--warn);
     border-color: var(--warn);
   }
-  /* idle dot follows the active agent's theme (sessions belong to it). */
+  /* idle is --ok (not --accent): busy/idle must differ by color alone, since
+     reduced-motion removes the busy pulse. */
   .dot.idle {
-    background: var(--accent);
-    border-color: var(--accent);
+    background: var(--ok);
+    border-color: var(--ok);
   }
   .dot.offline {
     background: transparent;
@@ -372,6 +392,8 @@
     transition: opacity .12s ease, color .12s ease;
   }
   .session:hover .act { opacity: .65; }
+  /* Keyboard: row actions become visible when focus lands inside the row. */
+  .session:focus-within .act { opacity: .65; }
   .act:hover { opacity: 1; }
   .act.pin:hover { color: var(--text); }
   .act.rename:hover { color: var(--accent); }
@@ -379,7 +401,15 @@
   .act.trash:hover { color: var(--err); }
   .act:disabled { opacity: .4; cursor: default; }
   @media (hover: none), (max-width: 820px) {
-    .act { opacity: .6; padding: 8px; }
+    /* ≥40px touch targets for the row actions on coarse/small screens. */
+    .act {
+      opacity: .6;
+      padding: 8px;
+      min-width: 40px;
+      min-height: 40px;
+      align-items: center;
+      justify-content: center;
+    }
     .actions { gap: 2px; }
   }
 

@@ -10,7 +10,7 @@
   --text:      #eaeef5;  /* primary */
   --text-2:    #c2cad8;  /* secondary */
   --text-3:    #7e889b;  /* muted / meta */
-  --text-4:    #52617a;  /* faint / disabled */
+  --text-4:    #71809a;  /* faint / disabled — lightest value that still hits 4.5:1 on all surfaces (WCAG AA) */
   /* chrome accent — emerald (default / opencode); per-agent via [data-accent] */
   --accent:    #54d398;
   --accent-2:  #0f261b;  /* accent-tinted fill (hover/selected) */
@@ -48,6 +48,32 @@
   --shadow-palette: 0 24px 70px rgba(0, 0, 0, .6);
   --font-sans: 'Space Grotesk', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* shared surfaces */
+  --bg-code:   #0d1219;  /* code blocks / diffs / terminal surfaces */
+  --scrim:     rgba(6, 10, 16, .6);  /* overlay scrim — single source (was 5 ad-hoc rgba values) */
+  /* semantic z-index scale (low → high) */
+  --z-sticky:    5;   /* sub-headers, floating composer */
+  --z-dropdown: 10;   /* inline dropdowns (mentions) */
+  --z-backdrop: 25;   /* drawer/sheet scrims */
+  --z-drawer:   30;   /* rail drawer */
+  --z-sheet:    35;   /* inspector bottom sheet */
+  --z-fab:      42;   /* FAB + its scrim (scrim uses --z-backdrop) */
+  --z-popover:  50;   /* anchored popovers (switchers, pickers, chips) */
+  --z-overlay: 200;   /* command palette, menus */
+  --z-modal:   300;   /* dialogs */
+  --z-gate:    500;   /* pair gate — above everything */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* No perpetual or entry motion for reduced-motion users: animations
+     complete instantly and transitions are skipped. State that was
+     conveyed by motion (e.g. pulsing busy dots) must have a non-motion
+     cue — status dots are also distinguished by color/text. */
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
 }
 
 /* Alternate accent themes: emerald (default), azure, amber, violet.

@@ -33,19 +33,30 @@
   $: ctxCost = typeof ctx?.cost === 'number' ? (ctx.cost as number) : undefined
 
   $: feed = sessionId ? $feeds[sessionId] : undefined
-  $: assistantCards = sessionId
-    ? (cardsOf(feed).filter((c) => c.kind === 'assistant') as ExtractStructuredCard<'assistant'>[])
-    : []
-  $: sumMeta = assistantCards.reduce(
-    (acc, c) => {
-      const m = c.meta ?? {}
-      if (typeof m.tokens?.input === 'number') acc.in += m.tokens.input
-      if (typeof m.tokens?.output === 'number') acc.out += m.tokens.output
-      if (typeof m.cost === 'number') acc.cost += m.cost
-      return acc
-    },
-    { in: 0, out: 0, cost: 0 }
-  )
+  // Fallback only: when api.context has no token totals, sum assistant-card
+  // meta. Memoized on the feed cursor (lastSeq + card count) so re-renders
+  // that changed nothing don't rescan the whole feed — and once the context
+  // endpoint reports tokens the scan stops running at all.
+  let sumKey = ''
+  let sumMeta = { in: 0, out: 0, cost: 0 }
+  $: {
+    const key = hasCtxTokens ? '' : `${sessionId}:${feed?.lastSeq ?? 0}:${feed?.order.length ?? 0}`
+    if (key !== sumKey) {
+      sumKey = key
+      sumMeta = key === ''
+        ? { in: 0, out: 0, cost: 0 }
+        : (cardsOf(feed).filter((c) => c.kind === 'assistant') as ExtractStructuredCard<'assistant'>[]).reduce(
+            (acc, c) => {
+              const m = c.meta ?? {}
+              if (typeof m.tokens?.input === 'number') acc.in += m.tokens.input
+              if (typeof m.tokens?.output === 'number') acc.out += m.tokens.output
+              if (typeof m.cost === 'number') acc.cost += m.cost
+              return acc
+            },
+            { in: 0, out: 0, cost: 0 }
+          )
+    }
+  }
 
   $: tin = hasCtxTokens ? ctxIn : sumMeta.in || undefined
   $: tout = hasCtxTokens ? ctxOut : sumMeta.out || undefined

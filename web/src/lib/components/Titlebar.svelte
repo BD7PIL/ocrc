@@ -140,7 +140,7 @@
     align-items: center;
     gap: 8px;
     min-width: 230px;
-    max-width: 340px;
+    max-width: min(340px, calc(100vw - 32px));
     background: var(--bg-input);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);

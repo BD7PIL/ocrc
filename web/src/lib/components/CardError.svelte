@@ -16,9 +16,8 @@
     margin: 4px 0;
     padding: 8px 10px;
     border-radius: var(--radius-sm);
-    border: 1px solid var(--border);
-    border-left: 2px solid var(--err);
-    background: var(--bg-elev);
+    border: 1px solid var(--err);
+    background: color-mix(in srgb, var(--err) 8%, transparent);
     line-height: 1.4;
   }
   .head {

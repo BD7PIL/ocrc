@@ -38,6 +38,7 @@
       class="field mono"
       bind:value={input}
       placeholder="Paste pairing token or link…"
+      aria-label="Pairing token or link"
       autocapitalize="off" autocorrect="off" spellcheck="false"
       on:keydown={(e) => e.key === 'Enter' && connect()}
     />
@@ -49,7 +50,7 @@
 
 <style>
   .gate {
-    position: fixed; inset: 0; z-index: 500;
+    position: fixed; inset: 0; z-index: var(--z-gate);
     display: flex; align-items: center; justify-content: center;
     background: var(--bg);
     padding: 24px;

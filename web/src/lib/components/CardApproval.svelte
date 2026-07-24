@@ -59,7 +59,7 @@
     align-items: center;
     gap: 8px;
     padding: 9px 12px;
-    background: rgba(224, 179, 65, .08);
+    background: color-mix(in srgb, var(--warn) 8%, transparent);
     border-bottom: 1px solid var(--border-2);
     border-radius: 11px 11px 0 0;
   }
@@ -90,7 +90,7 @@
   .diff {
     margin: 10px 12px;
     padding: 8px 10px;
-    background: #151412;
+    background: var(--bg-code);
     border: 1px solid var(--border-2);
     border-radius: 8px;
     font-size: 11.5px;
@@ -108,7 +108,8 @@
   }
   .spacer { flex: 1; }
   .a {
-    padding: 6px 12px;
+    min-height: 40px;
+    padding: 8px 14px;
     border-radius: var(--radius-sm);
     border: 1px solid var(--border);
     background: var(--bg-input);

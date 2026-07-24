@@ -37,6 +37,6 @@
     align-items: center;
     justify-content: center;
     height: 100%;
-    color: #666;
+    color: var(--text-3);
   }
 </style>

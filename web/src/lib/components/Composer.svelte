@@ -196,6 +196,7 @@
         on:blur={() => (focused = false)}
         on:click={updateMention}
         placeholder={$connection === 'connected' ? `Message ${$backendName}…` : 'Disconnected…'}
+        aria-label="Message input"
         rows={1}
       ></textarea>
       <div class="footer">
@@ -235,6 +236,9 @@
        desktop box, so a focused input doesn't read as a bulky floating block. */
     .box { padding: 7px 8px 7px 14px; border-radius: 22px; }
     .footer { margin-top: 4px; }
+    /* ≥44px touch targets on small/coarse screens. */
+    .send { width: 44px; height: 44px; }
+    .attach { width: 44px; height: 44px; }
   }
   .dock {
     max-width: 780px;
@@ -399,7 +403,7 @@
     margin-bottom: 4px;
     box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.35);
     padding: 4px;
-    z-index: 10;
+    z-index: var(--z-dropdown);
   }
   .mention-row {
     display: block;

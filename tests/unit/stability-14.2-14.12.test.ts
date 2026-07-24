@@ -38,6 +38,7 @@ function fakeState() {
     },
     getSessionCost: () => undefined,
     setSessionCost: vi.fn(),
+    normalizeSessionId: (id: string) => id,
     flush: async () => {},
   } as any
 }

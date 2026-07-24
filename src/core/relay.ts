@@ -133,7 +133,10 @@ export function createRelay(deps: RelayDeps) {
       // point at a deleted session — validate before submitting, otherwise
       // submitWithRetry burns 5 retries against a 404. A fresh
       // pickSessionFallback() result is trusted as-is.
-      let resolvedId = msg.sessionId ?? pinnedSession ?? tuiSession ?? lastSession
+      // Normalize to full ID so the cardBus / pluginSessions use the same key as
+      // the opencode event hook (which always delivers full session IDs).
+      let resolvedId = (msg.sessionId ? deps.state.normalizeSessionId(msg.sessionId) : undefined)
+        ?? pinnedSession ?? tuiSession ?? lastSession
       // Pick the backend: a known target routes to its owning backend; a brand-new
       // turn (no resolvable target) goes to the active backend.
       let backend: AgentBackend = resolvedId ? registry.forSession(resolvedId) : registry.active()

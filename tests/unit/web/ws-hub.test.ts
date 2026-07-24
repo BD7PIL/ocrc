@@ -24,6 +24,7 @@ function fakeClient() {
 function fakeState() {
   return {
     getSessionCost: vi.fn().mockReturnValue(undefined),
+    normalizeSessionId: (id: string) => id,
   } as any
 }
 

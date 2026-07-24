@@ -247,7 +247,7 @@ export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport 
         try {
           cardBusRef?.publish({
             kind: 'approval',
-            sessionId,
+            sessionId: cfg.state.normalizeSessionId(sessionId),
             title,
             args: props.args ?? props.permission ?? {},
             requestId: permId,

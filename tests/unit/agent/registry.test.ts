@@ -17,6 +17,7 @@ function fakeState() {
     setSessionBackend: (sid: string, id: string | undefined) => { if (id === undefined) sb.delete(sid); else sb.set(sid, id) },
     getActiveBackend: () => active,
     setActiveBackend: (id: string | undefined) => { active = id },
+    normalizeSessionId: (id: string) => id,
   } as any
 }
 

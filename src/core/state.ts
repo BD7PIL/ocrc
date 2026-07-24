@@ -51,6 +51,12 @@ export interface SessionState {
   /** Multi-backend: the backend new sessions are created on. */
   getActiveBackend(): string | undefined
   setActiveBackend(backendId: string | undefined): void
+  /**
+   * Normalize a short display ID (suffix) to the full session ID used as the
+   * cardBus / pluginSessions key.  Full IDs ("ses_*", "session_*", UUIDs) pass
+   * through unchanged.  Short suffixes are matched against sessionBackends keys.
+   */
+  normalizeSessionId(sessionId: string): string
   flush(): Promise<void>
 }
 
@@ -172,6 +178,19 @@ export function createFileBackedState(path: string): SessionState {
       if (backendId === undefined) delete cache.activeBackend
       else cache.activeBackend = backendId
       void persist()
+    },
+    normalizeSessionId: (sessionId) => {
+      // Full IDs (opencode ses_*, ACP session_*, raw UUIDs) pass through.
+      if (sessionId.startsWith('ses_') || sessionId.startsWith('session_') || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
+        return sessionId
+      }
+      // Short display suffix — scan sessionBackends for a matching full key.
+      const backs = cache.sessionBackends ?? {}
+      for (const key of Object.keys(backs)) {
+        if (key.endsWith(sessionId)) return key
+      }
+      // No match found; return input as-is (graceful fallback).
+      return sessionId
     },
     flush: async () => persist(),
   }

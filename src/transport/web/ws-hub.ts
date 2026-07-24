@@ -48,7 +48,7 @@ export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry;
       if (!state) return
       if (msg.type === 'ping') { ws.send(JSON.stringify({ type: 'pong' })); return }
       if (msg.type === 'subscribe' && typeof msg.sessionId === 'string') {
-        const sid = msg.sessionId
+        const sid = opts.state.normalizeSessionId(msg.sessionId)
         state.subscribedSession = sid
         // Replay buffered cards published after the client's snapshot. The
         // client sends sinceSeq = lastSeq from GET /api/session/:id; we replay

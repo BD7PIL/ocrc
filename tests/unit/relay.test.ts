@@ -235,6 +235,88 @@ describe('createRelay', () => {
     expect(state.getActiveAbort('ses_test')).toBeUndefined()
   })
 
+  it('clears the provisional abort key after resolving to a different session', async () => {
+    const state = fakeState()
+    state.setLastSessionId(undefined) // provisional key falls back to 'pending'
+    const relay = createRelay({
+      cardBus: createCardBus(),
+      backend: fakeBackend(),
+      state,
+      chatTimeoutMs: 5000,
+      tuiVisible: false,    })
+    await relay({ userId: '1', chatId: '100', text: 'hi', messageId: 'm', sessionId: 'ses_web' })
+    // the 'pending' entry must not linger — it would wedge hasActiveGeneration()
+    expect(state.setActiveAbort).toHaveBeenCalledWith('pending', undefined)
+    expect(state.getActiveAbort('pending')).toBeUndefined()
+    expect(state.getActiveAbort('ses_web')).toBeInstanceOf(AbortController)
+    // cleanup for following tests
+    await relay.handleEvent({ kind: 'idle', sessionId: 'ses_web' })
+  })
+
+  it('normalizes the pinned fallback session id (short suffix pinned by Telegram)', async () => {
+    const backend = fakeBackend()
+    const state = fakeState()
+    state.getPinnedSessionId = () => 'abcdef'
+    state.normalizeSessionId = (id: string) => (id === 'abcdef' ? 'ses_full_abcdef' : id)
+    const relay = createRelay({
+      cardBus: createCardBus(),
+      backend,
+      state,
+      chatTimeoutMs: 5000,
+      tuiVisible: false,    })
+    await relay({ userId: '1', chatId: '100', text: 'hi', messageId: 'm' })
+    expect(backend.prompt).toHaveBeenCalledWith('ses_full_abcdef', expect.objectContaining({ text: 'hi' }))
+    // provisional key (the short pinned id) is cleared after re-registration
+    expect(state.setActiveAbort).toHaveBeenCalledWith('abcdef', undefined)
+    await relay.handleEvent({ kind: 'idle', sessionId: 'ses_full_abcdef' })
+  })
+
+  it('ends the turn with an error card when hasSession throws (no fallback reroute)', async () => {
+    const backend = fakeBackend()
+    backend.hasSession = vi.fn().mockRejectedValue(new Error('fetch failed'))
+    const cardBus = createCardBus()
+    const cards: StructuredCard[] = []
+    cardBus.subscribeAll((c) => cards.push(c))
+    const state = fakeState()
+    state.getPinnedSessionId = () => 'ses_test'
+    const relay = createRelay({
+      cardBus,
+      backend,
+      state,
+      chatTimeoutMs: 5000,
+      tuiVisible: false,    })
+    await relay({ userId: '1', chatId: '100', text: 'hi', messageId: 'm' })
+    const errorCard = cards.find((c) => c.kind === 'error') as any
+    expect(errorCard).toBeDefined()
+    expect(errorCard.sessionId).toBe('ses_test')
+    expect(errorCard.message).toMatch(/fetch failed/)
+    // no fallback: never listed/picked another session, never submitted
+    expect(backend.listSessions).not.toHaveBeenCalled()
+    expect(backend.prompt).not.toHaveBeenCalled()
+    // abort registry fully cleared
+    expect(state.getActiveAbort('ses_test')).toBeUndefined()
+  })
+
+  it('falls back to the newest session only when hasSession says the target is gone', async () => {
+    const backend = fakeBackend()
+    backend.hasSession = vi.fn().mockResolvedValue(false)
+    backend.listSessions = vi.fn().mockResolvedValue([{ id: 'ses_newest', createdAt: 2 }, { id: 'ses_older', createdAt: 1 }])
+    const state = fakeState()
+    state.getPinnedSessionId = () => 'ses_deleted'
+    const relay = createRelay({
+      cardBus: createCardBus(),
+      backend,
+      state,
+      chatTimeoutMs: 5000,
+      tuiVisible: false,    })
+    await relay({ userId: '1', chatId: '100', text: 'hi', messageId: 'm' })
+    expect(backend.prompt).toHaveBeenCalledWith('ses_newest', expect.objectContaining({ text: 'hi' }))
+    // provisional key 'ses_deleted' cleared after rerouting to 'ses_newest'
+    expect(state.setActiveAbort).toHaveBeenCalledWith('ses_deleted', undefined)
+    expect(state.getActiveAbort('ses_deleted')).toBeUndefined()
+    await relay.handleEvent({ kind: 'idle', sessionId: 'ses_newest' })
+  })
+
   // ── Streaming + finalization via the plugin event hook ──
 
   describe('plugin event hook', () => {

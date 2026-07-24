@@ -112,4 +112,48 @@ describe('SessionState', () => {
     await s.flush()
     expect(createFileBackedState(path).getSessionBackend('k1')).toBeUndefined()
   })
+
+  describe('normalizeSessionId', () => {
+    it('passes undefined/empty through instead of throwing or matching everything', () => {
+      const s = createFileBackedState(join(dir, 'state.json'))
+      s.setSessionBackend('ses_full_abcdef', 'opencode')
+      expect(s.normalizeSessionId(undefined as any)).toBeUndefined()
+      expect(s.normalizeSessionId('')).toBe('')
+    })
+
+    it('passes full IDs through unchanged', () => {
+      const s = createFileBackedState(join(dir, 'state.json'))
+      s.setSessionBackend('ses_full_abcdef', 'opencode')
+      expect(s.normalizeSessionId('ses_other_xyz')).toBe('ses_other_xyz')
+      expect(s.normalizeSessionId('session_acp_1')).toBe('session_acp_1')
+      expect(s.normalizeSessionId('123e4567-e89b-12d3-a456-426614174000')).toBe('123e4567-e89b-12d3-a456-426614174000')
+    })
+
+    it('ignores suffixes shorter than 6 chars even when they match', () => {
+      const s = createFileBackedState(join(dir, 'state.json'))
+      s.setSessionBackend('ses_full_abcde', 'opencode')
+      expect(s.normalizeSessionId('abcde')).toBe('abcde')
+    })
+
+    it('resolves a unique >= 6 char suffix to the full session id', () => {
+      const s = createFileBackedState(join(dir, 'state.json'))
+      s.setSessionBackend('ses_full_abcdef', 'opencode')
+      s.setSessionBackend('session_other_123456', 'acp:kimi')
+      expect(s.normalizeSessionId('abcdef')).toBe('ses_full_abcdef')
+      expect(s.normalizeSessionId('123456')).toBe('session_other_123456')
+    })
+
+    it('returns the input unchanged when a suffix matches multiple sessions', () => {
+      const s = createFileBackedState(join(dir, 'state.json'))
+      s.setSessionBackend('ses_aaa_abcdef', 'opencode')
+      s.setSessionBackend('session_bbb_abcdef', 'acp:kimi')
+      expect(s.normalizeSessionId('abcdef')).toBe('abcdef')
+    })
+
+    it('returns the input unchanged when nothing matches', () => {
+      const s = createFileBackedState(join(dir, 'state.json'))
+      s.setSessionBackend('ses_full_abcdef', 'opencode')
+      expect(s.normalizeSessionId('zzzzzz')).toBe('zzzzzz')
+    })
+  })
 })

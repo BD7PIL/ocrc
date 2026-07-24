@@ -77,12 +77,16 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
   }
 
   async function hasSession(id: string): Promise<boolean> {
-    try {
-      const res = await client.session.get({ path: { id } })
-      return !!res.data
-    } catch {
-      return false
-    }
+    // Only an explicit 404 (or error-free empty result) means "session gone".
+    // Transport errors reject out of the await; other HTTP errors are rethrown —
+    // the relay must NOT treat "can't tell" as "gone" and misroute the message.
+    const res = await client.session.get({ path: { id } })
+    if (res.data) return true
+    const status = (res as { response?: { status?: number } }).response?.status
+    const err = (res as { error?: unknown }).error
+    if (status === 404 || (!status && !err)) return false
+    const detail = err instanceof Error ? err.message : typeof err === 'string' ? err : JSON.stringify(err)
+    throw new Error(`session.get failed${status ? ` (HTTP ${status})` : ''}: ${detail ?? 'unknown'}`)
   }
 
   async function listSessions(): Promise<SessionRef[]> {

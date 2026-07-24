@@ -81,6 +81,11 @@ export type AcpConnectFactory = (client: AcpClient) => Promise<{
   conn: AcpConnection
   /** First advertised auth method id, if initialize reported any. */
   authMethodId?: string
+  /**
+   * Register a callback fired when the underlying agent process dies. The
+   * backend uses it to drop its cached connection so the next call reconnects.
+   */
+  onDisconnect?: (cb: () => void) => void
 }>
 
 export interface AcpBackendDeps {
@@ -298,10 +303,18 @@ export function createAcpBackend(deps: AcpBackendDeps): AgentBackend {
     },
   }
 
-  // Lazy single connection.
-  let connP: Promise<{ conn: AcpConnection; authMethodId?: string }> | undefined
+  // Lazy single connection. Dropped on connect failure or agent exit so the
+  // next call reconnects instead of reusing a rejected promise or dead conn.
+  let connP: Promise<{ conn: AcpConnection; authMethodId?: string; onDisconnect?: (cb: () => void) => void }> | undefined
   function connection() {
-    if (!connP) connP = deps.connect(client)
+    if (!connP) {
+      const p = deps.connect(client)
+      connP = p
+      p.then(
+        ({ onDisconnect }) => onDisconnect?.(() => { if (connP === p) connP = undefined }),
+        () => { if (connP === p) connP = undefined },
+      )
+    }
     return connP
   }
 

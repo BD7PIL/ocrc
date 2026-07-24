@@ -4,6 +4,9 @@ import { createLogger } from '../utils/logger.js'
 
 const log = createLogger('state')
 
+/** Minimum length for a short display suffix to be resolved via endsWith. */
+const MIN_SUFFIX_LEN = 6
+
 interface PersistedState {
   lastSessionId?: string
   pinnedSessionId?: string
@@ -180,14 +183,22 @@ export function createFileBackedState(path: string): SessionState {
       void persist()
     },
     normalizeSessionId: (sessionId) => {
+      // Guard: undefined throws on startsWith, and '' matches EVERY key via
+      // endsWith('') — pass both through untouched.
+      if (!sessionId) return sessionId
       // Full IDs (opencode ses_*, ACP session_*, raw UUIDs) pass through.
       if (sessionId.startsWith('ses_') || sessionId.startsWith('session_') || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
         return sessionId
       }
-      // Short display suffix — scan sessionBackends for a matching full key.
+      // Short display suffix — too short to disambiguate reliably.
+      if (sessionId.length < MIN_SUFFIX_LEN) return sessionId
+      // Scan sessionBackends for full keys ending in the suffix.
       const backs = cache.sessionBackends ?? {}
-      for (const key of Object.keys(backs)) {
-        if (key.endsWith(sessionId)) return key
+      const matches = Object.keys(backs).filter((key) => key.endsWith(sessionId))
+      if (matches.length === 1) return matches[0]
+      // Ambiguous — fail loud instead of silently picking an arbitrary session.
+      if (matches.length > 1) {
+        log.warn(`normalizeSessionId: suffix "${sessionId}" matches ${matches.length} sessions; leaving unresolved`)
       }
       // No match found; return input as-is (graceful fallback).
       return sessionId

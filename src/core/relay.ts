@@ -117,8 +117,12 @@ export function createRelay(deps: RelayDeps) {
     const ac = new AbortController()
     const timer = setTimeout(() => ac.abort(), deps.chatTimeoutMs)
 
-    let sessionId = deps.state.getPinnedSessionId() ?? deps.state.getLastSessionId() ?? 'pending'
-    deps.state.setActiveAbort(sessionId, ac)
+    // Registered under a provisional key until the real session id is known;
+    // the re-registration below removes this entry so it never leaks (a stale
+    // entry would wedge hasActiveGeneration() at true forever).
+    const provisionalKey = deps.state.getPinnedSessionId() ?? deps.state.getLastSessionId() ?? 'pending'
+    let sessionId = provisionalKey
+    deps.state.setActiveAbort(provisionalKey, ac)
 
     try {
       const nextAgent = deps.state.getNextAgent()
@@ -136,13 +140,22 @@ export function createRelay(deps: RelayDeps) {
       // Normalize to full ID so the cardBus / pluginSessions use the same key as
       // the opencode event hook (which always delivers full session IDs).
       let resolvedId = (msg.sessionId ? deps.state.normalizeSessionId(msg.sessionId) : undefined)
-        ?? pinnedSession ?? tuiSession ?? lastSession
+        ?? (pinnedSession ? deps.state.normalizeSessionId(pinnedSession) : undefined)
+        ?? (tuiSession ? deps.state.normalizeSessionId(tuiSession) : undefined)
+        ?? (lastSession ? deps.state.normalizeSessionId(lastSession) : undefined)
       // Pick the backend: a known target routes to its owning backend; a brand-new
       // turn (no resolvable target) goes to the active backend.
       let backend: AgentBackend = resolvedId ? registry.forSession(resolvedId) : registry.active()
-      if (resolvedId && !(await backend.hasSession(resolvedId))) {
-        log.warn(`target session ${resolvedId.slice(-8)} no longer exists, falling back to newest`)
-        resolvedId = undefined
+      if (resolvedId) {
+        // Key any error from here on to the target session, not the provisional key.
+        sessionId = resolvedId
+        // hasSession throws on transport errors — let it propagate to the catch
+        // (error card, turn ends) instead of misrouting to another session.
+        if (!(await backend.hasSession(resolvedId))) {
+          log.warn(`target session ${resolvedId.slice(-8)} no longer exists, falling back to newest`)
+          resolvedId = undefined
+          sessionId = provisionalKey
+        }
       }
       if (!resolvedId) {
         backend = registry.active()
@@ -165,6 +178,7 @@ export function createRelay(deps: RelayDeps) {
       sessionId = resolvedId
       deps.state.setLastSessionId(sessionId)
       deps.state.setActiveAbort(sessionId, ac)
+      if (sessionId !== provisionalKey) deps.state.setActiveAbort(provisionalKey, undefined)
 
       // Publish thinking + user cards now that sessionId is known. The user card
       // id is derived from the incoming messageId so a web client's optimistic
@@ -201,6 +215,7 @@ export function createRelay(deps: RelayDeps) {
       }
       clearTimeout(timer)
       deps.state.setActiveAbort(sessionId, undefined)
+      if (sessionId !== provisionalKey) deps.state.setActiveAbort(provisionalKey, undefined)
     }
   }
 

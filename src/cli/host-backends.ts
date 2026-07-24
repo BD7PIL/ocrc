@@ -120,6 +120,8 @@ const PERMISSION_TYPES = new Set(['permission.asked', 'permission.updated', 'per
 export async function buildHostBackends(specs: BackendSpec[], deps: BuildHostBackendsDeps): Promise<BuiltHostBackends> {
   const backends: RegisteredBackend[] = []
   const opencodeServers: Array<{ id: string; client: any; close: () => Promise<void> }> = []
+  /** ACP connect factories — dispose() kills their spawned agent children. */
+  const acpConnects: Array<{ dispose(): void }> = []
   let nextPort = deps.opencodePort ?? 4096
 
   for (const spec of specs) {
@@ -135,10 +137,12 @@ export async function buildHostBackends(specs: BackendSpec[], deps: BuildHostBac
         log.error(`failed to start opencode backend (skipping): ${(err as Error).message}`)
       }
     } else {
+      const connect = makeAcpConnect(parseAcpCommand(spec.command ?? 'kimi acp'))
+      acpConnects.push(connect)
       const backend = createAcpBackend({
         id: spec.id,
         cwd: deps.cwd,
-        connect: makeAcpConnect(parseAcpCommand(spec.command ?? 'kimi acp')),
+        connect,
         onPermission: deps.onAcpPermission,
         store: deps.store,
         discoverDirs: kimiWorkDirs,
@@ -183,6 +187,8 @@ export async function buildHostBackends(specs: BackendSpec[], deps: BuildHostBac
 
       return async () => {
         for (const d of disposers) { try { d() } catch { /* noop */ } }
+        // Kill spawned ACP agent children so they don't outlive the host.
+        for (const c of acpConnects) { try { c.dispose() } catch { /* noop */ } }
         for (const s of opencodeServers) await s.close()
       }
     },

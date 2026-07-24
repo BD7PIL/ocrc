@@ -432,4 +432,39 @@ describe('createAcpBackend', () => {
     expect(resumed).toEqual(['ses_old']) // resumeSession called before the prompt
     expect(h.promptCalls).toContainEqual({ sessionId: 'ses_old', text: 'continue' })
   })
+
+  it('drops a rejected connection promise so the next call reconnects', async () => {
+    const h = makeHarness()
+    let calls = 0
+    const connect = vi.fn(async (c: AcpClient) => {
+      calls++
+      if (calls === 1) throw new Error('spawn failed')
+      return h.connect(c)
+    })
+    const b = createAcpBackend({ id: 'acp:kimi', cwd: '/tmp', connect })
+    await expect(b.createSession({ directory: '/w' })).rejects.toThrow(/spawn failed/)
+    // second attempt must retry the factory, not reuse the rejected promise
+    const s = await b.createSession({ directory: '/w' })
+    expect(s.id).toBe('ses_new')
+    expect(connect).toHaveBeenCalledTimes(2)
+  })
+
+  it('drops the cached connection when the agent process disconnects', async () => {
+    const h = makeHarness()
+    let disconnect: (() => void) | undefined
+    const connect = vi.fn(async (c: AcpClient) => ({
+      ...(await h.connect(c)),
+      onDisconnect: (cb: () => void) => { disconnect = cb },
+    }))
+    const b = createAcpBackend({ id: 'acp:kimi', cwd: '/tmp', connect })
+    expect(await b.ping()).toBe(true)
+    expect(connect).toHaveBeenCalledTimes(1)
+    // cached: no reconnect while alive
+    expect(await b.ping()).toBe(true)
+    expect(connect).toHaveBeenCalledTimes(1)
+    // agent died → next call reconnects
+    disconnect!()
+    expect(await b.ping()).toBe(true)
+    expect(connect).toHaveBeenCalledTimes(2)
+  })
 })

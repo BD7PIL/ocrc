@@ -217,11 +217,22 @@ describe('OpencodeBackend', () => {
     await expect(createOpencodeBackend({ client }).createSession({ directory: '/d' })).rejects.toThrow(/create failed/)
   })
 
-  it('hasSession reflects get success/failure; ping reflects status', async () => {
+  it('hasSession: true on data, false on explicit 404, throws otherwise; ping reflects status', async () => {
     const ok = createOpencodeBackend({ client: fakeClient({ session: { get: vi.fn().mockResolvedValue({ data: { id: 's' } }) } }) })
     expect(await ok.hasSession('s')).toBe(true)
-    const bad = createOpencodeBackend({ client: fakeClient({ session: { get: vi.fn().mockRejectedValue(new Error('404')) } }) })
-    expect(await bad.hasSession('s')).toBe(false)
+    // explicit 404 → the session is really gone
+    const gone = createOpencodeBackend({ client: fakeClient({ session: {
+      get: vi.fn().mockResolvedValue({ data: undefined, error: { message: 'not found' }, response: { status: 404 } }),
+    } }) })
+    expect(await gone.hasSession('s')).toBe(false)
+    // transport failure → throws (the relay must not treat "can't tell" as "gone")
+    const net = createOpencodeBackend({ client: fakeClient({ session: { get: vi.fn().mockRejectedValue(new Error('fetch failed')) } }) })
+    await expect(net.hasSession('s')).rejects.toThrow(/fetch failed/)
+    // non-404 HTTP error → throws too
+    const srv = createOpencodeBackend({ client: fakeClient({ session: {
+      get: vi.fn().mockResolvedValue({ data: undefined, error: { message: 'boom' }, response: { status: 500 } }),
+    } }) })
+    await expect(srv.hasSession('s')).rejects.toThrow(/HTTP 500/)
     expect(await ok.ping()).toBe(true)
     const down = createOpencodeBackend({ client: fakeClient({ session: { status: vi.fn().mockRejectedValue(new Error('down')) } }) })
     expect(await down.ping()).toBe(false)

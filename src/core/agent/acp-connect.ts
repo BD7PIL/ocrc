@@ -3,7 +3,7 @@
  * ACP agent (`kimi acp`, `gemini --acp`, …), builds a ClientSideConnection over
  * its stdio, runs `initialize`, and surfaces any advertised auth method.
  *
- * This is the untested glue layer (it spawns a real subprocess); the backend's
+ * This is the glue layer (it spawns a real subprocess); most of the backend's
  * logic is unit-tested with an injected fake connection. See the dependency-free
  * probe in /tmp/acp-probe for the validated handshake, and ACP_BACKEND_DESIGN §12b.
  *
@@ -12,10 +12,10 @@
  * So we DON'T authenticate eagerly here; we return `authMethodId` and let the
  * backend attempt the session, falling back to `authenticate` only on failure.
  */
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
 import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
-import type { AcpClient, AcpConnection } from './acp-backend.js'
+import type { AcpClient, AcpConnectFactory, AcpConnection } from './acp-backend.js'
 import { createLogger } from '../../utils/logger.js'
 
 const log = createLogger('acp-connect')
@@ -37,16 +37,28 @@ export function parseAcpCommand(cmd: string): AcpSpawnConfig {
 
 /**
  * Build the `connect` factory AcpBackend expects, spawning the given agent.
- * The returned factory is called once (lazy) by the backend.
+ * The returned factory is called lazily by the backend (and retried after a
+ * failure / agent exit). `dispose()` kills every child this factory spawned —
+ * the host calls it on shutdown so no agent processes outlive the host.
  */
-export function makeAcpConnect(config: AcpSpawnConfig) {
-  return async (client: AcpClient): Promise<{ conn: AcpConnection; authMethodId?: string }> => {
+export function makeAcpConnect(config: AcpSpawnConfig): AcpConnectFactory & { dispose(): void } {
+  /** Live children this factory spawned (removed on exit). */
+  const children = new Set<ChildProcess>()
+
+  const factory = (async (client: AcpClient): Promise<{ conn: AcpConnection; authMethodId?: string; onDisconnect: (cb: () => void) => void }> => {
     const child = spawn(config.command, config.args, {
       stdio: ['pipe', 'pipe', 'inherit'],
       env: { ...process.env, ...config.env },
     })
+    children.add(child)
+    const exitListeners = new Set<() => void>()
     child.on('error', (e) => log.error(`acp spawn error (${config.command})`, e as Error))
-    child.on('exit', (code) => log.warn(`acp agent exited: ${config.command} code=${code}`))
+    child.on('exit', (code) => {
+      children.delete(child)
+      log.warn(`acp agent exited: ${config.command} code=${code}`)
+      // Notify the backend so it drops the dead connection and reconnects lazily.
+      for (const cb of exitListeners) { try { cb() } catch { /* noop */ } }
+    })
 
     const stream = ndJsonStream(
       Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>,
@@ -63,15 +75,32 @@ export function makeAcpConnect(config: AcpSpawnConfig) {
       stream,
     )
 
-    const init = await conn.initialize({
-      protocolVersion: PROTOCOL_VERSION,
-      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-      clientInfo: { name: 'ocrc', version: '0' },
-    } as any)
+    let init: unknown
+    try {
+      init = await conn.initialize({
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+        clientInfo: { name: 'ocrc', version: '0' },
+      } as any)
+    } catch (err) {
+      // Handshake failed — kill the child so no orphan agent is left behind.
+      child.kill()
+      children.delete(child)
+      throw err
+    }
 
     const authMethodId = (init as any)?.authMethods?.[0]?.id as string | undefined
     log.info(`acp connected: ${config.command} (auth advertised: ${authMethodId ?? 'none'})`)
 
-    return { conn: conn as unknown as AcpConnection, authMethodId }
+    return {
+      conn: conn as unknown as AcpConnection,
+      authMethodId,
+      onDisconnect: (cb) => { exitListeners.add(cb) },
+    }
+  }) as AcpConnectFactory & { dispose(): void }
+
+  factory.dispose = () => {
+    for (const child of children) { try { child.kill() } catch { /* noop */ } }
   }
+  return factory
 }

@@ -1,42 +1,33 @@
 <script lang="ts">
   import type { ToolCall } from '../api/types.js'
-  import { ansiToHtml } from '../ansi.js'
+  import TerminalBlock from './TerminalBlock.svelte'
 
   interface ToolCallExtra extends ToolCall {
     adds?: number
     dels?: number
     dur?: number
-    detail?: string
-    output?: string
   }
 
   export let tools: ToolCall[]
   const LIMIT = 12
+  /** args longer than this (or multi-line) render as a terminal block. */
+  const INLINE_MAX = 100
   let expanded = false
-  let expandedDetails: Record<number, boolean> = {}
 
   $: typed = tools as ToolCallExtra[]
   $: shown = expanded ? typed : typed.slice(0, LIMIT)
   $: total = typed.length
   $: done = typed.filter((t) => t.status === 'done').length
 
-  function detailOf(t: ToolCallExtra): string | undefined {
-    return t.detail || t.output || undefined
-  }
-
-  function hasDetail(t: ToolCallExtra): boolean {
-    return !!detailOf(t)
+  function isLong(t: ToolCallExtra): boolean {
+    const a = t.args ?? ''
+    return a.includes('\n') || a.length > INLINE_MAX
   }
 
   function fmtDur(s?: number): string {
     if (s == null) return ''
     if (s < 1) return `${(s * 1000).toFixed(0)}ms`
     return `${s.toFixed(1)}s`
-  }
-
-  function toggleDetail(i: number) {
-    expandedDetails[i] = !expandedDetails[i]
-    expandedDetails = expandedDetails
   }
 </script>
 
@@ -48,34 +39,29 @@
       <span class="count mono">{done}/{total} steps</span>
     </div>
     <div class="rows">
-      {#each shown as t, i}
-        {@const detail = detailOf(t)}
-        <div class="row {t.status}">
-          <button class="row-main" class:expandable={hasDetail(t)} on:click={() => hasDetail(t) && toggleDetail(i)}>
-            <span class="status" aria-hidden="true"></span>
-            <span class="name mono">{t.tool}</span>
-            <span class="arg mono">{t.args}</span>
-            {#if t.adds || t.dels}
-              <span class="diff mono">
-                {#if t.adds}<span class="add">+{t.adds}</span>{/if}
-                {#if t.dels}<span class="del">−{t.dels}</span>{/if}
-              </span>
-            {/if}
-            {#if t.status === 'running'}
-              <span class="shimmer" aria-hidden="true"></span>
-            {:else if t.dur != null}
-              <span class="dur mono">{fmtDur(t.dur)}</span>
-            {/if}
-            {#if hasDetail(t)}
-              <span class="caret" class:open={expandedDetails[i]} aria-hidden="true">▸</span>
-            {/if}
-          </button>
-          {#if detail && expandedDetails[i]}
-            <div class="detail mono">
-              {@html ansiToHtml(detail)}
+      {#each shown as t}
+        {#if isLong(t)}
+          <TerminalBlock text={t.args} tool={t.tool} status={t.status} dur={t.dur} adds={t.adds} dels={t.dels} />
+        {:else}
+          <div class="row {t.status}">
+            <div class="row-main">
+              <span class="status" aria-hidden="true"></span>
+              <span class="name mono">{t.tool}</span>
+              <span class="arg mono">{t.args}</span>
+              {#if t.adds || t.dels}
+                <span class="diff mono">
+                  {#if t.adds}<span class="add">+{t.adds}</span>{/if}
+                  {#if t.dels}<span class="del">−{t.dels}</span>{/if}
+                </span>
+              {/if}
+              {#if t.status === 'running'}
+                <span class="shimmer" aria-hidden="true"></span>
+              {:else if t.dur != null}
+                <span class="dur mono">{fmtDur(t.dur)}</span>
+              {/if}
             </div>
-          {/if}
-        </div>
+          </div>
+        {/if}
       {/each}
       {#if typed.length > LIMIT && !expanded}
         <button class="more mono" on:click={() => (expanded = true)}>
@@ -136,11 +122,8 @@
     border-radius: 7px;
     color: inherit;
     text-align: left;
-    cursor: default;
-    transition: background .12s ease;
+    box-sizing: border-box;
   }
-  .row-main.expandable { cursor: pointer; }
-  .row-main.expandable:hover { background: rgba(255,255,255,.03); }
 
   .status {
     width: 7px;
@@ -206,32 +189,6 @@
     flex-shrink: 0;
     font-size: 11px;
     color: var(--text-4);
-  }
-
-  .caret {
-    flex-shrink: 0;
-    font-size: 11px;
-    color: var(--text-3);
-    transition: transform .2s ease;
-  }
-  .caret.open { transform: rotate(90deg); }
-
-  .detail {
-    margin: 4px 0 2px 23px;
-    padding: 8px 10px;
-    background: var(--bg);
-    border: 1px solid var(--border-2);
-    border-radius: 8px;
-    font-size: 11.5px;
-    line-height: 1.5;
-    color: var(--text-2);
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-  .detail :global(pre) {
-    margin: 0;
-    white-space: pre-wrap;
-    word-break: break-word;
   }
 
   .more {

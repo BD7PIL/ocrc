@@ -223,6 +223,39 @@ export function createAcpBackend(deps: AcpBackendDeps): AgentBackend {
   // Latest slash-commands the agent advertised (available_commands_update).
   let commands: CommandInfo[] = []
 
+  /** Per-session timestamp of the last tool_call_update that mapped to 'error'. */
+  const lastToolFailedAt = new Map<string, number>()
+
+  /**
+   * Session-takeover recovery. If another agent process (e.g. the kimi CLI
+   * resuming the session) steals the session mid-turn, it kills our in-flight
+   * tool calls and this connection stops receiving the session's live updates.
+   * Signature: the turn settles within STEAL_SETTLE_MS of an externally-failed
+   * tool call (a normal failed tool is followed by more model output, so the
+   * turn settles much later). Recovery: re-issue session/load — it replays the
+   * native history into the store (filling what we missed) AND re-subscribes
+   * this connection to live updates (verified live: a fresh session/load
+   * receives updates driven by other processes).
+   */
+  const STEAL_SETTLE_MS = 2500
+  const RESYNC_DELAY_MS = 3000
+  function resyncIfStolen(sessionId: string): void {
+    const failedAt = lastToolFailedAt.get(sessionId) ?? 0
+    if (!failedAt || Date.now() - failedAt > STEAL_SETTLE_MS) return
+    log.warn(`turn settled abruptly after an externally-failed tool call — session …${sessionId.slice(-8)} may have been taken over by another agent process; re-subscribing`)
+    const t = setTimeout(() => {
+      void loadHistory(sessionId)
+        .then(() => emit({
+          kind: 'notice',
+          sessionId,
+          title: 'Session continued outside OCRC',
+          body: 'This turn was taken over by another agent process (e.g. the kimi CLI resuming the session). Live updates are re-attached — reopen the session to see the full history.',
+        }))
+        .catch((err) => log.warn(`post-takeover resync failed: ${String(err)}`))
+    }, RESYNC_DELAY_MS)
+    t.unref?.()
+  }
+
   function emit(e: AgentEvent): void {
     for (const fn of listeners) {
       try { fn(e) } catch (err) { log.warn(`onEvent listener threw: ${String(err)}`) }
@@ -283,7 +316,15 @@ export function createAcpBackend(deps: AcpBackendDeps): AgentBackend {
         }
       }
       const ae = normalizer.normalize(sessionId, update)
-      if (ae) emit(ae)
+      if (ae) {
+        // Track externally-failed tool calls: a tool_call_update mapping to
+        // 'error' is the signature of another agent process (e.g. the kimi CLI
+        // resuming the session) killing our in-flight tool mid-turn.
+        if (ae.kind === 'part' && ae.part.type === 'tool' && ae.part.status === 'error') {
+          lastToolFailedAt.set(sessionId, Date.now())
+        }
+        emit(ae)
+      }
     },
     async requestPermission({ sessionId, toolCall, options }) {
       const key = `${sessionId}:${toolCall.toolCallId}`
@@ -380,10 +421,11 @@ export function createAcpBackend(deps: AcpBackendDeps): AgentBackend {
     if (input.text) blocks.push({ type: 'text', text: input.text })
     for (const img of input.images ?? []) blocks.push({ type: 'image', data: img.data, mimeType: img.mimeType })
     conn.prompt({ sessionId, prompt: blocks.length ? blocks : [{ type: 'text', text: input.text }] })
-      .then(() => { emit({ kind: 'idle', sessionId }); normalizer.reset(sessionId) })
+      .then(() => { emit({ kind: 'idle', sessionId }); normalizer.reset(sessionId); resyncIfStolen(sessionId) })
       .catch((err) => {
         emit({ kind: 'error', sessionId, message: err?.message ?? String(err) })
         normalizer.reset(sessionId)
+        resyncIfStolen(sessionId)
       })
     // Resolve immediately: the turn was accepted, the response streams via events.
   }

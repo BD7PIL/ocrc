@@ -32,3 +32,5 @@ export type AgentEvent =
   | { kind: 'idle'; sessionId: string }
   /** The turn errored. */
   | { kind: 'error'; sessionId: string; message: string }
+  /** Out-of-band notice for the user (rendered as an info card; not part of a turn). */
+  | { kind: 'notice'; sessionId: string; title: string; body: string }

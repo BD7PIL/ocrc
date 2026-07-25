@@ -673,4 +673,26 @@ describe('createRelay', () => {
       await relay.handleEvent({ kind: 'idle', sessionId: 'ses_test' })
     })
   })
+
+  describe('notice events', () => {
+    it('publishes a notice as an info card', async () => {
+      const cardBus = createCardBus()
+      const cards: any[] = []
+      cardBus.subscribeAll((c) => cards.push(c))
+      const relay = createRelay({
+        cardBus,
+        backend: fakeBackend(),
+        state: fakeState(),
+        chatTimeoutMs: 5000,
+        tuiVisible: false,
+      })
+      await relay.handleEvent({ kind: 'notice', sessionId: 'ses_a', title: 'Session continued outside OCRC', body: 'reopen to resync' })
+      expect(cards).toContainEqual(expect.objectContaining({
+        kind: 'info',
+        sessionId: 'ses_a',
+        title: 'Session continued outside OCRC',
+        sections: [{ body: 'reopen to resync' }],
+      }))
+    })
+  })
 })

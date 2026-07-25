@@ -536,4 +536,65 @@ describe('createAcpBackend', () => {
     expect(await b.ping()).toBe(true)
     expect(connect).toHaveBeenCalledTimes(2)
   })
+
+  describe('session takeover recovery', () => {
+    function makeLoadableHarness() {
+      let client!: AcpClient
+      const loadSession = vi.fn(async () => ({}))
+      const conn: AcpConnection = {
+        newSession: vi.fn(async () => ({ sessionId: 'ses_s' })),
+        authenticate: vi.fn(async () => ({})),
+        prompt: vi.fn(async () => ({ stopReason: 'end_turn' })),
+        cancel: vi.fn(async () => ({})),
+        loadSession,
+      }
+      const connect = async (c: AcpClient) => { client = c; return { conn, authMethodId: 'login' } }
+      return { connect, loadSession, getClient: () => client }
+    }
+
+    it('re-subscribes and notifies when the turn settles abruptly after an externally-failed tool call', async () => {
+      vi.useFakeTimers()
+      try {
+        const h = makeLoadableHarness()
+        const b = createAcpBackend({ id: 'acp:kimi', cwd: '/tmp', connect: h.connect })
+        const events: AgentEvent[] = []
+        b.onEvent!((e) => events.push(e))
+        await b.prompt('ses_s', { text: 'hi' })
+        // externally killed tool (takeover signature), then the turn settles at once
+        await h.getClient().sessionUpdate({
+          sessionId: 'ses_s',
+          update: {
+            sessionUpdate: 'tool_call_update', toolCallId: 't1', title: 'AgentSwarm', status: 'failed',
+            content: [{ type: 'content', content: { type: 'text', text: 'Tool execution was interrupted' } }],
+          },
+        })
+        await vi.advanceTimersByTimeAsync(10) // let the prompt settle
+        expect(events).toContainEqual({ kind: 'idle', sessionId: 'ses_s' })
+        // ensureSession already loaded once at prompt start; the takeover resync loads again
+        await vi.advanceTimersByTimeAsync(3100)
+        expect(h.loadSession).toHaveBeenCalledTimes(2)
+        expect(events.some((e) => e.kind === 'notice' && e.sessionId === 'ses_s')).toBe(true)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('does not resync after a normal turn end (no recent failed tool)', async () => {
+      vi.useFakeTimers()
+      try {
+        const h = makeLoadableHarness()
+        const b = createAcpBackend({ id: 'acp:kimi', cwd: '/tmp', connect: h.connect })
+        const events: AgentEvent[] = []
+        b.onEvent!((e) => events.push(e))
+        await b.prompt('ses_s', { text: 'hi' })
+        await vi.advanceTimersByTimeAsync(10)
+        expect(events).toContainEqual({ kind: 'idle', sessionId: 'ses_s' })
+        await vi.advanceTimersByTimeAsync(3100)
+        expect(h.loadSession).toHaveBeenCalledTimes(1) // ensureSession only
+        expect(events.some((e) => e.kind === 'notice')).toBe(false)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
 })

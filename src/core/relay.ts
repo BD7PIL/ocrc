@@ -415,6 +415,11 @@ export function createRelay(deps: RelayDeps) {
       }
       return
     }
+
+    if (e.kind === 'notice') {
+      deps.cardBus.publish({ kind: 'info', sessionId: sid, title: e.title, sections: [{ body: e.body }] })
+      return
+    }
   }
 
   return relay

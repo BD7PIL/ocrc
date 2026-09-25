@@ -25,7 +25,7 @@
     align-items: center;
     flex-wrap: wrap;
     gap: 8px;
-    padding: 0 max(24px, calc((100% - 720px) / 2 + 24px)) 10px;
+    padding: 0 14px 8px;
   }
   .chip {
     background: var(--bg-elev);

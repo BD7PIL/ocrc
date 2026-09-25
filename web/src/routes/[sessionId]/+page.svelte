@@ -204,14 +204,6 @@
   </div>
 </div>
 
-{#if suggestions.length > 0}
-  <Suggestions
-    {suggestions}
-    onPick={(text) => composerDraft.set({ text, nonce: Date.now() })}
-    onDismiss={() => { chipsDismissed = true; suggestions = [] }}
-  />
-{/if}
-
 {#if !pinnedToBottom && cards.length > 0}
   <button class="jump" on:click={pinBottom} aria-label="Jump to latest">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/></svg>
@@ -220,6 +212,11 @@
 {/if}
 
 <div class="composer-float" bind:this={composerEl}>
+  <Suggestions
+    {suggestions}
+    onPick={(text) => composerDraft.set({ text, nonce: Date.now() })}
+    onDismiss={() => { chipsDismissed = true; suggestions = [] }}
+  />
   <Composer {sessionId} />
 </div>
 

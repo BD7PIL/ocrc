@@ -307,7 +307,7 @@ describe('remoteControlPlugin', () => {
   it('rc-status returns version and transport info', async () => {
     const toolFn = plug.tool['rc-status']
     const result = await toolFn.execute()
-    expect(result).toContain('Remote Control v')
+    expect(result).toContain('ocrc v')
     expect(result).toMatch(/Telegram:\s+active/)
     expect(result).toContain('Web:')
     expect(result).toMatch(/Pushes\/hr:/)

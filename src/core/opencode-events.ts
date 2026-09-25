@@ -26,13 +26,15 @@ export interface OcEventProps {
   field?: string
   delta?: string
   messageID?: string
-  info?: { id?: string; sessionID?: string }
+  info?: { id?: string; sessionID?: string; directory?: string }
   status?: { type?: string }
   error?: { message?: string; name?: string; data?: { message?: string } }
   // permission events
   id?: string
   title?: string
   permission?: unknown
+  patterns?: unknown
+  metadata?: Record<string, unknown>
   args?: unknown
   response?: string
   reply?: string

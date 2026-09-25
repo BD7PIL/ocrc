@@ -81,9 +81,22 @@ function writeBridge(): void {
 // never called), so we wrap the built plugin in a locally-defined function.
 // The repo's dist stays the source of truth — rebuild dist + restart opencode
 // to pick up changes.
+//
+// Dual-host default export (verified on V1.18.32 + V2.0.15):
+//  - V1 hosts call .server(ctx, options) — the classic plugin function.
+//  - V2 hosts call .setup(ctx) — and REQUIRE the default export to be an
+//    OBJECT ({id, setup}); a bare function default is silently skipped by V2.
+//    Hence the object shape here, with the callable form preserved as .server.
 import plugin from ${JSON.stringify(ENTRY)}
 
-export const opencodeRemoteControl = async (ctx) => plugin(ctx)
+const callable = typeof plugin === 'function' ? plugin : (plugin.server ?? plugin.setup ?? plugin)
+export const opencodeRemoteControl = async (ctx) => callable(ctx, undefined)
+export const setup = plugin.setup
+export default {
+  id: 'ocrc',
+  server: async (ctx, options) => callable(ctx, options),
+  setup: plugin.setup,
+}
 `,
   )
   // Ensure the bare .js bridge is parsed as ESM.

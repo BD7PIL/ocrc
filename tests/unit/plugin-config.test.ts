@@ -83,7 +83,7 @@ describe('loadPluginConfig', () => {
 
   it('keeps upstream WEB_PORT working as a legacy fallback', () => {
     process.env.WEB_PORT = '1234'
-    expect(base().webPort).toBe(1234)
+    expect(base().webPort).toBe(1234) // legacy still honored when the fork name is absent
     process.env.OCRC_WEB_PORT = '5678'
     expect(base().webPort).toBe(5678) // fork name wins
   })

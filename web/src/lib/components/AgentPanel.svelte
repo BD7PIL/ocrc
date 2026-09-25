@@ -496,8 +496,10 @@
     align-items: center;
     gap: 7px;
     /* Full-screen on mobile: keep the text out of the rounded screen corners +
-       home indicator — wider side padding and a taller bottom inset. */
-    padding: 10px max(20px, env(safe-area-inset-right, 0px)) max(18px, env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px));
+       home indicator — wider side padding and a taller bottom inset. --kb (set
+       by the layout's visualViewport tracking) lifts the text above in-browser
+       toolbars, which 100vh otherwise hides the footer under. */
+    padding: 10px max(20px, env(safe-area-inset-right, 0px)) max(18px, calc(env(safe-area-inset-bottom, 0px) + var(--kb, 0px))) max(20px, env(safe-area-inset-left, 0px));
     font-size: 10px;
     color: var(--text-4);
     border-top: 1px solid var(--border-2);

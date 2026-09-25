@@ -296,14 +296,16 @@
     }
     .rail-wrap.open { transform: translateX(0); }
 
-    /* Inspector = bottom sheet (rises over a scrim) per v2 mobile. */
+    /* Inspector = bottom sheet (rises over a scrim) per v2 mobile. Lifted by
+       --kb so in-browser toolbars don't cover its bottom rows. */
     .inspector-wrap {
       display: block;
-      position: absolute; left: 0; right: 0; bottom: 0; top: auto; z-index: var(--z-sheet);
+      position: absolute; left: 0; right: 0; bottom: var(--kb, 0px); top: auto; z-index: var(--z-sheet);
       width: 100%; height: min(82vh, 580px);
       overflow: hidden;
       transition: transform .24s ease;
-      transform: translateY(100%);
+      /* Hidden = fully below the visible bottom, INCLUDING the --kb toolbar lift. */
+      transform: translateY(calc(100% + var(--kb, 0px)));
       border-radius: var(--radius) var(--radius) 0 0;
       box-shadow: 0 -10px 44px rgba(0,0,0,.55);
     }

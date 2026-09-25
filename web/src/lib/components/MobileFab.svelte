@@ -58,7 +58,7 @@
 
   .fab {
     position: fixed; z-index: var(--z-fab);
-    right: 18px; bottom: calc(76px + env(safe-area-inset-bottom));
+    right: 18px; bottom: calc(76px + env(safe-area-inset-bottom, 0px) + var(--kb, 0px));
     width: 56px; height: 56px; border-radius: 50%;
     display: grid; place-items: center;
     background: var(--accent); color: var(--accent-ink);
@@ -72,7 +72,7 @@
 
   .dial {
     position: fixed; z-index: var(--z-fab);
-    right: 20px; bottom: calc(146px + env(safe-area-inset-bottom));
+    right: 20px; bottom: calc(146px + env(safe-area-inset-bottom, 0px) + var(--kb, 0px));
     display: flex; flex-direction: column; align-items: flex-end; gap: 12px;
   }
   .dial-item {

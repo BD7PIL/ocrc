@@ -11,3 +11,40 @@ export const newSessionOpen = writable(false)
 
 /** Mobile inspector bottom-sheet open state (toggled from the chat header). */
 export const inspectorOpen = writable(false)
+
+/** localStorage key for the theme override — also read by the early inline
+    script in app.html (keep in sync). Absent = follow the system. */
+const THEME_KEY = 'ocrc-theme'
+
+function initialTheme(): 'light' | 'dark' {
+  if (typeof document !== 'undefined') {
+    const a = document.documentElement.getAttribute('data-theme')
+    if (a === 'light' || a === 'dark') return a
+  }
+  // No stored override — mirror what theme.css's media query decided.
+  if (typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: light)').matches) return 'light'
+  return 'dark'
+}
+
+function applyThemeMeta(t: 'light' | 'dark') {
+  // The two media-scoped theme-color metas only track the system; a manual
+  // override must pin them (iOS status bar / PWA chrome) to the active color.
+  const c = t === 'light' ? '#faf9f6' : '#0d0d0d'
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', c))
+}
+
+/** Effective theme — resolved from the override attribute / system at startup. */
+export const theme = writable<'light' | 'dark'>(initialTheme())
+
+if (typeof document !== 'undefined') applyThemeMeta(initialTheme())
+
+/** Flip light↔dark, persist the override, and apply it to <html> immediately. */
+export function toggleTheme() {
+  theme.update((t) => {
+    const next = t === 'light' ? 'dark' : 'light'
+    try { localStorage.setItem(THEME_KEY, next) } catch { /* private mode */ }
+    document.documentElement.setAttribute('data-theme', next)
+    applyThemeMeta(next)
+    return next
+  })
+}

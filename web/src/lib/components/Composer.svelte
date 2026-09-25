@@ -362,7 +362,7 @@
     border-radius: 50%;
     border: none;
     background: rgba(0, 0, 0, 0.6);
-    color: #fff;
+    color: var(--text);
     font-size: 12px;
     line-height: 1;
     cursor: pointer;

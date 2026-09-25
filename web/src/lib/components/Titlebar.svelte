@@ -1,6 +1,6 @@
 <script lang="ts">
   import { connection, latency } from '$lib/stores/connection.js'
-  import { plusMenuOpen } from '$lib/stores/ui.js'
+  import { plusMenuOpen, theme, toggleTheme } from '$lib/stores/ui.js'
 
   export let email = ''
   export let onPalette: () => void
@@ -54,6 +54,13 @@
 
   <span class="spacer"></span>
 
+  <!-- Theme toggle — light/dark with system-follow default (paper-ink) -->
+  <button class="themebtn" on:click={toggleTheme}
+          title={$theme === 'light' ? 'Switch to dark' : 'Switch to light'}
+          aria-label="Toggle color theme">
+    {#if $theme === 'light'}<span aria-hidden="true">☾</span>{:else}<span aria-hidden="true">☀</span>{/if}
+  </button>
+
   <!-- Connection pill -->
   <span class="connection-pill {$connection}" title="WebSocket: {statusText($connection)}">
     <span class="dot-wrap" aria-hidden="true">
@@ -104,9 +111,9 @@
     flex-shrink: 0;
   }
   .wordmark {
-    font-family: var(--font-sans);
-    font-size: 14.5px;
-    letter-spacing: .005em;
+    font-family: var(--font-serif);
+    font-size: 15.5px;
+    letter-spacing: .01em;
     display: inline-flex;
     align-items: baseline;
     gap: 5px;
@@ -163,6 +170,24 @@
   }
 
   .spacer { flex: 1; }
+
+  /* Theme toggle — ghost button, visible on every screen that shows the titlebar. */
+  .themebtn {
+    display: inline-grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-2);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: color .12s ease, border-color .12s ease;
+  }
+  .themebtn:hover { color: var(--text); border-color: var(--text-4); }
 
   .connection-pill {
     display: inline-flex;

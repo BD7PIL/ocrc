@@ -83,7 +83,7 @@
 
 <style>
   .term {
-    background: var(--bg);
+    background: var(--bg-code);
     border: 1px solid var(--border-2);
     border-radius: 8px;
     overflow: hidden;
@@ -94,7 +94,7 @@
     gap: 8px;
     padding: 5px 10px;
     border-bottom: 1px solid var(--border-2);
-    background: var(--bg-elev);
+    background: transparent;
   }
   .glyph {
     font-size: 11px;
@@ -139,7 +139,7 @@
     padding: 8px 10px;
     font-size: 11.5px;
     line-height: 1.5;
-    color: var(--text-2);
+    color: var(--toolout);
     white-space: pre-wrap;
     word-break: break-word;
     overflow-x: auto;

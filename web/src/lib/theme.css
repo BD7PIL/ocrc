@@ -1,56 +1,94 @@
-/* src/lib/theme.css — ocrc · paper-ink dual theme (upstream: Pactify Linx cool-slate) */
+/* src/lib/theme.css — ocrc · paper-ink dual theme (L1, design frozen in
+   /tmp mockup + project memory; P2c hard constraint: visuals only, zero
+   functional/interaction change vs upstream).
+
+   Structure: dark is the base palette; light is emitted TWICE (system-auto
+   via prefers-color-scheme, and forced via [data-theme="light"]). The two
+   light blocks MUST be kept identical — grep for KEEP-IN-SYNC when editing.
+
+   Theme contract:
+     - no attribute            → follow prefers-color-scheme (dark base)
+     - data-theme="dark"       → forced dark
+     - data-theme="light"      → forced light
+   The early inline script in app.html applies the stored override before
+   first paint (no FOUC). */
+
 :root {
-  --bg:        #0a0e14;  /* cool slate — main canvas */
-  --bg-panel:  #0c1119;  /* rail / inspector / titlebar */
-  --bg-elev:   #10151e;  /* elevated cards / chips / buttons */
-  --bg-elev2:  #171e2a;  /* hover-raised / popover rows */
-  --bg-input:  #0f141d;  /* input / composer surfaces */
-  --border:    #222b3a;  /* primary hairline */
-  --border-2:  #171e2a;  /* secondary divider */
-  --text:      #eaeef5;  /* primary */
-  --text-2:    #c2cad8;  /* secondary */
-  --text-3:    #7e889b;  /* muted / meta */
-  --text-4:    #71809a;  /* faint / disabled — lightest value that still hits 4.5:1 on all surfaces (WCAG AA) */
-  /* chrome accent — emerald (default / opencode); per-agent via [data-accent] */
-  --accent:    #54d398;
-  --accent-2:  #0f261b;  /* accent-tinted fill (hover/selected) */
-  --accent-ink:#04140b;  /* dark text on accent surfaces (buttons) */
-  --accent-line:#236b49; /* accent-tinted border */
-  --user-bubble: linear-gradient(135deg, #54d398 0%, #37b377 100%);
-  --user-ink:  #04140b;
-  /* fixed conversation palette — NEVER themed (transcript stays emerald) */
-  --cv:        #54d398;
-  --cv-2:      #0f261b;
-  --cv-ink:    #04140b;
-  --cv-line:   #236b49;
-  --cv-bubble: linear-gradient(135deg, #54d398 0%, #37b377 100%);
+  color-scheme: dark;
+
+  /* ── surfaces: brightness ladder only, extremes never fill large areas ── */
+  --bg:        #0d0d0d;  /* main canvas — warm ink wash */
+  --bg-panel:  #121212;  /* rail / inspector / titlebar */
+  --bg-elev:   #171717;  /* elevated cards / chips / buttons */
+  --bg-elev2:  #1f1f1f;  /* hover-raised / popover rows */
+  --bg-input:  #101010;  /* input / composer surfaces — recessed, above bg */
+  --border:    #262626;  /* primary hairline */
+  --border-2:  #1f1f1f;  /* secondary divider */
+
+  /* ── ink: extremes live ONLY in text & small controls ── */
+  --text:      #f5f4f0;  /* primary — paper white ink */
+  --text-2:    #c9c7c1;  /* secondary */
+  --text-3:    #8c877d;  /* muted / meta */
+  --text-4:    #7a766e;  /* faint / disabled — lowest value that still hits 4.5:1 on all surfaces (WCAG AA) */
+
+  /* ── chrome accent — persimmon (default); per-agent via [data-accent] ── */
+  --accent:    #fb8b3c;
+  --accent-2:  #2a1c10;  /* accent-tinted fill (hover/selected) */
+  --accent-ink:#211307;  /* dark ink on accent surfaces (buttons) */
+  --accent-line:#7a4416; /* accent-tinted border */
+
+  /* user bubble = single step up the ladder + hairline — never a gradient,
+     never an extreme (paper-ink bubble rule, both themes) */
+  --user-bubble: #2b2a27;
+  --user-ink:  #f0efe9;
+  --bubbleline:#3a3833;
+
+  /* conversation palette — single-accent identity: the transcript follows the
+     chrome accent (mechanism preserved; upstream pinned emerald here) */
+  --cv:        var(--accent);
+  --cv-2:      var(--accent-2);
+  --cv-ink:    var(--accent-ink);
+  --cv-line:   var(--accent-line);
+  --cv-bubble: var(--user-bubble);
+
   /* semantic */
   --ok:        #6ee7a0;  /* success / done / idle / online */
   --warn:      #ffd479;  /* awaiting input / approval / connecting */
   --err:       #f97066;  /* error / abort / reject / offline */
   --info:      #8ab4ff;
-  --hl-purple: #b48cf0;  /* reasoning ("thinking") + branch name */
-  --hl-green:  #6cc08b;  /* tool argument text */
-  --hl-cyan:   #4ec9b0;  /* code-block language tag */
-  --hl-orange: #dca87a;  /* misc highlight */
+
+  /* syntax highlighting (dark) */
+  --hl-purple: #b48cf0;  /* reasoning ("thinking") + keyword */
+  --hl-green:  #6cc08b;  /* string / tool argument text */
+  --hl-cyan:   #4ec9b0;  /* code-block language tag / builtin */
+  --hl-orange: #dca87a;  /* number / constant */
   --hl-yellow: #ffd479;  /* function / method */
-  --hl-gray:   #7e889b;  /* comment / meta */
-  /* brand role colors — chain-link logo + agent dots */
+  --hl-gray:   #8c877d;  /* comment / meta */
+
+  /* brand role colors — chain-link logo + agent dots (theme-stable) */
   --role-gold:   #f5b301; /* orchestrator */
-  --role-blue:   #3a86ff; /* reviewer */
-  --role-green:  #3fb27f; /* worker */
+  --role-blue:   #6f9ffa; /* reviewer */
+  --role-green:  #58c08c; /* worker */
   --role-silver: #cdd6e6; /* the pact (neutral) */
+
+  /* terminal / code wells — recessed one step below card, never pure black;
+     identity comes from mono type + the persimmon $ prompt, not darkness */
+  --bg-code:   #0f0f0f;
+  --toolcmd:   #e8e6e0;  /* command echo ink */
+  --toolout:   #a3a09a;  /* tool output ink */
+
+  --scrim:     rgba(0, 0, 0, .5);
+
   --radius:    14px;
   --radius-sm: 9px;
   --radius-pill: 20px;
-  --shadow-card: 0 2px 14px rgba(84, 211, 152, .16);
-  --shadow-composer: 0 6px 24px rgba(0, 0, 0, .26);
+  --shadow-card: 0 1px 4px rgba(0, 0, 0, .35);
+  --shadow-composer: 0 6px 24px rgba(0, 0, 0, .4);
   --shadow-palette: 0 24px 70px rgba(0, 0, 0, .6);
-  --font-sans: 'Space Grotesk', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-serif: 'Noto Serif CJK SC', 'Source Han Serif SC', 'DejaVu Serif', Georgia, 'Times New Roman', serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  /* shared surfaces */
-  --bg-code:   #0d1219;  /* code blocks / diffs / terminal surfaces */
-  --scrim:     rgba(6, 10, 16, .6);  /* overlay scrim — single source (was 5 ad-hoc rgba values) */
+
   /* semantic z-index scale (low → high) */
   --z-sticky:    5;   /* sub-headers, floating composer */
   --z-dropdown: 10;   /* inline dropdowns (mentions) */
@@ -62,6 +100,117 @@
   --z-overlay: 200;   /* command palette, menus */
   --z-modal:   300;   /* dialogs */
   --z-gate:    500;   /* pair gate — above everything */
+}
+
+/* ── light: warm paper ────────────────────────────────────────────────────
+   KEEP-IN-SYNC with the prefers-color-scheme block below. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg:        #faf9f6;
+  --bg-panel:  #f4f2ec;
+  --bg-elev:   #ffffff;
+  --bg-elev2:  #f3f1ea;
+  --bg-input:  #f7f5f0;
+  --border:    #e9e6df;
+  --border-2:  #f0ede7;
+
+  --text:      #1c1b18;
+  --text-2:    #3f3d38;
+  --text-3:    #8c877d;
+  --text-4:    #6f6d66;  /* ≥4.5:1 on #fff / #faf9f6 */
+
+  --accent:    #e4580f;
+  --accent-2:  #fdeee3;
+  --accent-ink:#1c1b18;
+  --accent-line:#f0c9ac;
+
+  --user-bubble: #f0ede6;
+  --user-ink:  #1c1b18;
+  --bubbleline:#e4e0d6;
+
+  --ok:        #1f7a3d;
+  --warn:      #9a6b00;
+  --err:       #c2372c;
+  --info:      #2456a6;
+
+  --hl-purple: #8250df;
+  --hl-green:  #116329;
+  --hl-cyan:   #0e7a8d;
+  --hl-orange: #b65708;
+  --hl-yellow: #9a6700;
+  --hl-gray:   #6e7781;
+
+  --role-gold:   #d99e00;
+  --role-blue:   #3a6fd8;
+  --role-green:  #2f9d68;
+  --role-silver: #8a877e;
+
+  --bg-code:   #f2efe8;
+  --toolcmd:   #1c1b18;
+  --toolout:   #57534e;
+
+  --scrim:     rgba(28, 27, 24, .32);
+
+  --shadow-card: 0 1px 3px rgba(28, 27, 24, .06);
+  --shadow-composer: 0 4px 18px rgba(28, 27, 24, .08);
+  --shadow-palette: 0 24px 70px rgba(28, 27, 24, .18);
+}
+
+/* system auto light — applies unless the user forced dark. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+
+    --bg:        #faf9f6;
+    --bg-panel:  #f4f2ec;
+    --bg-elev:   #ffffff;
+    --bg-elev2:  #f3f1ea;
+    --bg-input:  #f7f5f0;
+    --border:    #e9e6df;
+    --border-2:  #f0ede7;
+
+    --text:      #1c1b18;
+    --text-2:    #3f3d38;
+    --text-3:    #8c877d;
+    --text-4:    #6f6d66;
+
+    --accent:    #e4580f;
+    --accent-2:  #fdeee3;
+    --accent-ink:#1c1b18;
+    --accent-line:#f0c9ac;
+
+    --user-bubble: #f0ede6;
+    --user-ink:  #1c1b18;
+    --bubbleline:#e4e0d6;
+
+    --ok:        #1f7a3d;
+    --warn:      #9a6b00;
+    --err:       #c2372c;
+    --info:      #2456a6;
+
+    --hl-purple: #8250df;
+    --hl-green:  #116329;
+    --hl-cyan:   #0e7a8d;
+    --hl-orange: #b65708;
+    --hl-yellow: #9a6700;
+    --hl-gray:   #6e7781;
+
+    --role-gold:   #d99e00;
+    --role-blue:   #3a6fd8;
+    --role-green:  #2f9d68;
+    --role-silver: #8a877e;
+
+    --bg-code:   #f2efe8;
+    --toolcmd:   #1c1b18;
+    --toolout:   #57534e;
+
+    --scrim:     rgba(28, 27, 24, .32);
+
+    --shadow-card: 0 1px 3px rgba(28, 27, 24, .06);
+    --shadow-composer: 0 4px 18px rgba(28, 27, 24, .08);
+    --shadow-palette: 0 24px 70px rgba(28, 27, 24, .18);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -76,28 +225,37 @@
   }
 }
 
-/* Alternate accent themes: emerald (default), azure, amber, violet.
-   Set <html data-accent="azure"> (or :root) to override the four accent vars. */
+/* ── Alternate accent themes (per-agent chrome). Persimmon (default, in the
+   palettes above), azure, amber, violet. Values are theme-aware: dark block
+   at base, light overrides under both light paths. ── */
 :root[data-accent="azure"] {
-  --accent: #5b9eff;
-  --accent-2: #101f33;
-  --accent-ink: #04101f;
-  --accent-line: #2c5891;
-  --user-bubble: linear-gradient(135deg, #5b9eff 0%, #2f7fd1 100%);
+  --accent: #6f9ffa; --accent-2: #16202f; --accent-ink: #071120; --accent-line: #31527e;
 }
 :root[data-accent="amber"] {
-  --accent: #ffc34d;
-  --accent-2: #2a2110;
-  --accent-ink: #1f1503;
-  --accent-line: #8a6a26;
-  --user-bubble: linear-gradient(135deg, #ffc34d 0%, #d99a2c 100%);
+  --accent: #ffc34d; --accent-2: #2a2110; --accent-ink: #1f1503; --accent-line: #8a6a26;
 }
 :root[data-accent="violet"] {
-  --accent: #b48cf0;
-  --accent-2: #1d1733;
-  --accent-ink: #0f0820;
-  --accent-line: #5a4790;
-  --user-bubble: linear-gradient(135deg, #b48cf0 0%, #8d6bd8 100%);
+  --accent: #b48cf0; --accent-2: #1d1733; --accent-ink: #0f0820; --accent-line: #5a4790;
+}
+:root[data-theme="light"][data-accent="azure"] {
+  --accent: #2f6bcc; --accent-2: #e8f0fc; --accent-ink: #ffffff; --accent-line: #b9d0f2;
+}
+:root[data-theme="light"][data-accent="amber"] {
+  --accent: #b57f00; --accent-2: #faf0d8; --accent-ink: #ffffff; --accent-line: #ecd9a8;
+}
+:root[data-theme="light"][data-accent="violet"] {
+  --accent: #7a4fd0; --accent-2: #f0eafc; --accent-ink: #ffffff; --accent-line: #d4c5f2;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"])[data-accent="azure"] {
+    --accent: #2f6bcc; --accent-2: #e8f0fc; --accent-ink: #ffffff; --accent-line: #b9d0f2;
+  }
+  :root:not([data-theme="dark"])[data-accent="amber"] {
+    --accent: #b57f00; --accent-2: #faf0d8; --accent-ink: #ffffff; --accent-line: #ecd9a8;
+  }
+  :root:not([data-theme="dark"])[data-accent="violet"] {
+    --accent: #7a4fd0; --accent-2: #f0eafc; --accent-ink: #ffffff; --accent-line: #d4c5f2;
+  }
 }
 
 html { background: var(--bg); }
@@ -122,9 +280,10 @@ body {
 .label { text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); font-size: 10px; }
 .mono { font-family: var(--font-mono); }
 
-/* Fixed conversation palette: the transcript/message-list re-declares emerald
-   accents so user bubbles, execution shimmer, streaming caret, bullets, and
-   approval/copy accents stay emerald regardless of the active agent's chrome theme. */
+/* Fixed conversation palette: the transcript/message-list re-declares the
+   accent so user bubbles, execution shimmer, streaming caret, bullets, and
+   approval/copy accents follow the accent even when an agent overrides the
+   chrome (mechanism unchanged from upstream; values now track the accent). */
 .conversation-emerald {
   --accent: var(--cv);
   --accent-2: var(--cv-2);
@@ -160,11 +319,11 @@ body {
 .md .hljs-property,
 .md .hljs-symbol { color: var(--text); }
 
-/* slim, unobtrusive scrollbars that match the warm theme */
+/* slim, unobtrusive scrollbars that follow the theme hairlines */
 * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 *::-webkit-scrollbar { width: 9px; height: 9px; }
 *::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; border: 2px solid transparent; background-clip: content-box; }
-*::-webkit-scrollbar-thumb:hover { background: #2f3a4d; background-clip: content-box; }
+*::-webkit-scrollbar-thumb:hover { background: var(--text-4); background-clip: content-box; }
 
 /* Status & motion keyframes */
 @keyframes ocrc-pulse {

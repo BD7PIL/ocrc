@@ -16,7 +16,8 @@
     font-size: 14px;
     background: var(--user-bubble);
     color: var(--user-ink);
-    box-shadow: var(--shadow-card);
+    /* paper-ink bubble rule: single ladder step + hairline, no shadow, no gradient */
+    border: 1px solid var(--bubbleline);
     white-space: pre-wrap;
     word-break: break-word;
   }

@@ -31,9 +31,24 @@
   $: max = typeof ctx?.tokens?.max === 'number' ? (ctx.tokens.max as number) : undefined
   $: pct = used != null && max != null ? Math.min(100, Math.round((used / max) * 100)) : undefined
   $: model = ctx?.model ? String(ctx.model).split('/').pop() : undefined
+  // Prompt-cache stats for the last turn (opencode: input EXCLUDES cached
+  // tokens; cache.read = hits, cache.write = cache creation). Hit rate is the
+  // cached fraction of the prompt: read / (input + read).
+  $: cacheRead = typeof ctx?.tokens?.cache?.read === 'number' ? (ctx.tokens.cache.read as number) : undefined
+  $: cacheWrite = typeof ctx?.tokens?.cache?.write === 'number' ? (ctx.tokens.cache.write as number) : undefined
+  $: cacheHit = cacheRead != null && tin != null && tin + cacheRead > 0
+    ? Math.round((cacheRead / (tin + cacheRead)) * 100)
+    : undefined
 
   function fmt(n?: number) {
     return n == null ? '—' : n.toLocaleString()
+  }
+
+  function k(n?: number) {
+    if (n == null) return '—'
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K'
+    return String(n)
   }
 </script>
 
@@ -55,6 +70,9 @@
   {/if}
   {#if model}
     <div class="model mono"><span class="sq"></span>{model}</div>
+  {/if}
+  {#if cacheHit != null}
+    <div class="cache mono"><span class="cdot"></span>cache {cacheHit}% · {k(cacheRead)} read / {k(cacheWrite)} write</div>
   {/if}
 </div>
 
@@ -121,5 +139,18 @@
     height: 8px;
     border-radius: var(--radius-bar);
     background: var(--hl-cyan);
+  }
+  .cache {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--text-3);
+    font-size: 11px;
+  }
+  .cdot {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-bar);
+    background: var(--hl-green);
   }
 </style>

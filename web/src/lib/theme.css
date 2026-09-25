@@ -1,4 +1,4 @@
-/* src/lib/theme.css — Pactify Linx · cool-slate dark theme */
+/* src/lib/theme.css — ocrc · paper-ink dual theme (upstream: Pactify Linx cool-slate) */
 :root {
   --bg:        #0a0e14;  /* cool slate — main canvas */
   --bg-panel:  #0c1119;  /* rail / inspector / titlebar */

@@ -13,7 +13,7 @@ import { build, files, version } from '$service-worker'
 
 const sw = self as unknown as ServiceWorkerGlobalScope
 
-const CACHE = `oprc-cache-${version}`
+const CACHE = `ocrc-cache-${version}`
 const PRECACHE = [...build, ...files]
 
 sw.addEventListener('install', (event) => {

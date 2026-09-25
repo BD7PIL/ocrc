@@ -76,7 +76,7 @@
         <string>opencode, kimi=kimi acp</string>
 
         <!-- web-only (no Telegram token → no bot; avoids 409 with the plugin
-             hub's bot). web token auto-loads from ~/.opencode/oprc-token -->
+             hub's bot). web token auto-loads from ~/.ocrc/token -->
         <key>TELEGRAM_BOT_TOKEN</key>
         <string></string>
         <key>ALLOWED_USER_IDS</key>

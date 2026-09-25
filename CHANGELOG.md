@@ -1,6 +1,27 @@
 # Changelog
 
+## ocrc fork — 0.8.1-ocrc.1 (2026-09-25)
+
+Forked from agentjoey/opencode-remote-control at `9b89b79` (v0.8.1).
+Fork identity: `@bd7pil/ocrc`, config home `~/.ocrc/`, CLI `ocrc`.
+See docs/development-plan.md for the full fork plan. Deltas so far:
+
+- **Naming**: config home `~/.ocrc/` (token `token`, lock `primary.lock`,
+  state `state.json`, log `ocrc.log`, env file `config.env`); CLI/bin `ocrc`;
+  npm scope `@bd7pil/ocrc`; bridge file `~/.config/opencode/plugins/ocrc.js`.
+- **Web network defaults** (LAN-first decision, token gate unchanged):
+  `OCRC_WEB_HOST` default `0.0.0.0` (upstream 127.0.0.1), `OCRC_WEB_PORT`
+  default `4099` (upstream 17081). Legacy upstream variable names still work.
+- **web: bind errors surfaced** — listen errors (EADDRINUSE/EACCES) are now
+  re-thrown asynchronously so the transport retry loop sees them, instead of
+  being absorbed as unhandledRejections leaving the server silently unbound.
+- **web: first-visit pairing token race fixed** — fragment token captured at
+  module init (before any component mounts) and the fragment is stripped when
+  a rejected token is cleared; kills the flashing reload loop seen on phones.
+- **branding**: pactify linx → ocrc (PairGate, Titlebar, manifest, PWA title).
+
 ## v0.8.1 — 2026-07-24
+
 
 Headline: **big review pass — core correctness, transport hardening, and
 frontend accessibility / motion hygiene.**

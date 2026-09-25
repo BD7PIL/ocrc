@@ -1,0 +1,19 @@
+ocrc
+Copyright (c) 2026 bd7pil (ocrc fork contributors)
+
+This project is a fork of opencode-remote-control:
+
+  OCRC — opencode-remote-control
+  Copyright (c) agentjoey
+  https://github.com/agentjoey/opencode-remote-control (MIT License)
+
+Portions of this project are derived from, or will be derived from:
+
+  @grinev/opencode-telegram-bot (Telegram UX layer: managers, menus,
+  callbacks, i18n — transplanted by the P2b workstream)
+  Copyright (c) 2026 Ruslan Grinev
+  https://github.com/grinev/opencode-telegram-bot (MIT License)
+
+All upstream MIT license texts are preserved in LICENSE and applies to
+the respective portions. Changes from the upstream projects are licensed
+under the same MIT terms.

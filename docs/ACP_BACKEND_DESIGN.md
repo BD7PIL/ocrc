@@ -338,7 +338,7 @@ is opencode-only *and* single-workspace.)
 2. **`AcpBackend` + standalone host, Kimi first.**
    - ✅ `AcpBackend` (`acp-backend.ts`) + `connectAcp` (`acp-connect.ts`) +
      `acp-normalizer.ts`; `AgentBackend.onEvent` for stream-owning backends.
-   - ✅ Standalone host (`oprc host`, `src/cli/host.ts`) — runs OCRC against a
+   - ✅ Standalone host (`ocrc host`, `src/cli/host.ts`) — runs OCRC against a
      spawned ACP agent with no opencode; `OCRC_ACP_CMD` config.
    - ✅ Validated live against `kimi acp`: `initialize → session/new → prompt →
      stream → request_permission → end_turn`, end-to-end through the web transport.

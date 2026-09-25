@@ -6,7 +6,7 @@ import { createLogger, recentLogs } from '../../src/utils/logger'
 
 // Redirect the log file into a temp dir so tests never touch the real ~/.opencode.
 const tmp = mkdtempSync(join(tmpdir(), 'ocrc-logger-test-'))
-process.env.OPENCODE_CONFIG_DIR = tmp
+process.env.OCRC_HOME = tmp
 process.env.LOG_LEVEL = 'debug'
 
 describe('logger', () => {
@@ -47,7 +47,7 @@ describe('logger', () => {
   })
 
   it('rotates the log file to a single .old generation past the size threshold', () => {
-    const fp = join(tmp, 'opencode-remote-control.log')
+    const fp = join(tmp, 'ocrc.log')
     process.env.OCRC_LOG_MAX_BYTES = '64'
     try {
       writeFileSync(fp, 'x'.repeat(128))

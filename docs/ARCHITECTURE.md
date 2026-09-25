@@ -25,7 +25,7 @@
 ```
 
 Install once: `npm install && npm run build && node dist/cli/install.js`
-(or `oprc install` once linked). Then: `opencode` — the plugin auto-starts, no
+(or `ocrc install` once linked). Then: `opencode` — the plugin auto-starts, no
 extra terminal, no launchd. Multiple instances elect one PRIMARY to own the
 web/Telegram singletons.
 
@@ -37,7 +37,7 @@ web/Telegram singletons.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  oprc host (own process, NOT an opencode plugin)          │
+│  ocrc host (own process, NOT an opencode plugin)          │
 │                                                            │
 │  BackendRegistry ── forSession(sid) ──┐                    │
 │   ├─ OpencodeBackend ── spawns its own opencode server     │
@@ -199,7 +199,7 @@ env vars (`.env` is auto-loaded):
 | `WEB_HOST` | `127.0.0.1` | Web bind address |
 | `WEB_PORT` | `17081` | Web port (opencode 1.17 occupies `7081`) |
 | `WEB_AUTH` | `token` | Auth strategy: `token` (default, device pairing) or `cf-access` |
-| `WEB_TOKEN` | auto | App token; auto-generated + persisted `0600` at `~/.opencode/oprc-token` |
+| `WEB_TOKEN` | auto | App token; auto-generated + persisted `0600` at `~/.ocrc/token` |
 | `WEB_PUBLIC_URL` | — | Public URL for pairing links; auto-detects cloudflared, else LAN/loopback |
 | `WEB_CF_ACCESS_TEAM` / `_AUD` | — | Cloudflare Access team + audience (when `WEB_AUTH=cf-access`) |
 | `WEB_CF_ACCESS_DEV_BYPASS` | `false` | Bypass auth **only for a loopback socket peer**. Off by default — a loopback bind is not safe behind a tunnel |

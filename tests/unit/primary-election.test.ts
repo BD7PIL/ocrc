@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const tmp = mkdtempSync(join(tmpdir(), 'oprc-elect-'))
+const tmp = mkdtempSync(join(tmpdir(), 'ocrc-elect-'))
 const lock = join(tmp, 'primary.lock')
 afterEach(() => { try { rmSync(lock) } catch { /* ignore */ } })
 

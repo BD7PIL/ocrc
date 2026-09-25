@@ -24,7 +24,7 @@ cp .env.example .env
 #   ALLOWED_USER_IDS=12345678            # comma-separated for multiple users
 ```
 
-The interactive `oprc init` wizard can write these for you (it also runs from
+The interactive `ocrc init` wizard can write these for you (it also runs from
 the installer).
 
 ## 4. Build and install the plugin
@@ -33,7 +33,7 @@ Requires opencode 1.17+.
 
 ```bash
 npm install && npm run build
-node dist/cli/install.js        # or: oprc install
+node dist/cli/install.js        # or: ocrc install
 ```
 
 The installer writes a plugin bridge to `~/.config/opencode/plugins/` (opencode

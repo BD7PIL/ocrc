@@ -1,4 +1,27 @@
-# OCRC — opencode-remote-control
+# ocrc — remote control for opencode
+
+> **ocrc is a fork of [agentjoey/opencode-remote-control](https://github.com/agentjoey/opencode-remote-control) (OCRC, MIT).**
+> Upstream's architecture — the in-process plugin, CardBus, transport
+> interface, Telegram + Web PWA — is kept intact. This fork exists for four
+> reasons, all additive on top of upstream's design:
+>
+> 1. **Dual-host** — one default export loads on opencode **V1 (server hook) and
+>    V2 (setup hook)**; no plugin beta dependency, local structural V2 types.
+> 2. **More channels** — Feishu (official outbound WebSocket) and WeChat (official
+>    iLink bot API) as new transports under the same Transport interface; the
+>    relay core stays untouched.
+> 3. **Telegram UX at grinev depth** — the interaction model of
+>    [@grinev/opencode-telegram-bot](https://github.com/grinev/opencode-telegram-bot)
+>    (MIT): interaction mutex, grouped permission requests, background-session
+>    notifications, Chinese i18n — transplanted onto ocrc's relay pipeline.
+> 4. **LAN-first web** — binds `0.0.0.0:4099` by default (token gate mandatory,
+>    no cloud relay needed); dual light/dark "paper-ink" theme, auto-switched.
+>
+> Fork identity: npm `@bd7pil/ocrc`, config home `~/.ocrc/`, CLI `ocrc`.
+> Functional behaviour otherwise follows upstream's original design — this fork
+> changes identity, defaults and skins, not the interaction model.
+
+# OCRC — opencode-remote-control (upstream README follows)
 
 > **Drive your local opencode from your phone or browser.** An [opencode](https://opencode.ai)
 > **plugin** that runs a **Telegram bot + a Web PWA** in-process — fire off a prompt from
@@ -44,7 +67,7 @@ opencode
 config to `.env`. The plugin then loads in-process whenever opencode runs.
 
 - **Telegram:** make a bot with [@BotFather](https://t.me/BotFather); get your numeric id from [@userinfobot](https://t.me/userinfobot) (the installer asks for both). Send "hello" → the assistant replies.
-- **Web PWA:** enabled by default. Run `oprc pair` (or send `/pair` in Telegram) → open the URL/QR it prints. Auth is a device **token** (persisted at `~/.opencode/oprc-token`) — no Cloudflare Access needed.
+- **Web PWA:** enabled by default. Run `ocrc pair` (or send `/pair` in Telegram) → open the URL/QR it prints. Auth is a device **token** (persisted at `~/.ocrc/token`) — no Cloudflare Access needed.
 - **From another device:** the web binds to `localhost`, so expose it over a tunnel or VPN — e.g. `tailscale serve 17081`. See [Remote access without a domain](#remote-access-without-a-domain).
 
 ### Mode B — Standalone multi-backend host (opencode + ACP agents)
@@ -66,8 +89,8 @@ scripts/run-acp-host.sh        # run in a real terminal (needs full PATH to spaw
 For an always-on service (auto-start + crash-restart), install the launchd unit
 from `deploy/com.ocrc.host.plist`. Full runbook: [`docs/OPS.md`](docs/OPS.md).
 
-> Note: `oprc` isn't on your PATH by default — use `node dist/cli/index.js <cmd>`
-> (e.g. `node dist/cli/index.js pair`), or `npm link` to get the `oprc` shim.
+> Note: `ocrc` isn't on your PATH by default — use `node dist/cli/index.js <cmd>`
+> (e.g. `node dist/cli/index.js pair`), or `npm link` to get the `ocrc` shim.
 
 ## How we're different
 
@@ -132,7 +155,7 @@ Full deep-dive: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
    The plugin auto-starts. For an always-on remote-control hub, run it from a
    small/empty directory (e.g. `~/ocrc-hub`) so opencode's file watcher stays
    fast. You can run several opencode instances — they elect one **PRIMARY**
-   (atomic lock at `~/.opencode/oprc-primary.lock`) to own the web (`:17081`) and
+   (atomic lock at `~/.ocrc/primary.lock`) to own the web (`:4099`) and
    Telegram singletons; the rest stand down PASSIVE. The web/bot can switch
    between the workspaces of the running instances.
 5. **Send "hello"** in Telegram → the assistant responds.
@@ -150,10 +173,10 @@ The Web UI runs alongside Telegram and shows the same sessions in real time
 ### Auth — pair a device (default, no Cloudflare Access needed)
 
 Auth defaults to an app **token** (`WEB_AUTH=token`). Onboard a device with
-`oprc pair` (or Telegram `/pair`): it prints a URL + QR with the token in the
+`ocrc pair` (or Telegram `/pair`): it prints a URL + QR with the token in the
 fragment (`https://<host>/#token=…`). Open it once — the app stores the token
 and attaches it to every request thereafter. The token is persisted at
-`~/.opencode/oprc-token`, so it survives restarts and re-installs.
+`~/.ocrc/token`, so it survives restarts and re-installs.
 
 > Behind a tunnel, keep `WEB_CF_ACCESS_DEV_BYPASS=false`: `cloudflared` connects
 > from loopback, so a loopback bypass would trust all tunnel traffic.
@@ -173,7 +196,7 @@ reach the hub from another machine without owning a domain:
 | **SSH port-forward** | `ssh -L 17081:localhost:17081 <host>` | Then open `http://127.0.0.1:17081` (localhost = secure context) |
 
 Set `WEB_PUBLIC_URL` to the resulting HTTPS URL so `/pair` emits the right
-links. (If you already run a `cloudflared` tunnel to `:17081`, `/pair`
+links. (If you already run a `cloudflared` tunnel to `:4099`, `/pair`
 auto-detects its hostname from `~/.cloudflared`.) Plain `http://<LAN-IP>` is
 **not** a secure context — Chrome won't install it as an app.
 
@@ -242,7 +265,7 @@ To add another channel, see
 - **No secrets in repo.** `.env` is gitignored; `.env.example` documents every
   variable.
 - **Web auth is pluggable.** Default is an app **token** (auto-generated,
-  persisted `0600` at `~/.opencode/oprc-token`), verified on HTTP and WS with a
+  persisted `0600` at `~/.ocrc/token`), verified on HTTP and WS with a
   constant-time compare; `WEB_AUTH=cf-access` switches to Cloudflare Access. The
   dev bypass only trusts a real loopback peer (never the bind address) and is
   **off by default**.
@@ -264,7 +287,7 @@ To add another channel, see
 | `WEB_HOST` | `127.0.0.1` | Web bind address (keep loopback; front with a tunnel) |
 | `WEB_PORT` | `17081` | Web port (opencode 1.17's own server occupies `7081`) |
 | `WEB_AUTH` | `token` | Auth strategy: `token` (app token) or `cf-access` |
-| `WEB_TOKEN` | auto | App token; auto-generated and persisted `0600` at `~/.opencode/oprc-token` if unset |
+| `WEB_TOKEN` | auto | App token; auto-generated and persisted `0600` at `~/.ocrc/token` if unset |
 | `WEB_PUBLIC_URL` | — | Public URL for pairing/QR; falls back to LAN, then loopback |
 | `WEB_STATIC_ROOT` | `<repo>/web/dist` | Built PWA path (resolved from the plugin dir, cwd-independent) |
 | `WEB_SESSION_CACHE_SIZE` | `100` | Per-session card ring-buffer size |
@@ -286,9 +309,9 @@ opencode 1.17 changed plugin loading; this project accounts for all of it:
   The plugin installs absorbing guards so it survives.
 - **Web runs on `17081`** because opencode's own server occupies `7081`. Point
   your tunnel ingress at `17081`.
-- **PRIMARY election.** Web (`:17081`) and the Telegram bot are global
+- **PRIMARY election.** Web (`:4099`) and the Telegram bot are global
   singletons. Multiple opencode instances elect one PRIMARY (atomic lock at
-  `~/.opencode/oprc-primary.lock`) to own them; the others stand down PASSIVE.
+  `~/.ocrc/primary.lock`) to own them; the others stand down PASSIVE.
   Run the hub from a small/empty directory so the file watcher stays fast.
 
 ## Testing

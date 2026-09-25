@@ -1,6 +1,6 @@
 {
-  "name": "Pactify Linx",
-  "short_name": "Linx",
+  "name": "ocrc",
+  "short_name": "ocrc",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0e14",

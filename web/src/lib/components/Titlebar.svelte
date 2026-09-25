@@ -27,7 +27,7 @@
   <button class="iconbtn" class:active={drawerLeft} on:click={onToggleLeft} aria-label="Sessions">☰</button>
 
   <!-- Brand mark + wordmark -->
-  <div class="brand" title="Pactify Linx">
+  <div class="brand" title="ocrc">
     <svg class="brand-mark" viewBox="0 0 64 64" fill="none" stroke-width="7" stroke-linecap="round" aria-hidden="true">
       <path d="M24 18 A14 14 0 0 1 36.1 39" stroke="var(--role-blue)"/>
       <path d="M11.9 39 A14 14 0 0 1 24 18" stroke="var(--role-green)"/>
@@ -35,7 +35,7 @@
       <path d="M36.1 39 A14 14 0 0 1 11.9 39" stroke="var(--role-gold)"/>
       <path d="M34.4 41 A14 14 0 0 1 27.4 45.5" stroke="var(--role-gold)"/>
     </svg>
-    <span class="wordmark"><b>pactify</b> <span class="linx">linx</span></span>
+    <span class="wordmark"><b>ocrc</b></span>
   </div>
 
   <!-- New actions menu -->

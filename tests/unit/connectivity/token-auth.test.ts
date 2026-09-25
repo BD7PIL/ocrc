@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadOrCreateToken, createTokenAuth } from '../../../src/connectivity/auth/token'
 
-const tmp = mkdtempSync(join(tmpdir(), 'oprc-token-'))
+const tmp = mkdtempSync(join(tmpdir(), 'ocrc-token-'))
 
 describe('loadOrCreateToken', () => {
   it('returns an explicit token verbatim', () => {

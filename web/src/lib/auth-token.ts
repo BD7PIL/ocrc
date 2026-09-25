@@ -2,7 +2,7 @@
 //
 // Token-based web auth (no Cloudflare Access dependency).
 //
-// The pairing URL (`oprc pair` / Telegram `/pair`) carries the token in the URL
+// The pairing URL (`ocrc pair` / Telegram `/pair`) carries the token in the URL
 // *fragment* (`#token=…`) so it never reaches the server, a proxy, or access
 // logs. On first load we capture it into localStorage, strip it from the address
 // bar, and thereafter attach it to every API request (`Authorization: Bearer`)

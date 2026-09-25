@@ -27,7 +27,7 @@ Web 默认开启 → `node dist/cli/index.js pair`（或 Telegram `/pair`）配�
 
 **验证（模式 A）：**
 ```bash
-WT=$(cat ~/.opencode/oprc-token)
+WT=$(cat ~/.ocrc/token)
 curl -s -H "Authorization: Bearer $WT" http://127.0.0.1:17081/api/me      # → {"email":...}
 # Telegram：给你的 bot 发 "hello" → 应有回复
 ```
@@ -46,7 +46,7 @@ npm install && npm run build:all
 # 2. 配置：复制示例，填 WEB_TOKEN + 后端列表
 cp .env.acp.example .env.acp
 #   编辑 .env.acp：
-#     WEB_TOKEN=<一长串随机字符>          # 设备配对用；不设则复用 ~/.opencode/oprc-token
+#     WEB_TOKEN=<一长串随机字符>          # 设备配对用；不设则复用 ~/.ocrc/token
 #     WEB_PORT=17085                       # 别和 plugin hub(17081) 撞
 #     OCRC_BACKENDS="opencode, kimi=kimi acp"   # opencode + kimi；纯 kimi 就只写 kimi=...
 
@@ -79,7 +79,7 @@ launchctl list | grep ocrc        # 确认在线
 | cloudflared 快速隧道 | `cloudflared tunnel --url http://localhost:<port>` | 免费随机域名，URL 每次变 |
 
 ### 备注
-- `oprc` 默认不在 PATH：用 `node dist/cli/index.js <cmd>`，或 `npm link` 拿 `oprc`。
+- `ocrc` 默认不在 PATH：用 `node dist/cli/index.js <cmd>`，或 `npm link` 拿 `ocrc`。
 - **端口冲突**：模式 A 的 `opencode serve --port 4096` 和模式 B 里 host spawn 的
   opencode 都用 4096 —— 两者别同时跑 opencode（择一）。
 - **Token 安全**：`init` 向导把 Telegram token **明文写进 `.env`**（已 gitignore）。
@@ -111,24 +111,24 @@ v0.6.0 起 ocrc 作为 opencode 插件在同进程内运行（Telegram + Web）�
 ```bash
 # 安装（写入 ~/.config/opencode/plugins/ 桥接 + 保存 .env）
 npm install && npm run build
-node dist/cli/install.js        # 或 oprc install
+node dist/cli/install.js        # 或 ocrc install
 
 # 代码变更后更新：重新 build，然后重启 opencode（插件随之重载）
 npm run build
 # 退出并重新启动你的 opencode（hub）实例
 
 # 卸载
-node dist/cli/uninstall.js      # 或 oprc uninstall
+node dist/cli/uninstall.js      # 或 ocrc uninstall
 ```
 
 > 插件在 opencode 进程内运行，日志走 opencode 自身的输出。多实例由 PRIMARY 选举
-> 决定谁持有 web/bot 单例(锁文件 `~/.opencode/oprc-primary.lock`)。
+> 决定谁持有 web/bot 单例(锁文件 `~/.ocrc/primary.lock`)。
 
 ---
 
 ## Standalone host 模式（v0.7.0+，多 agent / 多后端）
 
-`oprc host`（= `node dist/cli/index.js host`）是与 plugin 模式并存的另一种部署：
+`ocrc host`（= `node dist/cli/index.js host`）是与 plugin 模式并存的另一种部署：
 独立进程，不作为 opencode 插件，可同时挂多个后端（opencode + 任意 ACP agent）并在
 界面里切换。这是生产域名 `ocrc.agentjoey.ai` 当前背后的实例。
 
@@ -150,7 +150,7 @@ OCRC_BACKENDS="opencode, kimi=kimi acp" WEB_ENABLED=true WEB_PORT=17085 \
   opencode 需装好、配好模型。host 会自己 spawn 这些进程。
 - **端口冲突**：host spawn 的 opencode 用 4096，会与 plugin 模式的 `opencode serve
   --port 4096` 撞——两者别同时跑 opencode。
-- **web token**：不设 `WEB_TOKEN` 则复用 plugin 模式持久化的 `~/.opencode/oprc-token`，
+- **web token**：不设 `WEB_TOKEN` 则复用 plugin 模式持久化的 `~/.ocrc/token`，
   已配对设备无需重配。
 - **后台常驻**：`nohup node dist/cli/index.js host >log 2>&1 & disown`（前台进程随
   终端关闭被 SIGHUP 杀）。崩溃不自启——建议做 launchd 服务。
@@ -172,7 +172,7 @@ OCRC_BACKENDS="opencode, kimi=kimi acp" WEB_ENABLED=true WEB_PORT=17085 \
 host 是前台进程，崩溃不自启、关终端被 SIGHUP 杀。生产用 launchd 常驻：
 `~/Library/LaunchAgents/com.ocrc.host.plist`（`RunAtLoad` + `KeepAlive`，崩溃
 ~10s 自动重启；web-only，env 全在 plist 的 `EnvironmentVariables` 里，web token
-复用 `~/.opencode/oprc-token`）。日志 `~/.opencode/ocrc-host.{log,err}`。
+复用 `~/.ocrc/token`）。日志 `~/.opencode/ocrc-host.{log,err}`。
 
 ```bash
 # 首次加载（plist 已就位）
@@ -283,7 +283,7 @@ cd web && npm run check && npm run build && npm run test
 | `WEB_HOST` | `127.0.0.1` | Web 绑定地址（隧道回源；勿对公网裸监听） |
 | `WEB_PORT` | `17081` | Web 端口（opencode 1.17 自身占用 `7081`） |
 | `WEB_AUTH` | `token` | 认证策略：`token`（默认，免 CF Access）/ `cf-access` |
-| `WEB_TOKEN` | 自动 | 留空则自动生成并持久化到 `~/.opencode/oprc-token`（`0600`） |
+| `WEB_TOKEN` | 自动 | 留空则自动生成并持久化到 `~/.ocrc/token`（`0600`） |
 | `WEB_PUBLIC_URL` | — | 配对链接/二维码用的公开地址；未设则自动探测 cloudflared，再退回 LAN/loopback |
 | `WEB_CF_ACCESS_TEAM` | — | Cloudflare Access team 名（仅 `WEB_AUTH=cf-access`） |
 | `WEB_CF_ACCESS_AUD` | — | Cloudflare Access AUD tag（仅 `WEB_AUTH=cf-access`） |
@@ -323,12 +323,12 @@ WEB_CF_ACCESS_DEV_BYPASS=false # 隧道后必须 false（cloudflared 走 loopbac
 ### Token 认证 + 配对(默认)
 
 ```bash
-oprc pair                    # 打印 URL + 二维码（token 在 #fragment）
+ocrc pair                    # 打印 URL + 二维码（token 在 #fragment）
 # 或 Telegram 发 /pair
 ```
 
 1. 浏览器打开 `https://<host>/#token=…` → app 存下 token、抹掉 fragment、正常加载。
-2. token 持久化在 `~/.opencode/oprc-token`,重启/重装不变。轮换:`rm` 该文件再重启。
+2. token 持久化在 `~/.ocrc/token`,重启/重装不变。轮换:`rm` 该文件再重启。
 3. 配对链接的 host:优先 `WEB_PUBLIC_URL`,否则自动读 `~/.cloudflared/*.yml` 的
    ingress 域名,再退回 LAN/loopback。
 

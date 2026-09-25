@@ -26,14 +26,12 @@
   <!-- Mobile session drawer toggle -->
   <button class="iconbtn" class:active={drawerLeft} on:click={onToggleLeft} aria-label="Sessions">☰</button>
 
-  <!-- Brand mark + wordmark -->
+  <!-- Brand mark + wordmark — "enso" mark: ink brush ring + persimmon dot;
+       both elements track the theme (ring = --text, dot = --accent). -->
   <div class="brand" title="ocrc">
-    <svg class="brand-mark" viewBox="0 0 64 64" fill="none" stroke-width="7" stroke-linecap="round" aria-hidden="true">
-      <path d="M24 18 A14 14 0 0 1 36.1 39" stroke="var(--role-blue)"/>
-      <path d="M11.9 39 A14 14 0 0 1 24 18" stroke="var(--role-green)"/>
-      <rect x="31" y="20" width="24" height="24" rx="8" stroke="var(--role-silver)"/>
-      <path d="M36.1 39 A14 14 0 0 1 11.9 39" stroke="var(--role-gold)"/>
-      <path d="M34.4 41 A14 14 0 0 1 27.4 45.5" stroke="var(--role-gold)"/>
+    <svg class="brand-mark" viewBox="0 0 64 64" fill="none" stroke-width="8" stroke-linecap="round" aria-hidden="true">
+      <path d="M46 15 A24 24 0 1 0 54 32" stroke="var(--text)"/>
+      <circle cx="49" cy="20" r="6" fill="var(--accent)" stroke="none"/>
     </svg>
     <span class="wordmark"><b>ocrc</b></span>
   </div>

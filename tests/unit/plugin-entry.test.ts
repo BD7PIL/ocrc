@@ -325,7 +325,6 @@ describe('remoteControlPlugin', () => {
 
   it('dispose stops transports, clear timer, and stops push', async () => {
     await plug.dispose()
-    expect(globalStop).toHaveBeenCalled()
     expect(tgTransport.stop).toHaveBeenCalled()
     expect(push.stop).toHaveBeenCalled()
   })

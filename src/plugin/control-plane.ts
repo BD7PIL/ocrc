@@ -16,7 +16,6 @@
 import type { AgentBackend, PermissionDecision } from '../core/agent/backend.js'
 import type { OcEvent } from '../core/opencode-events.js'
 import { createOpencodeBackend } from '../core/agent/opencode-backend.js'
-import { startGlobalEvents } from '../opencode/global-events.js'
 import { createV2Backend } from '../core/agent/v2-backend.js'
 import { createV2EventMapper } from './v2/event-map.js'
 import type { V2Context } from './v2/types.js'
@@ -39,8 +38,9 @@ export interface ControlPlane {
   getSession?(id: string): Promise<{ agent?: string } | undefined>
   /**
    * Wire the host's event stream(s) into dispatch; returns a stop fn.
-   *  - V1: the /global/event SSE for OTHER workspaces (own-workspace events
-   *    arrive via the plugin `event` hook — see eventHook()).
+   *  - V1: a no-op — the plugin `event` hook (eventHook()) is the sole source;
+   *    on 1.18.32 it carries ALL workspaces' events, so a second stream would
+   *    double-deliver.
    *  - V2: ctx.event.subscribe mapped to V1 shapes for ALL workspaces (V2 has
    *    no plugin event hook).
    */
@@ -61,19 +61,15 @@ export function createV1ControlPlane(ctx: V1Context): ControlPlane {
       return res?.data as { agent?: string } | undefined
     },
     wireEvents(dispatchEvent) {
-      // The pulled /global/event SSE connects but does NOT reliably deliver
-      // events inside opencode's plugin worker (verified at runtime), whereas
-      // the plugin `event` hook — opencode PUSHING events — works. So the hook
-      // is the primary dispatch source for THIS workspace; the global stream is
-      // best-effort for OTHER workspaces only (directory !== worktree), which
-      // also prevents double-processing.
-      const globalEvents = startGlobalEvents({
-        client: ctx.client,
-        onEvent: (ev, directory) => {
-          if (directory && ctx.worktree && directory !== ctx.worktree) void dispatchEvent(ev)
-        },
-      })
-      return () => globalEvents.stop()
+      // The plugin `event` hook is the SINGLE dispatch source. The old design
+      // also pulled /global/event for "other workspaces" on the premise that
+      // the hook only sees its own directory — but on opencode 1.18.32 the
+      // hook demonstrably receives EVERY workspace's events (verified live:
+      // with both sources wired, a turn in another-directory session was
+      // finalized twice, 4ms apart, publishing duplicate assistant cards).
+      // The pulled SSE is also the flakier path ("does NOT reliably deliver"
+      // — verified at runtime). One source, no dedupe needed.
+      return () => {}
     },
     eventHook(dispatchEvent) {
       return async ({ event }) => {

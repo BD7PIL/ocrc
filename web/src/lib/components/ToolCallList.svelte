@@ -86,7 +86,7 @@
   .execution {
     background: var(--bg-elev);
     border: 1px solid var(--border-2);
-    border-radius: 11px;
+    border-radius: var(--radius-sm);
     padding: 10px 12px 12px;
     margin: 0 0 12px;
   }
@@ -129,7 +129,7 @@
     padding: 6px 8px;
     background: transparent;
     border: none;
-    border-radius: 7px;
+    border-radius: var(--radius-xs);
     color: inherit;
     text-align: left;
     box-sizing: border-box;
@@ -202,7 +202,7 @@
     flex-shrink: 0;
     width: 42px;
     height: 4px;
-    border-radius: 2px;
+    border-radius: var(--radius-bar);
     background: linear-gradient(90deg, var(--accent) 0%, var(--text) 50%, var(--accent) 100%);
     background-size: 200% 100%;
     animation: ocrc-shimmer 1.4s linear infinite;

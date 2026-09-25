@@ -247,7 +247,7 @@
     height: 24px;
     display: inline-grid;
     place-items: center;
-    border-radius: 6px;
+    border-radius: var(--radius-xs);
     border: 1px solid transparent;
     font-family: var(--font-mono);
     font-size: 10px;
@@ -372,7 +372,7 @@
     height: 30px;
     display: inline-grid;
     place-items: center;
-    border-radius: 7px;
+    border-radius: var(--radius-xs);
     border: 1px solid transparent;
     font-family: var(--font-mono);
     font-size: 11px;
@@ -460,7 +460,7 @@
     margin: 6px 12px 8px; padding: 10px 12px;
     width: calc(100% - 24px);
     background: var(--bg-input); border: 1px solid var(--border);
-    border-radius: 10px; color: var(--text-3); cursor: pointer;
+    border-radius: var(--radius-sm); color: var(--text-3); cursor: pointer;
     font-size: 13px; font-family: var(--font-sans); text-align: left;
   }
   .mobile-search:hover { border-color: var(--text-4); }
@@ -481,13 +481,13 @@
   .switch-pill.active { background: var(--accent-2); border-color: var(--accent); }
   .switch-tile {
     width: 22px; height: 22px; display: inline-grid; place-items: center;
-    border-radius: 6px; border: 1px solid transparent;
+    border-radius: var(--radius-xs); border: 1px solid transparent;
     font-family: var(--font-mono); font-size: 9.5px; font-weight: 700; flex-shrink: 0;
   }
   .switch-name { font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; }
   .switch-count {
     font-size: 10px; color: var(--text-3);
-    background: var(--bg); border-radius: 8px; padding: 1px 6px;
+    background: var(--bg); border-radius: var(--radius-xs); padding: 1px 6px;
   }
 
   .list { flex: 1; overflow-y: auto; min-height: 0; }

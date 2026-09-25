@@ -40,7 +40,7 @@
     padding: 8px 10px;
     border: 1px solid var(--hl-purple);
     background: color-mix(in srgb, var(--hl-purple) 6%, transparent);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
   }
   .body pre {
     margin: 0;

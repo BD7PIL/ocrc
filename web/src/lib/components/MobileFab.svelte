@@ -84,7 +84,7 @@
   .dial-label {
     font-size: 12px; color: var(--text);
     background: var(--bg-elev); border: 1px solid var(--border);
-    padding: 6px 10px; border-radius: 8px; white-space: nowrap;
+    padding: 6px 10px; border-radius: var(--radius-xs); white-space: nowrap;
     box-shadow: 0 4px 14px rgba(0, 0, 0, .3);
   }
   .dial-icon {

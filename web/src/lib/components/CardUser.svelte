@@ -10,7 +10,7 @@
     align-self: flex-end;
     max-width: 82%;
     padding: 11px 16px;
-    border-radius: 18px 18px 4px 18px;
+    border-radius: var(--radius) var(--radius) var(--radius-tail) var(--radius);
     margin: 14px 0 6px;
     line-height: 1.55;
     font-size: 14px;

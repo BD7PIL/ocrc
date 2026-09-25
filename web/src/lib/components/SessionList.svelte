@@ -301,7 +301,7 @@
     top: 9px;
     bottom: 9px;
     width: 2.5px;
-    border-radius: 2.5px;
+    border-radius: var(--radius-bar);
     background: var(--accent);
   }
 
@@ -433,7 +433,7 @@
     height: 3px;
     margin-top: 8px;
     background: var(--border-2);
-    border-radius: 2px;
+    border-radius: var(--radius-bar);
     overflow: hidden;
   }
   .progress-fill {

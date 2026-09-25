@@ -105,7 +105,7 @@
   .md :global(.code-block) {
     background: var(--bg-code);
     border: 1px solid var(--border-2);
-    border-radius: 9px;
+    border-radius: var(--radius-sm);
     overflow: hidden;
     margin: 0.7em 0;
   }
@@ -120,7 +120,7 @@
   .md :global(.code-square) {
     width: 8px;
     height: 8px;
-    border-radius: 2px;
+    border-radius: var(--radius-bar);
     background: var(--hl-cyan);
   }
   .md :global(.code-lang) {
@@ -148,7 +148,7 @@
     font-size: 0.92em;
     background: var(--bg-input);
     padding: 0.1em 0.3em;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     color: var(--hl-green);
   }
   .md :global(a) { color: var(--accent); }

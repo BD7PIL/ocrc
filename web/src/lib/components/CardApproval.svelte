@@ -47,7 +47,7 @@
     align-self: stretch;
     width: 100%;
     margin: 6px 0 14px;
-    border-radius: 11px;
+    border-radius: var(--radius-sm);
     background: var(--bg-elev);
     border: 1px solid var(--border-2);
   }
@@ -61,7 +61,7 @@
     padding: 9px 12px;
     background: color-mix(in srgb, var(--warn) 8%, transparent);
     border-bottom: 1px solid var(--border-2);
-    border-radius: 11px 11px 0 0;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   }
   .warn-dot {
     width: 7px;
@@ -92,7 +92,7 @@
     padding: 8px 10px;
     background: var(--bg-code);
     border: 1px solid var(--border-2);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     font-size: 11.5px;
     line-height: 1.5;
     color: var(--text-2);

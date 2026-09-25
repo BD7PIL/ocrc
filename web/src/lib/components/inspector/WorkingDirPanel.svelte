@@ -199,12 +199,12 @@
     cursor: pointer;
   }
   .f:hover { background: var(--bg-elev2); }
-  .f:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
+  .f:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; border-radius: var(--radius-bar); }
 
   .change {
     width: 8px;
     height: 8px;
-    border-radius: 2px;
+    border-radius: var(--radius-bar);
     flex-shrink: 0;
   }
   .nm {

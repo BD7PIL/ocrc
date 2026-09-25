@@ -104,7 +104,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 5px;
+    border-radius: var(--radius-xs);
     background: var(--bg-panel);
     border: 1px solid var(--border-2);
     color: var(--text-2);
@@ -123,7 +123,7 @@
     text-transform: uppercase;
     background: var(--bg-panel);
     border: 1px solid var(--border);
-    border-radius: 5px;
+    border-radius: var(--radius-xs);
     padding: 2px 5px;
   }
 

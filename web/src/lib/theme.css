@@ -79,9 +79,16 @@
 
   --scrim:     rgba(0, 0, 0, .5);
 
+  /* Unified radius scale — the ONLY allowed radii. radius = cards/sheets/
+     bubbles, radius-sm = inputs/chips/buttons/terminals, radius-xs = keycaps/
+     badges/menu items, radius-tail = the user bubble's tail corner, radius-bar
+     = micro progress/shimmer bars, radius-pill = full pills (999). */
   --radius:    14px;
   --radius-sm: 9px;
-  --radius-pill: 20px;
+  --radius-xs: 6px;
+  --radius-tail: 4px;
+  --radius-bar: 2px;
+  --radius-pill: 999px;
   --shadow-card: 0 1px 4px rgba(0, 0, 0, .35);
   --shadow-composer: 0 6px 24px rgba(0, 0, 0, .4);
   --shadow-palette: 0 24px 70px rgba(0, 0, 0, .6);

@@ -165,7 +165,7 @@
     color: var(--text-3);
     background: var(--bg-elev);
     border: 1px solid var(--border);
-    border-radius: 5px;
+    border-radius: var(--radius-xs);
     padding: 2px 5px;
   }
 

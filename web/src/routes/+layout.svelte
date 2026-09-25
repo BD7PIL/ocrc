@@ -295,7 +295,7 @@
       overflow: hidden;
       transition: transform .24s ease;
       transform: translateY(100%);
-      border-radius: 18px 18px 0 0;
+      border-radius: var(--radius) var(--radius) 0 0;
       box-shadow: 0 -10px 44px rgba(0,0,0,.55);
     }
     .inspector-wrap.open { transform: translateY(0); }

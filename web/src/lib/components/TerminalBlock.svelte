@@ -85,7 +85,7 @@
   .term {
     background: var(--bg-code);
     border: 1px solid var(--border-2);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     overflow: hidden;
   }
   .term-head {
@@ -125,7 +125,7 @@
     margin-left: auto;
     width: 42px;
     height: 4px;
-    border-radius: 2px;
+    border-radius: var(--radius-bar);
     background: linear-gradient(90deg, var(--accent) 0%, var(--text) 50%, var(--accent) 100%);
     background-size: 200% 100%;
     animation: ocrc-shimmer 1.4s linear infinite;

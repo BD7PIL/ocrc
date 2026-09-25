@@ -367,7 +367,7 @@
     text-transform: uppercase;
     background: var(--bg-panel);
     border: 1px solid var(--border);
-    border-radius: 5px;
+    border-radius: var(--radius-xs);
     padding: 3px 6px;
   }
   .results {
@@ -386,7 +386,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 6px;
+    border-radius: var(--radius-xs);
     background: var(--accent-2);
     color: var(--accent);
     font-family: var(--font-mono);
@@ -424,7 +424,7 @@
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-xs);
     background: var(--bg-panel);
     border: 1px solid var(--border-2);
     color: var(--text-2);

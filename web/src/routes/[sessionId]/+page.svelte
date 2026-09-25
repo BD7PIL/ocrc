@@ -213,7 +213,7 @@
       display: inline-flex; align-items: center; justify-content: center;
       width: 44px; height: 44px; flex-shrink: 0;
       background: var(--bg-elev); border: 1px solid var(--border);
-      border-radius: 9px; color: var(--text-2); cursor: pointer;
+      border-radius: var(--radius-sm); color: var(--text-2); cursor: pointer;
     }
     .back:active, .inspect:active { background: var(--bg-elev2); }
   }

@@ -99,7 +99,7 @@
   .bar {
     height: 7px;
     background: var(--bg-input);
-    border-radius: 3.5px;
+    border-radius: var(--radius-bar);
     overflow: hidden;
   }
   .fill {
@@ -119,7 +119,7 @@
   .sq {
     width: 8px;
     height: 8px;
-    border-radius: 2px;
+    border-radius: var(--radius-bar);
     background: var(--hl-cyan);
   }
 </style>

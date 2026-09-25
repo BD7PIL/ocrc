@@ -234,7 +234,7 @@
     }
     /* Compact pill on mobile (design = "pill + round send") instead of the taller
        desktop box, so a focused input doesn't read as a bulky floating block. */
-    .box { padding: 7px 8px 7px 14px; border-radius: 22px; }
+    .box { padding: 7px 8px 7px 14px; border-radius: var(--radius-pill); }
     .footer { margin-top: 4px; }
     /* ≥44px touch targets on small/coarse screens. */
     .send { width: 44px; height: 44px; }
@@ -254,7 +254,7 @@
     position: relative;
     background: var(--bg-input);
     border: 1px solid var(--border);
-    border-radius: 14px;
+    border-radius: var(--radius);
     padding: 12px 14px 8px;
     box-shadow: var(--shadow-composer);
     transition: border-color .15s ease;
@@ -342,7 +342,7 @@
     position: relative;
     width: 56px;
     height: 56px;
-    border-radius: 6px;
+    border-radius: var(--radius-xs);
     overflow: hidden;
     border: 1px solid var(--border);
     flex-shrink: 0;
@@ -378,7 +378,7 @@
     justify-content: center;
     width: 28px;
     height: 28px;
-    border-radius: 6px;
+    border-radius: var(--radius-xs);
     border: none;
     background: transparent;
     color: var(--text-3);

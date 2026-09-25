@@ -339,7 +339,7 @@
     height: 22px;
     display: inline-grid;
     place-items: center;
-    border-radius: 6px;
+    border-radius: var(--radius-xs);
     border: 1px solid transparent;
     font-family: var(--font-mono);
     font-size: 9.5px;

@@ -13,6 +13,20 @@ export interface SubmitImage {
   filename?: string
 }
 
+// Sessions created for internal side calls (e.g. Tier2 suggestion generation).
+// Their turns stream through the same event hook as real sessions; transports
+// and the relay check isEphemeralSession() so the mirrored output never leaks
+// into user-facing feeds.
+const ephemeralSessions = new Set<string>()
+
+export function markEphemeralSession(id: string): void {
+  ephemeralSessions.add(id)
+}
+
+export function isEphemeralSession(id: string): boolean {
+  return ephemeralSessions.has(id)
+}
+
 export interface SubmitOptions {
   text: string
   sessionId: string

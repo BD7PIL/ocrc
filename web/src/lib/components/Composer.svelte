@@ -5,16 +5,29 @@
   import { upsertCard, removeCard } from '../stores/sessions.js'
   import { can, backendName } from '../stores/capabilities.js'
   import { paletteOpen } from '../stores/palette.js'
+  import { composerDraft, composerEmpty } from '../stores/ui.js'
   import AgentModelChip from './AgentModelChip.svelte'
   import SessionControls from './SessionControls.svelte'
 
   export let sessionId: string
 
   let text = ''
+  let textarea: HTMLTextAreaElement
+
+  // Suggestion chips drop their text here; consume one draft per fill.
+  $: {
+    const d = $composerDraft
+    if (d) {
+      text = d.text
+      composerDraft.set(undefined)
+      tick().then(() => textarea?.focus())
+      autoGrow()
+    }
+  }
+  $: composerEmpty.set(!text.trim())
   let sending = false
   let error = ''
   let focused = false
-  let textarea: HTMLTextAreaElement
   let fileInput: HTMLInputElement
   let pendingImages: Array<{ data: string; mimeType: string; preview: string }> = []
 

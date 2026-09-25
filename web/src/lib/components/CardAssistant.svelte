@@ -5,6 +5,8 @@
   import ToolCallList from './ToolCallList.svelte'
 
   export let card: ExtractStructuredCard<'assistant'>
+  /** Present only on the last assistant card — re-sends the last user message. */
+  export let onRegenerate: (() => void) | undefined = undefined
 
   $: tools = card.blocks
     .filter((b): b is ToolBlock => b.type === 'tool')
@@ -44,6 +46,9 @@
         {#if m.cost !== undefined}<span class="chip cost mono">${m.cost.toFixed(3)}</span>{/if}
       </div>
       <div class="actions">
+        {#if onRegenerate}
+          <button class="icon" title="Regenerate" aria-label="Regenerate" on:click={onRegenerate}>↻</button>
+        {/if}
         <button class="icon" class:copied title="Copy" aria-label="Copy" on:click={copy}>
           {#if copied}✓{:else}⧉{/if}
         </button>

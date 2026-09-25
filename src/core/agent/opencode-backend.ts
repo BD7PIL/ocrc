@@ -11,7 +11,7 @@ import type {
 } from './backend.js'
 import { buildDiffEntry } from './diff-util.js'
 import type { ContentBlock, StructuredCard } from '../structured-card.js'
-import { submitPrompt } from '../../opencode/submit.js'
+import { submitPrompt, markEphemeralSession } from '../../opencode/submit.js'
 import { listAllSessions } from '../../opencode/list-sessions.js'
 import { listWorkspaces as listWorkspacesImpl } from '../../opencode/workspaces.js'
 import { cardsFromMessages } from '../history.js'
@@ -56,6 +56,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     commands: true,
     sessionControls: false, // opencode keeps its own agent/model override chip
     imageInput: true, // prompt carries image attachments as inline file parts
+    suggestions: process.env.OCRC_SUGGESTIONS !== 'off', // Tier2 follow-up generation
   }
 
   async function prompt(sessionId: string, input: PromptInput): Promise<void> {
@@ -67,6 +68,71 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
       images: input.images,
       signal: input.signal,
     })
+  }
+
+  /**
+   * Tier2 suggested follow-ups: run a throwaway session asking for three
+   * concise follow-ups, poll until the reply lands, parse the JSON array, then
+   * delete the throwaway session — the source conversation is never touched.
+   * Best-effort: any failure resolves to [].
+   */
+  async function suggestFollowUps(
+    sessionId: string,
+    exchange: { user: string; assistant: string },
+  ): Promise<string[]> {
+    if (process.env.OCRC_SUGGESTIONS === 'off') return []
+    let tmpId: string | undefined
+    try {
+      const created = (await client.session.create({ body: { title: 'ocrc-suggestions' } })).data as any
+      tmpId = created?.id
+      if (!tmpId) return []
+      markEphemeralSession(tmpId)
+      const instruction = [
+        'Below is an exchange between the user and their coding assistant.',
+        '',
+        `User: ${exchange.user}`,
+        '',
+        `Assistant: ${exchange.assistant}`,
+        '',
+        'Suggest 3 short follow-up instructions the user might send next.',
+        'Rules: same language as the exchange; each at most 8 words; no numbering, no quotes, no explanations.',
+        'Reply with ONLY a JSON array of 3 strings.',
+      ].join('\n')
+      await submitPrompt(client, { sessionId: tmpId, text: instruction })
+      // promptAsync resolves on accept — poll for the assistant reply to land.
+      // The messages list wraps each message as {info:{role,...}, parts:[...]}
+      // on some SDK paths and flat on others — read both shapes defensively.
+      let reply = ''
+      for (let i = 0; i < 20; i++) {
+        await new Promise((r) => setTimeout(r, 500))
+        const res = (await client.session.messages({ path: { id: tmpId } })).data as any[] | undefined
+        const last = (res ?? []).at(-1) as any
+        const role = last?.info?.role ?? last?.role
+        if (last && role === 'assistant') {
+          const parts = (last.parts ?? last.info?.parts ?? []) as Array<{ type?: string; text?: string }>
+          reply = parts.filter((p) => p.type === 'text').map((p) => p.text ?? '').join('')
+          if (reply.trim()) break
+        }
+      }
+      const start = reply.indexOf('[')
+      const end = reply.lastIndexOf(']')
+      let items: string[] = []
+      if (start !== -1 && end > start) {
+        try {
+          const arr = JSON.parse(reply.slice(start, end + 1))
+          if (Array.isArray(arr)) items = arr.filter((x) => typeof x === 'string')
+        } catch { /* fall through to line parse */ }
+      }
+      if (items.length === 0) {
+        items = reply.split('\n').map((l) => l.trim().replace(/^[-\d.*\s]+/, '').replace(/^["']|["']$/g, '')).filter(Boolean)
+      }
+      log.info(`suggestFollowUps: ${items.length} suggestions parsed`)
+      return items.slice(0, 3)
+    } catch {
+      return []
+    } finally {
+      if (tmpId) { try { await client.session.delete({ path: { id: tmpId } }) } catch { /* best effort */ } }
+    }
   }
 
   async function abort(id: string): Promise<void> {
@@ -340,5 +406,6 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     getAgents, getModels, getMcp, listWorkspaces, listCommands, runCommand,
     resolvePermission,
     selectTuiSession,
+    suggestFollowUps,
   }
 }

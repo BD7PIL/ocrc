@@ -39,11 +39,40 @@
       tag.textContent = lang
       header.appendChild(square)
       header.appendChild(tag)
+      // Copy affordance lives in the header; the click is handled by delegation
+      // on the .md wrapper (the markup is injected via {@html}).
+      const copy = document.createElement('button')
+      copy.type = 'button'
+      copy.className = 'code-copy mono'
+      copy.textContent = 'Copy'
+      header.appendChild(copy)
       block.appendChild(header)
       pre.parentNode?.insertBefore(block, pre)
       block.appendChild(pre)
     })
     return wrap.innerHTML
+  }
+
+  let copiedTimer: ReturnType<typeof setTimeout> | undefined
+
+  function onMdClick(e: MouseEvent) {
+    const btn = (e.target as HTMLElement).closest?.('.code-copy') as HTMLElement | null
+    if (!btn) return
+    const code = btn.closest('.code-block')?.querySelector('pre code, pre')
+    if (!code) return
+    navigator.clipboard
+      ?.writeText((code as HTMLElement).innerText)
+      .then(() => {
+        // Inline confirmation state (baseline: copy without feedback is invisible)
+        btn.classList.add('copied')
+        btn.textContent = '✓ Copied'
+        if (copiedTimer) clearTimeout(copiedTimer)
+        copiedTimer = setTimeout(() => {
+          btn.classList.remove('copied')
+          btn.textContent = 'Copy'
+        }, 1400)
+      })
+      .catch(() => {})
   }
 
   function insertStreamingCaret(wrap: HTMLElement) {
@@ -105,10 +134,13 @@
 
   $: schedule(src)
 
-  onDestroy(() => { if (raf) cancelAnimationFrame(raf) })
+  onDestroy(() => {
+    if (raf) cancelAnimationFrame(raf)
+    if (copiedTimer) clearTimeout(copiedTimer)
+  })
 </script>
 
-<div class="md" class:streaming>{@html html}</div>
+<div class="md" class:streaming on:click={onMdClick}>{@html html}</div>
 
 <style>
   .md {
@@ -148,6 +180,19 @@
     color: var(--hl-cyan);
     text-transform: lowercase;
   }
+  .md :global(.code-copy) {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xs);
+    color: var(--text-3);
+    font-size: 10.5px;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition: color .12s var(--ease, ease), border-color .12s var(--ease, ease);
+  }
+  .md :global(.code-copy:hover) { color: var(--text); border-color: var(--text-4); }
+  .md :global(.code-copy.copied) { color: var(--ok); border-color: var(--ok); }
   .md :global(pre) {
     background: var(--bg-code);
     margin: 0;

@@ -12,6 +12,15 @@ export const newSessionOpen = writable(false)
 /** Mobile inspector bottom-sheet open state (toggled from the chat header). */
 export const inspectorOpen = writable(false)
 
+/** Draft handed to the composer from suggestion chips: clicking a chip fills
+    (never sends) — the composer watches this store, sets its text, focuses,
+    and clears it. The nonce makes repeated picks of the same chip re-trigger. */
+export const composerDraft = writable<{ text: string; nonce: number } | undefined>(undefined)
+
+/** True while the composer textarea is empty — hides suggestion chips once the
+    user starts typing (baseline: chips must yield the moment they're noise). */
+export const composerEmpty = writable(true)
+
 /** localStorage key for the theme override — also read by the early inline
     script in app.html (keep in sync). Absent = follow the system. */
 const THEME_KEY = 'ocrc-theme'

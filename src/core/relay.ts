@@ -5,6 +5,7 @@ import { createStreamAccumulator, type PartInput } from './stream-accumulator.js
 import type { AgentEvent } from './agent/event.js'
 import type { AgentBackend } from './agent/backend.js'
 import { singleBackendRegistry, type BackendRegistry } from './agent/registry.js'
+import { isEphemeralSession } from '../opencode/submit.js'
 import { createLogger } from '../utils/logger.js'
 
 const log = createLogger('relay')
@@ -128,6 +129,8 @@ export function createRelay(deps: RelayDeps) {
    * the previous turn's ctx finishes (idle / error / abort / timeout).
    */
   const turnQueues = new Map<string, Promise<void>>()
+  /** Last user text per session — feeds Tier2 follow-up generation at finalize. */
+  const lastUserText = new Map<string, string>()
 
   function cleanupPluginSession(sessionId: string) {
     const ctx = pluginSessions.get(sessionId)
@@ -238,6 +241,7 @@ export function createRelay(deps: RelayDeps) {
       })
 
       sessionId = resolvedId
+      lastUserText.set(sessionId, msg.text)
       deps.state.setLastSessionId(sessionId)
       deps.state.setActiveAbort(sessionId, ac)
       // Keep the provisional key mapped to the same controller until the turn
@@ -311,6 +315,25 @@ export function createRelay(deps: RelayDeps) {
     // Mark delivery so the push engine doesn't also fire a "Session finished"
     // notification for a session the user just watched complete.
     deps.state.markAssistantDelivered(sessionId)
+
+    // Tier2 suggested follow-ups: generate after the exchange completes, from
+    // the last user message + this reply. Fire-and-forget, zero history
+    // pollution (runs in a throwaway session), result lands in state for the
+    // web client to pick up.
+    const userText = lastUserText.get(sessionId)
+    lastUserText.delete(sessionId)
+    const suggest = backend.suggestFollowUps
+    if (suggest && userText) {
+      const assistantText = blocks
+        .filter((b) => b.type === 'text')
+        .map((b) => (b as { text?: string }).text ?? '')
+        .join('\n')
+        .slice(-1500)
+      void suggest
+        .call(backend, sessionId, { user: userText, assistant: assistantText })
+        .then((items) => { if (items.length > 0) deps.state.setSessionSuggestions(sessionId, items) })
+        .catch(() => { /* best effort */ })
+    }
   }
 
   /**
@@ -331,6 +354,9 @@ export function createRelay(deps: RelayDeps) {
     // turn for the session reused its stale accumulator. Aborting only stops our
     // mirroring — the TUI turn itself is owned by opencode; the card's stop
     // button calls the backend's abort directly.
+    // Internal side calls (Tier2 suggestion generation) stream through the
+    // same hook; never adopt their turns into user-facing feeds.
+    if (isEphemeralSession(sid)) return
     if (!ctx && (e.kind === 'part' || e.kind === 'delta')) {
       const ac = new AbortController()
       ctx = {

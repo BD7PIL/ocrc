@@ -287,7 +287,7 @@
       width: 100%;
       overflow: hidden;
       margin-right: 0;
-      transition: transform .24s ease;
+      transition: transform .24s var(--ease, ease);
       transform: translateX(-100%);
     }
     .rail-wrap.open { transform: translateX(0); }

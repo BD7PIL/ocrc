@@ -83,6 +83,10 @@
      bubbles, radius-sm = inputs/chips/buttons/terminals, radius-xs = keycaps/
      badges/menu items, radius-tail = the user bubble's tail corner, radius-bar
      = micro progress/shimmer bars, radius-pill = full pills (999). */
+  /* Motion: one deceleration curve for the whole app (Linear-style
+     interaction fidelity — transitions read as system state, not decoration). */
+  --ease: cubic-bezier(.2, 0, 0, 1);
+
   --radius:    14px;
   --radius-sm: 9px;
   --radius-xs: 6px;
@@ -273,6 +277,13 @@ html { background: var(--bg); }
    viewport-fit=cover + black-translucent — the view never extends behind the
    status bar / home indicator, so env(safe-area-inset-*) all resolve to 0. */
 html, body { height: 100vh; }
+/* Press feedback on every button — cheap, universal, communicates "received
+   the tap" instantly on touch devices where no hover state ever fires. */
+button {
+  transition: opacity .12s var(--ease, ease), transform .12s var(--ease, ease);
+}
+button:active:not(:disabled) { opacity: .78; }
+
 body {
   margin: 0;
   overflow: hidden;

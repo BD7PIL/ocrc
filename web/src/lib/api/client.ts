@@ -64,6 +64,7 @@ export const api = {
     jsonPost<{ ok: boolean }>('/api/overrides', body),
   sendMessage: (body: { sessionId?: string; text: string; clientId?: string; images?: Array<{ data: string; mimeType: string }> }) => jsonPost<{ messageId: string }>('/api/message', body),
   abort: (sessionId: string) => jsonPost<{ ok: boolean }>('/api/abort', { sessionId }),
+  suggestions: (sessionId: string) => jsonGet<{ suggestions: string[] }>(`/api/session/${sessionId}/suggestions`),
   approve: (sessionId: string, requestId: string, decision: 'once' | 'always' | 'reject') =>
     jsonPost<{ ok: boolean }>('/api/approval', { sessionId, requestId, decision }),
   controls: (id: string) =>

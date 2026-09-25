@@ -65,6 +65,9 @@ export interface SessionState {
    * through unchanged.  Short suffixes are matched against sessionBackends keys.
    */
   normalizeSessionId(sessionId: string): string
+  /** Per-session suggested follow-ups (Tier2, in-memory, 10-min TTL). */
+  getSessionSuggestions(sessionId: string): string[] | undefined
+  setSessionSuggestions(sessionId: string, items: string[]): void
   flush(): Promise<void>
 }
 
@@ -74,6 +77,8 @@ export function createFileBackedState(path: string): SessionState {
   let pending: Promise<void> | undefined
   let resolvePending: (() => void) | undefined
   const aborts = new Map<string, AbortController>()
+  // In-memory only — suggestions are ephemeral UI sugar, never state of record.
+  const sessionSuggestions = new Map<string, { items: string[]; at: number }>()
   const sessionCosts = new Map<string, number>()
   const assistantDeliveredAt = new Map<string, number>()
 
@@ -214,6 +219,15 @@ export function createFileBackedState(path: string): SessionState {
       void persist()
     },
     normalizeSessionId,
+    getSessionSuggestions: (sid) => {
+      const e = sessionSuggestions.get(sid)
+      if (!e) return undefined
+      if (Date.now() - e.at > 10 * 60_000) { sessionSuggestions.delete(sid); return undefined }
+      return e.items
+    },
+    setSessionSuggestions: (sid, items) => {
+      sessionSuggestions.set(sid, { items, at: Date.now() })
+    },
     flush: async () => persist(),
   }
 }

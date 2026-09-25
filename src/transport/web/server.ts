@@ -33,6 +33,7 @@ import { registerWorkspaces } from './routes/workspaces.js'
 import { registerCreateSession } from './routes/create-session.js'
 import { registerCommands } from './routes/commands.js'
 import { registerRename } from './routes/rename.js'
+import { registerSuggestions } from './routes/suggestions.js'
 
 export interface BuildServerOpts {
   auth: AuthStrategy
@@ -109,5 +110,6 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerCreateSession(app, reg)
   registerCommands(app, reg, opts.state)
   registerRename(app, reg, opts.state)
+  registerSuggestions(app, opts.state)
   return app
 }

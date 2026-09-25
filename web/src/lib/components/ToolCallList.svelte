@@ -57,6 +57,7 @@
               <span class="status" aria-hidden="true"></span>
               <span class="sr-only">{t.status}</span>
               <span class="name mono">{t.tool}</span>
+              {#if t.tool === 'bash'}<span class="ps1 mono" aria-hidden="true">$</span>{/if}
               <span class="arg mono">{t.args}</span>
               {#if t.adds || t.dels}
                 <span class="diff mono">
@@ -178,6 +179,17 @@
   .row.error .name { color: var(--err); }
   .row:not(.running):not(.done):not(.error) .name { color: var(--text-2); }
 
+  .ps1 {
+    flex-shrink: 0;
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 12.5px;
+  }
+  /* bash rows are command echoes — paper-ink: ink command after the $ prompt */
+  .row.bash .arg {
+    color: var(--toolcmd);
+    font-weight: 600;
+  }
   .arg {
     flex: 1;
     min-width: 0;

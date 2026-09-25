@@ -122,6 +122,8 @@ export interface BackendCapabilities {
   sessionControls: boolean
   /** Accepts image attachments in a prompt — gates the composer's image attach. */
   imageInput: boolean
+  /** Can generate suggested follow-ups (gates suggestFollowUps). Omitted = no. */
+  suggestions?: boolean
 }
 
 export interface AgentBackend {
@@ -193,4 +195,10 @@ export interface AgentBackend {
   // ── opencode-only extras (present per capabilities) ─────────────────────────
   /** Navigate a local TUI to a session. Present only when capabilities.tuiSelect. */
   selectTuiSession?(id: string, signal?: AbortSignal): Promise<void>
+  /**
+   * Model-generated suggested follow-ups for a finished exchange (present only
+   * when capabilities.suggestions). Runs in a throwaway session so the source
+   * conversation's history stays untouched; best-effort — may resolve with [].
+   */
+  suggestFollowUps?(sessionId: string, exchange: { user: string; assistant: string }): Promise<string[]>
 }

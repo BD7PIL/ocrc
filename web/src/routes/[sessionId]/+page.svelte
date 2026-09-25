@@ -3,7 +3,8 @@
   import { goto } from '$app/navigation'
   import { tick, onMount, onDestroy } from 'svelte'
   import { feeds, cardsOf, sessionList } from '$lib/stores/sessions.js'
-  import { leftPanelOpen, inspectorOpen } from '$lib/stores/ui.js'
+  import { leftPanelOpen, inspectorOpen, composerDraft, composerEmpty } from '$lib/stores/ui.js'
+  import Suggestions from '$lib/components/Suggestions.svelte'
   import { api } from '$lib/api/client.js'
   import Card from '$lib/components/Card.svelte'
   import Composer from '$lib/components/Composer.svelte'
@@ -68,6 +69,40 @@
     const m = Math.floor(s / 60)
     const r = s % 60
     return r === 0 ? `${m}m` : `${m}m ${r}s`
+  }
+
+  // ── Regenerate (C1) + suggestion chips (C2) ──
+  $: lastCard = cards.length ? cards[cards.length - 1] : null
+  function regenerateLast() {
+    // opencode has no native regenerate — the honest minimal semantics is
+    // re-sending the last user message as a fresh turn.
+    retryLast()
+  }
+
+  const STARTERS = ['Summarize this project', 'What changed recently?', 'Run the checks']
+  let chipsDismissed = false
+  // Tier2 (model-generated) suggestions — fetched once per finished turn.
+  let tier2: string[] = []
+  let fetchedFor: string | undefined
+  $: if (!busy && lastCard?.kind === 'assistant' && sessionId) fetchSuggestions(sessionId, lastCard.id)
+  async function fetchSuggestions(sid: string, cid: string) {
+    if (fetchedFor === cid) return
+    fetchedFor = cid
+    try {
+      const r = await api.suggestions(sid)
+      tier2 = r.suggestions ?? []
+    } catch { tier2 = [] }
+  }
+  // dismissed-chips state is per session — switching sessions re-arms it
+  let chipsForSid: string | undefined
+  $: if (sessionId !== chipsForSid) { chipsForSid = sessionId; chipsDismissed = false }
+  let suggestions: string[] = []
+  $: {
+    const chipGate = busy || chipsDismissed || !$composerEmpty
+    if (chipGate) suggestions = []
+    else if (tier2.length > 0) suggestions = tier2
+    else if (cards.length === 0) suggestions = STARTERS
+    else suggestions = []
   }
 
   function retryLast() {
@@ -150,13 +185,32 @@
   </div>
   <div class="stream conversation-emerald" aria-live="polite">
     {#each cards as card (card.id)}
-      <Card {card} onRetry={retryLast} />
+      <Card
+        {card}
+        onRetry={retryLast}
+        onRegenerate={card.id === lastCard?.id && card.kind === 'assistant' && !busy ? regenerateLast : undefined}
+      />
     {/each}
     {#if cards.length === 0}
-      <div class="empty">No messages yet — send one below.</div>
+      <div class="empty">
+        <svg class="empty-mark" viewBox="0 0 64 64" fill="none" stroke-width="8" stroke-linecap="round" aria-hidden="true">
+          <path d="M46 15 A24 24 0 1 0 54 32" stroke="var(--text)" opacity=".85"/>
+          <circle cx="49" cy="20" r="6" fill="var(--accent)" stroke="none"/>
+        </svg>
+        <p class="empty-title">What should the agent do?</p>
+        <p class="empty-hint">Describe the task below — it runs in this project's directory. Attach an image if useful.</p>
+      </div>
     {/if}
   </div>
 </div>
+
+{#if suggestions.length > 0}
+  <Suggestions
+    {suggestions}
+    onPick={(text) => composerDraft.set({ text, nonce: Date.now() })}
+    onDismiss={() => { chipsDismissed = true; suggestions = [] }}
+  />
+{/if}
 
 {#if !pinnedToBottom && cards.length > 0}
   <button class="jump" on:click={pinBottom} aria-label="Jump to latest">
@@ -310,10 +364,33 @@
     flex-direction: column;
   }
   .empty {
-    color: var(--text-3);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
     text-align: center;
-    padding: 56px 0;
+    padding: 18vh 24px 40px;
+    color: var(--text-3);
     font-size: 14px;
+  }
+  .empty-mark {
+    width: 40px;
+    height: 40px;
+    margin-bottom: 6px;
+  }
+  .empty-title {
+    margin: 0;
+    font-family: var(--font-serif);
+    font-size: 19px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: .01em;
+  }
+  .empty-hint {
+    margin: 0;
+    max-width: 420px;
+    line-height: 1.6;
+    font-size: 12.5px;
   }
 
   /* Desktop: composer is a normal in-flow bar at the bottom (unchanged). */

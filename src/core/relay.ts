@@ -85,7 +85,7 @@ function delayOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
 
 async function pickSessionFallback(backend: AgentBackend): Promise<string> {
   const sessions = await backend.listSessions()
-  if (sessions.length === 0) throw new Error('No opencode sessions found — open TUI first')
+  if (sessions.length === 0) throw new Error('No opencode sessions found — use /workspaces + /new in Telegram (or the web UI) to start one in a project')
   // Prefer root sessions (no parentID) over child/subagent sessions, then most
   // recently active (updatedAt over createdAt) — avoids connecting to a completed
   // subagent session.

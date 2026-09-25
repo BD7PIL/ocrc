@@ -203,6 +203,7 @@ export function registerHandlers(deps: HandlersDeps): void {
         const pinEmoji = s.id === pinned ? '📌 ' : ''
         lines.push(`${i + 1}. ${pinEmoji}<code>…${s.id.slice(-8)}</code>`)
         lines.push(`   ${esc(s.title ?? 'Untitled')} · ${s.when}`)
+        if (s.directory) lines.push(`   📂 ${esc(s.directory.split('/').pop() || s.directory)}`)
         lines.push('')
       }
       if (pinned) {

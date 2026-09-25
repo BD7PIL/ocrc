@@ -55,3 +55,16 @@ export function captureToken(loc: Location = window.location): string | null {
   }
   return getToken()
 }
+
+// OCRC-fork spike fix: capture a fragment token at MODULE-INIT time, not in the
+// layout's onMount. Svelte runs child onMount hooks before the parent's, so
+// panels mounted by the layout (e.g. McpPanel) fetch /api/* before onMount-level
+// captureToken() has persisted the `#token=` value — their requests go out with
+// no Authorization header, the 401 handler wipes the just-captured token and
+// reloads, the (never-stripped) fragment re-seeds it, and the page loops forever
+// (observed as a flashing "reconnecting" page on a real phone). Module init runs
+// before any component mounts, closing the race.
+if (typeof location !== 'undefined' && typeof window !== 'undefined') {
+  const early = readTokenFromHash(location.hash)
+  if (early) setToken(early)
+}

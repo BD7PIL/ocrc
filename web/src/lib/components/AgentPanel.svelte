@@ -247,7 +247,7 @@
     height: 24px;
     display: inline-grid;
     place-items: center;
-    border-radius: var(--radius-xs);
+    border-radius: 50%;
     border: 1px solid transparent;
     font-family: var(--font-mono);
     font-size: 10px;

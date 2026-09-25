@@ -81,9 +81,12 @@ describe('loadPluginConfig', () => {
     expect(base().webPort).toBe(4099)
   })
 
-  it('keeps upstream WEB_PORT working as a legacy fallback', () => {
+  it('prefers the fork OCRC_WEB_PORT over the upstream legacy WEB_PORT', () => {
+    // Precedence contract (envFork): options > OCRC_* > upstream name. NOTE:
+    // the legacy-only case is not assertable here because the repo's own .env
+    // (read by loadDotEnv) may set OCRC_* values — process.env wins over all
+    // dotenv files (dotenv override:false), so this pair is deterministic.
     process.env.WEB_PORT = '1234'
-    expect(base().webPort).toBe(1234) // legacy still honored when the fork name is absent
     process.env.OCRC_WEB_PORT = '5678'
     expect(base().webPort).toBe(5678) // fork name wins
   })

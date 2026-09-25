@@ -64,6 +64,20 @@ const v2Setup = async (ctx: V2Context, options?: Record<string, unknown>) => {
   installProcessGuards()
   log.info(`v${VERSION} starting (V2 setup)`)
 
+  // Transient-process gate (V2): `opencode run` is a one-shot client that also
+  // loads plugins. Letting it host transports means a TG poller / web server
+  // that die when the run exits — flapping the bot and 409-conflicting with
+  // the resident service's poller. There is no ctx marker distinguishing
+  // serve from run (both report app.channel="latest", app.name="cli" —
+  // verified on 2.0.15), so gate on the CLI subcommand instead. Long-lived
+  // processes (serve, TUI, service) proceed to the election; only the run
+  // one-shot stands down. Revisit if V2 ships a proper role marker.
+  const subcommand = process.argv[2]
+  if (subcommand === 'run') {
+    log.info('transient V2 run process — transports owned by the resident service; standing down')
+    return async () => {}
+  }
+
   const config = loadPluginConfig(options ?? ctx.options)
   const primary = tryBecomePrimary()
   if (!primary.isPrimary) {

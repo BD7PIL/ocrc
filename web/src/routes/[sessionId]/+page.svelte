@@ -70,6 +70,14 @@
     return r === 0 ? `${m}m` : `${m}m ${r}s`
   }
 
+  function retryLast() {
+    if (!sessionId) return
+    const lastUser = [...cards].reverse().find((c) => c.kind === 'user')
+    const text = (lastUser as any)?.text
+    if (!text) return
+    void api.sendMessage({ sessionId, text, clientId: `web_${Date.now()}` })
+  }
+
   async function abort() {
     if (!sessionId || aborting) return
     aborting = true
@@ -140,9 +148,9 @@
       </button>
     </div>
   </div>
-  <div class="stream conversation-emerald">
+  <div class="stream conversation-emerald" aria-live="polite">
     {#each cards as card (card.id)}
-      <Card {card} />
+      <Card {card} onRetry={retryLast} />
     {/each}
     {#if cards.length === 0}
       <div class="empty">No messages yet — send one below.</div>
@@ -150,11 +158,38 @@
   </div>
 </div>
 
+{#if !pinnedToBottom && cards.length > 0}
+  <button class="jump" on:click={pinBottom} aria-label="Jump to latest">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/></svg>
+    latest
+  </button>
+{/if}
+
 <div class="composer-float" bind:this={composerEl}>
   <Composer {sessionId} />
 </div>
 
 <style>
+  .jump {
+    position: absolute;
+    bottom: calc(var(--composer-h, 120px) + 14px + env(safe-area-inset-bottom, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: var(--z-sticky);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 13px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    color: var(--text-2);
+    font-size: 12px;
+    cursor: pointer;
+    box-shadow: var(--shadow-card);
+  }
+  .jump:hover { color: var(--text); border-color: var(--text-4); }
+
   .chat {
     flex: 1;
     overflow-y: auto;
@@ -268,7 +303,7 @@
   .abort:disabled { opacity: .5; cursor: default; }
 
   .stream {
-    max-width: 780px;
+    max-width: 720px;
     margin: 0 auto;
     padding: 22px 24px 8px;
     display: flex;

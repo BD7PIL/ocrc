@@ -132,6 +132,8 @@
       pendingImages = savedImages
     } finally {
       sending = false
+      // Chat-convention focus return: the next message usually follows this one.
+      textarea?.focus()
     }
   }
 

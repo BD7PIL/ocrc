@@ -11,6 +11,8 @@
   import CardApproval from './CardApproval.svelte'
 
   export let card: StructuredCard
+  /** Error recovery: re-send the last user message (wired by the chat page). */
+  export let onRetry: (() => void) | undefined = undefined
 </script>
 
 {#if card.kind === 'user'}
@@ -24,7 +26,7 @@
 {:else if card.kind === 'assistant'}
   <CardAssistant {card} />
 {:else if card.kind === 'error'}
-  <CardError {card} />
+  <CardError {card} {onRetry} />
 {:else if card.kind === 'info'}
   <CardInfo {card} />
 {:else if card.kind === 'status'}

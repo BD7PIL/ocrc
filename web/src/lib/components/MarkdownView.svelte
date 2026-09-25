@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import { renderMarkdown } from '../markdown/sanitize.js'
+  import { renderMarkdown, setStreamHighlight } from '../markdown/sanitize.js'
 
   export let src: string
   /** Streaming cards set this so re-parses coalesce to one per animation frame. */
@@ -62,6 +62,9 @@
   function apply(text: string) {
     if (text === lastApplied) return // memoize — skip re-parse of unchanged text
     lastApplied = text
+    // Streaming renders skip auto-highlight (the per-tick CPU sink); the final
+    // non-streaming pass always renders with full highlighting.
+    setStreamHighlight(streaming)
     let rendered = renderMarkdown(text)
     rendered = transformCodeBlocks(rendered)
     if (streaming && typeof document !== 'undefined') {
@@ -73,14 +76,31 @@
     html = rendered
   }
 
+  // Streaming parses are throttled to one per MIN_PARSE_GAP ms (a time window,
+  // not every animation frame — long outputs re-tokenize on each parse, and
+  // 60fps reparsing starves low-end phones). The final render is immediate.
+  const MIN_PARSE_GAP = 45
+  let lastParsedAt = 0
+  let gapTimer: ReturnType<typeof setTimeout> | undefined
+
   function schedule(text: string) {
     if (!throttle || typeof requestAnimationFrame === 'undefined') {
+      if (gapTimer) { clearTimeout(gapTimer); gapTimer = undefined }
+      setStreamHighlight(streaming)
       apply(text)
       return
     }
     pending = text
-    if (raf) return
-    raf = requestAnimationFrame(() => { raf = 0; apply(pending) })
+    if (raf || gapTimer) return
+    const wait = Math.max(0, MIN_PARSE_GAP - (Date.now() - lastParsedAt))
+    if (wait === 0) {
+      raf = requestAnimationFrame(() => { raf = 0; lastParsedAt = Date.now(); apply(pending) })
+    } else {
+      gapTimer = setTimeout(() => {
+        gapTimer = undefined
+        if (!raf) raf = requestAnimationFrame(() => { raf = 0; lastParsedAt = Date.now(); apply(pending) })
+      }, wait)
+    }
   }
 
   $: schedule(src)

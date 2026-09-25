@@ -32,10 +32,21 @@ hljs.registerLanguage('yaml', yaml)
 hljs.registerLanguage('rust', rust)
 hljs.registerLanguage('go', go)
 
+// During streaming, skip hljs.highlightAuto — it language-detects every code
+// block on every parse tick, which dominates CPU on long outputs. Explicit
+// languages still highlight; auto-detection resumes on the final render.
+let skipAutoHighlight = false
+export function setStreamHighlight(skip: boolean): void {
+  skipAutoHighlight = skip
+}
+
 marked.use(markedHighlight({
   highlight(code: string, lang: string) {
     if (lang && hljs.getLanguage(lang)) {
       return hljs.highlight(code, { language: lang }).value
+    }
+    if (skipAutoHighlight) {
+      return code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     }
     return hljs.highlightAuto(code).value
   }

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api } from '$lib/api/client.js'
+  import Icon from './Icon.svelte'
 
   export let sessionId: string
 
@@ -61,7 +62,7 @@
 <div class="controls" bind:this={rootEl}>
 {#if modeOpts.length > 0}
   <div class="wrap">
-    <button class="chip mono" aria-haspopup="listbox" aria-expanded={openPanel === 'mode'} on:click={() => toggle('mode')}>⚡ {modeLabel} ▾</button>
+    <button class="chip mono" aria-haspopup="listbox" aria-expanded={openPanel === 'mode'} on:click={() => toggle('mode')}><Icon name="bolt" size={11} /> {modeLabel} <Icon name="caret-down" size={9} /></button>
     {#if openPanel === 'mode'}
       <div class="pop" role="listbox" aria-label="Mode">
         <div class="label">Mode</div>
@@ -77,7 +78,7 @@
 
 {#if modelOpts.length > 0}
   <div class="wrap">
-    <button class="chip mono" aria-haspopup="listbox" aria-expanded={openPanel === 'model'} on:click={() => toggle('model')}>🧠 {modelLabel} ▾</button>
+    <button class="chip mono" aria-haspopup="listbox" aria-expanded={openPanel === 'model'} on:click={() => toggle('model')}><Icon name="cpu" size={11} /> {modelLabel} <Icon name="caret-down" size={9} /></button>
     {#if openPanel === 'model'}
       <div class="pop" role="listbox" aria-label="Model">
         <div class="label">Model</div>

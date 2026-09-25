@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ExtractStructuredCard } from '../api/types.js'
+  import Icon from './Icon.svelte'
   import { api } from '../api/client.js'
 
   export let card: ExtractStructuredCard<'thinking'>
@@ -7,7 +8,7 @@
 
 <div class="thinking-row">
   <span class="toggle mono">
-    <span class="caret" aria-hidden="true">▸</span>
+    <span class="caret" aria-hidden="true"><Icon name="caret-right" size={11} /></span>
     reasoning
   </span>
   {#if card.showStop}

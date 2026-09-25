@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte'
   import type { ExtractStructuredCard, ToolBlock, TextBlock } from '../api/types.js'
   import MarkdownView from './MarkdownView.svelte'
+  import Icon from './Icon.svelte'
   import ToolCallList from './ToolCallList.svelte'
 
   export let card: ExtractStructuredCard<'assistant'>
@@ -47,10 +48,10 @@
       </div>
       <div class="actions">
         {#if onRegenerate}
-          <button class="icon" title="Regenerate" aria-label="Regenerate" on:click={onRegenerate}>↻</button>
+          <button class="icon" title="Regenerate" aria-label="Regenerate" on:click={onRegenerate}><Icon name="refresh" size={13} /></button>
         {/if}
         <button class="icon" class:copied title="Copy" aria-label="Copy" on:click={copy}>
-          {#if copied}✓{:else}⧉{/if}
+          {#if copied}<Icon name="check" size={13} />{:else}<Icon name="copy" size={13} />{/if}
         </button>
       </div>
     </div>

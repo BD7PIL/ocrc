@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte'
+  import Icon from './Icon.svelte'
   import type { ExtractStructuredCard } from '../api/types.js'
 
   export let card: ExtractStructuredCard<'error'>
@@ -28,10 +29,10 @@
 </script>
 
 <div class="card error">
-  <div class="head"><span class="ico" aria-hidden="true">⚠</span> {kind.label}</div>
+  <div class="head"><Icon name="alert" size={13} /> {kind.label}</div>
   <code>{card.message}</code>
   {#if kind.retryable}
-    <button class="retry" on:click={retry} disabled={!onRetry}>↻ Retry</button>
+    <button class="retry" on:click={retry} disabled={!onRetry}><Icon name="refresh" size={11} /> Retry</button>
   {/if}
 </div>
 

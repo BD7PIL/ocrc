@@ -4,6 +4,7 @@
      Sources: Tier1 state heuristics (starters) and Tier2 model-generated
      follow-ups (ephemeral-session call, replaces the starters when ready). -->
 <script lang="ts">
+  import Icon from './Icon.svelte'
   export let suggestions: string[] = []
 
   export let onPick: (text: string) => void = () => {}
@@ -15,7 +16,7 @@
     {#each suggestions as s (s)}
       <button class="chip" role="listitem" on:click={() => onPick(s)}>{s}</button>
     {/each}
-    <button class="dismiss" on:click={onDismiss} aria-label="Dismiss suggestions">✕</button>
+    <button class="dismiss" on:click={onDismiss} aria-label="Dismiss suggestions"><Icon name="close" size={12} /></button>
   </div>
 {/if}
 
@@ -28,6 +29,7 @@
     padding: 0 14px 8px;
   }
   .chip {
+    min-height: 36px;
     background: var(--bg-elev);
     border: 1px solid var(--border);
     border-radius: var(--radius-pill);

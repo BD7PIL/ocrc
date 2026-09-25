@@ -1,5 +1,6 @@
 <script lang="ts">
   import { plusMenuOpen, newSessionOpen } from '$lib/stores/ui.js'
+  import Icon from './Icon.svelte'
   import { paletteOpen } from '$lib/stores/palette.js'
 
   export let anchor: HTMLElement | null = null
@@ -39,7 +40,7 @@
         <span class="label">New session</span>
       </button>
       <button class="item" role="menuitem" on:click={openPalette}>
-        <span class="icon" aria-hidden="true">⌕</span>
+        <span class="icon" aria-hidden="true"><Icon name="search" size={14} /></span>
         <span class="label">Command palette</span>
         <kbd class="keycap mono">⌘K</kbd>
       </button>

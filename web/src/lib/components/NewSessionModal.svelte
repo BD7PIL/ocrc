@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation'
+  import Icon from './Icon.svelte'
   import { api } from '$lib/api/client.js'
   import { backends, setActiveBackend, agentAccent, ACCENTS, ACCENT_HEX, ACCENT_BG, ACCENT_LINE, type Accent, type CapabilitiesSnapshot } from '$lib/stores/capabilities.js'
   import { workspaces } from '$lib/stores/workspaces.js'
@@ -131,7 +132,7 @@
     <div class="modal" role="dialog" aria-modal="true" aria-label="Create new session" bind:this={modalEl} use:manageFocus>
       <div class="header">
         <span class="title">New session</span>
-        <button class="close" aria-label="Close" on:click={close}>✕</button>
+        <button class="close" aria-label="Close" on:click={close}><Icon name="close" size={14} /></button>
       </div>
 
       <div class="body">

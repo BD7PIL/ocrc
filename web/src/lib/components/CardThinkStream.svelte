@@ -1,11 +1,12 @@
 <script lang="ts">
   import type { ExtractStructuredCard } from '../api/types.js'
+  import Icon from './Icon.svelte'
   export let card: ExtractStructuredCard<'think-stream'>
   let open = false
 </script>
 
 <button class="toggle mono" on:click={() => (open = !open)} aria-expanded={open}>
-  <span class="caret" class:open aria-hidden="true">▸</span>
+  <span class="caret" class:open aria-hidden="true"><Icon name="caret-right" size={11} /></span>
   reasoning
 </button>
 {#if open}
@@ -30,6 +31,7 @@
     user-select: none;
   }
   .toggle:hover { opacity: .85; }
+  .caret.open { transform: rotate(90deg); }
   .caret {
     display: inline-block;
     transition: transform .2s ease;

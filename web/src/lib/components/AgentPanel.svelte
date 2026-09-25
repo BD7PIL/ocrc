@@ -1,6 +1,7 @@
 <!-- src/lib/components/AgentPanel.svelte -->
 <script lang="ts">
   import SessionList from './SessionList.svelte'
+  import Icon from './Icon.svelte'
   import { paletteOpen } from '$lib/stores/palette.js'
   import {
     backends,
@@ -117,7 +118,7 @@
         <span class="status-dot {statusClass(activeAgent?.status)}" style="--dot:{ACCENT_HEX[activeTheme]}"><span class="sr-only">{statusClass(activeAgent?.status)}</span></span>
         <span class="name mono">{activeAgent?.name ?? activeAgent?.id ?? 'Agent'}</span>
         {#if activeAgent?.host}<span class="host mono">{activeAgent.host}</span>{/if}
-        <span class="caret" aria-hidden="true">▾</span>
+        <span class="caret" aria-hidden="true"><Icon name="caret-down" size={11} /></span>
       </button>
       {#if !drawer}
         <button class="collapse" title="Collapse panel" aria-label="Collapse panel" on:click={() => leftPanelOpen.set(false)}>

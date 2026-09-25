@@ -2,6 +2,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { api } from '$lib/api/client.js'
+  import Icon from './Icon.svelte'
   let open = false
   let wrap: HTMLElement
   let agents: Array<{ name: string; model: string }> = []
@@ -32,7 +33,7 @@
 <svelte:window on:keydown={onWindowKey} on:click={onWindowClick} />
 
 <div class="wrap" bind:this={wrap}>
-  <button class="chip mono" aria-haspopup="listbox" aria-expanded={open} on:click={() => { open = !open; if (open) refresh() }}>⚙ {label} ▾</button>
+  <button class="chip mono" aria-haspopup="listbox" aria-expanded={open} on:click={() => { open = !open; if (open) refresh() }}><Icon name="gear" size={11} /> {label} <Icon name="caret-down" size={9} /></button>
   {#if open}
     <div class="pop" role="listbox" aria-label="Agent and model override">
       <div class="label">Agent</div>
@@ -42,7 +43,7 @@
           <span>{a.name}</span> <span class="label mono">{a.model.split('/').pop()}</span>
         </button>
       {/each}
-      <button class="opt clear" role="option" aria-selected={current.agent == null} on:click={clear}>✕ clear override</button>
+      <button class="opt clear" role="option" aria-selected={current.agent == null} on:click={clear}><Icon name="close" size={11} /> clear override</button>
     </div>
   {/if}
 </div>

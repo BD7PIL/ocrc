@@ -2,6 +2,7 @@
 <script lang="ts">
   import { tick, createEventDispatcher } from 'svelte'
   import { goto } from '$app/navigation'
+  import Icon from '$lib/components/Icon.svelte'
   import { page } from '$app/stores'
   import { sessionList } from '$lib/stores/sessions.js'
   import { filterSessions } from '$lib/nav/filterSessions.js'
@@ -227,7 +228,7 @@
     <button class="backdrop" aria-label="Close" on:click={close}></button>
     <div class="palette" role="dialog" aria-modal="true" aria-label="Search sessions and commands" tabindex="-1" bind:this={paletteEl} on:keydown={trapTab}>
       <div class="header">
-        <span class="search-icon" aria-hidden="true">⌕</span>
+        <span class="search-icon" aria-hidden="true"><Icon name="search" size={14} /></span>
         <input
           class="q"
           use:initFocus

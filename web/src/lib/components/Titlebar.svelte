@@ -1,6 +1,7 @@
 <script lang="ts">
   import { connection, latency } from '$lib/stores/connection.js'
   import { plusMenuOpen, theme, toggleTheme } from '$lib/stores/ui.js'
+  import Icon from '$lib/components/Icon.svelte'
 
   export let email = ''
   export let onPalette: () => void
@@ -24,7 +25,7 @@
 
 <header class="titlebar">
   <!-- Mobile session drawer toggle -->
-  <button class="iconbtn" class:active={drawerLeft} on:click={onToggleLeft} aria-label="Sessions">☰</button>
+  <button class="iconbtn" class:active={drawerLeft} on:click={onToggleLeft} aria-label="Sessions"><Icon name="menu" size={18} /></button>
 
   <!-- Brand mark + wordmark — "enso" mark: ink brush ring + persimmon dot;
        both elements track the theme (ring = --text, dot = --accent). -->
@@ -40,12 +41,12 @@
   <button class="new-session" bind:this={newButtonAnchor} on:click={() => plusMenuOpen.update((v) => !v)} title="New session, command palette…">
     <span class="new-icon" aria-hidden="true">+</span>
     <span class="new-label">New</span>
-    <span class="new-caret" aria-hidden="true">▾</span>
+    <span class="new-caret" aria-hidden="true"><Icon name="caret-down" size={9} /></span>
   </button>
 
   <!-- Command palette trigger -->
   <button class="palette-trigger" on:click={onPalette} title="Search sessions & commands (⌘K)">
-    <span class="palette-icon" aria-hidden="true">⌕</span>
+    <span class="palette-icon" aria-hidden="true"><Icon name="search" size={14} /></span>
     <span class="palette-label">Search sessions & commands…</span>
     <kbd class="palette-keycap mono">⌘K</kbd>
   </button>
@@ -56,7 +57,7 @@
   <button class="themebtn" on:click={toggleTheme}
           title={$theme === 'light' ? 'Switch to dark' : 'Switch to light'}
           aria-label="Toggle color theme">
-    {#if $theme === 'light'}<span aria-hidden="true">☾</span>{:else}<span aria-hidden="true">☀</span>{/if}
+    <Icon name={$theme === 'light' ? 'moon' : 'sun'} size={15} />
   </button>
 
   <!-- Connection pill -->
@@ -280,6 +281,11 @@
   }
   .iconbtn:hover { color: var(--text); background: var(--bg-elev); }
   .iconbtn.active { color: var(--accent); background: var(--accent-2); }
+
+  /* B6 touch-target pass: keep visual size, widen the hit box on touch screens */
+  @media (pointer: coarse) {
+    .themebtn { width: 36px; height: 36px; }
+  }
 
   @media (max-width: 820px) {
     /* The titlebar only renders on the mobile Sessions screen now (the chat screen has

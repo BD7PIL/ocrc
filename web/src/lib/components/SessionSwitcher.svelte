@@ -1,6 +1,7 @@
 <!-- src/lib/components/SessionSwitcher.svelte -->
 <script lang="ts">
   import { goto } from '$app/navigation'
+  import Icon from '$lib/components/Icon.svelte'
   import { sessionList } from '$lib/stores/sessions.js'
   import { backends, agentAccent, setActiveBackend, ACCENT_HEX, ACCENT_BG, ACCENT_LINE, type CapabilitiesSnapshot } from '$lib/stores/capabilities.js'
   import { api } from '$lib/api/client.js'
@@ -102,7 +103,7 @@
     </span>
     <span class="status-dot {statusClass(activeAgent?.status)}"><span class="sr-only">{statusClass(activeAgent?.status)}</span></span>
     <span class="title">{title}</span>
-    <span class="caret" aria-hidden="true">▾</span>
+    <span class="caret" aria-hidden="true"><Icon name="caret-down" size={11} /></span>
   </button>
 
   {#if open}

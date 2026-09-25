@@ -55,7 +55,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     mcp: true,
     commands: true,
     sessionControls: false, // opencode keeps its own agent/model override chip
-    imageInput: false, // opencode prompt path is text-only here (out of scope)
+    imageInput: true, // prompt carries image attachments as inline file parts
   }
 
   async function prompt(sessionId: string, input: PromptInput): Promise<void> {
@@ -64,6 +64,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
       sessionId,
       agent: input.agent,
       model: input.model,
+      images: input.images,
       signal: input.signal,
     })
   }

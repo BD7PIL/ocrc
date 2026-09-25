@@ -6,27 +6,55 @@ type PromptBody = Parameters<OpencodeClient['session']['promptAsync']>[0] extend
   ? B
   : never
 
+export interface SubmitImage {
+  /** Raw base64 payload (no data: prefix). */
+  data: string
+  mimeType: string
+  filename?: string
+}
+
 export interface SubmitOptions {
   text: string
   sessionId: string
   agent?: string
   model?: { providerID: string; modelID: string }
+  images?: SubmitImage[]
   signal?: AbortSignal
+}
+
+/** Build one prompt body from text + optional image attachments (pure; unit-tested). */
+export function buildPromptBody(opts: {
+  text: string
+  agent?: string
+  model?: { providerID: string; modelID: string }
+  images?: SubmitImage[]
+}): PromptBody {
+  const parts: Array<Record<string, unknown>> = [{ type: 'text', text: opts.text }]
+  for (const img of opts.images ?? []) {
+    // opencode FilePartInput: {type:'file', mime, filename?, url} — a data URL
+    // carries the base64 payload inline (the plugin has no public file host).
+    const ext = img.mimeType.split('/')[1] ?? 'bin'
+    parts.push({
+      type: 'file',
+      mime: img.mimeType,
+      filename: img.filename ?? `image.${ext}`,
+      url: `data:${img.mimeType};base64,${img.data}`,
+    })
+  }
+  return {
+    parts,
+    ...(opts.agent ? { agent: opts.agent } : {}),
+    ...(opts.model ? { model: opts.model } : {}),
+  } as PromptBody
 }
 
 export async function submitPrompt(
   client: OpencodeClient,
   opts: SubmitOptions,
 ): Promise<void> {
-  const body = {
-    parts: [{ type: 'text' as const, text: opts.text }],
-    ...(opts.agent ? { agent: opts.agent } : {}),
-    ...(opts.model ? { model: opts.model } : {}),
-  } as PromptBody
-
   await client.session.promptAsync({
     path: { id: opts.sessionId },
-    body,
+    body: buildPromptBody(opts),
     signal: opts.signal,
   })
 }

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const OPENCODE_CONFIG_DIR = process.env.OPENCODE_CONFIG_DIR ?? join(homedir(), '.config', 'opencode')
-const BRIDGE_FILE = join(OPENCODE_CONFIG_DIR, 'plugins', 'opencode-remote-control.js')
+const BRIDGE_FILE = join(OPENCODE_CONFIG_DIR, 'plugins', 'ocrc.js')
 const GLOBAL_OPENCODE_JSON = join(OPENCODE_CONFIG_DIR, 'opencode.json')
 
 type PluginEntry = string | [string, Record<string, unknown>]

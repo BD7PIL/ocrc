@@ -15,10 +15,10 @@ const VERSION = (() => {
 })()
 
 const HELP = `
-opencode-remote-control v${VERSION}
+ocrc v${VERSION} (fork of agentjoey/opencode-remote-control)
 
 USAGE:
-  oprc <command>
+  ocrc <command>
 
 COMMANDS:
   init          Interactive setup wizard (writes .env)

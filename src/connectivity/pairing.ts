@@ -35,7 +35,7 @@ export interface PairContext {
 }
 
 /** Resolve the current pairing token + best public URL from env (shared by the
- * CLI `oprc pair` and the Telegram `/pair` command). */
+ * CLI `ocrc pair` and the Telegram `/pair` command). */
 export async function buildPairContext(): Promise<PairContext> {
   const port = Number(process.env.WEB_PORT ?? 17081)
   const token = loadOrCreateToken({ token: process.env.WEB_TOKEN })

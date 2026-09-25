@@ -5,7 +5,7 @@
  * arrive via `backend.onEvent` (the backend owns its stream) instead of the
  * opencode plugin `event` hook. See docs/ACP_BACKEND_DESIGN.md (Phase 2).
  *
- * Launch:  oprc host        (reads .env: TELEGRAM_BOT_TOKEN, ALLOWED_USER_IDS,
+ * Launch:  ocrc host        (reads .env: TELEGRAM_BOT_TOKEN, ALLOWED_USER_IDS,
  *                            WEB_*, OCRC_ACP_CMD="kimi acp", …)
  */
 import { loadPluginConfig } from '../plugin/config.js'

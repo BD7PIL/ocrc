@@ -67,8 +67,25 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         return c.html(indexHtml)
       })
 
-      server = serve({ fetch: app.fetch, hostname: cfg.host, port: cfg.port }, (info) => {
-        log.info(`web transport listening on http://${info.address}:${info.port}`)
+      // serve() returns immediately and bind errors (EADDRINUSE, EACCES) only
+      // surface as an async 'error' event. Await the listening callback so a
+      // failed bind REJECTS start() — the entrypoint's transport retry loop
+      // (1s→30s backoff) then actually recovers, e.g. when the port is held by
+      // a still-shutting-down predecessor. Without this, the error used to end
+      // up an uncaughtException that installProcessGuards() swallows, leaving
+      // the transport "started" but silently unbound.
+      server = await new Promise((resolveBind, rejectBind) => {
+        const s = serve({ fetch: app.fetch, hostname: cfg.host, port: cfg.port }, (info) => {
+          log.info(`web transport listening on http://${info.address}:${info.port}`)
+          resolveBind(s)
+        })
+        s.once('error', rejectBind)
+      })
+      // Post-bind late errors are re-thrown async: fatal to this transport but
+      // absorbed by the process guards so the worker stays alive.
+      ;(server as any).on('error', (err: Error) => {
+        log.error(`web transport error after bind: ${err.message}`)
+        setImmediate(() => { throw err })
       })
 
       // Clients only ever send ping/subscribe — cap frames well below the 100MiB

@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 // Best-effort auto-detection of a Cloudflare Tunnel hostname for the web port,
-// so `oprc pair` / the exposure provider can emit a reachable HTTPS URL even when
+// so `ocrc pair` / the exposure provider can emit a reachable HTTPS URL even when
 // WEB_PUBLIC_URL isn't set. We parse the small, regular cloudflared ingress YAML
 // directly (no YAML dependency): each ingress item has a `hostname` and a
 // `service`; we return the hostname whose service is http(s)://localhost:<port>.

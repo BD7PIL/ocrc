@@ -131,35 +131,31 @@
     const onMq = (e: MediaQueryListEvent) => { isMobile = e.matches; if (!e.matches) closeDrawers() }
     mq.addEventListener('change', onMq)
 
-    // (B) Keyboard-follow by TRANSLATING THE COMPOSER, not resizing the app.
-    // .app stays a constant 100vh (no per-frame reflow); we publish --kb = how
-    // much the bottom of the visual viewport is obscured (browser toolbar and/or
-    // keyboard) and the composer is transform: translateY(-kb) with a GPU
-    // transition, so the follow glides. --kb is 0 at rest, so the composer sits
-    // at the screen bottom (its env(safe-area-inset-bottom) padding clears the
-    // home indicator). vv.height shrinks when the toolbar/keyboard appear.
+    // (B) Keyboard / toolbar follow by PINNING THE APP SHELL to the visual
+    // viewport. The previous scheme kept .app at a constant 100vh and translated
+    // the composer by --kb (= occluded height); it broke on Android browsers
+    // that PAN the visual viewport when an input is focused (vv.offsetTop > 0):
+    // the fixed app stayed painted at the layout top — the header slid off
+    // screen and the composer stranded mid-air above a dead gap. Pinning is
+    // unambiguous in every browser:
+    //   app height     = vv.height    (the truly visible area)
+    //   app transform  = vv.offsetTop (the visual viewport's pan)
+    // The shell then ends exactly at the keyboard top; every --kb consumer
+    // (composer translate, chat fade mask, footer/FAB/sheet insets) resolves
+    // to its 0px fallback, which is precisely correct — nothing is occluded.
     const vv = window.visualViewport
-    // Full-screen reference = the .app's own 100vh height (the iOS "large
-    // viewport"). NOT documentElement.clientHeight: in Safari that ≈ the visible
-    // viewport (excludes the bottom toolbar), so it would miss the toolbar and the
-    // composer would sit behind it. The 100vh height is constant (keyboard/toolbar
-    // don't change it), so cache it and only re-measure on rotation.
-    let fullH = appEl ? appEl.offsetHeight : window.innerHeight
     const setKb = () => {
-      if (!vv) return
-      // iOS Safari auto-scrolls the page to reveal a focused input; undo it so the
-      // fixed app stays pinned and offsetTop stays ~0.
+      if (!vv || !appEl) return
+      // iOS Safari auto-scrolls the page to reveal a focused input; undo it so
+      // the fixed app stays pinned.
       if (window.scrollY !== 0) window.scrollTo(0, 0)
-      let kb = Math.round(fullH - vv.offsetTop - vv.height)
-      if (kb < 12) kb = 0 // ignore sub-pixel / negligible insets (PWA at rest)
-      else kb += 5        // small gap so the box never touches the keyboard/toolbar
-      document.documentElement.style.setProperty('--kb', `${kb}px`)
+      appEl.style.height = `${Math.round(vv.height)}px`
+      appEl.style.transform = vv.offsetTop > 0 ? `translateY(${Math.round(vv.offsetTop)}px)` : ''
     }
     setKb()
     vv?.addEventListener('resize', setKb)
     vv?.addEventListener('scroll', setKb)
-    // 100vh changes only on rotation; re-measure after it settles.
-    const onOrient = () => setTimeout(() => { fullH = appEl ? appEl.offsetHeight : window.innerHeight; setKb() }, 300)
+    const onOrient = () => setTimeout(setKb, 300)
     window.addEventListener('orientationchange', onOrient)
 
     // (C) iOS fires only sparse visualViewport sizes during the keyboard

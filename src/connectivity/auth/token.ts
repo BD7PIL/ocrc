@@ -5,6 +5,7 @@ import { join, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import type { AuthStrategy, AuthUser } from './index.js'
 import { createLogger } from '../../utils/logger.js'
+import { ocrcHome, legacyOpencodeHome } from '../../utils/paths.js'
 
 const log = createLogger('auth-token')
 const COOKIE = 'ocrc_token'
@@ -12,7 +13,7 @@ const COOKIE = 'ocrc_token'
 export interface TokenAuthOptions {
   /** Explicit token (from config). If absent, load/generate from tokenPath. */
   token?: string
-  /** Token file path. Default ${OPENCODE_CONFIG_DIR ?? ~/.opencode}/oprc-token. */
+  /** Token file path. Default ${OCRC_HOME ?? ~/.ocrc}/token. */
   tokenPath?: string
   /** Identity email for the single user (used for token auth too, not just dev-bypass). */
   devEmail?: string
@@ -24,11 +25,30 @@ export interface TokenAuthOptions {
 }
 
 function defaultTokenPath(): string {
-  const dir = process.env.OPENCODE_CONFIG_DIR ?? join(homedir(), '.opencode')
-  return join(dir, 'oprc-token')
+  return join(ocrcHome(), 'token')
 }
 
-/** Resolve the web token: explicit > existing file > freshly generated (persisted 0600). */
+/** One-time migration: a token persisted by the pre-fork build at
+ *  ${OPENCODE_CONFIG_DIR ?? ~/.opencode}/oprc-token is adopted so an upstream
+ *  install keeps its paired devices after upgrading to ocrc. */
+function adoptLegacyToken(): string | null {
+  const legacy = join(legacyOpencodeHome(), 'oprc-token')
+  try {
+    if (!existsSync(legacy)) return null
+    const t = readFileSync(legacy, 'utf-8').trim()
+    if (!t) return null
+    const dest = defaultTokenPath()
+    mkdirSync(dirname(dest), { recursive: true })
+    writeFileSync(dest, t, { mode: 0o600 })
+    chmodSync(dest, 0o600)
+    log.info(`adopted legacy token from ${legacy} → ${dest}`)
+    return t
+  } catch {
+    return null
+  }
+}
+
+/** Resolve the web token: explicit > existing file > legacy migration > freshly generated (persisted 0600). */
 export function loadOrCreateToken(opts: TokenAuthOptions = {}): string {
   if (opts.token && opts.token.trim()) return opts.token.trim()
   const path = opts.tokenPath ?? defaultTokenPath()
@@ -40,6 +60,8 @@ export function loadOrCreateToken(opts: TokenAuthOptions = {}): string {
   } catch {
     /* fall through to generate */
   }
+  const adopted = adoptLegacyToken()
+  if (adopted) return adopted
   const token = randomBytes(32).toString('base64url')
   try {
     mkdirSync(dirname(path), { recursive: true })

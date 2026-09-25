@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync, renameSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { homedir } from 'node:os'
+import { ocrcHome } from './paths.js'
 
 type Level = 'debug' | 'info' | 'warn' | 'error'
 
@@ -12,8 +12,7 @@ function currentLevel(): number {
 }
 
 function logFilePath(): string {
-  const dir = process.env.OPENCODE_CONFIG_DIR ?? join(homedir(), '.opencode')
-  return join(dir, 'opencode-remote-control.log')
+  return join(ocrcHome(), 'ocrc.log')
 }
 
 // Single-generation rotation: once the log passes the threshold it is renamed

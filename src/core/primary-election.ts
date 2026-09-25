@@ -1,7 +1,7 @@
 import { openSync, closeSync, writeSync, readFileSync, unlinkSync, existsSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
-import { homedir } from 'node:os'
 import { createLogger } from '../utils/logger.js'
+import { ocrcHome } from '../utils/paths.js'
 
 const log = createLogger('election')
 
@@ -11,8 +11,7 @@ export interface PrimaryLock {
 }
 
 function defaultLockPath(): string {
-  const dir = process.env.OPENCODE_CONFIG_DIR ?? join(homedir(), '.opencode')
-  return join(dir, 'oprc-primary.lock')
+  return join(ocrcHome(), 'primary.lock')
 }
 
 /** Is a process with this pid currently alive? Signal 0 = existence check. */

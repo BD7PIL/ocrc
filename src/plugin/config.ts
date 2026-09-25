@@ -1,7 +1,8 @@
 import { config as dotenvConfig } from 'dotenv'
-import { resolve, dirname } from 'node:path'
+import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createLogger } from '../utils/logger.js'
+import { ocrcHome } from '../utils/paths.js'
 
 const log = createLogger('config')
 
@@ -57,7 +58,7 @@ const PLUGIN_ROOT = (() => {
 // priority — it can still supply keys nothing else defines).
 // Exported for tests.
 export function dotEnvPaths(): string[] {
-  const paths = [resolve(PLUGIN_ROOT, '.env')]
+  const paths = [resolve(ocrcHome(), 'config.env'), resolve(PLUGIN_ROOT, '.env')]
   if (process.env.OPENCODE_CONFIG_DIR) {
     paths.push(resolve(process.env.OPENCODE_CONFIG_DIR, '.env'))
   }
@@ -75,6 +76,12 @@ function loadDotEnv(): void {
 
 function env(key: string, optionsVal?: string): string | undefined {
   return optionsVal ?? process.env[key]
+}
+
+/** Read an OCRC-owned setting by its fork name, falling back to the upstream
+ *  pre-fork variable so existing .env files keep working after the rename. */
+function envFork(key: string, legacy: string, optionsVal?: string): string | undefined {
+  return optionsVal ?? process.env[key] ?? process.env[legacy]
 }
 
 export function loadPluginConfig(
@@ -110,30 +117,35 @@ export function loadPluginConfig(
     )
   }
 
-  const webHost = env('WEB_HOST', options?.webHost as string) ?? '127.0.0.1'
+  // Fork defaults (2026-09-25 decisions): bind 0.0.0.0 — the product is
+  // LAN-first (phone on the same network), and the token gate below is not
+  // optional; port 4099 pairs with opencode's own 4096. Upstream variable
+  // names keep working via envFork().
+  const webHost = envFork('OCRC_WEB_HOST', 'WEB_HOST', options?.webHost as string) ?? '0.0.0.0'
 
   const devBypassExplicit = bool(options?.webCfAccessDevBypass as string)
-  const devBypassEnv = process.env.WEB_CF_ACCESS_DEV_BYPASS
+  const devBypassEnv = process.env.OCRC_WEB_CF_ACCESS_DEV_BYPASS ?? process.env.WEB_CF_ACCESS_DEV_BYPASS
 
   return {
     telegramBotToken: token ?? '',
     allowedUserIds: ids,
-    webEnabled: bool(options?.webEnabled as string) ?? process.env.WEB_ENABLED === 'true',
+    webEnabled: bool(options?.webEnabled as string) ??
+      (process.env.OCRC_WEB_ENABLED ?? process.env.WEB_ENABLED) === 'true',
     webHost,
-    webPort: num(options?.webPort ?? process.env.WEB_PORT, 17081, 'WEB_PORT'),
-    webPublicUrl: env('WEB_PUBLIC_URL', options?.webPublicUrl as string) ?? '',
-    webStaticRoot: env('WEB_STATIC_ROOT', options?.webStaticRoot as string) ?? resolve(PLUGIN_ROOT, 'web', 'dist'),
-    webCacheSize: num(options?.webCacheSize ?? process.env.WEB_SESSION_CACHE_SIZE, 100, 'WEB_SESSION_CACHE_SIZE'),
-    webCfAccessTeam: env('WEB_CF_ACCESS_TEAM', options?.webCfAccessTeam as string) ?? '',
-    webCfAccessAud: env('WEB_CF_ACCESS_AUD', options?.webCfAccessAud as string) ?? '',
+    webPort: num(options?.webPort ?? process.env.OCRC_WEB_PORT ?? process.env.WEB_PORT, 4099, 'OCRC_WEB_PORT'),
+    webPublicUrl: envFork('OCRC_WEB_PUBLIC_URL', 'WEB_PUBLIC_URL', options?.webPublicUrl as string) ?? '',
+    webStaticRoot: envFork('OCRC_WEB_STATIC_ROOT', 'WEB_STATIC_ROOT', options?.webStaticRoot as string) ?? resolve(PLUGIN_ROOT, 'web', 'dist'),
+    webCacheSize: num(options?.webCacheSize ?? process.env.OCRC_WEB_SESSION_CACHE_SIZE ?? process.env.WEB_SESSION_CACHE_SIZE, 100, 'OCRC_WEB_SESSION_CACHE_SIZE'),
+    webCfAccessTeam: envFork('OCRC_WEB_CF_ACCESS_TEAM', 'WEB_CF_ACCESS_TEAM', options?.webCfAccessTeam as string) ?? '',
+    webCfAccessAud: envFork('OCRC_WEB_CF_ACCESS_AUD', 'WEB_CF_ACCESS_AUD', options?.webCfAccessAud as string) ?? '',
     // Default OFF: a loopback bind is not a safe bypass signal when traffic
     // arrives via a tunnel (cloudflared connects from 127.0.0.1). Local dev
-    // must opt in explicitly with WEB_CF_ACCESS_DEV_BYPASS=true.
+    // must opt in explicitly with OCRC_WEB_CF_ACCESS_DEV_BYPASS=true.
     webCfAccessDevBypass: devBypassExplicit ?? (devBypassEnv !== undefined ? devBypassEnv === 'true' : false),
-    webCfAccessDevEmail: env('WEB_CF_ACCESS_DEV_EMAIL', options?.webCfAccessDevEmail as string) ?? 'dev@localhost',
-    webAuth: (env('WEB_AUTH', options?.webAuth as string) ?? 'token') === 'cf-access' ? 'cf-access' : 'token',
-    webToken: env('WEB_TOKEN', options?.webToken as string) ?? '',
-    statePath: env('STATE_PATH', options?.statePath as string) ?? './data/state.json',
+    webCfAccessDevEmail: envFork('OCRC_WEB_CF_ACCESS_DEV_EMAIL', 'WEB_CF_ACCESS_DEV_EMAIL', options?.webCfAccessDevEmail as string) ?? 'dev@localhost',
+    webAuth: (envFork('OCRC_WEB_AUTH', 'WEB_AUTH', options?.webAuth as string) ?? 'token') === 'cf-access' ? 'cf-access' : 'token',
+    webToken: envFork('OCRC_WEB_TOKEN', 'WEB_TOKEN', options?.webToken as string) ?? '',
+    statePath: envFork('OCRC_STATE_PATH', 'STATE_PATH', options?.statePath as string) ?? join(ocrcHome(), 'state.json'),
     tuiVisible: bool(options?.tuiVisible as string) ?? process.env.TUI_VISIBLE !== 'false',
     transport: env('TRANSPORT', options?.transport as string) ?? 'telegram',
     chatTimeoutMs: num(options?.chatTimeoutMs ?? process.env.CHAT_TIMEOUT_MS, 600000, 'CHAT_TIMEOUT_MS'),

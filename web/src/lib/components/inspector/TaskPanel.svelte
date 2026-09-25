@@ -94,7 +94,7 @@
   .bar {
     height: 4px;
     background: var(--bg-input);
-    border-radius: 2px;
+    border-radius: var(--radius-bar);
     overflow: hidden;
     margin-bottom: 10px;
   }
@@ -129,14 +129,14 @@
   .row:focus-visible {
     outline: 1px solid var(--accent);
     outline-offset: 1px;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
   }
   .box {
     flex-shrink: 0;
     width: 15px;
     height: 15px;
     margin-top: 1px;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     display: grid;
     place-items: center;
     position: relative;

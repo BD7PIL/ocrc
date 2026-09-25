@@ -126,7 +126,7 @@
     background: var(--accent);
     color: var(--accent-ink);
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-pill);
     padding: 5px 11px;
     font-size: 12px;
     font-weight: 650;
@@ -148,7 +148,7 @@
     max-width: min(340px, calc(100vw - 32px));
     background: var(--bg-input);
     border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius);
     color: var(--text-3);
     padding: 5px 10px;
     font-size: 12.5px;
@@ -177,7 +177,7 @@
     height: 28px;
     background: transparent;
     border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-pill);
     color: var(--text-2);
     font-size: 14px;
     line-height: 1;
@@ -235,7 +235,7 @@
     background: var(--accent);
     color: var(--accent-ink);
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-pill);
     padding: 4px 12px;
     font-size: 0.8em;
     font-weight: 600;
@@ -276,7 +276,7 @@
     line-height: 1;
     padding: 4px 6px;
     cursor: pointer;
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-pill);
   }
   .iconbtn:hover { color: var(--text); background: var(--bg-elev); }
   .iconbtn.active { color: var(--accent); background: var(--accent-2); }

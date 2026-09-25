@@ -198,7 +198,7 @@
     height: 26px;
     background: transparent;
     border: 1px solid var(--border-2);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-pill);
     color: var(--text-3);
     cursor: pointer;
     flex-shrink: 0;
@@ -213,7 +213,7 @@
       display: inline-flex; align-items: center; justify-content: center;
       width: 44px; height: 44px; flex-shrink: 0;
       background: var(--bg-elev); border: 1px solid var(--border);
-      border-radius: var(--radius-sm); color: var(--text-2); cursor: pointer;
+      border-radius: var(--radius-pill); color: var(--text-2); cursor: pointer;
     }
     .back:active, .inspect:active { background: var(--bg-elev2); }
   }
@@ -257,7 +257,7 @@
     background: transparent;
     border: 1px solid var(--border-2);
     color: var(--text-3);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-pill);
     padding: 3px 10px;
     font-size: 11px;
     font-weight: 500;

@@ -10,7 +10,7 @@
   import { capabilities, loadCapabilities, backends, loadBackends, viewedSessionId, applyAgentTheme } from '$lib/stores/capabilities.js'
   import { paletteOpen } from '$lib/stores/palette.js'
   import { leftPanelOpen, plusMenuOpen, newSessionOpen, inspectorOpen } from '$lib/stores/ui.js'
-  import { captureToken, getToken } from '$lib/auth-token.js'
+  import { auth } from '$lib/auth.js'
   import Titlebar from '$lib/components/Titlebar.svelte'
   import OfflineBanner from '$lib/components/OfflineBanner.svelte'
   import AgentPanel from '$lib/components/AgentPanel.svelte'
@@ -20,8 +20,8 @@
   import PlusMenu from '$lib/components/PlusMenu.svelte'
   import MobileFab from '$lib/components/MobileFab.svelte'
   import PairGate from '$lib/components/PairGate.svelte'
-  // No token (e.g. a fresh iOS home-screen PWA) → pair inside the app.
-  let needsPairing = false
+  // Auth state comes from the $auth store ($lib/auth.ts): 'pairing'/'rejected'
+  // render the PairGate over the app; 'ready' boots the API/WS connection below.
   // Mobile off-canvas drawers (≤820px): ☰ opens sessions (left), ⓘ opens the
   // inspector (right). No effect on the desktop 3-pane layout.
   let drawerLeft = false
@@ -54,6 +54,9 @@
   let lastLoaded: string | null = null
 
   function loadSession(id: string | undefined) {
+    // No API traffic until the connection is authed (a 401 in pairing state
+    // would misroute to the legacy CF reload path).
+    if (get(auth) !== 'ready') return
     // Capability gating keys off the viewed session's backend.
     viewedSessionId.set(id)
     // Only the viewed session is subscribed, so evict every other feed —
@@ -74,13 +77,12 @@
       })
   }
 
-  onMount(() => {
-    // Capture a pairing token (#token=… in the URL) before any API/WS call, then
-    // strip it from the address bar. Stored in localStorage for subsequent loads.
-    captureToken()
-    // No token (fresh iOS PWA launched at start_url, separate storage) → gate
-    // on an in-app pairing screen instead of starting a token-less app.
-    if (!getToken()) { needsPairing = true; return }
+  // API/WS boot — runs on EVERY transition into 'ready'. The first boot can
+  // happen with a token the server then rejects (→ gate → re-pair), so the
+  // latch must not survive a rejection: re-pairing must start a fresh
+  // connection, not find a half-dead one.
+  function bootConnection() {
+    if (wsClient) { wsClient.close(); wsClient = null }
 
     api.me().then((m) => { email = m.email }).catch(() => {})
     api.sessions().then((list) => { sessionList.set(list) }).catch(() => {})
@@ -112,6 +114,12 @@
 
     // afterNavigate doesn't fire for the first page load — handle it here.
     loadSession($page.params.sessionId)
+  }
+
+  onMount(() => {
+    // Boot the connection once auth is ready — immediately on load with a
+    // token, or later, reactively, after an in-app pairing (no reload).
+    const unsubAuth = auth.subscribe((s) => { if (s === 'ready') bootConnection() })
 
     const onBeforeInstall = (e: Event) => { e.preventDefault(); installEvent = e }
     window.addEventListener('beforeinstallprompt', onBeforeInstall)
@@ -173,6 +181,7 @@
     window.addEventListener('focusout', startSettle)
 
     return () => {
+      unsubAuth()
       window.removeEventListener('beforeinstallprompt', onBeforeInstall)
       mq.removeEventListener('change', onMq)
       vv?.removeEventListener('resize', setKb)
@@ -239,7 +248,7 @@
 <PlusMenu anchor={newButtonAnchor} />
 <NewSessionModal />
 {#if !hasSession}<MobileFab />{/if}
-{#if needsPairing}<PairGate />{/if}
+{#if $auth !== 'ready'}<PairGate status={$auth === 'rejected' ? 'rejected' : 'pairing'} />{/if}
 
 <style>
   /* position:fixed + JS visualViewport sizing pins the app to the visible area,

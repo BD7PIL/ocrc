@@ -6,7 +6,11 @@
   pairs *inside* the installed app by pasting the token/link from /pair.
 -->
 <script lang="ts">
-  import { setToken } from '../auth-token.js'
+  import { submitPairing } from '../auth.js'
+
+  /** 'pairing' = no/absent token; 'rejected' = the server refused the freshest one. */
+  export let status: 'pairing' | 'rejected' = 'pairing'
+
   let input = ''
   let err = ''
 
@@ -20,9 +24,10 @@
   function connect() {
     const token = parseToken(input)
     if (!token || token.length < 16) { err = 'That doesn’t look like a valid token.'; return }
-    setToken(token)
-    // Reload so the app re-initializes (API + WS) with the stored token.
-    location.reload()
+    // Persist + flip the auth store. No reload: the layout boots the API/WS
+    // connection reactively, and both clients read the token fresh per
+    // request/connect, so the next call already carries it.
+    if (!submitPairing(token)) err = 'That doesn’t look like a valid token.'
   }
 </script>
 
@@ -30,6 +35,9 @@
   <div class="card">
     <div class="brand"><b>ocrc</b></div>
     <h1>Pair this device</h1>
+    {#if status === 'rejected'}
+      <p class="rejected">The previous token was rejected by the server — pair again below.</p>
+    {/if}
     <p>
       In Telegram, send <code>/pair</code> to your bot, then paste the
       <strong>token</strong> (or the whole link) below.
@@ -73,6 +81,7 @@
   }
   .field:focus { border-color: var(--accent); }
   .err { color: var(--err); font-size: 12px; }
+  .rejected { color: var(--err); font-size: 12.5px; font-weight: 600; }
   .connect {
     background: var(--accent); color: var(--accent-ink);
     border: none; border-radius: var(--radius-sm);

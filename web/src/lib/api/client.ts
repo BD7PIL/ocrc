@@ -1,5 +1,6 @@
 import type { StructuredCard, SessionSummary } from './types.js'
-import { handleAuthFailure, clearAuthReloadFlag } from '../auth-reload.js'
+import { clearAuthReloadFlag } from '../auth-reload.js'
+import { onUnauthorized } from '../auth.js'
 import { getToken } from '../auth-token.js'
 
 let base = ''
@@ -19,7 +20,7 @@ function authHeaders(extra?: Record<string, string>): Record<string, string> {
 
 async function jsonGet<T>(path: string): Promise<T> {
   const res = await fetch(`${base}${path}`, { credentials: 'include', headers: authHeaders() })
-  if (res.status === 401) { handleAuthFailure(); throw new Error(`GET ${path} 401`) }
+  if (res.status === 401) { onUnauthorized(); throw new Error(`GET ${path} 401`) }
   if (!res.ok) throw new Error(`GET ${path} ${res.status}`)
   clearAuthReloadFlag()
   return res.json()
@@ -32,7 +33,7 @@ async function jsonPost<T>(path: string, body: unknown): Promise<T> {
     credentials: 'include',
     body: JSON.stringify(body),
   })
-  if (res.status === 401) { handleAuthFailure(); throw new Error(`POST ${path} 401`) }
+  if (res.status === 401) { onUnauthorized(); throw new Error(`POST ${path} 401`) }
   if (!res.ok) throw new Error(`POST ${path} ${res.status}`)
   clearAuthReloadFlag()
   return res.json()

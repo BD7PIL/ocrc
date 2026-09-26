@@ -53,6 +53,10 @@ const api = {
   '/api/models': [{ id: 'kimi', name: 'Kimi', models: [{ id: 'kimi-for-coding', name: 'kimi-for-coding' }] }],
   '/api/overrides': { agent: null, model: null },
   '/api/mcp': [{ name: 'pact', status: 'configured' }, { name: 'shadcn', status: 'disabled' }],
+  '/api/schedules': { schedules: [
+    { id: 'sc1', name: '', prompt: 'nightly dependency sweep', spec: { kind: 'every', minutes: 15 }, enabled: true, createdAt: 1 },
+    { id: 'sc2', name: 'standup', prompt: 'write the standup summary', spec: { kind: 'daily', time: '09:00' }, enabled: false, createdAt: 2 },
+  ] },
   '/api/commands': [{ name: 'compact', description: 'Compact the session' }],
   '/api/session/ses_aaa111': { cards, lastSeq: 4 },
   '/api/session/ses_aaa111/context': { sessionId: 'ses_aaa111', agent: 'build', model: 'kimi-for-coding', directory: '/project', tokens: { input: 1234, output: 306 }, cost: 0.02 },

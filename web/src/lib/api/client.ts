@@ -39,6 +39,27 @@ async function jsonPost<T>(path: string, body: unknown): Promise<T> {
   return res.json()
 }
 
+async function jsonMethod<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${base}${path}`, {
+    method,
+    headers: authHeaders(body === undefined ? undefined : { 'content-type': 'application/json' }),
+    credentials: 'include',
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  if (res.status === 401) { onUnauthorized(); throw new Error(`${method} ${path} 401`) }
+  if (!res.ok) throw new Error(`${method} ${path} ${res.status}`)
+  clearAuthReloadFlag()
+  return res.json()
+}
+
+async function jsonPatch<T>(path: string, body: unknown): Promise<T> {
+  return jsonMethod('PATCH', path, body)
+}
+
+async function jsonDelete<T>(path: string): Promise<T> {
+  return jsonMethod('DELETE', path)
+}
+
 export const api = {
   me: () => jsonGet<{ email: string }>('/api/me'),
   capabilities: () => jsonGet<{ id: string; capabilities: Record<string, boolean> }>('/api/capabilities'),
@@ -75,4 +96,21 @@ export const api = {
     jsonPost<{ ok: boolean }>(`/api/session/${id}/model`, { modelId }),
   files: (id: string, q: string) =>
     jsonGet<string[]>(`/api/session/${id}/files?q=${encodeURIComponent(q)}`),
+  schedules: () => jsonGet<{ schedules: ScheduleRow[] }>('/api/schedules'),
+  addSchedule: (body: { name?: string; prompt: string; spec: ScheduleSpec; enabled?: boolean }) =>
+    jsonPost<{ schedule?: ScheduleRow; error?: string }>('/api/schedules', body),
+  setScheduleEnabled: (id: string, enabled: boolean) =>
+    jsonPatch<{ schedule?: ScheduleRow; error?: string }>(`/api/schedules/${id}`, { enabled }),
+  deleteSchedule: (id: string) => jsonDelete<{ ok: boolean }>(`/api/schedules/${id}`),
+}
+
+export type ScheduleSpec = { kind: 'every'; minutes: number } | { kind: 'daily'; time: string }
+export interface ScheduleRow {
+  id: string
+  name: string
+  prompt: string
+  spec: ScheduleSpec
+  enabled: boolean
+  createdAt: number
+  lastRunAt?: number
 }

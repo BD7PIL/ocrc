@@ -5,6 +5,7 @@
   import { can } from '$lib/stores/capabilities.js'
   import TaskPanel from './inspector/TaskPanel.svelte'
   import McpPanel from './inspector/McpPanel.svelte'
+  import SchedulesPanel from './inspector/SchedulesPanel.svelte'
   import UsagePanel from './inspector/UsagePanel.svelte'
   import ContextPanel from './inspector/ContextPanel.svelte'
   import WorkingDirPanel from './inspector/WorkingDirPanel.svelte'
@@ -32,6 +33,8 @@
   </div>
   {#if $can('todos')}<TaskPanel {sessionId} {tick} />{/if}
   <div class="pinned">
+    <SchedulesPanel {tick} />
+    <div class="divider"></div>
     {#if $can('mcp')}
       <McpPanel {tick} />
       <div class="divider"></div>

@@ -9,6 +9,7 @@ import type { CardBus } from '../../core/card-bus.js'
 import { TelegramSessionRenderer } from './renderer.js'
 import { StreamingRenderer } from './streaming-render.js'
 import { PermissionFlow } from './permission-flow.js'
+import { renderSessionsMenu, renderAgentsMenu, renderModelsMenu, editMenu } from './menus.js'
 import { InteractionManager } from './managers/interaction-manager.js'
 import { PermissionManager } from './managers/permission-manager.js'
 import type { PermissionRequest } from './types/permission.js'
@@ -171,6 +172,89 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
     })
   })
 
+  // ── M4: inline menus (sessions paging / agents / models) ──
+  let sessionsCache: Array<{ id: string; title?: string; directory?: string; lastActiveAt: number }> = []
+  let activeMenuMessageId: number | undefined
+
+  bot.callbackQuery(/^menu:spage:(\d+)$/, async (ctx) => {
+    const p = Number(ctx.match![1])
+    const { text, keyboard } = renderSessionsMenu(sessionsCache, p)
+    await editMenu(bot.api, ctx.chat?.id ?? chatIdOf(), (ctx.callbackQuery.message as any)?.message_id, text, keyboard)
+    await ctx.answerCallbackQuery()
+  })
+
+  bot.callbackQuery(/^menu:session:(.+)$/, async (ctx) => {
+    const sid = ctx.match![1]
+    cfg.state.setPinnedSessionId(sid)
+    await ctx.answerCallbackQuery(`已切换：…${sid.slice(-8)}`)
+    try { await ctx.editMessageText(`📍 已切换会话 <code>…${sid.slice(-8)}</code>`, { parse_mode: 'HTML' }) } catch { }
+  })
+
+  bot.callbackQuery(/^menu:agent:(.+)$/, async (ctx) => {
+    const name = ctx.match![1]
+    cfg.state.setNextAgent(name)
+    await ctx.answerCallbackQuery(`Agent → ${name}`)
+    try { await ctx.editMessageText(`🤖 Agent 覆盖：<b>${name}</b>`, { parse_mode: 'HTML' }) } catch { }
+  })
+
+  bot.callbackQuery(/^menu:model:([^:]+):(.+)$/, async (ctx) => {
+    const providerID = ctx.match![1]
+    const modelID = ctx.match![2]
+    cfg.state.setNextModel({ providerID, modelID })
+    await ctx.answerCallbackQuery(`模型 → ${providerID}/${modelID}`)
+    try { await ctx.editMessageText(`🧠 模型覆盖：<b>${providerID}/${modelID}</b>`, { parse_mode: 'HTML' }) } catch { }
+  })
+
+  bot.callbackQuery('menu:agentclear', async (ctx) => {
+    cfg.state.setNextAgent(undefined)
+    await ctx.answerCallbackQuery('已清除 agent 覆盖')
+    try { await ctx.editMessageText('Agent 覆盖已清除', { parse_mode: 'HTML' }) } catch { }
+  })
+
+  bot.callbackQuery('menu:noop', async (ctx) => { await ctx.answerCallbackQuery() })
+
+  /** Open the agents menu as an editable message. */
+  async function openAgentsMenu(chatId: string): Promise<void> {
+    try {
+      const agents = await cfg.backend.getAgents(cfg.opencodeProject)
+      const current = cfg.state.getNextAgent()
+      const { text, keyboard } = renderAgentsMenu(agents.map(a => ({ name: a.name, model: (a as any).model })), current)
+      const sent = await bot.api.sendMessage(chatId, text, { parse_mode: 'HTML', reply_markup: keyboard })
+      activeMenuMessageId = sent.message_id
+    } catch (err) {
+      log.warn('openAgentsMenu failed', (err as Error).message)
+    }
+  }
+
+  /** Open the models menu as an editable message. */
+  async function openModelsMenu(chatId: string): Promise<void> {
+    try {
+      const providers = await cfg.backend.getModels(cfg.opencodeProject)
+      const { text, keyboard } = renderModelsMenu(providers)
+      const sent = await bot.api.sendMessage(chatId, text, { parse_mode: 'HTML', reply_markup: keyboard })
+      activeMenuMessageId = sent.message_id
+    } catch (err) {
+      log.warn('openModelsMenu failed', (err as Error).message)
+    }
+  }
+
+  /** Open the paginated sessions menu. */
+  async function openSessionsMenu(chatId: string, page: number): Promise<void> {
+    try {
+      sessionsCache = (await cfg.backend.listSessionSummaries()).map(s => ({
+        id: s.id, title: s.title, directory: s.directory, lastActiveAt: s.lastActiveAt,
+      }))
+      const active = cfg.state.getPinnedSessionId() ?? cfg.state.getLastSessionId()
+      const { text, keyboard } = renderSessionsMenu(sessionsCache, page, active)
+      const sent = await bot.api.sendMessage(chatId, text, { parse_mode: 'HTML', reply_markup: keyboard })
+      activeMenuMessageId = sent.message_id
+    } catch (err) {
+      log.warn('openSessionsMenu failed', (err as Error).message)
+    }
+  }
+
+  const chatIdOf = (): string => String(cfg.allowedUserIds[0])
+
   // ── M4: reply keyboard + hears routers (grinev signature UX) ──
   const sendMainKeyboard = async (ctx: { reply: Function }) => {
     await ctx.reply('键盘已更新', { reply_markup: buildMainKeyboard(keyboardData) }).catch((err: Error) => {
@@ -191,11 +275,10 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
 
   // Button presses arrive as ordinary text messages — match by pattern.
   bot.hears(AGENT_BUTTON_TEXT_PATTERN, async (ctx) => {
-    if (!permissionFlow) return
-    void ctx.reply('打开 agent 选择：请用 /agent 命令（菜单将在 M4+ 增强）').catch(() => {})
+    await openAgentsMenu(String(ctx.chat?.id ?? chatIdOf()))
   })
   bot.hears(MODEL_BUTTON_TEXT_PATTERN, async (ctx) => {
-    void ctx.reply('打开模型选择：请用 /model 命令（菜单将在 M4+ 增强）').catch(() => {})
+    await openModelsMenu(String(ctx.chat?.id ?? chatIdOf()))
   })
   bot.hears(CONTEXT_BUTTON_TEXT_PATTERN, async (ctx) => {
     try {

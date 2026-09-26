@@ -20,3 +20,15 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+Portions of this software (the Telegram UX layer transplanted by the P2b
+workstream: managers, menus, callbacks and i18n) are derived from
+@grinev/opencode-telegram-bot:
+
+  Copyright (c) 2026 Ruslan Grinev
+  https://github.com/grinev/opencode-telegram-bot
+
+That portion is likewise distributed under the MIT License set out above,
+with the copyright notice attributable to its author preserved here.

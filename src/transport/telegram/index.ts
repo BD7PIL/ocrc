@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
-import { Bot, type Api } from 'grammy'
+import { Bot, InlineKeyboard, type Api } from 'grammy'
 import { errorCodeOf, inlineKeyboard, btn } from './ui.js'
+import { isEphemeralSession } from '../../opencode/submit.js'
 import type { AgentBackend } from '../../core/agent/backend.js'
 import type { IncomingMessage, ChannelCapabilities } from '../../core/types.js'
 import type { Transport, TransportStartDeps } from '../interface.js'
@@ -384,6 +385,19 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
             }
           })()
           if (card.kind === 'assistant' || card.kind === 'error') renderers.delete(card.sessionId)
+
+          // grinev UX 对照表：后台会话完成通知 —— a turn finished in a session
+          // other than the TG-target one gets a heads-up with a switch button.
+          if (card.kind === 'assistant' && permissionFlow) {
+            const target = targetSessionId()
+            if (target && card.sessionId !== target && !isEphemeralSession(card.sessionId)) {
+              const bsid = card.sessionId
+              const bk = new InlineKeyboard().text('📥 打开该会话', `menu:session:${bsid}`)
+              void bot.api
+                .sendMessage(chatId, `ℹ️ 后台会话已完成：…${bsid.slice(-8)}`, { reply_markup: bk })
+                .catch((err: Error) => log.warn('background notice failed', err.message))
+            }
+          }
           return
         }
         const r = getRenderer(card.sessionId, chatId)

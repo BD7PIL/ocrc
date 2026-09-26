@@ -317,7 +317,7 @@ The relay code in `src/core/relay.ts` doesn't change.
 | Project | Pattern | Submission | Multi-channel | Web UI |
 |---|---|---|---|---|
 | **us** (v0.5.0) | external SDK consumer | `session.prompt()` | ✅ Telegram + Web | ✅ PWA + Chrome Ext |
-| grinev/opencode-telegram-bot | external HTTP | TUI inject hybrid | no | no |
+| @grinev/opencode-telegram-bot | **P2b 已移植其 UX 层**（grammY + managers/menus/i18n，MIT 双署名）——ocrc 以进程内插件承载同一交互深度，事件源为进程内 relay 而非外置 HTTP |
 | cc-connect | external bridge | varies | yes (11+ platforms) | no |
 | opencode-chat-bridge | external bridge | SDK | yes (Matrix/Slack/WhatsApp/…) | no |
 | OpenChamber | external standalone | SDK | no | yes (multi-surface) |

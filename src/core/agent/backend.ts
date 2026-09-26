@@ -58,6 +58,8 @@ export interface SessionContext {
 export interface AgentInfo { name: string; model: string; description: string }
 export interface ModelProvider { id: string; name: string; models: Array<{ id: string; name: string }> }
 export interface McpServer { name: string; type?: string; status: 'configured' | 'disabled' }
+/** A subagent (child) session of a turn, with its todo progress. */
+export interface SubagentInfo { id: string; title: string; updatedAt?: number; done: number; total: number }
 export interface CommandInfo { name: string; description: string }
 export interface Workspace { directory: string; name: string; sessionCount: number; lastActiveAt: number }
 
@@ -166,6 +168,8 @@ export interface AgentBackend {
   getAgents(directory?: string): Promise<AgentInfo[]>
   getModels(directory?: string): Promise<ModelProvider[]>
   getMcp(directory?: string): Promise<McpServer[]>
+  /** Subagent (child) sessions of a turn with todo progress — gates the plan-HUD badge/list. */
+  getSubagents?(sessionId: string): Promise<SubagentInfo[]>
   /** Workspaces (directories with sessions) across all opencode projects. */
   listWorkspaces(): Promise<Workspace[]>
   listCommands(): Promise<CommandInfo[]>

@@ -6,7 +6,7 @@
  */
 import type { OpencodeClient } from '@opencode-ai/sdk'
 import type {
-  AgentBackend, AgentInfo, BackendCapabilities, CommandInfo, DiffEntry, McpServer, ModelProvider,
+  AgentBackend, AgentInfo, BackendCapabilities, CommandInfo, DiffEntry, McpServer, ModelProvider, SubagentInfo,
   PermissionDecision, PromptInput, SessionContext, SessionMeta, SessionRef, SessionSummary,
 } from './backend.js'
 import { buildDiffEntry } from './diff-util.js'
@@ -346,10 +346,48 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
   async function getModels(directory?: string): Promise<ModelProvider[]> {
     let providers: Array<{ id: string; name: string; models: Record<string, { name?: string }> }> = []
     try { providers = (((await client.config.providers(directory ? { query: { directory } } : {})).data as any)?.providers ?? []) } catch { /* empty */ }
+    // opencode's config-level filters (what the native picker honors): an
+    // enabled_providers whitelist, a disabled_providers blacklist, and a
+    // per-provider provider.<id>.models whitelist. The connected set above is
+    // already auth-scoped; this layer is the user's explicit curation.
+    try {
+      const cfg: any = ((await client.config.get(directory ? { query: { directory } } : {})).data) ?? {}
+      const enabled: string[] | undefined = cfg.enabled_providers
+      const disabled: string[] | undefined = cfg.disabled_providers
+      const cfgModels = (cfg.provider ?? {}) as Record<string, { models?: Record<string, unknown> }>
+      if (enabled?.length) providers = providers.filter((p) => enabled.includes(p.id))
+      if (disabled?.length) providers = providers.filter((p) => !disabled.includes(p.id))
+      providers = providers.map((p) => {
+        const whitelist = cfgModels[p.id]?.models
+        const allowed = whitelist ? Object.keys(whitelist) : []
+        if (!allowed.length) return p
+        const keep = new Set(allowed)
+        return { ...p, models: Object.fromEntries(Object.entries(p.models ?? {}).filter(([id]) => keep.has(id))) }
+      })
+    } catch { /* config unavailable — fall back to the unfiltered connected set */ }
     return providers.map((p) => ({
       id: p.id, name: p.name,
       models: Object.entries(p.models ?? {}).map(([id, m]) => ({ id, name: m?.name ?? id })),
     }))
+  }
+
+  async function getSubagents(sessionId: string): Promise<SubagentInfo[]> {
+    const all = (await listAllSessions(client)) as Array<{
+      id: string; parentID?: string; title?: string; time?: { updated?: number }
+    }>
+    const children = all.filter((s) => s.parentID === sessionId).slice(0, 8)
+    const out: SubagentInfo[] = []
+    for (const c of children) {
+      let done = 0
+      let total = 0
+      try {
+        const todos = await getTodos(c.id)
+        total = todos.length
+        done = todos.filter((t) => (t as { status?: string })?.status === 'completed').length
+      } catch { /* child without todos */ }
+      out.push({ id: c.id, title: c.title ?? '', updatedAt: c.time?.updated, done, total })
+    }
+    return out
   }
 
   async function getMcp(directory?: string): Promise<McpServer[]> {
@@ -403,7 +441,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     prompt, abort,
     hasSession, listSessions, listSessionSummaries, createSession, deleteSession, renameSession,
     getSessionMeta, getContext, getHistory, getMessageBlocks, getDiff, getTodos, getSessionsStatus, ping,
-    getAgents, getModels, getMcp, listWorkspaces, listCommands, runCommand,
+    getAgents, getModels, getMcp, getSubagents, listWorkspaces, listCommands, runCommand,
     resolvePermission,
     selectTuiSession,
     suggestFollowUps,

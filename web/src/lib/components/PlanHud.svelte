@@ -1,8 +1,9 @@
-<!-- src/lib/components/PlanHud.svelte — mobile floating plan card (≤820px).
-     ZCode-mobile-style FIXED plan card (user ruling: not draggable): collapsed =
-     one-line progress, expanded = grouped todo list. Read-only by design —
-     opencode exposes no todo write API (TaskPanel's toggle is likewise a local
-     visual state). -->
+<!-- src/lib/components/PlanHud.svelte — mobile plan orb (≤820px).
+     An enso-style floating ball with the session's todo progress as a ring
+     stroke around it; tap to expand into the grouped plan card. Fixed anchor
+     above the composer (ZCode parity: not draggable). Also surfaces subagent
+     (child-session) todo progress — ZCode shows this, our data plane is
+     parentID + per-child todos. Read-only: opencode has no todo write API. -->
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { api } from '$lib/api/client.js'
@@ -15,6 +16,8 @@
 
   const KEY = 'ocrc.planHud'
   const PREVIEW_PENDING = 2
+  const R = 18
+  const CIRC = 2 * Math.PI * R
 
   type HudState = { dismissed?: string[]; expanded?: boolean }
   function loadState(): HudState {
@@ -53,7 +56,7 @@
   let timer: ReturnType<typeof setTimeout> | undefined
   $: seq = $feeds[sessionId]?.lastSeq ?? 0
   $: if (seq !== lastSeqSeen) { lastSeqSeen = seq; clearTimeout(timer); timer = setTimeout(() => (tick += 1), 1000) }
-  $: if (tick) void refresh(sessionId)
+  $: if (tick) { void refresh(sessionId); if (expanded) void refreshSubs(sessionId) }
   onDestroy(() => clearTimeout(timer))
 
   $: session = $sessionList.find((r) => r.id === sessionId)
@@ -63,14 +66,36 @@
   $: runningItems = sum.items.filter((i) => i.status === 'running')
   $: pendingItems = sum.items.filter((i) => i.status === 'pending')
   $: restCount = Math.max(0, pendingItems.length - PREVIEW_PENDING)
+  $: pct = sum.total ? sum.done / sum.total : 0
   $: dismissed = hud.dismissed?.includes(sessionId) ?? false
 
-  // Group/menu state is per session — switching resets it.
+  // ── Subagents (child sessions): fetched when the card opens and on feed
+  // activity. Unsupported backends answer with an empty list.
+  interface SubRow { id: string; title: string; done: number; total: number }
+  let subs: SubRow[] = []
+  let subsFor: string | undefined
+  async function refreshSubs(sid: string) {
+    try {
+      const r = await api.subagents(sid)
+      if (sid !== sessionId) return
+      subs = r.subagents ?? []
+      subsFor = sid
+    } catch { subs = [] }
+  }
+  $: if (expanded && sessionId && subsFor !== sessionId) void refreshSubs(sessionId)
+
+  // Per-session reset of group/menu state.
   let groupSid: string | undefined
   let showDone = false
   let showRest = false
   let menuOpen = false
   $: if (sessionId !== groupSid) { groupSid = sessionId; showDone = false; showRest = false; menuOpen = false }
+
+  function toggleExpanded() {
+    expanded = !expanded
+    if (expanded) void refreshSubs(sessionId)
+    save({ expanded })
+  }
 
   function hide() {
     save({ dismissed: [...(hud.dismissed ?? []), sessionId].slice(-20) })
@@ -81,16 +106,8 @@
     inspectorOpen.set(true)
   }
 
-  // ── Interaction: tap header to expand/collapse; no drag (fixed anchor, ZCode
-  //    parity per user ruling — dragging also caused visible jank on mobile). ──
   let dotsEl: HTMLElement
   let menuEl: HTMLElement
-
-  function toggleExpanded() {
-    expanded = !expanded
-    save({ expanded })
-  }
-
   function onOutside(e: PointerEvent) {
     if (!menuOpen) return
     const t = e.target as Node
@@ -102,35 +119,29 @@
 <svelte:window on:pointerdown={onOutside} />
 
 {#if loadedFor === sessionId && sum.total > 0 && !dismissed && $can('todos')}
-  <div class="plan-hud" class:expanded>
-    <div
-      class="hd"
-      role="button"
-      tabindex="0"
-      aria-expanded={expanded}
-      on:click={toggleExpanded}
-      on:keydown={(e) => e.key === 'Enter' && toggleExpanded()}
-    >
-      <span class="label">Plan</span>
-      <span class="title">{title || '…' + sessionId.slice(-8)}</span>
-      {#if !expanded}<span class="count mono">{sum.done}/{sum.total}</span>{/if}
-      <button
-        class="dots"
-        bind:this={dotsEl}
-        aria-label="Plan menu"
-        on:click|stopPropagation={() => (menuOpen = !menuOpen)}
-      >⋯</button>
-      <svg class="chev" class:flip={expanded} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
-    </div>
-
-    {#if menuOpen}
-      <div class="menu" bind:this={menuEl} role="menu">
-        <button role="menuitem" on:click={openTasks}>Open task panel</button>
-        <button role="menuitem" on:click={hide}>Hide for this session</button>
+  {#if expanded}
+    <div class="plan-card">
+      <div class="hd">
+        <span class="label">Plan</span>
+        <span class="title">{title || '…' + sessionId.slice(-8)}</span>
+        <button
+          class="dots"
+          bind:this={dotsEl}
+          aria-label="Plan menu"
+          on:click|stopPropagation={() => (menuOpen = !menuOpen)}
+        >⋯</button>
+        <button class="close" aria-label="Collapse plan" on:click={toggleExpanded}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
+        </button>
       </div>
-    {/if}
 
-    {#if expanded}
+      {#if menuOpen}
+        <div class="menu" bind:this={menuEl} role="menu">
+          <button role="menuitem" on:click={openTasks}>Open task panel</button>
+          <button role="menuitem" on:click={hide}>Hide for this session</button>
+        </div>
+      {/if}
+
       <div class="body">
         <div class="prog mono">Progress {sum.done}/{sum.total}</div>
 
@@ -165,37 +176,120 @@
             {/each}
           {/if}
         {/if}
+
+        {#if subs.length}
+          <div class="grp static"><span class="sub-label">Subagents</span></div>
+          {#each subs as s (s.id)}
+            <div class="row sub">
+              <span class="sub-count mono">{s.done}/{s.total}</span>
+              <span class="tx">{s.title || '…' + s.id.slice(-6)}</span>
+            </div>
+          {/each}
+        {/if}
       </div>
-    {/if}
-  </div>
+    </div>
+  {/if}
+
+  <button
+    class="ball"
+    aria-label={`${expanded ? 'Collapse' : 'Expand'} plan (${sum.done}/${sum.total})`}
+    aria-expanded={expanded}
+    on:click={toggleExpanded}
+  >
+    <svg class="ring" viewBox="0 0 44 44" aria-hidden="true">
+      <circle class="track" cx="22" cy="22" r={R} />
+      <circle
+        class="arc"
+        cx="22" cy="22" r={R}
+        stroke-dasharray={CIRC}
+        stroke-dashoffset={CIRC * (1 - pct)}
+      />
+    </svg>
+    <span class="ball-count mono">{sum.done}<i>/</i>{sum.total}</span>
+    {#if subs.length > 0}<span class="badge mono">{subs.length}</span>{/if}
+  </button>
 {/if}
 
 <style>
   /* Mobile only — desktop keeps the always-visible Inspector task panel. */
-  .plan-hud {
-    display: none;
+  .ball, .plan-card { display: none; }
+  @media (max-width: 820px) {
+    .ball { display: grid; }
+    .plan-card { display: block; }
+  }
+
+  /* ── The orb: fixed above the composer, enso ring = todo progress ── */
+  .ball {
     position: fixed;
-    left: 12px;
-    top: calc(62px + env(safe-area-inset-top, 0px)); /* below the sub-header */
+    right: 16px;
+    bottom: calc(var(--composer-h, 120px) + var(--kb, 0px) + 18px + env(safe-area-inset-bottom, 0px));
     z-index: var(--z-hud);
-    width: min(78vw, 240px);
+    width: 46px;
+    height: 46px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: var(--bg-elev);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .28);
+    cursor: pointer;
+    place-items: center;
+    transition: transform .15s var(--ease, ease);
+  }
+  .ball:active { transform: scale(.92); }
+  .ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring circle { fill: none; stroke-width: 3; }
+  .track { stroke: var(--border); }
+  .arc {
+    stroke: var(--accent);
+    stroke-linecap: round;
+    transition: stroke-dashoffset .4s var(--ease, ease);
+  }
+  .ball-count {
+    position: relative;
+    font-size: 11px;
+    color: var(--text);
+    letter-spacing: -.02em;
+  }
+  .ball-count i { font-style: normal; color: var(--text-3); padding: 0 1px; }
+  .badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    display: grid;
+    place-items: center;
+    background: var(--accent);
+    color: var(--accent-ink);
+    border-radius: var(--radius-pill);
+    font-size: 9.5px;
+    font-weight: 700;
+    box-sizing: border-box;
+  }
+
+  /* ── Expanded card: anchored above the ball, scrollable ── */
+  .plan-card {
+    position: fixed;
+    right: 16px;
+    bottom: calc(var(--composer-h, 120px) + var(--kb, 0px) + 76px + env(safe-area-inset-bottom, 0px));
+    z-index: var(--z-hud);
+    width: min(86vw, 320px);
+    max-height: 52vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
     background: var(--bg-elev);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: 0 10px 30px rgba(0, 0, 0, .2);
     overflow: visible;
   }
-  @media (max-width: 820px) {
-    .plan-hud { display: block; }
-  }
-  .plan-hud.expanded { width: min(88vw, 320px); }
 
   .hd {
     display: flex;
     align-items: center;
     gap: 7px;
     padding: 10px 10px 10px 12px;
-    cursor: pointer;
   }
   .label {
     flex-shrink: 0;
@@ -215,12 +309,7 @@
     font-weight: 600;
     color: var(--text);
   }
-  .count {
-    flex-shrink: 0;
-    font-size: 11px;
-    color: var(--accent);
-  }
-  .dots {
+  .dots, .close {
     flex-shrink: 0;
     width: 26px;
     height: 26px;
@@ -232,23 +321,15 @@
     border: none;
     border-radius: var(--radius-sm);
     color: var(--text-3);
-    font-size: 14px;
-    line-height: 1;
     cursor: pointer;
   }
-  .dots:active { background: var(--bg-elev2); color: var(--text); }
-  .chev {
-    flex-shrink: 0;
-    width: 15px;
-    height: 15px;
-    color: var(--text-3);
-    transition: transform .18s ease;
-  }
-  .chev.flip { transform: rotate(180deg); }
+  .dots { font-size: 14px; line-height: 1; }
+  .close svg { width: 15px; height: 15px; }
+  .dots:active, .close:active { background: var(--bg-elev2); color: var(--text); }
 
   .menu {
     position: absolute;
-    top: calc(100% + 6px);
+    top: 40px;
     right: 8px;
     z-index: 1;
     min-width: 168px;
@@ -259,9 +340,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     box-shadow: 0 8px 24px rgba(0, 0, 0, .25);
-    animation: hud-menu .14s ease both;
   }
-  @keyframes hud-menu { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
   .menu button {
     margin: 0;
     padding: 8px 10px;
@@ -295,6 +374,13 @@
     color: var(--text-3);
     font-size: 11.5px;
     cursor: pointer;
+  }
+  .grp.static { cursor: default; }
+  .sub-label {
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    font-size: 9.5px;
+    font-weight: 600;
   }
   .caret {
     width: 12px;
@@ -338,4 +424,13 @@
   }
   .row.done .tx { color: var(--text-3); text-decoration: line-through; text-decoration-color: var(--border); }
   .row.running .tx { color: var(--text); font-weight: 500; }
+
+  .row.sub { padding-left: 2px; }
+  .sub-count {
+    flex-shrink: 0;
+    margin-top: 1px;
+    font-size: 10.5px;
+    color: var(--accent);
+    min-width: 26px;
+  }
 </style>

@@ -7,6 +7,7 @@ import { feeds } from '$lib/stores/sessions.js'
 vi.mock('$lib/api/client.js', () => ({
   api: {
     todo: vi.fn(),
+    subagents: vi.fn(),
   },
 }))
 
@@ -23,6 +24,8 @@ describe('PlanHud', () => {
   beforeEach(() => {
     cleanup() // no vitest globals → testing-library doesn't auto-clean
     vi.mocked(api.todo).mockReset()
+    vi.mocked(api.subagents).mockReset?.()
+    vi.mocked(api.subagents).mockResolvedValue({ subagents: [] })
     localStorage.removeItem('ocrc.planHud')
   })
   afterEach(cleanup)
@@ -31,37 +34,56 @@ describe('PlanHud', () => {
     vi.mocked(api.todo).mockResolvedValue([])
     const { container } = render(PlanHud, { props: { sessionId: 's-empty' } })
     await vi.waitFor(() => expect(vi.mocked(api.todo)).toHaveBeenCalledWith('s-empty'))
-    expect(container.querySelector('.plan-hud')).toBeNull()
+    expect(container.querySelector('.ball')).toBeNull()
   })
 
-  it('shows the collapsed progress card and expands to grouped items on tap', async () => {
+  it('shows the progress orb and expands to grouped items on tap', async () => {
     vi.mocked(api.todo).mockResolvedValue(TODOS)
     const { container } = render(PlanHud, { props: { sessionId: 's-groups' } })
-    await vi.waitFor(() => expect(container.querySelector('.plan-hud')).toBeTruthy())
-    // Collapsed: one-line progress, no task bodies.
-    expect(container.textContent).toContain('1/5')
-    expect(container.textContent).not.toContain('finished task')
+    await vi.waitFor(() => expect(container.querySelector('.ball')).toBeTruthy())
+    // Orb shows the done/total count and the progress arc.
+    expect(container.textContent).toContain('1')
+    expect(container.querySelector('.arc')!.getAttribute('stroke-dashoffset')).toBeTruthy()
+    // Expanded card is closed while the orb shows.
+    expect(container.querySelector('.plan-card')).toBeNull()
 
-    await fireEvent.click(container.querySelector('.hd')!)
-    expect(container.querySelector('.plan-hud')!.classList.contains('expanded')).toBe(true)
-    expect(container.textContent).toContain('active task')
-    expect(container.textContent).toContain('Completed 1')
+    await fireEvent.click(container.querySelector('.ball')!)
+    const card = container.querySelector('.plan-card')!
+    expect(card).toBeTruthy()
+    expect(card.textContent).toContain('active task')
+    expect(card.textContent).toContain('Completed 1')
     // Only the first 2 pending are previewed — the rest collapse into a group.
-    expect(container.textContent).toContain('queued task one')
-    expect(container.textContent).toContain('queued task two')
-    expect(container.textContent).not.toContain('queued task three')
-    expect(container.textContent).toContain('Pending 1')
+    expect(card.textContent).toContain('queued task one')
+    expect(card.textContent).toContain('queued task two')
+    expect(card.textContent).not.toContain('queued task three')
+    expect(card.textContent).toContain('Pending 1')
+  })
+
+  it('lists subagent progress inside the expanded card', async () => {
+    vi.mocked(api.todo).mockResolvedValue(TODOS)
+    vi.mocked(api.subagents).mockResolvedValue({
+      subagents: [{ id: 'sub_1', title: 'researcher', done: 2, total: 3 }],
+    })
+    const { container } = render(PlanHud, { props: { sessionId: 's-subs' } })
+    await vi.waitFor(() => expect(container.querySelector('.ball')).toBeTruthy())
+
+    await fireEvent.click(container.querySelector('.ball')!) // expand → fetches subagents
+    await vi.waitFor(() => expect(container.textContent).toContain('researcher'))
+    expect(container.textContent).toContain('2/3')
+    expect(vi.mocked(api.subagents)).toHaveBeenCalledWith('s-subs')
   })
 
   it('hides via the ⋯ menu and persists the dismissal per session', async () => {
     vi.mocked(api.todo).mockResolvedValue(TODOS)
     const { container } = render(PlanHud, { props: { sessionId: 's-hide' } })
-    await vi.waitFor(() => expect(container.querySelector('.plan-hud')).toBeTruthy())
+    await vi.waitFor(() => expect(container.querySelector('.ball')).toBeTruthy())
 
+    await fireEvent.click(container.querySelector('.ball')!) // expand to reveal the card menu
     await fireEvent.click(container.querySelector('.dots')!)
     const hide = [...container.querySelectorAll('.menu button')].find((b) => b.textContent === 'Hide for this session')!
     await fireEvent.click(hide)
-    expect(container.querySelector('.plan-hud')).toBeNull()
+    expect(container.querySelector('.ball')).toBeNull()
+    expect(container.querySelector('.plan-card')).toBeNull()
 
     const stored = JSON.parse(localStorage.getItem('ocrc.planHud') ?? '{}')
     expect(stored.dismissed).toContain('s-hide')
@@ -70,7 +92,7 @@ describe('PlanHud', () => {
   it('re-pulls todos when the session feed produces events', async () => {
     vi.mocked(api.todo).mockResolvedValue(TODOS)
     const { container } = render(PlanHud, { props: { sessionId: 's-feed' } })
-    await vi.waitFor(() => expect(container.querySelector('.plan-hud')).toBeTruthy())
+    await vi.waitFor(() => expect(container.querySelector('.ball')).toBeTruthy())
     const callsFor = (sid: string) => vi.mocked(api.todo).mock.calls.filter(([id]) => id === sid).length
     expect(callsFor('s-feed')).toBe(1)
 

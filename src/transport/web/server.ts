@@ -36,6 +36,7 @@ import { registerRename } from './routes/rename.js'
 import type { Scheduler } from '../../core/scheduler.js'
 import { registerSuggestions } from './routes/suggestions.js'
 import { registerSchedules } from './routes/schedules.js'
+import { registerSubagents } from './routes/subagents.js'
 
 export interface BuildServerOpts {
   auth: AuthStrategy
@@ -116,5 +117,6 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerRename(app, reg, opts.state)
   registerSuggestions(app, opts.state)
   registerSchedules(app, opts.scheduler)
+  registerSubagents(app, reg, opts.state)
   return app
 }

@@ -1,0 +1,66 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+.vitest-cache/
+# opencode workspace config (local model selection + plugin secrets)
+config.json
+.opencode/
+# runtime persisted state (sessionId / agent / model selection)
+data/
+# deno lock file (project uses Node.js, not Deno)
+deno.lock
+
+# code-analysis tool cache — never commit
+.understand-anything/
+
+# internal planning/design docs — keep local, don't publish
+docs/PRD.md
+docs/PRODUCT_STATUS.md
+docs/COMPARISON_IM_HUB.md
+docs/WEB_DESIGN.md
+docs/reviews/
+docs/superpowers/
+.agent/
+
+# TypeScript incremental build cache — never commit
+tsconfig.tsbuildinfo
+
+# brainstorming visual-companion cache
+.superpowers/
+.pact/
+.env.acp
+
+.pact/orchestrate/
+
+# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
+.git/
+.hg/
+.svn/
+bower_components/
+jspm_packages/
+__pycache__/
+site-packages/
+venv/
+coverage/
+htmlcov/
+lcov-report/
+cmakefiles/
+cmake-build-*/
+bazel-*/
+pods/
+deriveddata/
+storybook-static/
+playwright-report/
+test-results/
+allure-results/
+allure-report/
+cdk.out/
+*.egg-info/
+*.dist-info/
+eggs/
+pip-wheel-metadata/
+wheels/
+# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
+# 自定义规则写在下方（本行提示可删除）

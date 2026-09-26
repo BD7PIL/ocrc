@@ -97,6 +97,7 @@ export const api = {
   files: (id: string, q: string) =>
     jsonGet<string[]>(`/api/session/${id}/files?q=${encodeURIComponent(q)}`),
   schedules: () => jsonGet<{ schedules: ScheduleRow[] }>('/api/schedules'),
+  subagents: (id: string) => jsonGet<{ subagents: SubagentRow[] }>(`/api/session/${id}/subagents`),
   addSchedule: (body: { name?: string; prompt: string; spec: ScheduleSpec; enabled?: boolean }) =>
     jsonPost<{ schedule?: ScheduleRow; error?: string }>('/api/schedules', body),
   setScheduleEnabled: (id: string, enabled: boolean) =>
@@ -114,3 +115,4 @@ export interface ScheduleRow {
   createdAt: number
   lastRunAt?: number
 }
+export interface SubagentRow { id: string; title: string; updatedAt?: number; done: number; total: number }

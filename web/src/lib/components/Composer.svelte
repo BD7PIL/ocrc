@@ -6,7 +6,8 @@
   import { can, backendName } from '../stores/capabilities.js'
   import { paletteOpen } from '../stores/palette.js'
   import { composerDraft, composerEmpty } from '../stores/ui.js'
-  import AgentModelChip from './AgentModelChip.svelte'
+  import AgentChip from './AgentChip.svelte'
+  import ModelChip from './ModelChip.svelte'
   import SessionControls from './SessionControls.svelte'
 
   export let sessionId: string
@@ -221,7 +222,10 @@
           </button>
           <input type="file" accept="image/*" multiple bind:this={fileInput} on:change={onFilesSelected} style="display:none" />
         {/if}
-        {#if $can('catalog')}<AgentModelChip />{/if}
+        {#if $can('catalog')}
+          <AgentChip />
+          <ModelChip />
+        {/if}
         {#if $can('sessionControls')}<SessionControls {sessionId} />{/if}
         <button class="hint command" on:click={() => paletteOpen.set(true)}>/ for commands</button>
         <span class="spacer"></span>

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { Bot, type Context } from 'grammy'
 import { inlineKeyboard, btn, type TgBtn } from './ui.js'
+import type { Scheduler } from '../../core/scheduler.js'
 import type { AgentBackend, AgentInfo, ModelProvider } from '../../core/agent/backend.js'
 import type { SessionState } from '../../core/state.js'
 import type { CardBus } from '../../core/card-bus.js'
@@ -13,6 +14,7 @@ const log = createLogger('handlers')
 
 export interface HandlersDeps {
   bot: Bot
+  scheduler?: Scheduler
   backend: AgentBackend
   state: SessionState
   isGenerating: () => boolean
@@ -527,6 +529,77 @@ export function registerHandlers(deps: HandlersDeps): void {
     } catch (err) {
       await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }
+  })
+
+  // ── P2b-M7: scheduled tasks (cross-channel; engine lives in core) ──
+  deps.bot.command('tasks', async (ctx: Context) => {
+    if (!deps.scheduler) { await ctx.reply('⏰ 定时任务未启用'); return }
+    await renderTasks(ctx)
+  })
+
+  deps.bot.command('task', async (ctx: Context) => {
+    if (!deps.scheduler) { await ctx.reply('⏰ 定时任务未启用'); return }
+    const sched = deps.scheduler
+    const msgText = (ctx.message && 'text' in ctx.message ? ctx.message.text : '') ?? ''
+    const body = msgText.trim().replace(/^\/task\s*/, '')
+    // /task every <N> min <prompt>   |   /task daily HH:MM <prompt>
+    const every = body.match(/^every\s+(\d+)\s*(?:m|min|分钟)?\s+([\s\S]+)$/i)
+    const daily = body.match(/^daily\s+([01]\d|2[0-3]):[0-5]\d\s+([\s\S]+)$/i)
+    if (every) {
+      const s = sched.add({ prompt: every[2], spec: { kind: 'every', minutes: Number(every[1]) }, name: every[2].slice(0, 24) })
+      await ctx.reply(s ? `⏰ 已创建：每 ${every[1]} 分钟\n<code>${esc(s.prompt.slice(0, 80))}</code>\nID: ${s.id}` : '创建失败', { parse_mode: 'HTML' })
+      return
+    }
+    if (daily) {
+      const time = body.match(/daily\s+([01]\d|2[0-3]):[0-5]\d/i)![1]
+      const s = sched.add({ prompt: daily[2], spec: { kind: 'daily', time }, name: daily[2].slice(0, 24) })
+      await ctx.reply(s ? `⏰ 已创建：每天 ${time}\n<code>${esc(s.prompt.slice(0, 80))}</code>\nID: ${s.id}` : '创建失败', { parse_mode: 'HTML' })
+      return
+    }
+    await ctx.reply('用法：/task every 30m <提示词>\n      /task daily 09:00 <提示词>')
+  })
+
+  deps.bot.command('taskdel', async (ctx: Context) => {
+    const sched = deps.scheduler
+    if (!sched) { await ctx.reply('⏰ 定时任务未启用'); return }
+    const id = (ctx.message && 'text' in ctx.message ? ctx.message.text ?? '' : '').replace(/^\/taskdel\s*/, '').trim()
+    if (!id) { await ctx.reply('用法：/taskdel <ID>'); return }
+    const ok = sched.remove(id)
+    await ctx.reply(ok ? `🗑 已删除 ${id}` : `未找到 ${id}`)
+  })
+
+  const renderTasks = async (ctx: Context) => {
+    const list = deps.scheduler!.list()
+    if (list.length === 0) { await ctx.reply('⏰ 没有定时任务。用 /task 创建：\n/task every 30m <提示词>\n/task daily 09:00 <提示词>'); return }
+    const lines = ['<b>⏰ 定时任务</b>']
+    const rows: TgBtn[][] = []
+    for (const s of list) {
+      const spec = s.spec.kind === 'every' ? `每 ${s.spec.minutes} 分钟` : `每天 ${s.spec.time}`
+      const on = s.enabled ? '🟢' : '⏸'
+      lines.push(`${on} <b>${esc(s.name)}</b>\n   ${spec} · ${s.id}`)
+      rows.push([
+        btn(s.enabled ? '⏸' : '▶', `task:toggle:${s.id}`),
+        btn('🗑', `task:del:${s.id}`),
+      ])
+    }
+    await ctx.reply(lines.join('\n\n'), { parse_mode: 'HTML', ...inlineKeyboard(rows) })
+  }
+
+  deps.bot.callbackQuery(/^task:toggle:(.+)$/, async (ctx) => {
+    if (!deps.scheduler) return
+    const id = ctx.match![1]
+    const s = deps.scheduler.list().find((x) => x.id === id)
+    if (s) deps.scheduler.setEnabled(id, !s.enabled)
+    await ctx.answerCallbackQuery(s?.enabled === false ? '▶ 已启用' : '⏸ 已停用')
+    await renderTasks(ctx)
+  })
+
+  deps.bot.callbackQuery(/^task:del:(.+)$/, async (ctx) => {
+    if (!deps.scheduler) return
+    const id = ctx.match![1]
+    deps.scheduler.remove(id)
+    await ctx.answerCallbackQuery('已删除')
+    await renderTasks(ctx)
   })
 
   const commands = [

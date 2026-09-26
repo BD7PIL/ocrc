@@ -11,6 +11,7 @@ import { normalizeOpencodeEvent } from '../core/agent/opencode-normalizer.js'
 import { createCardBus } from '../core/card-bus.js'
 import { startPushNotifications } from '../core/push.js'
 import { tryBecomePrimary, type PrimaryLock } from '../core/primary-election.js'
+import { createScheduler } from '../core/scheduler.js'
 import type { OcEvent } from '../core/opencode-events.js'
 import type { Transport } from '../transport/interface.js'
 import { createLogger } from '../utils/logger.js'
@@ -145,6 +146,14 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
       tuiVisible: config.tuiVisible,
     })
 
+    // P2b-M7: cross-channel scheduled prompts. Due schedules dispatch through
+    // the same relay as any message; store persists at ~/.ocrc/schedules.json.
+    const scheduler = createScheduler({
+      path: `${config.statePath.replace(/[^/]+$/, '')}schedules.json`,
+      dispatch: async (msg) => { await relay(msg) },
+    })
+    scheduler.start()
+
     const tgTransport = createTelegramTransport({
       token: config.telegramBotToken,
       allowedUserIds: config.allowedUserIds,
@@ -152,6 +161,7 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
       state,
       baseUrl: plane.serverUrl,
       tgChunkSoftLimit: config.tgChunkSoftLimit,
+      scheduler,
     })
 
     const transports: Transport[] = [tgTransport]
@@ -180,6 +190,7 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
         registry,
         auth,
         staticRoot: config.webStaticRoot,
+        scheduler,
         })
       webTransport.onMessage(relay)
       transports.push(webTransport)
@@ -335,6 +346,7 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
       dispose: async () => {
         log.info('plugin disposing, stopping transports...')
         shuttingDown = true
+        scheduler.stop()
         stopEvents()
         if (pollTimer) clearInterval(pollTimer)
         push.stop()

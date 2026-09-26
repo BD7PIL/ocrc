@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { Bot, InlineKeyboard, type Api } from 'grammy'
 import { errorCodeOf, inlineKeyboard, btn } from './ui.js'
 import { isEphemeralSession } from '../../opencode/submit.js'
+import type { Scheduler } from '../../core/scheduler.js'
 import type { AgentBackend } from '../../core/agent/backend.js'
 import type { IncomingMessage, ChannelCapabilities } from '../../core/types.js'
 import type { Transport, TransportStartDeps } from '../interface.js'
@@ -42,6 +43,8 @@ export interface TelegramConfig {
   opencodeProject?: string
   /** Telegram chunk soft limit for message pagination (default 3500). */
   tgChunkSoftLimit?: number
+  /** Cross-channel scheduled prompts (M7) — optional; /tasks hidden without it. */
+  scheduler?: Scheduler
 }
 
 const CAPS: ChannelCapabilities = {
@@ -337,6 +340,7 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
     pendingApprovals,
     approvalTokens,
     opencodeProject: cfg.opencodeProject,
+    scheduler: cfg.scheduler,
   })
 
   // Error catch-all — grammY wraps handler errors in BotError (err.error).

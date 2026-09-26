@@ -11,6 +11,7 @@ import { buildServer } from './server.js'
 import { createWsHub } from './ws-hub.js'
 import { createLogger } from '../../utils/logger.js'
 import type { AuthStrategy } from '../../connectivity/auth/index.js'
+import type { Scheduler } from '../../core/scheduler.js'
 
 const log = createLogger('web')
 
@@ -20,6 +21,8 @@ export interface WebTransportConfig {
   registry: BackendRegistry
   auth: AuthStrategy
   staticRoot: string
+  /** P2b-M7 cross-channel scheduled prompts (optional). */
+  scheduler?: Scheduler
 }
 
 const CAPS: ChannelCapabilities = {
@@ -46,6 +49,7 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         state: deps.state,
         cardBus: deps.cardBus,
         onMessage: (msg) => messageHandler ? messageHandler(msg) : Promise.resolve(),
+        scheduler: cfg.scheduler,
       })
 
       app.use('/*', serveStatic({ root: cfg.staticRoot }))

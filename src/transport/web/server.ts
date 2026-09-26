@@ -33,7 +33,9 @@ import { registerWorkspaces } from './routes/workspaces.js'
 import { registerCreateSession } from './routes/create-session.js'
 import { registerCommands } from './routes/commands.js'
 import { registerRename } from './routes/rename.js'
+import type { Scheduler } from '../../core/scheduler.js'
 import { registerSuggestions } from './routes/suggestions.js'
+import { registerSchedules } from './routes/schedules.js'
 
 export interface BuildServerOpts {
   auth: AuthStrategy
@@ -41,6 +43,8 @@ export interface BuildServerOpts {
   state: SessionState
   cardBus: CardBus
   onMessage?: (msg: IncomingMessage) => Promise<void>
+  /** P2b-M7 cross-channel scheduled prompts (optional; web panel hidden w/o it). */
+  scheduler?: Scheduler
 }
 
 export function buildServer(opts: BuildServerOpts): Hono {
@@ -111,5 +115,6 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerCommands(app, reg, opts.state)
   registerRename(app, reg, opts.state)
   registerSuggestions(app, opts.state)
+  registerSchedules(app, opts.scheduler)
   return app
 }

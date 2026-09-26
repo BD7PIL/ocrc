@@ -7,6 +7,7 @@ import type { Transport, TransportStartDeps } from '../interface.js'
 import type { SessionState } from '../../core/state.js'
 import type { CardBus } from '../../core/card-bus.js'
 import { TelegramSessionRenderer } from './renderer.js'
+import { StreamingRenderer } from './streaming-render.js'
 import { registerHandlers } from './handlers.js'
 import type { PendingApproval, ApprovalResponse } from './handlers.js'
 import { esc } from './esc.js'
@@ -159,8 +160,11 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
     bot.api.sendMessage(String(cfg.allowedUserIds[0]), `Internal error: ${e.message}`).catch(() => {})
   })
 
-  // Per-session renderers
+  // Per-session renderers. The StreamingRenderer owns thinking/streaming/
+  // assistant/error cards (grinev pipeline: live-edited stream message with
+  // progressive throttling); the legacy renderer stays for user/info echoes.
   const renderers = new Map<string, TelegramSessionRenderer>()
+  let streamingRenderer: StreamingRenderer | undefined
 
   function getRenderer(sessionId: string, chatId: string): TelegramSessionRenderer {
     let r = renderers.get(sessionId)
@@ -189,17 +193,37 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
       const { cardBus } = deps
       cardBusRef = cardBus
       const chatId = String(cfg.allowedUserIds[0])
+      streamingRenderer = new StreamingRenderer({ api: bot.api, chatId })
 
       cardBus.subscribeAll((card) => {
-        if ('sessionId' in card && card.sessionId) {
-          const r = getRenderer(card.sessionId, chatId)
-          log.info(`[telegram] card received: kind=${card.kind} sessionId=${card.sessionId}`)
-          r.onCard(card).catch((err) => {
-            log.error(`[telegram] onCard failed for ${card.kind}`, err as Error)
-          })
-          if (card.kind === 'assistant' || card.kind === 'error') {
-            renderers.delete(card.sessionId)
-          }
+        if (!('sessionId' in card) || !card.sessionId) return
+        log.info(`[telegram] card received: kind=${card.kind} sessionId=${card.sessionId}`)
+        const sr = streamingRenderer
+        if (sr && (card.kind === 'streaming' || card.kind === 'thinking' || card.kind === 'assistant' || card.kind === 'error')) {
+          // P2b-M2: grinev streaming pipeline owns the turn lifecycle.
+          void (async () => {
+            try {
+              if (card.kind === 'thinking') return // the stream message is the placeholder
+              if (card.kind === 'streaming') {
+                const text = card.blocks.filter((b) => b.type === 'text').map((b) => (b as any).text ?? '').join('')
+                sr.onStreaming(card.sessionId, (card as any).messageId, text)
+                return
+              }
+              if (card.kind === 'assistant') { await sr.onFinalize(card.sessionId, card.blocks, card.meta); return }
+              if (card.kind === 'error') { await sr.onError(card.sessionId, (card as any).message ?? 'error'); return }
+            } catch (err) {
+              log.error(`[telegram] streaming onCard failed for ${card.kind}`, err as Error)
+            }
+          })()
+          if (card.kind === 'assistant' || card.kind === 'error') renderers.delete(card.sessionId)
+          return
+        }
+        const r = getRenderer(card.sessionId, chatId)
+        r.onCard(card).catch((err) => {
+          log.error(`[telegram] onCard failed for ${card.kind}`, err as Error)
+        })
+        if (card.kind === 'assistant' || card.kind === 'error') {
+          renderers.delete(card.sessionId)
         }
       })
 

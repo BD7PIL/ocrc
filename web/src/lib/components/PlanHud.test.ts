@@ -52,11 +52,26 @@ describe('PlanHud', () => {
     expect(card).toBeTruthy()
     expect(card.textContent).toContain('active task')
     expect(card.textContent).toContain('Completed 1')
-    // Only the first 2 pending are previewed — the rest collapse into a group.
+    // Small plans stay flat: all 3 pending are inline, no remainder group.
     expect(card.textContent).toContain('queued task one')
     expect(card.textContent).toContain('queued task two')
-    expect(card.textContent).not.toContain('queued task three')
-    expect(card.textContent).toContain('Pending 1')
+    expect(card.textContent).toContain('queued task three')
+    expect(card.textContent).not.toContain('Pending 1')
+  })
+
+  it('auto-collapses when tapping outside the card and orb', async () => {
+    vi.mocked(api.todo).mockResolvedValue(TODOS)
+    const { container } = render(PlanHud, { props: { sessionId: 's-auto' } })
+    await vi.waitFor(() => expect(container.querySelector('.ball')).toBeTruthy())
+    await fireEvent.click(container.querySelector('.ball')!)
+    expect(container.querySelector('.plan-card')).toBeTruthy()
+
+    // A tap on the page (outside card + orb) collapses the card…
+    await fireEvent.pointerDown(document.body)
+    expect(container.querySelector('.plan-card')).toBeNull()
+    // …and the collapse is persisted.
+    const stored = JSON.parse(localStorage.getItem('ocrc.planHud') ?? '{}')
+    expect(stored.expanded).toBe(false)
   })
 
   it('lists subagent progress inside the expanded card', async () => {

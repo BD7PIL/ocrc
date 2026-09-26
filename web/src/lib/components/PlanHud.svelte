@@ -15,7 +15,7 @@
   export let sessionId: string
 
   const KEY = 'ocrc.planHud'
-  const PREVIEW_PENDING = 2
+  const INLINE_PENDING = 5
   const R = 18
   const CIRC = 2 * Math.PI * R
 
@@ -65,7 +65,7 @@
   $: doneItems = sum.items.filter((i) => i.status === 'done')
   $: runningItems = sum.items.filter((i) => i.status === 'running')
   $: pendingItems = sum.items.filter((i) => i.status === 'pending')
-  $: restCount = Math.max(0, pendingItems.length - PREVIEW_PENDING)
+  $: restCount = Math.max(0, pendingItems.length - INLINE_PENDING)
   $: pct = sum.total ? sum.done / sum.total : 0
   $: dismissed = hud.dismissed?.includes(sessionId) ?? false
 
@@ -108,11 +108,22 @@
 
   let dotsEl: HTMLElement
   let menuEl: HTMLElement
+  let cardEl: HTMLElement
+  let ballEl: HTMLElement
+
+  // Auto-collapse: a tap anywhere outside the card and the orb closes the
+  // card — one overlay at a time (opening a chip popover therefore collapses
+  // the plan card, and vice versa via the chips' own outside-close).
   function onOutside(e: PointerEvent) {
-    if (!menuOpen) return
     const t = e.target as Node
-    if (menuEl?.contains(t) || dotsEl?.contains(t)) return
-    menuOpen = false
+    if (menuOpen) {
+      if (menuEl?.contains(t) || dotsEl?.contains(t)) return
+      menuOpen = false
+    }
+    if (!expanded) return
+    if (cardEl?.contains(t) || ballEl?.contains(t)) return
+    expanded = false
+    save({ expanded: false })
   }
 </script>
 
@@ -120,7 +131,7 @@
 
 {#if loadedFor === sessionId && sum.total > 0 && !dismissed && $can('todos')}
   {#if expanded}
-    <div class="plan-card">
+    <div class="plan-card" bind:this={cardEl}>
       <div class="hd">
         <span class="label">Plan</span>
         <span class="title">{title || '…' + sessionId.slice(-8)}</span>
@@ -161,7 +172,7 @@
           <div class="row running"><span class="box"><span class="dot"></span></span><span class="tx">{it.text}</span></div>
         {/each}
 
-        {#each pendingItems.slice(0, PREVIEW_PENDING) as it (it.text)}
+        {#each pendingItems.slice(0, INLINE_PENDING) as it (it.text)}
           <div class="row pending"><span class="box"></span><span class="tx">{it.text}</span></div>
         {/each}
 
@@ -171,7 +182,7 @@
             <span>Pending {restCount}</span>
           </button>
           {#if showRest}
-            {#each pendingItems.slice(PREVIEW_PENDING) as it (it.text)}
+            {#each pendingItems.slice(INLINE_PENDING) as it (it.text)}
               <div class="row pending"><span class="box"></span><span class="tx">{it.text}</span></div>
             {/each}
           {/if}
@@ -192,6 +203,7 @@
 
   <button
     class="ball"
+    bind:this={ballEl}
     aria-label={`${expanded ? 'Collapse' : 'Expand'} plan (${sum.done}/${sum.total})`}
     aria-expanded={expanded}
     on:click={toggleExpanded}
@@ -268,16 +280,14 @@
     box-sizing: border-box;
   }
 
-  /* ── Expanded card: anchored above the ball, scrollable ── */
+  /* ── Expanded card: anchored above the ball; only the BODY scrolls (the card
+     itself stays overflow:visible so the ⋯ menu can escape it) ── */
   .plan-card {
     position: fixed;
     right: 16px;
     bottom: calc(var(--composer-h, 120px) + var(--kb, 0px) + 76px + env(safe-area-inset-bottom, 0px));
     z-index: var(--z-hud);
     width: min(86vw, 320px);
-    max-height: 52vh;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
     background: var(--bg-elev);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -357,6 +367,9 @@
   .body {
     padding: 2px 12px 12px;
     border-top: 1px solid var(--border-2);
+    max-height: calc(52vh - 47px); /* card total ≤ ~52vh: header (47px) + body */
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
   .prog {
     padding: 9px 0 7px;

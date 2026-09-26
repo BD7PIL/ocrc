@@ -401,7 +401,9 @@
     .composer-float {
       position: absolute;
       left: 0; right: 0; bottom: 0;
-      z-index: var(--z-sticky);
+      /* Above the plan orb/card (--z-hud 8): this element is the stacking
+         context for the chip popovers, so its z decides who paints on top. */
+      z-index: var(--z-dropdown);
       background: transparent;
       /* (B) Follow the keyboard/toolbar by translating up --kb on the GPU — no app
          resize, no reflow. The transition makes the snap-back (and open) glide. */

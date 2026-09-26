@@ -8,6 +8,10 @@ import type { SessionState } from '../../core/state.js'
 import type { CardBus } from '../../core/card-bus.js'
 import { TelegramSessionRenderer } from './renderer.js'
 import { StreamingRenderer } from './streaming-render.js'
+import { PermissionFlow } from './permission-flow.js'
+import { InteractionManager } from './managers/interaction-manager.js'
+import { PermissionManager } from './managers/permission-manager.js'
+import type { PermissionRequest } from './types/permission.js'
 import { registerHandlers } from './handlers.js'
 import type { PendingApproval, ApprovalResponse } from './handlers.js'
 import { esc } from './esc.js'
@@ -111,7 +115,11 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
     void messageHandler(msg)
   })
 
-  // Plugin-mode approval state
+  // ── P2b-M3: grinev interaction mutex + permission flow ──
+  const interactionManager = new InteractionManager()
+  const permissionManager = new PermissionManager(interactionManager)
+  let permissionFlow: PermissionFlow | undefined
+  // Legacy approval state (fallback path + TTL sweep kept from M1).
   const pendingApprovals = new Map<string, PendingApproval>()
   // Short token → permissionId, so approve:* callback_data stays under
   // Telegram's 64-byte limit (same sha1 pattern as the workspace tokens).
@@ -139,6 +147,16 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
     }
   }, 60_000)
   approvalSweep.unref?.()
+
+  // P2b-M3: grinev permission:* callbacks — the mutex flow owns these.
+  bot.callbackQuery(/^permission:(once|always|reject)$/, async (ctx) => {
+    const decision = (ctx.match as RegExpMatchArray)[1] as 'once' | 'always' | 'reject'
+    if (!permissionFlow) { await ctx.answerCallbackQuery('尚未就绪').catch(() => {}); return }
+    await permissionFlow.onDecision(ctx, decision).catch((err) => {
+      log.error('permission decision failed', err as Error)
+      ctx.answerCallbackQuery('处理失败').catch(() => {})
+    })
+  })
 
   // Register commands + callbacks
   registerHandlers({
@@ -194,6 +212,25 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
       cardBusRef = cardBus
       const chatId = String(cfg.allowedUserIds[0])
       streamingRenderer = new StreamingRenderer({ api: bot.api, chatId })
+      permissionFlow = new PermissionFlow(
+        {
+          interactionManager,
+          permissionManager,
+          resolve: async (requestIds, decision) => {
+            // All grouped requests share one signature → one session; take the
+            // session from the pressed message's request when available.
+            for (const requestId of requestIds) {
+              const sid = targetSessionId()
+              if (!sid) continue
+              await cfg.backend.resolvePermission(sid, requestId, decision).catch((err) => {
+                log.warn(`resolvePermission failed for ${requestId}`, (err as Error).message)
+              })
+            }
+          },
+          sessionIdOf: (r: PermissionRequest) => r.sessionID,
+        },
+        chatId,
+      )
 
       cardBus.subscribeAll((card) => {
         if (!('sessionId' in card) || !card.sessionId) return
@@ -289,32 +326,47 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
           return
         }
 
-        const escaped = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        const text = `⚠️  <b>Permission Required</b>\n\n<code>${escaped}</code>`
-        const token = approvalToken(permId)
-        const keyboard = {
-          ...inlineKeyboard([
-            [
-              btn('✅ Once', `approve:once:${token}`),
-              btn('🔓 Always', `approve:always:${token}`),
-              btn('❌ Reject', `approve:reject:${token}`),
-            ],
-          ]),
-          parse_mode: 'HTML' as const,
+        // P2b-M3: grinev mutex flow (merge + slot + generation) replaces the
+        // plain three-button card. The legacy pendingApprovals/token maps stay
+        // wired for the legacy approve:* callbacks (kept for fallback).
+        const fullSid = cfg.state.normalizeSessionId(sessionId)
+        const request: PermissionRequest = {
+          id: permId,
+          sessionID: fullSid,
+          permission: (props.permission as string) ?? title,
+          patterns: (props.patterns as string[]) ?? [],
+          metadata: (props.args as Record<string, unknown>) ?? {},
+          always: [],
         }
-
-        try {
-          const msg = await bot.api.sendMessage(String(cfg.allowedUserIds[0]), text, keyboard)
-          pendingApprovals.set(permId, {
-            sessionId,
-            permissionId: permId,
-            messageId: msg.message_id,
-            title,
-            createdAt: Date.now(),
-          })
-          log.info(`[plugin] approval card sent permId=${permId}`)
-        } catch (err) {
-          log.error('[plugin] failed to send approval card', err as Error)
+        if (permissionFlow) {
+          await permissionFlow.present(bot.api, request)
+        } else {
+          const escaped = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          const text = `⚠️  <b>Permission Required</b>\n\n<code>${escaped}</code>`
+          const token = approvalToken(permId)
+          const keyboard = {
+            ...inlineKeyboard([
+              [
+                btn('✅ Once', `approve:once:${token}`),
+                btn('🔓 Always', `approve:always:${token}`),
+                btn('❌ Reject', `approve:reject:${token}`),
+              ],
+            ]),
+            parse_mode: 'HTML' as const,
+          }
+          try {
+            const msg = await bot.api.sendMessage(String(cfg.allowedUserIds[0]), text, keyboard)
+            pendingApprovals.set(permId, {
+              sessionId,
+              permissionId: permId,
+              messageId: msg.message_id,
+              title,
+              createdAt: Date.now(),
+            })
+            log.info(`[plugin] approval card sent permId=${permId}`)
+          } catch (err) {
+            log.error('[plugin] failed to send approval card', err as Error)
+          }
         }
 
         // Publish to CardBus so Web UI can also show the approval modal
@@ -335,6 +387,13 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
         const permId = (props.permissionID as string) ?? (props.requestID as string)
         const response = (props.response as string) ?? (props.reply as string)
         if (!permId) return
+
+        // P2b-M3: 外部已答清理 via the mutex flow when it owns the prompt.
+        if (permissionFlow) {
+          await permissionFlow.onExternalReply(bot.api, permId, response).catch((err) => {
+            log.warn('external permission cleanup failed', (err as Error).message)
+          })
+        }
 
         const p = pendingApprovals.get(permId)
         if (!p) return

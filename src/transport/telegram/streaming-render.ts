@@ -53,6 +53,19 @@ interface TurnState {
   finalMessageIds: number[]
 }
 
+/** Reject after ms — TG API calls must never hang the stream/task chain. */
+function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`${what} timeout (${ms}ms)`)), ms)),
+  ])
+}
+
+function isNotModified(err: unknown): boolean {
+  const m = (err as Error)?.message ?? ''
+  return m.includes('message is not modified')
+}
+
 export class StreamingRenderer {
   private readonly api: Api
   private readonly chatId: string
@@ -67,19 +80,31 @@ export class StreamingRenderer {
       // edit budget on long generations (ported as-is from grinev).
       throttleMs: (sessionId) => getSessionStreamThrottleMs(sessionId),
       sendPart: async (part, options, sessionId) => {
-        const res = await this.api.sendMessage(this.chatId, part.fallbackText, {
-          ...(options ?? {}),
-          parse_mode: undefined,
-        })
+        const res = await withTimeout(
+          this.api.sendMessage(this.chatId, part.fallbackText, { ...(options ?? {}), parse_mode: undefined }),
+          15000,
+          'sendMessage',
+        )
         log.info(`[${sessionId}] stream part sent: msg=${res.message_id}`)
         return { messageId: res.message_id, deliveredSignature: part.fallbackText.slice(0, 128) }
       },
       editPart: async (messageId, part, options, sessionId) => {
-        await this.api.editMessageText(this.chatId, messageId, part.fallbackText, {
-          ...(options ?? {}),
-          parse_mode: undefined,
-          link_preview_options: { is_disabled: true },
-        } as any)
+        try {
+          await withTimeout(
+            this.api.editMessageText(this.chatId, messageId, part.fallbackText, {
+              ...(options ?? {}),
+              parse_mode: undefined,
+              link_preview_options: { is_disabled: true },
+            } as any),
+            15000,
+            'editMessageText',
+          )
+        } catch (err) {
+          // "message is not modified" = identical content — a success by
+          // definition, NOT a broken stream (grinev treats it the same).
+          if (isNotModified(err)) return { deliveredSignature: part.fallbackText.slice(0, 128) }
+          throw err
+        }
         return { deliveredSignature: part.fallbackText.slice(0, 128) }
       },
       deleteText: async (messageId) => {

@@ -37,6 +37,6 @@ export function buildMainKeyboard(data: MainKeyboardData): Keyboard {
 /** Button-press patterns for bot.hears routing (grinev message-patterns). */
 export const AGENT_BUTTON_TEXT_PATTERN = /^🤖 (.+)$/
 export const MODEL_BUTTON_TEXT_PATTERN = /^🧠 (.+)$/
-export const CONTEXT_BUTTON_TEXT_PATTERN = /^📊 [\d,.]+ \/ ([\d,.]+) \((\d+)%\)$/
+export const CONTEXT_BUTTON_TEXT_PATTERN = /^📊/
 
 

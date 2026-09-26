@@ -78,6 +78,8 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
   // registry is set when a run starts and cleared on session.idle/error/abort.
   // The gate is per-session: a busy session must not block input targeted at
   // another (idle) session.
+  const fmtK = (n: number): string => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n))
+
   const targetSessionId = (): string | undefined => {
     const raw = cfg.state.getPinnedSessionId() ?? cfg.state.getLastSessionId()
     return raw ? cfg.state.normalizeSessionId(raw) : undefined
@@ -119,11 +121,26 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
     }
     if (CONTEXT_BUTTON_TEXT_PATTERN.test(text)) {
       try {
-        const meta = await cfg.backend.getSessionMeta(targetSessionId() ?? '')
-        const used = (meta.tokens as any)?.used ?? 0
-        const max = (meta.tokens as any)?.max ?? 0
+        // Same data source as the Inspector's CONTEXT panel (backend.getContext):
+        // used = last turn's input+output+reasoning+cache; max = model context window.
+        const target = targetSessionId()
+        if (!target) { await ctx.reply('📊 没有活动会话'); return }
+        const meta = await cfg.backend.getContext(target)
+        const tokens = (meta.tokens ?? {}) as any
+        const used = tokens.used ?? 0
+        const max = tokens.max ?? 0
         const pct = max > 0 ? Math.round((used / max) * 100) : 0
-        await ctx.reply(`📊 上下文用量：${used} / ${max} tokens（${pct}%）`)
+        let msg = `📊 上下文用量：${used} / ${max} tokens（${pct}%）`
+        // Prompt-cache line, same semantics as the web Inspector: hit rate =
+        // cache.read / (input + cache.read) for the latest turn.
+        const cacheRead = tokens.cache?.read
+        const cacheWrite = tokens.cache?.write
+        const uncached = tokens.input
+        if (typeof cacheRead === 'number' && typeof uncached === 'number' && uncached + cacheRead > 0) {
+          const hit = Math.round((cacheRead / (uncached + cacheRead)) * 100)
+          msg += `\n💾 缓存命中 ${hit}% · ${fmtK(cacheRead)} read / ${fmtK(cacheWrite ?? 0)} write`
+        }
+        await ctx.reply(msg)
       } catch {
         await ctx.reply('📊 上下文用量暂不可用')
       }
@@ -288,11 +305,15 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
   }
   const refreshKeyboardData = async (): Promise<void> => {
     try {
-      const meta = await cfg.backend.getSessionMeta(targetSessionId() ?? '')
+      const target = targetSessionId()
+      const meta = target ? await cfg.backend.getContext(target) : undefined
       const agents = cfg.backend.capabilities.catalog ? await cfg.backend.getAgents(cfg.opencodeProject).catch(() => []) : []
       keyboardData = {
-        agentName: meta.agent ?? keyboardData.agentName,
-        modelLabel: meta.model ?? keyboardData.modelLabel,
+        agentName: meta?.agent ?? keyboardData.agentName,
+        modelLabel: meta?.model ?? keyboardData.modelLabel,
+        context: (meta?.tokens as any)?.used != null && (meta?.tokens as any)?.max
+          ? { used: (meta?.tokens as any).used, limit: (meta?.tokens as any).max }
+          : keyboardData.context,
       }
       void agents
     } catch { /* keep previous */ }

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { Telegraf, Markup } from 'telegraf'
-import type { Context } from 'telegraf'
+import { Bot, type Api } from 'grammy'
+import { errorCodeOf, inlineKeyboard, btn } from './ui.js'
 import type { AgentBackend } from '../../core/agent/backend.js'
 import type { IncomingMessage, ChannelCapabilities } from '../../core/types.js'
 import type { Transport, TransportStartDeps } from '../interface.js'
@@ -41,8 +41,10 @@ export interface TelegramTransport extends Transport {
   handlePluginPermissionEvent(event: { type: string; properties: any }): Promise<void>
 }
 
-export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport {
-  const bot = new Telegraf(cfg.token, { handlerTimeout: 600_000, telegram: { agent: false as any } })
+export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: Bot }): TelegramTransport {
+  // DI seam for tests: a recording bot object can be injected instead of a
+  // real Bot (whose Api has no spy-able prototype in grammY 1.46+).
+  const bot = injected?.bot ?? new Bot(cfg.token)
 
   // Whitelist middleware — silently drop strangers. Replying "Unauthorized"
   // would confirm to anyone that this bot exists and is access-controlled.
@@ -80,11 +82,14 @@ export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport 
   }
 
   // Wire text handler
-  bot.use(async (ctx: Context, next) => {
+  bot.use(async (ctx, next) => {
     if (ctx.callbackQuery) return next()
     const m = ctx.message
-    if (!m || !('text' in m)) return next()
-    if (m.text.startsWith('/')) return next()
+    if (!m) return next()
+    // grammY's Message union keeps `text` optional even after narrowing.
+    const text = 'text' in m ? m.text : undefined
+    if (!text) return next()
+    if (text.startsWith('/')) return next()
     if (!messageHandler) return next()
 
     if (isGenerating()) {
@@ -95,9 +100,9 @@ export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport 
     }
 
     const msg: IncomingMessage = {
-      userId: String(ctx.from!.id),
-      chatId: String(ctx.chat!.id),
-      text: m.text,
+      userId: String(ctx.from?.id ?? ''),
+      chatId: String(ctx.chat?.id ?? ctx.from?.id ?? ''),
+      text,
       messageId: String(m.message_id),
       origin: 'telegram',
     }
@@ -147,10 +152,11 @@ export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport 
     opencodeProject: cfg.opencodeProject,
   })
 
-  // Error catch-all
-  bot.catch((err, ctx) => {
-    log.error('telegraf catch-all', err as Error)
-    ctx.reply(`Internal error: ${(err as Error).message}`).catch(() => {})
+  // Error catch-all — grammY wraps handler errors in BotError (err.error).
+  bot.catch((err) => {
+    const e = (err as { error?: Error }).error ?? (err as unknown as Error)
+    log.error('grammY catch-all', e)
+    bot.api.sendMessage(String(cfg.allowedUserIds[0]), `Internal error: ${e.message}`).catch(() => {})
   })
 
   // Per-session renderers
@@ -159,7 +165,7 @@ export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport 
   function getRenderer(sessionId: string, chatId: string): TelegramSessionRenderer {
     let r = renderers.get(sessionId)
     if (!r) {
-      r = new TelegramSessionRenderer({ chatId, sessionId, bot: bot.telegram, chunkSoftLimit: cfg.tgChunkSoftLimit })
+      r = new TelegramSessionRenderer({ chatId, sessionId, bot: bot.api, chunkSoftLimit: cfg.tgChunkSoftLimit })
       renderers.set(sessionId, r)
     }
     return r
@@ -204,39 +210,39 @@ export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport 
         let conflictCount = 0
         for (let retryCount = 0; retryCount < MAX_RETRIES; retryCount++) {
           try {
-            await bot.launch()
+            await bot.start({ onStart: (me) => log.info(`bot polling as @${me.username}`) })
             log.info('bot polling ended cleanly')
             return
           } catch (err) {
-            const e = err as { response?: { error_code?: number }; message?: string }
-            if (e?.response?.error_code === 409) {
+            const code = errorCodeOf(err)
+            if (code === 409) {
               if (++conflictCount >= MAX_CONFLICT) {
                 log.error('FATAL: Telegram 409 conflict persisted — another instance is polling this bot token; transport stopped')
                 throw new Error('Telegram 409 persisted')
               }
               log.warn(`409 #${conflictCount}, releasing stale lock and retrying`)
-              try { bot.stop('manual') } catch { /* bot may not have fully started */ }
+              try { await bot.stop() } catch { /* bot may not have fully started */ }
               try {
-                await bot.telegram.callApi('getUpdates', { offset: -1, timeout: 0, limit: 1 })
+                await bot.api.raw.getUpdates({ offset: -1, timeout: 0, limit: 1 })
               } catch { /* ignore — if this fails the next launch will tell us */ }
               await new Promise((r) => setTimeout(r, 5000))
-            } else if (e?.response?.error_code === 401) {
+            } else if (code === 401) {
               log.error('FATAL: bot token invalid or revoked (401) — Telegram transport stopped; fix the token and restart')
               return
             } else {
               attempt += 1
               const delay = Math.min(1000 * 2 ** attempt, 30000)
-              log.error(`bot.launch failed (attempt ${attempt}/${MAX_RETRIES})`, e?.message ?? err)
+              log.error(`bot.start failed (attempt ${attempt}/${MAX_RETRIES})`, (err as Error)?.message ?? err)
               await new Promise((r) => setTimeout(r, delay))
             }
           }
         }
-        log.warn(`bot.launch: exhausted ${MAX_RETRIES} retries, restarting in 60s`)
+        log.warn(`bot.start: exhausted ${MAX_RETRIES} retries, restarting in 60s`)
         await new Promise((r) => setTimeout(r, 60_000))
       }
     },
     async stop() {
-      bot.stop('manual')
+      await bot.stop()
       clearInterval(approvalSweep)
     },
     async send(_chatId, _card) {
@@ -263,18 +269,18 @@ export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport 
         const text = `⚠️  <b>Permission Required</b>\n\n<code>${escaped}</code>`
         const token = approvalToken(permId)
         const keyboard = {
-          ...Markup.inlineKeyboard([
+          ...inlineKeyboard([
             [
-              Markup.button.callback('✅ Once', `approve:once:${token}`),
-              Markup.button.callback('🔓 Always', `approve:always:${token}`),
-              Markup.button.callback('❌ Reject', `approve:reject:${token}`),
+              btn('✅ Once', `approve:once:${token}`),
+              btn('🔓 Always', `approve:always:${token}`),
+              btn('❌ Reject', `approve:reject:${token}`),
             ],
           ]),
           parse_mode: 'HTML' as const,
         }
 
         try {
-          const msg = await bot.telegram.sendMessage(String(cfg.allowedUserIds[0]), text, keyboard)
+          const msg = await bot.api.sendMessage(String(cfg.allowedUserIds[0]), text, keyboard)
           pendingApprovals.set(permId, {
             sessionId,
             permissionId: permId,
@@ -312,10 +318,9 @@ export function createTelegramTransport(cfg: TelegramConfig): TelegramTransport 
         pendingApprovals.delete(permId)
         try {
           const display = labelFor(response)
-          await bot.telegram.editMessageText(
+          await bot.api.editMessageText(
             String(cfg.allowedUserIds[0]),
             p.messageId,
-            undefined,
             `${display} (from TUI)\n\n${esc(p.title)}`,
             { parse_mode: 'HTML' },
           )

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { registerHandlers, type PendingApproval } from '../../../src/transport/telegram/handlers'
 
-/** A Telegraf stand-in that records command/action registrations. */
+/** A grammY stand-in that records command/callbackQuery registrations. */
 function captureBot() {
   const commands = new Map<string, (ctx: any) => any>()
   const actions: Array<{ trigger: any; handler: (ctx: any) => any }> = []
@@ -9,8 +9,8 @@ function captureBot() {
     commands,
     actions,
     command: vi.fn((name: string, handler: (ctx: any) => any) => { commands.set(name, handler) }),
-    action: vi.fn((trigger: any, handler: (ctx: any) => any) => { actions.push({ trigger, handler }) }),
-    telegram: {
+    callbackQuery: vi.fn((trigger: any, handler: (ctx: any) => any) => { actions.push({ trigger, handler }) }),
+    api: {
       setMyCommands: vi.fn().mockResolvedValue(undefined),
     },
   }
@@ -90,7 +90,7 @@ describe('abort target consistency', () => {
     const { bot } = makeDeps({ backend, abortGeneration })
     const entry = bot.actions.find((a) => a.trigger === 'status:abort')!
     const ctx = {
-      answerCbQuery: vi.fn().mockResolvedValue(undefined),
+      answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
       editMessageText: vi.fn().mockResolvedValue(undefined),
     }
     await entry.handler(ctx)
@@ -185,7 +185,7 @@ describe('model callback_data token map (64-byte limit)', () => {
     const pickCtx = {
       match: `model:pick:${providerID}`.match(pick.trigger),
       editMessageText: vi.fn().mockResolvedValue(undefined),
-      answerCbQuery: vi.fn().mockResolvedValue(undefined),
+      answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
     }
     await pick.handler(pickCtx)
 
@@ -198,7 +198,7 @@ describe('model callback_data token map (64-byte limit)', () => {
     const set = findAction(bot, data)
     const setCtx = {
       match: data.match(set.trigger),
-      answerCbQuery: vi.fn().mockResolvedValue(undefined),
+      answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
       editMessageText: vi.fn().mockResolvedValue(undefined),
     }
     await set.handler(setCtx)
@@ -212,12 +212,12 @@ describe('model callback_data token map (64-byte limit)', () => {
     const set = findAction(bot, 'model:set:nosuchtoken')
     const ctx = {
       match: 'model:set:nosuchtoken'.match(set.trigger),
-      answerCbQuery: vi.fn().mockResolvedValue(undefined),
+      answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
       editMessageText: vi.fn().mockResolvedValue(undefined),
     }
     await set.handler(ctx)
 
     expect(state.setNextModel).not.toHaveBeenCalled()
-    expect(ctx.answerCbQuery).toHaveBeenCalledWith(expect.stringMatching(/stale/i))
+    expect(ctx.answerCallbackQuery).toHaveBeenCalledWith(expect.stringMatching(/stale/i))
   })
 })

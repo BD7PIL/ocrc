@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { Telegraf, Telegram } from 'telegraf'
+import type { Bot } from 'grammy'
 import { createTelegramTransport } from '../../../src/transport/telegram/index'
 
 /**
  * createTelegramTransport wires two bot.use() middlewares in order:
  *   [0] whitelist, [1] text-message relay gate.
- * We capture them by spying on Telegraf.prototype.use. callApi is stubbed so
+ * We capture them by spying on Bot.prototype.use. callApi is stubbed so
  * the setMyCommands registration during registerHandlers never hits network.
  */
 function makeState(over: Record<string, unknown> = {}) {
@@ -20,18 +20,30 @@ function makeState(over: Record<string, unknown> = {}) {
 }
 
 function makeTransport(state: any) {
-  vi.spyOn(Telegram.prototype, 'callApi').mockResolvedValue(true as any)
-  const useSpy = vi.spyOn(Telegraf.prototype, 'use')
-  const transport = createTelegramTransport({
-    token: '123:abc',
-    allowedUserIds: [1],
-    backend: {} as any,
-    state,
-  })
-  const middlewares = useSpy.mock.calls
-    .slice(0, 2)
-    .map((c) => c[0] as (ctx: any, next: () => Promise<void>) => Promise<void>)
-  return { transport, middlewares }
+  // Recording bot injected through the factory's DI seam — no prototype
+  // spying (grammY's Api has none), no network.
+  const uses: Array<(ctx: any, next: () => Promise<void>) => Promise<void>> = []
+  const fakeBot = {
+    use: vi.fn((mw: any) => { uses.push(mw) }),
+    command: vi.fn(),
+    callbackQuery: vi.fn(),
+    catch: vi.fn(),
+    api: {
+      setMyCommands: vi.fn().mockResolvedValue(undefined),
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      editMessageText: vi.fn().mockResolvedValue({}),
+      deleteMessage: vi.fn().mockResolvedValue({}),
+      raw: { getUpdates: vi.fn().mockResolvedValue([]) },
+    } as unknown as Api,
+    start: vi.fn().mockResolvedValue(undefined),
+    stop: vi.fn().mockResolvedValue(undefined),
+  } as unknown as Bot
+  const transport = createTelegramTransport(
+    { token: '123:abc', allowedUserIds: [1], backend: {} as any, state },
+    { bot: fakeBot },
+  )
+  const middlewares = uses.slice(0, 2)
+  return { transport, middlewares, fakeBot }
 }
 
 afterEach(() => {

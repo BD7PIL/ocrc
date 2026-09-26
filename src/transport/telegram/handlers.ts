@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import type { Telegraf, Context } from 'telegraf'
-import { Markup } from 'telegraf'
+import { Bot, type Context } from 'grammy'
+import { inlineKeyboard, btn, type TgBtn } from './ui.js'
 import type { AgentBackend, AgentInfo, ModelProvider } from '../../core/agent/backend.js'
 import type { SessionState } from '../../core/state.js'
 import type { CardBus } from '../../core/card-bus.js'
@@ -12,7 +12,7 @@ import { esc } from './esc.js'
 const log = createLogger('handlers')
 
 export interface HandlersDeps {
-  bot: Telegraf
+  bot: Bot
   backend: AgentBackend
   state: SessionState
   isGenerating: () => boolean
@@ -56,7 +56,7 @@ function shortPath(p: string): string {
 
 interface StatusCard {
   lines: string[]
-  buttons: ReturnType<typeof Markup.button.callback>[]
+  buttons: TgBtn[]
 }
 
 async function buildStatusCard(deps: HandlersDeps): Promise<StatusCard> {
@@ -105,11 +105,11 @@ async function buildStatusCard(deps: HandlersDeps): Promise<StatusCard> {
          `  Next ›  ${nextAgent ? `<b>${nextAgent}</b>` : '—'}  ·  ${nextModel ? `<code>${nextModel.modelID}</code>` : '—'}`]
       : []),
   ]
-  const buttons: ReturnType<typeof Markup.button.callback>[] = [
-    Markup.button.callback('🔄 Refresh', 'status:refresh'),
+  const buttons: TgBtn[] = [
+    btn('🔄 Refresh', 'status:refresh'),
   ]
   if (deps.isGenerating()) {
-    buttons.push(Markup.button.callback('⏹ Stop', 'status:abort'))
+    buttons.push(btn('⏹ Stop', 'status:abort'))
   }
   return { lines, buttons }
 }
@@ -168,8 +168,8 @@ export function registerHandlers(deps: HandlersDeps): void {
     }
     await ctx.reply(lines.join('\n'), {
       parse_mode: 'HTML',
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback('🔄 Status', 'status:refresh')],
+      ...inlineKeyboard([
+        [btn('🔄 Status', 'status:refresh')],
       ]),
     })
   })
@@ -178,7 +178,7 @@ export function registerHandlers(deps: HandlersDeps): void {
     const { lines, buttons } = await buildStatusCard(deps)
     await ctx.reply(lines.join('\n'), {
       parse_mode: 'HTML',
-      ...Markup.inlineKeyboard([buttons]),
+      ...inlineKeyboard([buttons]),
     })
   })
 
@@ -210,11 +210,11 @@ export function registerHandlers(deps: HandlersDeps): void {
         lines.push(`<i>📌 Pinned: …${pinned.slice(-8)}</i>`)
       }
       const rows = sessions.map(s => [
-        Markup.button.callback(`📌 Pin ${s.id.slice(-6)}`, `session:pin:${s.id}`),
+        btn(`📌 Pin ${s.id.slice(-6)}`, `session:pin:${s.id}`),
       ])
       await ctx.reply(lines.join('\n'), {
         parse_mode: 'HTML',
-        ...Markup.inlineKeyboard(rows),
+        ...inlineKeyboard(rows),
       })
     } catch (err) {
       log.error('failed to list sessions', err as Error)
@@ -232,8 +232,8 @@ export function registerHandlers(deps: HandlersDeps): void {
         `<b>📌 Pinned</b>\n\n<code>${esc(sid)}</code>`,
         {
           parse_mode: 'HTML',
-          ...Markup.inlineKeyboard([
-            [Markup.button.callback('Unpin', 'session:unpin')],
+          ...inlineKeyboard([
+            [btn('Unpin', 'session:unpin')],
           ]),
         },
       )
@@ -251,8 +251,8 @@ export function registerHandlers(deps: HandlersDeps): void {
       `<b>📌 Pinned session</b>\n\n<code>${pinned}</code>`,
       {
         parse_mode: 'HTML',
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback('Unpin', 'session:unpin')],
+        ...inlineKeyboard([
+          [btn('Unpin', 'session:unpin')],
         ]),
       },
     )
@@ -335,11 +335,11 @@ export function registerHandlers(deps: HandlersDeps): void {
         lines.push(`${marker}  ${name}  <code>${modelShort}</code>${desc}`)
       }
       if (nextAgent) lines.push('', `<i>Active override: ${nextAgent}</i>`)
-      const rows = agents.map(a => [Markup.button.callback(a.name, `agent:set:${a.name}`)])
-      rows.push([Markup.button.callback('✕ Clear override', 'agent:clear')])
+      const rows = agents.map(a => [btn(a.name, `agent:set:${a.name}`)])
+      rows.push([btn('✕ Clear override', 'agent:clear')])
       await ctx.reply(lines.join('\n'), {
         parse_mode: 'HTML',
-        ...Markup.inlineKeyboard(rows),
+        ...inlineKeyboard(rows),
       })
     } catch (err) {
       log.error('failed to list agents', err as Error)
@@ -357,24 +357,24 @@ export function registerHandlers(deps: HandlersDeps): void {
 
       const nextModel = deps.state.getNextModel()
       const lines = ['<b>⚙️ Model — Select provider</b>', '']
-      const rows: Array<Array<ReturnType<typeof Markup.button.callback>>> = []
+      const rows: Array<Array<TgBtn>> = []
 
       for (const p of providers) {
         const count = (p.models ?? []).length
         const hasSelected = nextModel?.providerID === p.id
         const marker = hasSelected ? '●' : '▸'
         lines.push(`${marker} <b>${p.name}</b>  ·  ${count} model${count !== 1 ? 's' : ''}`)
-        rows.push([Markup.button.callback(p.name, `model:pick:${p.id}`)])
+        rows.push([btn(p.name, `model:pick:${p.id}`)])
       }
 
       if (nextModel) {
         lines.push('', `<i>Current override: ${nextModel.providerID}/${nextModel.modelID}</i>`)
       }
-      rows.push([Markup.button.callback('✕ Clear', 'model:clear')])
+      rows.push([btn('✕ Clear', 'model:clear')])
 
       await ctx.reply(lines.join('\n'), {
         parse_mode: 'HTML',
-        ...Markup.inlineKeyboard(rows),
+        ...inlineKeyboard(rows),
       })
     } catch (err) {
       log.error('failed to list models', err as Error)
@@ -395,8 +395,8 @@ export function registerHandlers(deps: HandlersDeps): void {
       `<b>📍 Current session</b>\n\n<code>${last}</code>`,
       {
         parse_mode: 'HTML',
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback('Unpin', 'session:unpin')],
+        ...inlineKeyboard([
+          [btn('Unpin', 'session:unpin')],
         ]),
       },
     )
@@ -470,8 +470,8 @@ export function registerHandlers(deps: HandlersDeps): void {
       ].join('\n'),
       {
         parse_mode: 'HTML',
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback('🔄 Check status', 'status:refresh')],
+        ...inlineKeyboard([
+          [btn('🔄 Check status', 'status:refresh')],
         ]),
       },
     )
@@ -488,18 +488,18 @@ export function registerHandlers(deps: HandlersDeps): void {
         lines.push(`${mark}<b>${w.name}</b>  ·  ${w.sessionCount} session${w.sessionCount === 1 ? '' : 's'}`)
         lines.push(`   <code>${w.directory}</code>`)
       }
-      const rows = ws.slice(0, 20).map((w) => [Markup.button.callback(`📂 ${w.name}`, `ws:set:${wsToken(w.directory)}`)])
-      await ctx.reply(lines.join('\n'), { parse_mode: 'HTML', ...Markup.inlineKeyboard(rows) })
+      const rows = ws.slice(0, 20).map((w) => [btn(`📂 ${w.name}`, `ws:set:${wsToken(w.directory)}`)])
+      await ctx.reply(lines.join('\n'), { parse_mode: 'HTML', ...inlineKeyboard(rows) })
     } catch (err) {
       await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }
   })
 
-  deps.bot.action(/^ws:set:(.+)$/, async (ctx) => {
+  deps.bot.callbackQuery(/^ws:set:(.+)$/, async (ctx) => {
     const dir = wsTokens.get(ctx.match[1])
-    if (!dir) { await ctx.answerCbQuery('Stale — re-run /workspaces'); return }
+    if (!dir) { await ctx.answerCallbackQuery('Stale — re-run /workspaces'); return }
     deps.state.setActiveWorkspace(dir)
-    await ctx.answerCbQuery(`Workspace → ${dir.split('/').pop()}`)
+    await ctx.answerCallbackQuery(`Workspace → ${dir.split('/').pop()}`)
     try { await ctx.editMessageText(`📍 <b>Active workspace</b>\n\n<code>${dir}</code>\n\nUse /new to start a session here.`, { parse_mode: 'HTML' }) } catch { /* ignore */ }
   })
 
@@ -561,7 +561,7 @@ export function registerHandlers(deps: HandlersDeps): void {
   for (const scope of scopes) {
     const label = scope.type === 'default' ? 'default' : scope.type
     const extra = scope.type === 'default' ? undefined : { scope }
-    deps.bot.telegram
+    deps.bot.api
       .setMyCommands(commands, extra)
       .then(() => log.info(`setMyCommands OK [${label}]`))
       .catch((err) => log.warn(`setMyCommands [${label}] failed`, err))
@@ -569,10 +569,10 @@ export function registerHandlers(deps: HandlersDeps): void {
 
   // ── Callbacks ──
 
-  deps.bot.action(/^session:pin:(.+)$/, async (ctx) => {
+  deps.bot.callbackQuery(/^session:pin:(.+)$/, async (ctx) => {
     const id = ctx.match[1]
     deps.state.setPinnedSessionId(id)
-    await ctx.answerCbQuery(`Pinned ${id.slice(-8)}`)
+    await ctx.answerCallbackQuery(`Pinned ${id.slice(-8)}`)
     try {
       await ctx.editMessageText(
         `<b>📌 Pinned</b>\n\n<code>${id}</code>`,
@@ -584,9 +584,9 @@ export function registerHandlers(deps: HandlersDeps): void {
     }
   })
 
-  deps.bot.action('session:unpin', async (ctx) => {
+  deps.bot.callbackQuery('session:unpin', async (ctx) => {
     deps.state.setPinnedSessionId(undefined)
-    await ctx.answerCbQuery('Unpinned')
+    await ctx.answerCallbackQuery('Unpinned')
     try {
       await ctx.editMessageText(
         '<b>📌 Session unpinned</b>\n\nMessages will use the most recently active session.',
@@ -598,33 +598,33 @@ export function registerHandlers(deps: HandlersDeps): void {
     }
   })
 
-  deps.bot.action('status:refresh', async (ctx) => {
+  deps.bot.callbackQuery('status:refresh', async (ctx) => {
     const { lines, buttons } = await buildStatusCard(deps)
     try {
       await ctx.editMessageText(lines.join('\n'), {
         parse_mode: 'HTML',
-        ...Markup.inlineKeyboard([buttons]),
+        ...inlineKeyboard([buttons]),
       })
-      await ctx.answerCbQuery('Refreshed')
+      await ctx.answerCallbackQuery('Refreshed')
     } catch (err) {
       const msg = (err as Error).message
       if (msg.includes('message is not modified')) {
-        await ctx.answerCbQuery('Status is unchanged')
+        await ctx.answerCallbackQuery('Status is unchanged')
       } else {
         log.warn('status:refresh edit failed', msg)
-        await ctx.answerCbQuery('Failed to refresh')
+        await ctx.answerCallbackQuery('Failed to refresh')
       }
     }
   })
 
-  deps.bot.action('status:abort', async (ctx) => {
+  deps.bot.callbackQuery('status:abort', async (ctx) => {
     const sid = deps.abortGeneration()
     if (sid) {
       try {
         await deps.backend.abort(sid)
       } catch {}
     }
-    await ctx.answerCbQuery('Aborting…')
+    await ctx.answerCallbackQuery('Aborting…')
     try {
       await ctx.editMessageText('🛑 Generation aborted.', { parse_mode: 'HTML' })
     } catch (err) {
@@ -633,7 +633,7 @@ export function registerHandlers(deps: HandlersDeps): void {
     }
   })
 
-  deps.bot.action(/^agent:set:(.+)$/, async (ctx) => {
+  deps.bot.callbackQuery(/^agent:set:(.+)$/, async (ctx) => {
     const name = ctx.match[1]
     log.info(`agent:set callback: ${name}`)
     deps.state.setNextAgent(name)
@@ -651,7 +651,7 @@ export function registerHandlers(deps: HandlersDeps): void {
     } catch (err) {
       log.warn(`agent:set model sync failed: ${(err as Error).message}`)
     }
-    await ctx.answerCbQuery(`Agent → ${name}`)
+    await ctx.answerCallbackQuery(`Agent → ${name}`)
     try {
       await ctx.editMessageText(
         `<b>🤖 Agent set</b>\n\nNext message will use <b>${name}</b>${modelSuffix}.`,
@@ -663,9 +663,9 @@ export function registerHandlers(deps: HandlersDeps): void {
     }
   })
 
-  deps.bot.action('agent:clear', async (ctx) => {
+  deps.bot.callbackQuery('agent:clear', async (ctx) => {
     deps.state.setNextAgent(undefined)
-    await ctx.answerCbQuery('Agent cleared')
+    await ctx.answerCallbackQuery('Agent cleared')
     try {
       await ctx.editMessageText(
         '<b>🤖 Agent cleared</b>\n\nNext message will use the default agent.',
@@ -677,10 +677,10 @@ export function registerHandlers(deps: HandlersDeps): void {
     }
   })
 
-  deps.bot.action(/^model:set:(.+)$/, async (ctx) => {
+  deps.bot.callbackQuery(/^model:set:(.+)$/, async (ctx) => {
     const key = modelTokens.get(ctx.match[1])
     if (!key) {
-      await ctx.answerCbQuery('Stale — re-run /model')
+      await ctx.answerCallbackQuery('Stale — re-run /model')
       return
     }
     const idx = key.indexOf('/')
@@ -689,7 +689,7 @@ export function registerHandlers(deps: HandlersDeps): void {
     log.info(`model:set callback: provider=${providerID} model=${modelID}`)
     const parsed = { providerID, modelID }
     deps.state.setNextModel(parsed)
-    await ctx.answerCbQuery(`Model → ${modelID}`)
+    await ctx.answerCallbackQuery(`Model → ${modelID}`)
     try {
       await ctx.editMessageText(
         `<b>⚙️ Model set</b>\n\nNext message will use <code>${providerID}/${modelID}</code>.`,
@@ -701,9 +701,9 @@ export function registerHandlers(deps: HandlersDeps): void {
     }
   })
 
-  deps.bot.action('model:clear', async (ctx) => {
+  deps.bot.callbackQuery('model:clear', async (ctx) => {
     deps.state.setNextModel(undefined)
-    await ctx.answerCbQuery('Model cleared')
+    await ctx.answerCallbackQuery('Model cleared')
     try {
       await ctx.editMessageText(
         '<b>⚙️ Model cleared</b>\n\nNext message will use the default model.',
@@ -716,13 +716,13 @@ export function registerHandlers(deps: HandlersDeps): void {
   })
 
   // Step 2: pick a specific model after selecting a provider
-  deps.bot.action(/^model:pick:(.+)$/, async (ctx) => {
+  deps.bot.callbackQuery(/^model:pick:(.+)$/, async (ctx) => {
     const providerID = ctx.match[1]
     try {
       const providers = await deps.backend.getModels(deps.opencodeProject)
       const provider = providers.find(p => p.id === providerID)
       if (!provider || (provider.models ?? []).length === 0) {
-        await ctx.answerCbQuery('No models for this provider')
+        await ctx.answerCallbackQuery('No models for this provider')
         return
       }
 
@@ -731,61 +731,61 @@ export function registerHandlers(deps: HandlersDeps): void {
         `<b>⚙️ Model — ${provider.name}</b>`,
         '',
       ]
-      const rows: Array<Array<ReturnType<typeof Markup.button.callback>>> = []
+      const rows: Array<Array<TgBtn>> = []
 
       for (const m of (provider.models ?? [])) {
         const sel = nextModel?.providerID === providerID && nextModel?.modelID === m.id ? '●' : '○'
         lines.push(`${sel} ${m.name ?? m.id}`)
-        rows.push([Markup.button.callback(m.name ?? m.id, `model:set:${modelToken(providerID, m.id)}`)])
+        rows.push([btn(m.name ?? m.id, `model:set:${modelToken(providerID, m.id)}`)])
       }
 
-      rows.push([Markup.button.callback('◀ Back', 'model:back')])
+      rows.push([btn('◀ Back', 'model:back')])
 
       await ctx.editMessageText(lines.join('\n'), {
         parse_mode: 'HTML',
-        ...Markup.inlineKeyboard(rows),
+        ...inlineKeyboard(rows),
       })
-      await ctx.answerCbQuery()
+      await ctx.answerCallbackQuery()
     } catch (err) {
       log.error('model:pick failed', err as Error)
-      await ctx.answerCbQuery('Failed to load models')
+      await ctx.answerCallbackQuery('Failed to load models')
     }
   })
 
   // Back to provider list
-  deps.bot.action('model:back', async (ctx) => {
+  deps.bot.callbackQuery('model:back', async (ctx) => {
     try {
       const providers = await deps.backend.getModels(deps.opencodeProject)
       const nextModel = deps.state.getNextModel()
       const lines = ['<b>⚙️ Model — Select provider</b>', '']
-      const rows: Array<Array<ReturnType<typeof Markup.button.callback>>> = []
+      const rows: Array<Array<TgBtn>> = []
 
       for (const p of providers) {
         const count = (p.models ?? []).length
         const hasSelected = nextModel?.providerID === p.id
         const marker = hasSelected ? '●' : '▸'
         lines.push(`${marker} <b>${p.name}</b>  ·  ${count} model${count !== 1 ? 's' : ''}`)
-        rows.push([Markup.button.callback(p.name, `model:pick:${p.id}`)])
+        rows.push([btn(p.name, `model:pick:${p.id}`)])
       }
 
       if (nextModel) {
         lines.push('', `<i>Current override: ${nextModel.providerID}/${nextModel.modelID}</i>`)
       }
-      rows.push([Markup.button.callback('✕ Clear', 'model:clear')])
+      rows.push([btn('✕ Clear', 'model:clear')])
 
       await ctx.editMessageText(lines.join('\n'), {
         parse_mode: 'HTML',
-        ...Markup.inlineKeyboard(rows),
+        ...inlineKeyboard(rows),
       })
-      await ctx.answerCbQuery()
+      await ctx.answerCallbackQuery()
     } catch (err) {
       log.error('model:back failed', err as Error)
-      await ctx.answerCbQuery('Failed')
+      await ctx.answerCallbackQuery('Failed')
     }
   })
 
-  deps.bot.action('card:dismiss', async (ctx) => {
-    await ctx.answerCbQuery()
+  deps.bot.callbackQuery('card:dismiss', async (ctx) => {
+    await ctx.answerCallbackQuery()
     await ctx.deleteMessage().catch(() => {})
   })
 
@@ -793,7 +793,7 @@ export function registerHandlers(deps: HandlersDeps): void {
   registerInfoCommands({ bot: deps.bot, backend: deps.backend, state: deps.state, opencodeProject: deps.opencodeProject })
 
   // ── Approval callbacks — always registered so buttons work in both modes ──
-  deps.bot.action(/^approve:(once|always|reject):(.+)$/, async (ctx) => {
+  deps.bot.callbackQuery(/^approve:(once|always|reject):(.+)$/, async (ctx) => {
     const match = ctx.match as RegExpMatchArray
     const response = match[1] as ApprovalResponse
     // callback_data carries a short token (64-byte limit); resolve it back to
@@ -802,7 +802,7 @@ export function registerHandlers(deps: HandlersDeps): void {
     const p = deps.pendingApprovals.get(permId)
 
     if (!p) {
-      await ctx.answerCbQuery('This request has already been handled.')
+      await ctx.answerCallbackQuery('This request has already been handled.')
       return
     }
 
@@ -814,7 +814,7 @@ export function registerHandlers(deps: HandlersDeps): void {
       await deps.backend.resolvePermission(p.sessionId, p.permissionId, response)
     } catch (err) {
       log.error(`failed to reply permission ${permId}`, err as Error)
-      await ctx.answerCbQuery('Failed to reply. The request may have expired.')
+      await ctx.answerCallbackQuery('Failed to reply. The request may have expired.')
       return
     }
 
@@ -825,7 +825,7 @@ export function registerHandlers(deps: HandlersDeps): void {
     }
     const display = labels[response]
     await ctx.editMessageText(`${display}\n\n${esc(p.title)}`, { parse_mode: 'HTML' }).catch(() => {})
-    await ctx.answerCbQuery(display)
+    await ctx.answerCallbackQuery(display)
   })
 }
 

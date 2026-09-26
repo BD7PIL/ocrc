@@ -1,14 +1,14 @@
 import { describe, it, expect, vi } from 'vitest'
 import { registerHandlers, type PendingApproval } from '../../../src/transport/telegram/handlers'
 
-/** A Telegraf stand-in that records action(regex/string, handler) registrations. */
+/** A grammY stand-in that records callbackQuery(regex/string, handler) registrations. */
 function captureBot() {
   const actions: Array<{ trigger: any; handler: (ctx: any) => any }> = []
   return {
     actions,
     command: vi.fn(),
-    action: vi.fn((trigger: any, handler: (ctx: any) => any) => { actions.push({ trigger, handler }) }),
-    telegram: {
+    callbackQuery: vi.fn((trigger: any, handler: (ctx: any) => any) => { actions.push({ trigger, handler }) }),
+    api: {
       setMyCommands: vi.fn().mockResolvedValue(undefined),
       deleteMyCommands: vi.fn().mockResolvedValue(undefined),
     },
@@ -44,8 +44,8 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
 describe('command scope setup on init', () => {
   it('sets the same command list for default, all_private_chats and all_group_chats scopes', () => {
     const { bot } = makeDeps()
-    expect(bot.telegram.setMyCommands).toHaveBeenCalledTimes(3)
-    const calls = bot.telegram.setMyCommands.mock.calls as any[]
+    expect(bot.api.setMyCommands).toHaveBeenCalledTimes(3)
+    const calls = bot.api.setMyCommands.mock.calls as any[]
     const commands = calls[0][0]
     expect(calls.some((c) => c[1] === undefined)).toBe(true)                          // default scope
     expect(calls.some((c) => c[1]?.scope?.type === 'all_private_chats')).toBe(true)
@@ -62,7 +62,7 @@ describe('approve: button callback', () => {
     const { trigger, handler } = findApprove(bot)
     const ctx = {
       match: 'approve:always:perm_1'.match(trigger),
-      answerCbQuery: vi.fn().mockResolvedValue(undefined),
+      answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
       editMessageText: vi.fn().mockResolvedValue(undefined),
     }
     await handler(ctx)
@@ -70,7 +70,7 @@ describe('approve: button callback', () => {
     expect(backend.resolvePermission).toHaveBeenCalledWith('ses_a', 'perm_1', 'always')
     expect(pendingApprovals.has('perm_1')).toBe(false)
     expect(ctx.editMessageText).toHaveBeenCalled()
-    expect(ctx.answerCbQuery).toHaveBeenCalled()
+    expect(ctx.answerCallbackQuery).toHaveBeenCalled()
   })
 
   it('resolves a short callback token back to the full permission id', async () => {
@@ -82,7 +82,7 @@ describe('approve: button callback', () => {
     const { trigger, handler } = findApprove(bot)
     const ctx = {
       match: 'approve:once:tok_abc123'.match(trigger),
-      answerCbQuery: vi.fn().mockResolvedValue(undefined),
+      answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
       editMessageText: vi.fn().mockResolvedValue(undefined),
     }
     await handler(ctx)
@@ -100,7 +100,7 @@ describe('approve: button callback', () => {
     const { trigger, handler } = findApprove(bot)
     const mkCtx = () => ({
       match: 'approve:once:perm_1'.match(trigger),
-      answerCbQuery: vi.fn().mockResolvedValue(undefined),
+      answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
       editMessageText: vi.fn().mockResolvedValue(undefined),
     })
     const first = mkCtx()
@@ -109,7 +109,7 @@ describe('approve: button callback', () => {
     await handler(second)              // …when the second tap arrives
 
     expect(backend.resolvePermission).toHaveBeenCalledTimes(1)
-    expect(second.answerCbQuery).toHaveBeenCalledWith(expect.stringMatching(/already been handled/i))
+    expect(second.answerCallbackQuery).toHaveBeenCalledWith(expect.stringMatching(/already been handled/i))
     release()
     await p1
   })
@@ -122,12 +122,12 @@ describe('approve: button callback', () => {
     const { trigger, handler } = findApprove(bot)
     const ctx = {
       match: 'approve:reject:perm_1'.match(trigger),
-      answerCbQuery: vi.fn().mockResolvedValue(undefined),
+      answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
       editMessageText: vi.fn().mockResolvedValue(undefined),
     }
     await handler(ctx)
 
-    expect(ctx.answerCbQuery).toHaveBeenCalledWith(expect.stringMatching(/failed to reply/i))
+    expect(ctx.answerCallbackQuery).toHaveBeenCalledWith(expect.stringMatching(/failed to reply/i))
     expect(pendingApprovals.has('perm_1')).toBe(false)
   })
 
@@ -138,7 +138,7 @@ describe('approve: button callback', () => {
     const { trigger, handler } = findApprove(bot)
     const ctx = {
       match: 'approve:once:perm_1'.match(trigger),
-      answerCbQuery: vi.fn().mockResolvedValue(undefined),
+      answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
       editMessageText: vi.fn().mockResolvedValue(undefined),
     }
     await handler(ctx)
@@ -154,12 +154,12 @@ describe('approve: button callback', () => {
     const { trigger, handler } = findApprove(bot)
     const ctx = {
       match: 'approve:reject:gone'.match(trigger),
-      answerCbQuery: vi.fn().mockResolvedValue(undefined),
+      answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
       editMessageText: vi.fn().mockResolvedValue(undefined),
     }
     await handler(ctx)
 
     expect(backend.resolvePermission).not.toHaveBeenCalled()
-    expect(ctx.answerCbQuery).toHaveBeenCalledWith(expect.stringMatching(/already been handled/i))
+    expect(ctx.answerCallbackQuery).toHaveBeenCalledWith(expect.stringMatching(/already been handled/i))
   })
 })

@@ -1,4 +1,5 @@
-import type { Telegram } from 'telegraf'
+import type { Api } from 'grammy'
+import { errorCodeOf, retryAfterOf } from './ui.js'
 import type { StructuredCard, ToolCall, AssistantMeta, InfoSection, ContentBlock } from '../../core/structured-card.js'
 import { markdownToTelegramHtml } from '../../utils/markdown.js'
 import { createLogger } from '../../utils/logger.js'
@@ -18,7 +19,7 @@ const MAX_RETRY_AFTER_MS = 60_000
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /**
- * Extract the retry_after wait (ms) from a telegraf 429 error, or undefined
+ * Extract the retry_after wait (ms) from a 429 error, or undefined
  * for any other error. Telegraf surfaces it as
  * err.response.parameters.retry_after (seconds).
  */
@@ -33,7 +34,7 @@ function retryAfterMs(err: unknown): number | undefined {
 interface RendererOpts {
   chatId: string
   sessionId: string
-  bot: Telegram
+  bot: Api
   chunkSoftLimit?: number
 }
 
@@ -144,7 +145,7 @@ function blocksToTools(blocks: ContentBlock[]): ToolCall[] {
 export class TelegramSessionRenderer {
   private chatId: string
   private sessionId: string
-  private bot: Telegram
+  private bot: Api
   private thinkingMessageId?: string
   private chunkSoftLimit: number
 

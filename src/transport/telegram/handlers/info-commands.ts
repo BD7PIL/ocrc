@@ -1,4 +1,4 @@
-import type { Telegraf, Context } from 'telegraf'
+import { Bot, type Context } from 'grammy'
 import type { AgentBackend } from '../../../core/agent/backend.js'
 import type { SessionState } from '../../../core/state.js'
 import { createLogger } from '../../../utils/logger.js'
@@ -7,7 +7,7 @@ import { esc } from '../esc.js'
 const log = createLogger('info-commands')
 
 interface InfoDeps {
-  bot: Telegraf
+  bot: Bot
   backend: AgentBackend
   state: SessionState
   /** Project directory where opencode.json lives — same scope as /agent uses. */

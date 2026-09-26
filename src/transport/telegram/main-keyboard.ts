@@ -32,14 +32,18 @@ export function contextButtonLabel(used: number, limit: number): string {
   return `📊 ${fmtK(used)} / ${fmtK(limit)} (${pct}%)`
 }
 
+export const SESSIONS_BUTTON_LABEL = '📋 会话'
+
 export function buildMainKeyboard(data: MainKeyboardData): Keyboard {
   const kb = new Keyboard()
   kb.text(agentButtonLabel(data.agentName)).text(
     data.context ? contextButtonLabel(data.context.used, data.context.limit) : '📊 context',
   ).row()
-  kb.text(modelButtonLabel(data.modelLabel)).resized().persistent()
+  kb.text(modelButtonLabel(data.modelLabel)).text(SESSIONS_BUTTON_LABEL).resized().persistent()
   return kb
 }
+
+export const SESSIONS_BUTTON_TEXT_PATTERN = /^📋 会话$/
 
 /** Button-press patterns for bot.hears routing (grinev message-patterns). */
 export const AGENT_BUTTON_TEXT_PATTERN = /^🤖 (.+)$/

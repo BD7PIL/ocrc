@@ -121,6 +121,10 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
       await openModelsMenu(String(ctx.chat?.id ?? ctx.from?.id ?? ''))
       return
     }
+    if (text === '📋 会话') {
+      await openSessionsMenu(String(ctx.chat?.id ?? ctx.from?.id ?? ''), 0)
+      return
+    }
     if (CONTEXT_BUTTON_TEXT_PATTERN.test(text)) {
       try {
         // Same data source as the Inspector's CONTEXT panel (backend.getContext):

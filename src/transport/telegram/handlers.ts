@@ -479,7 +479,7 @@ export function registerHandlers(deps: HandlersDeps): void {
     )
   })
 
-  deps.bot.command('workspaces', async (ctx) => {
+  const workspacesHandler = async (ctx: Context) => {
     try {
       const ws = await deps.backend.listWorkspaces()
       if (ws.length === 0) { await ctx.reply('No workspaces.', { parse_mode: 'HTML' }); return }
@@ -495,7 +495,11 @@ export function registerHandlers(deps: HandlersDeps): void {
     } catch (err) {
       await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }
-  })
+  }
+
+  deps.bot.command('workspaces', workspacesHandler)
+  // grinev 命令名对齐：/projects = /workspaces
+  deps.bot.command('projects', workspacesHandler)
 
   deps.bot.callbackQuery(/^ws:set:(.+)$/, async (ctx) => {
     const dir = wsTokens.get(ctx.match[1])
@@ -503,6 +507,66 @@ export function registerHandlers(deps: HandlersDeps): void {
     deps.state.setActiveWorkspace(dir)
     await ctx.answerCallbackQuery(`Workspace → ${dir.split('/').pop()}`)
     try { await ctx.editMessageText(`📍 <b>Active workspace</b>\n\n<code>${dir}</code>\n\nUse /new to start a session here.`, { parse_mode: 'HTML' }) } catch { /* ignore */ }
+  })
+
+  deps.bot.command('workspaces', workspacesHandler)
+  // grinev 命令名对齐：/projects = /workspaces
+  deps.bot.command('projects', workspacesHandler)
+
+  // grinev 对齐：/detach = 取消跟随当前会话（等价 unpin）
+  deps.bot.command('detach', async (ctx: Context) => {
+    const pinned = deps.state.getPinnedSessionId()
+    deps.state.setPinnedSessionId(undefined)
+    await ctx.reply(pinned ? `🔓 已取消跟随 …${pinned.slice(-8)}` : 'ℹ️ 当前没有跟随的会话')
+  })
+
+  // grinev 对齐：/commands = 列出 opencode 自定义命令
+  deps.bot.command('commands', async (ctx: Context) => {
+    try {
+      const cmds = await deps.backend.listCommands()
+      if (cmds.length === 0) { await ctx.reply('没有已配置的自定义命令。'); return }
+      const lines = ['<b>⌘ 自定义命令</b>']
+      for (const c of cmds.slice(0, 20)) lines.push(`• <b>/${esc(c.name)}</b> — ${esc(c.description ?? '')}`)
+      if (cmds.length > 20) lines.push(`… 共 ${cmds.length} 条`)
+      await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' })
+    } catch (err) {
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
+    }
+  })
+
+  // grinev 对齐：/mcps = MCP 服务器状态
+  deps.bot.command('mcps', async (ctx: Context) => {
+    try {
+      const mcps = await deps.backend.getMcp(deps.opencodeProject)
+      if (mcps.length === 0) { await ctx.reply('未配置 MCP 服务器。'); return }
+      const lines = ['<b>🔌 MCP</b>']
+      for (const m of mcps) lines.push(`• <b>${esc(m.name)}</b> — ${m.status === 'configured' ? '✅ 已配置' : '⚪ 未启用'}`)
+      await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' })
+    } catch (err) {
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
+    }
+  })
+
+  // grinev 对齐：/messages = 当前会话最近消息
+  deps.bot.command('messages', async (ctx: Context) => {
+    try {
+      const sid = deps.state.getPinnedSessionId() ?? deps.state.getLastSessionId()
+      if (!sid) { await ctx.reply('没有活动会话。'); return }
+      const cards = await deps.backend.getHistory(sid, 6)
+      const lines: string[] = ['<b>🕘 最近消息</b>']
+      for (const c of cards) {
+        if (c.kind === 'user') {
+          lines.push(`🧑 ${esc((c as any).text?.slice(0, 80) ?? '')}`)
+        } else if (c.kind === 'assistant') {
+          for (const b of (c as any).blocks ?? []) {
+            if (b.type === 'text' && b.text) { lines.push(`🤖 ${esc(b.text.slice(0, 80))}`); break }
+          }
+        }
+      }
+      await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' })
+    } catch (err) {
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
+    }
   })
 
   deps.bot.command('new', async (ctx) => {
@@ -536,6 +600,8 @@ export function registerHandlers(deps: HandlersDeps): void {
     if (!deps.scheduler) { await ctx.reply('⏰ 定时任务未启用'); return }
     await renderTasks(ctx)
   })
+  // grinev 命令名对齐：/tasklist = /tasks
+  deps.bot.command('tasklist', async (ctx: Context) => { await renderTasks(ctx) })
 
   deps.bot.command('task', async (ctx: Context) => {
     if (!deps.scheduler) { await ctx.reply('⏰ 定时任务未启用'); return }
@@ -615,6 +681,14 @@ export function registerHandlers(deps: HandlersDeps): void {
     { command: 'model', description: 'Set next model' },
     { command: 'current', description: 'Last session used' },
     { command: 'abort', description: 'Stop the current generation' },
+    { command: 'tasks', description: 'Scheduled tasks (list)' },
+    { command: 'task', description: 'Create a scheduled task' },
+    { command: 'taskdel', description: 'Delete a scheduled task' },
+    { command: 'projects', description: 'Switch project (workspace)' },
+    { command: 'commands', description: 'List opencode custom commands' },
+    { command: 'mcps', description: 'MCP server status' },
+    { command: 'messages', description: 'Recent messages' },
+    { command: 'detach', description: 'Unpin the followed session' },
     { command: 'version', description: 'Bot version + uptime' },
     { command: 'pair', description: 'Pair a device (URL + token)' },
     { command: 'workspaces', description: 'List/switch workspaces' },

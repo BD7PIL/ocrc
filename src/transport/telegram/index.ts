@@ -105,6 +105,30 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
     const text = 'text' in m ? m.text : undefined
     if (!text) return next()
     if (text.startsWith('/')) return next()
+
+    // M4 reply-keyboard presses arrive as plain text — route them HERE, before
+    // the relay gate (grinev message-router pattern). Otherwise the button text
+    // would be forwarded to the model as if the user had typed it.
+    if (AGENT_BUTTON_TEXT_PATTERN.test(text)) {
+      await openAgentsMenu(String(ctx.chat?.id ?? ctx.from?.id ?? ''))
+      return
+    }
+    if (MODEL_BUTTON_TEXT_PATTERN.test(text)) {
+      await openModelsMenu(String(ctx.chat?.id ?? ctx.from?.id ?? ''))
+      return
+    }
+    if (CONTEXT_BUTTON_TEXT_PATTERN.test(text)) {
+      try {
+        const meta = await cfg.backend.getSessionMeta(targetSessionId() ?? '')
+        const used = (meta.tokens as any)?.used ?? 0
+        const max = (meta.tokens as any)?.max ?? 0
+        const pct = max > 0 ? Math.round((used / max) * 100) : 0
+        await ctx.reply(`📊 上下文用量：${used} / ${max} tokens（${pct}%）`)
+      } catch {
+        await ctx.reply('📊 上下文用量暂不可用')
+      }
+      return
+    }
     if (!messageHandler) return next()
 
     if (isGenerating()) {
@@ -275,21 +299,6 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
   }
 
   // Button presses arrive as ordinary text messages — match by pattern.
-  bot.hears(AGENT_BUTTON_TEXT_PATTERN, async (ctx) => {
-    await openAgentsMenu(String(ctx.chat?.id ?? chatIdOf()))
-  })
-  bot.hears(MODEL_BUTTON_TEXT_PATTERN, async (ctx) => {
-    await openModelsMenu(String(ctx.chat?.id ?? chatIdOf()))
-  })
-  bot.hears(CONTEXT_BUTTON_TEXT_PATTERN, async (ctx) => {
-    try {
-      const meta = await cfg.backend.getSessionMeta(targetSessionId() ?? '')
-      const used = (meta.tokens as any)?.used ?? 0
-      const max = (meta.tokens as any)?.max ?? 0
-      await ctx.reply(`📊 上下文用量：${used} / ${max} tokens（${max > 0 ? Math.round((used / max) * 100) : 0}%）`)
-    } catch { await ctx.reply('📊 上下文用量暂不可用') }
-  })
-
   // Register commands + callbacks
   registerHandlers({
     bot,

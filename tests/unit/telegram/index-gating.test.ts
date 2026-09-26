@@ -26,6 +26,7 @@ function makeTransport(state: any) {
   const fakeBot = {
     use: vi.fn((mw: any) => { uses.push(mw) }),
     command: vi.fn(),
+    hears: vi.fn(),
     callbackQuery: vi.fn(),
     catch: vi.fn(),
     api: {

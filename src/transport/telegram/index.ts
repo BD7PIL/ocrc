@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { Bot, InlineKeyboard, type Api } from 'grammy'
+import type { PhotoSize } from 'grammy/types'
 import { errorCodeOf, inlineKeyboard, btn } from './ui.js'
 import { isEphemeralSession } from '../../opencode/submit.js'
 import type { Scheduler } from '../../core/scheduler.js'
@@ -104,18 +105,46 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
   }
 
   // Wire text handler
+  /** Largest PhotoSize → getFile → download → base64 (TG photo intake). */
+  async function downloadLargestPhoto(api: { getFile: (id: string) => Promise<{ file_path?: string }> }, sizes: PhotoSize[]): Promise<{ data: string; mimeType: string }> {
+    const best = sizes.reduce((a, b) => ((b.width ?? 0) * (b.height ?? 0) > (a.width ?? 0) * (a.height ?? 0) ? b : a))
+    if (!best?.file_id) throw new Error('photo has no file_id')
+    const file = await api.getFile(best.file_id)
+    if (!file.file_path) throw new Error('getFile returned no file_path')
+    const res = await fetch(`https://api.telegram.org/file/bot${cfg.token}/${file.file_path}`)
+    if (!res.ok) throw new Error(`download failed: ${res.status}`)
+    return { data: Buffer.from(await res.arrayBuffer()).toString('base64'), mimeType: 'image/jpeg' }
+  }
+
   bot.use(async (ctx, next) => {
     if (ctx.callbackQuery) return next()
     const m = ctx.message
     if (!m) return next()
     // grammY's Message union keeps `text` optional even after narrowing.
     const text = 'text' in m ? m.text : undefined
-    if (!text) return next()
-    if (text.startsWith('/')) return next()
+    // P2b: photo intake — a photo (caption optional) becomes an image turn;
+    // anything else without text (stickers, voice, …) is not ours.
+    const photoSizes = !text && 'photo' in m && Array.isArray(m.photo) ? (m.photo as PhotoSize[]) : undefined
+    if (!text && !photoSizes) return next()
+    if (text?.startsWith('/')) return next()
+
+    let images: IncomingMessage['images']
+    if (photoSizes?.length) {
+      try {
+        images = [await downloadLargestPhoto(ctx.api, photoSizes)]
+      } catch (err) {
+        log.warn('photo download failed', (err as Error).message)
+        void ctx.reply('❌ 图片接收失败，请稍后重试').catch(() => {})
+        return
+      }
+    }
 
     // M4 reply-keyboard presses arrive as plain text — route them HERE, before
     // the relay gate (grinev message-router pattern). Otherwise the button text
     // would be forwarded to the model as if the user had typed it.
+    // Photo turns (no text) skip button routing — a caption must never press a
+    // keyboard button by accident.
+    if (text) {
     if (AGENT_BUTTON_TEXT_PATTERN.test(text)) {
       await openAgentsMenu(String(ctx.chat?.id ?? ctx.from?.id ?? ''))
       return
@@ -155,20 +184,25 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
       }
       return
     }
+    }
+
     if (!messageHandler) return next()
 
+    // Prompt-queue (grinev M4 leftover, minimal slice): the relay serializes
+    // turns per session, so a mid-generation prompt is queued, not dropped —
+    // ack it so the sender isn't left staring at silence.
     if (isGenerating()) {
-      void ctx.reply('Session is already generating. Wait for it or /abort.').catch((err) => {
-        log.warn('failed to send busy notice', (err as Error).message)
+      void ctx.reply('⏳ 已排队——当前回复生成中，完成后自动执行').catch((err) => {
+        log.warn('failed to send queue ack', (err as Error).message)
       })
-      return
     }
 
     const msg: IncomingMessage = {
       userId: String(ctx.from?.id ?? ''),
       chatId: String(ctx.chat?.id ?? ctx.from?.id ?? ''),
-      text,
+      text: text ?? m.caption ?? '',
       messageId: String(m.message_id),
+      images,
       origin: 'telegram',
     }
 

@@ -78,7 +78,7 @@ describe('per-session generation gate', () => {
     reply: vi.fn().mockResolvedValue({}),
   })
 
-  it('blocks input when the target session (pinned) is generating', async () => {
+  it('queues a prompt sent mid-generation (ack reply, relay still called)', async () => {
     const state = makeState({
       getPinnedSessionId: () => 'ses_target',
       hasActiveGeneration: vi.fn((sid?: string) => sid === 'ses_target'),
@@ -91,9 +91,11 @@ describe('per-session generation gate', () => {
     await middlewares[1](ctx, vi.fn())
 
     expect(state.hasActiveGeneration).toHaveBeenCalledWith('ses_target')
+    // Queued, not dropped: the relay serializes the turn, the user gets an ack.
     expect(ctx.reply).toHaveBeenCalled()
-    expect(String(ctx.reply.mock.calls[0][0])).toMatch(/already generating/i)
-    expect(onMsg).not.toHaveBeenCalled()
+    expect(String(ctx.reply.mock.calls[0][0])).toMatch(/已排队/)
+    expect(onMsg).toHaveBeenCalledTimes(1)
+    expect(onMsg.mock.calls[0][0]).toMatchObject({ text: 'hello', origin: 'telegram' })
   })
 
   it('lets input through when only an unrelated session is generating', async () => {
@@ -127,6 +129,72 @@ describe('per-session generation gate', () => {
     await middlewares[1](ctx, vi.fn())
 
     expect(state.hasActiveGeneration).toHaveBeenCalledWith('ses_full_abc12345')
+    expect(onMsg).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('photo intake + caption routing', () => {
+  function photoCtx(over: Record<string, unknown> = {}) {
+    return {
+      from: { id: 1 },
+      chat: { id: 1 },
+      message: {
+        photo: [{ file_id: 'small', width: 90, height: 90 }, { file_id: 'big', width: 1280, height: 960 }],
+        caption: 'what is this?',
+        message_id: 7,
+      },
+      api: { getFile: vi.fn().mockResolvedValue({ file_path: 'photos/big.jpg' }) },
+      reply: vi.fn().mockResolvedValue({}),
+      ...over,
+    }
+  }
+
+  function stubFetch(bytes = new Uint8Array([1, 2, 3])) {
+    return vi.fn().mockResolvedValue({ ok: true, arrayBuffer: () => Promise.resolve(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)) })
+  }
+
+  it('downloads the largest size and submits caption + image', async () => {
+    const state = makeState()
+    const { transport, middlewares } = makeTransport(state)
+    const onMsg = vi.fn()
+    transport.onMessage(onMsg)
+    const fetchMock = stubFetch()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const ctx = photoCtx()
+    await middlewares[1](ctx, vi.fn())
+
+    expect(ctx.api.getFile).toHaveBeenCalledWith('big')
+    expect(fetchMock.mock.calls[0][0]).toContain('/file/bot123:abc/photos/big.jpg')
+    expect(onMsg).toHaveBeenCalledTimes(1)
+    const msg = onMsg.mock.calls[0][0]
+    expect(msg.text).toBe('what is this?')
+    expect(msg.images).toEqual([{ data: Buffer.from([1, 2, 3]).toString('base64'), mimeType: 'image/jpeg' }])
+  })
+
+  it('replies with a failure notice and drops the turn when the download fails', async () => {
+    const { transport, middlewares } = makeTransport(makeState())
+    const onMsg = vi.fn()
+    transport.onMessage(onMsg)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }))
+
+    const ctx = photoCtx()
+    await middlewares[1](ctx, vi.fn())
+
     expect(onMsg).not.toHaveBeenCalled()
+    expect(String(ctx.reply.mock.calls[0][0])).toMatch(/图片接收失败/)
+  })
+
+  it('never routes a caption into a reply-keyboard button', async () => {
+    const { transport, middlewares } = makeTransport(makeState())
+    const onMsg = vi.fn()
+    transport.onMessage(onMsg)
+    vi.stubGlobal('fetch', stubFetch())
+
+    const ctx = photoCtx({ message: { photo: [{ file_id: 'big', width: 10, height: 10 }], caption: 'AGENT 🤖', message_id: 8 } })
+    await middlewares[1](ctx, vi.fn())
+
+    expect(onMsg).toHaveBeenCalledTimes(1)
+    expect(onMsg.mock.calls[0][0].text).toBe('AGENT 🤖')
   })
 })

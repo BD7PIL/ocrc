@@ -16,7 +16,7 @@
 
   const KEY = 'ocrc.planHud'
   const INLINE_PENDING = 5
-  const R = 18
+  const R = 17
   const CIRC = 2 * Math.PI * R
 
   type HudState = { dismissed?: string[]; expanded?: boolean }
@@ -208,13 +208,11 @@
     aria-expanded={expanded}
     on:click={toggleExpanded}
   >
-    <svg class="ring" viewBox="0 0 44 44" aria-hidden="true">
-      <circle class="track" cx="22" cy="22" r={R} />
+    <svg class="ring" viewBox="0 0 38 38" aria-hidden="true">
       <circle
         class="arc"
-        cx="22" cy="22" r={R}
-        stroke-dasharray={CIRC}
-        stroke-dashoffset={CIRC * (1 - pct)}
+        cx="19" cy="19" r={R}
+        stroke-dasharray={`${Math.max(CIRC * pct, CIRC * 0.04)} ${CIRC}`}
       />
     </svg>
     <span class="ball-count mono">{sum.done}<i>/</i>{sum.total}</span>
@@ -230,52 +228,53 @@
     .plan-card { display: block; }
   }
 
-  /* ── The orb: fixed above the composer, enso ring = todo progress ── */
+  /* ── The orb: enso mark as progress — a single accent arc (no track), fixed
+     above the composer. Sized to the titlebar avatar so they read as kin. ── */
   .ball {
     position: fixed;
     right: 16px;
     bottom: calc(var(--composer-h, 120px) + var(--kb, 0px) + 18px + env(safe-area-inset-bottom, 0px));
     z-index: var(--z-hud);
-    width: 46px;
-    height: 46px;
+    width: 38px;
+    height: 38px;
     padding: 0;
     border: none;
     border-radius: 50%;
     background: var(--bg-elev);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, .28);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .26);
     cursor: pointer;
     place-items: center;
     transition: transform .15s var(--ease, ease);
   }
   .ball:active { transform: scale(.92); }
   .ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
-  .ring circle { fill: none; stroke-width: 3; }
-  .track { stroke: var(--border); }
   .arc {
+    fill: none;
     stroke: var(--accent);
+    stroke-width: 2.5;
     stroke-linecap: round;
-    transition: stroke-dashoffset .4s var(--ease, ease);
+    transition: stroke-dasharray .4s var(--ease, ease);
   }
   .ball-count {
     position: relative;
-    font-size: 11px;
+    font-size: 9.5px;
     color: var(--text);
     letter-spacing: -.02em;
   }
   .ball-count i { font-style: normal; color: var(--text-3); padding: 0 1px; }
   .badge {
     position: absolute;
-    top: -4px;
-    right: -4px;
-    min-width: 17px;
-    height: 17px;
-    padding: 0 4px;
+    top: -3px;
+    right: -3px;
+    min-width: 15px;
+    height: 15px;
+    padding: 0 3px;
     display: grid;
     place-items: center;
     background: var(--accent);
     color: var(--accent-ink);
     border-radius: var(--radius-pill);
-    font-size: 9.5px;
+    font-size: 9px;
     font-weight: 700;
     box-sizing: border-box;
   }

@@ -254,7 +254,12 @@
     /* Compact pill on mobile (design = "pill + round send") instead of the taller
        desktop box, so a focused input doesn't read as a bulky floating block. */
     .box { padding: 7px 8px 7px 14px; border-radius: var(--radius-pill); }
-    .footer { margin-top: 4px; }
+    .footer { margin-top: 4px; gap: 6px; }
+    /* Two override chips + attach + send must fit 390px: the chip wraps are the
+       flex items, so they shrink and ellipsize; the round buttons never do. */
+    .footer :global(.wrap) { min-width: 0; flex-shrink: 1; }
+    .footer :global(.chip) { max-width: 36vw; overflow: hidden; }
+    .send, .attach { flex-shrink: 0; }
     /* ≥44px touch targets on small/coarse screens. */
     .send { width: 44px; height: 44px; }
     .attach { width: 44px; height: 44px; }

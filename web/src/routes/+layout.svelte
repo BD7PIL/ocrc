@@ -61,8 +61,18 @@
     viewedSessionId.set(id)
     // Only the viewed session is subscribed, so evict every other feed —
     // visited sessions' histories must not accumulate in memory forever.
+    // Leaving the viewed session evicts EVERYTHING and must also clear the
+    // load latch: otherwise returning to the same session hits the
+    // `id === lastLoaded` skip below with an evicted (empty) feed — the
+    // "refresh shows a blank session" bug.
+    if (!id) {
+      pruneFeeds(undefined)
+      lastLoaded = null
+      return
+    }
     pruneFeeds(id)
-    if (!id || id === lastLoaded) return
+    const feedEmpty = !(get(feeds)[id]?.order?.length)
+    if (id === lastLoaded && !feedEmpty) return
     lastLoaded = id
     api.history(id)
       .then(({ cards, lastSeq }) => {

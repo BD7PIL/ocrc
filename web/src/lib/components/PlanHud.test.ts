@@ -41,9 +41,9 @@ describe('PlanHud', () => {
     vi.mocked(api.todo).mockResolvedValue(TODOS)
     const { container } = render(PlanHud, { props: { sessionId: 's-groups' } })
     await vi.waitFor(() => expect(container.querySelector('.ball')).toBeTruthy())
-    // Orb shows the done/total count and the progress arc.
+    // Orb shows the done/total count and the progress arc (enso single arc).
     expect(container.textContent).toContain('1')
-    expect(container.querySelector('.arc')!.getAttribute('stroke-dashoffset')).toBeTruthy()
+    expect(container.querySelector('.arc')!.getAttribute('stroke-dasharray')).toBeTruthy()
     // Expanded card is closed while the orb shows.
     expect(container.querySelector('.plan-card')).toBeNull()
 

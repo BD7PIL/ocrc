@@ -18,6 +18,8 @@ import {
   buildMainKeyboard,
   agentButtonLabel,
   modelButtonLabel,
+  contextButtonLabel,
+  fmtK,
   AGENT_BUTTON_TEXT_PATTERN,
   MODEL_BUTTON_TEXT_PATTERN,
   CONTEXT_BUTTON_TEXT_PATTERN,
@@ -130,7 +132,7 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
         const used = tokens.used ?? 0
         const max = tokens.max ?? 0
         const pct = max > 0 ? Math.round((used / max) * 100) : 0
-        let msg = `📊 上下文用量：${used} / ${max} tokens（${pct}%）`
+        let msg = `📊 上下文用量：${fmtK(used)} / ${fmtK(max)} tokens（${pct}%）`
         // Prompt-cache line, same semantics as the web Inspector: hit rate =
         // cache.read / (input + cache.read) for the latest turn.
         const cacheRead = tokens.cache?.read

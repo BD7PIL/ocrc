@@ -20,9 +20,16 @@ export function modelButtonLabel(modelLabel: string): string {
   return `🧠 ${modelLabel}`
 }
 
+/** Auto-scale token counts: 13526 → 13.5K, 1000000 → 1.0M. */
+export function fmtK(n: number): string {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`
+  return String(n)
+}
+
 export function contextButtonLabel(used: number, limit: number): string {
   const pct = limit > 0 ? Math.round((used / limit) * 100) : 0
-  return `📊 ${used} / ${limit} (${pct}%)`
+  return `📊 ${fmtK(used)} / ${fmtK(limit)} (${pct}%)`
 }
 
 export function buildMainKeyboard(data: MainKeyboardData): Keyboard {

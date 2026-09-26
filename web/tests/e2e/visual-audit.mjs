@@ -62,14 +62,20 @@ const api = {
     { kind: 'add', text: '  ws?.close() // let onclose drive reconnect' },
     { kind: 'ctx', text: '}' },
   ] }],
-  '/api/session/ses_aaa111/todo': [{ content: 'Fix double reconnect', status: 'completed' }, { content: 'Add regression test', status: 'pending' }],
+  '/api/session/ses_aaa111/todo': [
+    { content: 'Fix double reconnect', status: 'completed' },
+    { content: 'Write regression test', status: 'in_progress' },
+    { content: 'Harden backoff jitter', status: 'pending' },
+    { content: 'Document reconnect policy', status: 'pending' },
+    { content: 'Ship v2.1', status: 'pending' },
+  ],
   '/api/session/ses_aaa111/controls': { mode: { current: 'build', options: [{ id: 'build', name: 'build' }, { id: 'plan', name: 'plan' }] }, model: { current: 'kimi-for-coding', options: [{ id: 'kimi-for-coding', name: 'kimi-for-coding' }] } },
 }
 
 await new Promise((r) => server.listen(PORT, r))
 const browser = await chromium.launch()
 
-async function shot(name, { width = 1440, height = 900, path = '/ses_aaa111/', mobile = false } = {}) {
+async function shot(name, { width = 1440, height = 900, path = '/ses_aaa111/', mobile = false, expandHud = false, hudMenu = false } = {}) {
   const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, isMobile: mobile, hasTouch: mobile })
   const page = await ctx.newPage()
   await page.addInitScript(() => localStorage.setItem('ocrc.token', 'visual-audit'))
@@ -81,6 +87,8 @@ async function shot(name, { width = 1440, height = 900, path = '/ses_aaa111/', m
   })
   await page.goto(`http://127.0.0.1:${PORT}${path}`, { waitUntil: 'networkidle' })
   await page.waitForTimeout(800)
+  if (expandHud) { await page.click('.plan-hud .hd'); await page.waitForTimeout(400) }
+  if (hudMenu) { await page.click('.plan-hud .dots'); await page.waitForTimeout(300) }
   await page.screenshot({ path: `${OUT}/${name}.png` })
   await ctx.close()
   console.log(`shot: ${name}`)
@@ -90,6 +98,10 @@ await shot('desktop-session')
 await shot('desktop-sessions-list', { path: '/' })
 await shot('mobile-session', { width: 390, height: 844, mobile: true })
 await shot('mobile-sessions', { width: 390, height: 844, path: '/', mobile: true })
+// PlanHud floating plan card — collapsed / expanded / ⋯ menu (mobile only).
+await shot('mobile-plan-collapsed', { width: 390, height: 844, mobile: true })
+await shot('mobile-plan-expanded', { width: 390, height: 844, mobile: true, expandHud: true })
+await shot('mobile-plan-menu', { width: 390, height: 844, mobile: true, hudMenu: true })
 
 await browser.close()
 server.close()

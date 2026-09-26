@@ -9,6 +9,7 @@
   import Card from '$lib/components/Card.svelte'
   import Composer from '$lib/components/Composer.svelte'
   import SessionSwitcher from '$lib/components/SessionSwitcher.svelte'
+  import PlanHud from '$lib/components/PlanHud.svelte'
 
   let scrollEl: HTMLDivElement
   let composerEl: HTMLElement
@@ -219,6 +220,9 @@
   />
   <Composer {sessionId} />
 </div>
+
+<!-- ZCode-mobile-style floating plan card — mobile only (inside the component). -->
+<PlanHud {sessionId} />
 
 <style>
   .jump {

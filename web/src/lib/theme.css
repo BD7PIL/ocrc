@@ -102,6 +102,7 @@
 
   /* semantic z-index scale (low → high) */
   --z-sticky:    5;   /* sub-headers, floating composer */
+  --z-hud:       8;   /* floating plan card (mobile) */
   --z-dropdown: 10;   /* inline dropdowns (mentions) */
   --z-backdrop: 25;   /* drawer/sheet scrims */
   --z-drawer:   30;   /* rail drawer */

@@ -1,9 +1,10 @@
 <!-- src/lib/components/PlanHud.svelte — mobile floating plan card (≤820px).
-     ZCode-mobile-style draggable plan window: collapsed = one-line progress,
-     expanded = grouped todo list. Read-only by design — opencode exposes no
-     todo write API (TaskPanel's toggle is likewise a local visual state). -->
+     ZCode-mobile-style FIXED plan card (user ruling: not draggable): collapsed =
+     one-line progress, expanded = grouped todo list. Read-only by design —
+     opencode exposes no todo write API (TaskPanel's toggle is likewise a local
+     visual state). -->
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte'
+  import { onDestroy } from 'svelte'
   import { api } from '$lib/api/client.js'
   import { feeds, sessionList } from '$lib/stores/sessions.js'
   import { can } from '$lib/stores/capabilities.js'
@@ -15,14 +16,16 @@
   const KEY = 'ocrc.planHud'
   const PREVIEW_PENDING = 2
 
-  type HudState = { pos?: { x: number; y: number }; dismissed?: string[]; expanded?: boolean }
+  type HudState = { dismissed?: string[]; expanded?: boolean }
   function loadState(): HudState {
     if (typeof localStorage === 'undefined') return {}
-    try { return JSON.parse(localStorage.getItem(KEY) ?? '{}') ?? {} } catch { return {} }
+    try {
+      const s = JSON.parse(localStorage.getItem(KEY) ?? '{}') ?? {}
+      return { dismissed: s.dismissed, expanded: s.expanded }
+    } catch { return {} }
   }
   let hud: HudState = loadState()
   let expanded = hud.expanded ?? false
-  let pos: { x: number; y: number } = hud.pos ?? { x: 12, y: 64 }
 
   function save(next?: Partial<HudState>) {
     hud = { ...hud, ...next }
@@ -59,7 +62,6 @@
   $: doneItems = sum.items.filter((i) => i.status === 'done')
   $: runningItems = sum.items.filter((i) => i.status === 'running')
   $: pendingItems = sum.items.filter((i) => i.status === 'pending')
-  $: pct = sum.total ? Math.round((sum.done / sum.total) * 100) : 0
   $: restCount = Math.max(0, pendingItems.length - PREVIEW_PENDING)
   $: dismissed = hud.dismissed?.includes(sessionId) ?? false
 
@@ -79,70 +81,12 @@
     inspectorOpen.set(true)
   }
 
-  // ── Drag (pointer events, 6px threshold separates tap-to-expand from drag) ──
-  let el: HTMLElement
+  // ── Interaction: tap header to expand/collapse; no drag (fixed anchor, ZCode
+  //    parity per user ruling — dragging also caused visible jank on mobile). ──
   let dotsEl: HTMLElement
   let menuEl: HTMLElement
-  let active = false
-  let moved = false
-  let dragging = false
-  let suppressClick = false
-  let startPx = 0
-  let startPy = 0
-  let startX = 0
-  let startY = 0
 
-  // Hidden elements have zero box — clamping against them would fling the card,
-  // so skip until it's actually laid out (also true for desktop, where the HUD
-  // is display:none and the Inspector panel is the plan surface anyway).
-  function clampToViewport(x: number, y: number): { x: number; y: number } {
-    if (!el || el.offsetWidth === 0) return { x, y }
-    return {
-      x: Math.min(Math.max(8, x), Math.max(8, window.innerWidth - el.offsetWidth - 8)),
-      y: Math.min(Math.max(8, y), Math.max(8, window.innerHeight - el.offsetHeight - 8)),
-    }
-  }
-  // env() isn't readable from JS directly — measure it with a throwaway probe.
-  function safeTop(): number {
-    const probe = document.createElement('div')
-    probe.style.cssText = 'position:fixed;top:env(safe-area-inset-top,0px);visibility:hidden;pointer-events:none'
-    document.body.appendChild(probe)
-    const v = probe.getBoundingClientRect().top
-    probe.remove()
-    return v
-  }
-  onMount(() => {
-    if (!hud.pos) pos = { x: 12, y: safeTop() + 62 }
-    pos = clampToViewport(pos.x, pos.y)
-    const onResize = () => { pos = clampToViewport(pos.x, pos.y) }
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  })
-
-  function onDown(e: PointerEvent) {
-    active = true
-    moved = false
-    startPx = e.clientX
-    startPy = e.clientY
-    startX = pos.x
-    startY = pos.y
-    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId) } catch { /* jsdom */ }
-  }
-  function onMove(e: PointerEvent) {
-    if (!active) return
-    const dx = e.clientX - startPx
-    const dy = e.clientY - startPy
-    if (!moved && Math.hypot(dx, dy) > 6) { moved = true; dragging = true }
-    if (dragging) pos = clampToViewport(startX + dx, startY + dy)
-  }
-  function onUp() {
-    if (dragging) { suppressClick = true; save({ pos }) }
-    active = false
-    dragging = false
-  }
-  function onCancel() { active = false; dragging = false }
-  function onHeaderClick() {
-    if (suppressClick) { suppressClick = false; return }
+  function toggleExpanded() {
     expanded = !expanded
     save({ expanded })
   }
@@ -158,26 +102,14 @@
 <svelte:window on:pointerdown={onOutside} />
 
 {#if loadedFor === sessionId && sum.total > 0 && !dismissed && $can('todos')}
-  <div
-    class="plan-hud"
-    class:expanded
-    class:dragging
-    bind:this={el}
-    style="left:{pos.x}px; top:{pos.y}px"
-  >
-    <div class="bar" aria-hidden="true"><div class="fill" style="transform:scaleX({pct / 100})"></div></div>
-
+  <div class="plan-hud" class:expanded>
     <div
       class="hd"
       role="button"
       tabindex="0"
       aria-expanded={expanded}
-      on:pointerdown={onDown}
-      on:pointermove={onMove}
-      on:pointerup={onUp}
-      on:pointercancel={onCancel}
-      on:click={onHeaderClick}
-      on:keydown={(e) => e.key === 'Enter' && onHeaderClick()}
+      on:click={toggleExpanded}
+      on:keydown={(e) => e.key === 'Enter' && toggleExpanded()}
     >
       <span class="label">Plan</span>
       <span class="title">{title || '…' + sessionId.slice(-8)}</span>
@@ -243,53 +175,28 @@
   .plan-hud {
     display: none;
     position: fixed;
+    left: 12px;
+    top: calc(62px + env(safe-area-inset-top, 0px)); /* below the sub-header */
     z-index: var(--z-hud);
     width: min(78vw, 240px);
     background: var(--bg-elev);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: 0 10px 30px rgba(0, 0, 0, .2);
-    transition: width .18s var(--ease, ease), box-shadow .15s ease;
     overflow: visible;
   }
   @media (max-width: 820px) {
     .plan-hud { display: block; }
   }
   .plan-hud.expanded { width: min(88vw, 320px); }
-  .plan-hud.dragging {
-    transition: none;
-    box-shadow: 0 16px 44px rgba(0, 0, 0, .32);
-  }
-
-  /* Hairline progress along the card's top edge — visible even collapsed. */
-  .bar {
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 2px;
-    border-radius: var(--radius) var(--radius) 0 0;
-    overflow: hidden;
-    background: transparent;
-  }
-  .fill {
-    height: 100%;
-    width: 100%;
-    background: var(--accent);
-    transform-origin: left;
-    transition: transform .3s ease;
-  }
 
   .hd {
     display: flex;
     align-items: center;
     gap: 7px;
     padding: 10px 10px 10px 12px;
-    cursor: grab;
-    user-select: none;
-    -webkit-user-select: none;
-    -webkit-touch-callout: none;
-    touch-action: none; /* the header is the drag surface */
+    cursor: pointer;
   }
-  .plan-hud.dragging .hd { cursor: grabbing; }
   .label {
     flex-shrink: 0;
     text-transform: uppercase;

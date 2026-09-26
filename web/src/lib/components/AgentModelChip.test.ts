@@ -6,6 +6,7 @@ import { api } from '$lib/api/client.js'
 vi.mock('$lib/api/client.js', () => ({
   api: {
     agents: vi.fn(),
+    models: vi.fn(),
     getOverrides: vi.fn(),
     setOverrides: vi.fn(),
   },
@@ -14,7 +15,24 @@ vi.mock('$lib/api/client.js', () => ({
 describe('AgentModelChip', () => {
   beforeEach(() => {
     vi.mocked(api.agents).mockReset().mockResolvedValue([{ name: 'build', model: 'openai/gpt-5' }] as any)
+    vi.mocked(api.models).mockReset().mockResolvedValue([
+      { id: 'xiaomi', name: 'xiaomi', models: [{ id: 'mimo-v2.6-pro', name: 'mimo-v2.6-pro' }] },
+    ] as any)
     vi.mocked(api.getOverrides).mockReset().mockResolvedValue({ agent: null, model: null } as any)
+  })
+
+  it('lists the full provider catalog alongside agents', async () => {
+    const { container } = render(AgentModelChip)
+    await fireEvent.click(container.querySelector('.chip') as HTMLElement)
+    await vi.waitFor(() => expect(container.textContent).toContain('xiaomi'))
+    expect(container.textContent).toContain('mimo-v2.6-pro')
+    // Model rows are options too — picking one posts a model-only override.
+    const rows = [...container.querySelectorAll('[role="option"]')]
+    const modelRow = rows.find((b) => b.textContent?.includes('mimo-v2.6-pro')) as HTMLElement
+    await fireEvent.click(modelRow)
+    await vi.waitFor(() =>
+      expect(vi.mocked(api.setOverrides)).toHaveBeenCalledWith({ model: { providerID: 'xiaomi', modelID: 'mimo-v2.6-pro' } }),
+    )
   })
 
   it('exposes listbox semantics and aria-expanded on the chip trigger', async () => {

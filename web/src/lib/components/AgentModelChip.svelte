@@ -6,10 +6,15 @@
   let open = false
   let wrap: HTMLElement
   let agents: Array<{ name: string; model: string }> = []
+  // Full provider/model catalog — the same source the TG 🧠 menu lists, so
+  // user-level providers (xiaomi/deepseek/…) are pickable here too.
+  let providers: Array<{ id: string; models: Array<{ id: string; name?: string }> }> = []
   let current = { agent: null as string | null, model: null as { providerID: string; modelID: string } | null }
 
   async function refresh() {
-    try { [agents, current] = await Promise.all([api.agents(), api.getOverrides()]) } catch { /* ignore */ }
+    try {
+      ;[agents, providers, current] = await Promise.all([api.agents(), api.models(), api.getOverrides()])
+    } catch { /* ignore */ }
   }
   onMount(refresh)
 
@@ -17,6 +22,14 @@
   async function pick(a: { name: string; model: string }) {
     await api.setOverrides({ agent: a.name, model: parseModel(a.model) })
     await refresh(); open = false
+  }
+  // Model-only pick — agent override stays untouched ('model' in body semantics).
+  async function pickModel(providerID: string, modelID: string) {
+    await api.setOverrides({ model: { providerID, modelID } })
+    await refresh(); open = false
+  }
+  function modelRowClass(providerID: string, modelID: string) {
+    return current.model?.providerID === providerID && current.model?.modelID === modelID ? 'opt sel' : 'opt'
   }
   async function clear() { await api.setOverrides({ agent: null, model: null }); await refresh(); open = false }
 
@@ -43,7 +56,17 @@
           <span>{a.name}</span> <span class="label mono">{a.model.split('/').pop()}</span>
         </button>
       {/each}
-      <button class="opt clear" role="option" aria-selected={current.agent == null} on:click={clear}><Icon name="close" size={11} /> clear override</button>
+      <div class="label">Model</div>
+      {#if providers.length === 0}<div class="none label">no models</div>{/if}
+      {#each providers as p (p.id)}
+        <div class="prov label mono">{p.id}</div>
+        {#each p.models as mo (mo.id)}
+          <button class={modelRowClass(p.id, mo.id)} role="option" aria-selected={current.model?.providerID === p.id && current.model?.modelID === mo.id} on:click={() => pickModel(p.id, mo.id)}>
+            <span>{mo.name || mo.id}</span>
+          </button>
+        {/each}
+      {/each}
+      <button class="opt clear" role="option" aria-selected={current.agent == null && current.model == null} on:click={clear}><Icon name="close" size={11} /> clear override</button>
     </div>
   {/if}
 </div>
@@ -52,8 +75,9 @@
   .wrap { position: relative; }
   .chip { display: flex; align-items: center; gap: 5px; min-height: 24px; box-sizing: border-box; background: transparent; border: 1px solid var(--border); color: var(--text-2); border-radius: var(--radius-pill); padding: 5px 11px; font-size: 11.5px; white-space: nowrap; cursor: pointer; transition: border-color .15s, color .15s; }
   .chip:hover { border-color: var(--accent); color: var(--text); }
-  .pop { position: absolute; bottom: 44px; left: 0; width: 248px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; box-shadow: 0 16px 40px rgba(0,0,0,.5); z-index: var(--z-popover); }
-  .opt { display: flex; justify-content: space-between; align-items: center; width: 100%; background: transparent; border: none; color: var(--text); padding: 6px 8px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; }
+  .pop { position: absolute; bottom: 44px; left: 0; width: 248px; max-height: min(60vh, 420px); overflow-y: auto; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; box-shadow: 0 16px 40px rgba(0,0,0,.5); z-index: var(--z-popover); }
+  .prov { padding: 7px 8px 2px; color: var(--text-3); }
+  .opt { display: flex; justify-content: space-between; align-items: center; width: 100%; background: transparent; border: none; color: var(--text); padding: 6px 8px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; text-align: left; }
   .opt:hover, .opt.sel { background: var(--accent-2); }
   .clear { color: var(--text-3); margin-top: 4px; }
   .none { padding: 6px 8px; }

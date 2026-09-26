@@ -12,6 +12,14 @@ import { PermissionFlow } from './permission-flow.js'
 import { InteractionManager } from './managers/interaction-manager.js'
 import { PermissionManager } from './managers/permission-manager.js'
 import type { PermissionRequest } from './types/permission.js'
+import {
+  buildMainKeyboard,
+  agentButtonLabel,
+  modelButtonLabel,
+  AGENT_BUTTON_TEXT_PATTERN,
+  MODEL_BUTTON_TEXT_PATTERN,
+  CONTEXT_BUTTON_TEXT_PATTERN,
+} from './main-keyboard.js'
 import { registerHandlers } from './handlers.js'
 import type { PendingApproval, ApprovalResponse } from './handlers.js'
 import { esc } from './esc.js'
@@ -119,6 +127,11 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
   const interactionManager = new InteractionManager()
   const permissionManager = new PermissionManager(interactionManager)
   let permissionFlow: PermissionFlow | undefined
+  /** Latest reply-keyboard payload, refreshed by whoever has fresh data. */
+  let keyboardData: { agentName: string; modelLabel: string; context?: { used: number; limit: number } } = {
+    agentName: 'opencode',
+    modelLabel: 'default',
+  }
   // Legacy approval state (fallback path + TTL sweep kept from M1).
   const pendingApprovals = new Map<string, PendingApproval>()
   // Short token → permissionId, so approve:* callback_data stays under
@@ -156,6 +169,41 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
       log.error('permission decision failed', err as Error)
       ctx.answerCallbackQuery('处理失败').catch(() => {})
     })
+  })
+
+  // ── M4: reply keyboard + hears routers (grinev signature UX) ──
+  const sendMainKeyboard = async (ctx: { reply: Function }) => {
+    await ctx.reply('键盘已更新', { reply_markup: buildMainKeyboard(keyboardData) }).catch((err: Error) => {
+      log.warn('send keyboard failed', (err as Error).message)
+    })
+  }
+  const refreshKeyboardData = async (): Promise<void> => {
+    try {
+      const meta = await cfg.backend.getSessionMeta(targetSessionId() ?? '')
+      const agents = cfg.backend.capabilities.catalog ? await cfg.backend.getAgents(cfg.opencodeProject).catch(() => []) : []
+      keyboardData = {
+        agentName: meta.agent ?? keyboardData.agentName,
+        modelLabel: meta.model ?? keyboardData.modelLabel,
+      }
+      void agents
+    } catch { /* keep previous */ }
+  }
+
+  // Button presses arrive as ordinary text messages — match by pattern.
+  bot.hears(AGENT_BUTTON_TEXT_PATTERN, async (ctx) => {
+    if (!permissionFlow) return
+    void ctx.reply('打开 agent 选择：请用 /agent 命令（菜单将在 M4+ 增强）').catch(() => {})
+  })
+  bot.hears(MODEL_BUTTON_TEXT_PATTERN, async (ctx) => {
+    void ctx.reply('打开模型选择：请用 /model 命令（菜单将在 M4+ 增强）').catch(() => {})
+  })
+  bot.hears(CONTEXT_BUTTON_TEXT_PATTERN, async (ctx) => {
+    try {
+      const meta = await cfg.backend.getSessionMeta(targetSessionId() ?? '')
+      const used = (meta.tokens as any)?.used ?? 0
+      const max = (meta.tokens as any)?.max ?? 0
+      await ctx.reply(`📊 上下文用量：${used} / ${max} tokens（${max > 0 ? Math.round((used / max) * 100) : 0}%）`)
+    } catch { await ctx.reply('📊 上下文用量暂不可用') }
   })
 
   // Register commands + callbacks
@@ -263,6 +311,12 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
           renderers.delete(card.sessionId)
         }
       })
+
+      // Deliver the persistent reply keyboard once per boot.
+      await refreshKeyboardData().catch(() => {})
+      await bot.api
+        .sendMessage(chatId, 'ocrc 已就绪', { reply_markup: buildMainKeyboard(keyboardData) })
+        .catch((err) => log.warn('boot keyboard send failed', (err as Error).message))
 
       const MAX_CONFLICT = 8
       const MAX_RETRIES = 10

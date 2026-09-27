@@ -17,11 +17,12 @@
 
   const KEY = 'ocrc.planHud'
   const INLINE_PENDING = 5
-  // Favicon geometry, rescaled from the 64-box to the 44px orb (same size as
-  // the composer's send button): ring r24→16.5, stroke 8→5.5, ink sweep 310°
-  // starting at 3 o'clock (gap = top-right 1→3 o'clock), dot home at 325°.
-  const R = 16.5
-  const STROKE = 5.5
+  // Favicon geometry, rescaled from the 64-box to the 38px orb: ring r24→14.5,
+  // stroke 8→4, ink sweep 310° starting at 3 o'clock (gap = top-right 1→3
+  // o'clock), dot home at 325°. 38px, not 44: the ink ring's visual weight
+  // makes it read bigger than the send button at equal size (user ruling).
+  const R = 14.5
+  const STROKE = 4
   const CIRC = 2 * Math.PI * R
   const INK_DASH = CIRC * (310 / 360)
   const DOT_HOME = -(325 / 360) * CIRC // negative offset = start clockwise at 325°
@@ -217,11 +218,11 @@
     on:click={toggleExpanded}
   >
     <!-- The enso mark: fixed ink ring + the persimmon dot growing with progress -->
-    <svg class="ring" viewBox="0 0 44 44" aria-hidden="true">
-      <circle class="ink" cx="22" cy="22" r={R} stroke-dasharray={`${INK_DASH} ${CIRC}`} />
+    <svg class="ring" viewBox="0 0 38 38" aria-hidden="true">
+      <circle class="ink" cx="19" cy="19" r={R} stroke-dasharray={`${INK_DASH} ${CIRC}`} />
       <circle
         class="sun"
-        cx="22" cy="22" r={R}
+        cx="19" cy="19" r={R}
         stroke-dasharray={`${Math.max(CIRC * pct, DOT_MIN)} ${CIRC}`}
         stroke-dashoffset={DOT_HOME}
       />
@@ -240,15 +241,15 @@
 
   /* ── The orb IS the enso mark: ink ring (theme-tracked) + persimmon dot that
      grows along the ring with plan progress. Same proportions as the favicon
-     and the titlebar brand mark. Sized/aligned to the send button (44px, same
-     right edge → same center X), sitting just above the composer. ── */
+     and the titlebar brand mark. Center X still aligned to the send button
+     (right = composer 12 + box 8 + half-send 22 − half-orb 19 = 23px). ── */
   .ball {
     position: fixed;
-    right: 20px; /* = composer padding + box padding + half send → centers align */
+    right: 23px;
     bottom: calc(var(--composer-h, 120px) + var(--kb, 0px) + 8px + env(safe-area-inset-bottom, 0px));
     z-index: var(--z-hud);
-    width: 44px;
-    height: 44px;
+    width: 38px;
+    height: 38px;
     padding: 0;
     border: none;
     border-radius: 50%;
@@ -260,7 +261,7 @@
   }
   .ball:active { transform: scale(.92); }
   .ring { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .ring circle { fill: none; stroke-width: 5.5; stroke-linecap: round; }
+  .ring circle { fill: none; stroke-width: 4; stroke-linecap: round; }
   .ink { stroke: var(--text); }
   .sun {
     stroke: var(--accent);
@@ -288,7 +289,7 @@
   .plan-card {
     position: fixed;
     right: 16px;
-    bottom: calc(var(--composer-h, 120px) + var(--kb, 0px) + 60px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(var(--composer-h, 120px) + var(--kb, 0px) + 54px + env(safe-area-inset-bottom, 0px));
     z-index: var(--z-hud);
     width: min(86vw, 320px);
     background: var(--bg-elev);

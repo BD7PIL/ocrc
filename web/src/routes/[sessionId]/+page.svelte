@@ -193,6 +193,15 @@
       />
     {/each}
     {#if cards.length === 0}
+      <!-- While the history snapshot is in flight show a quiet loader, NOT the
+           empty state — flashing "no messages" before they arrive read as
+           flicker (user report). The empty state only appears once the feed
+           exists and is genuinely empty. -->
+      {#if !feed}
+        <div class="loading mono" aria-label="Loading conversation">
+          <span class="ldot"></span><span class="ldot"></span><span class="ldot"></span>
+        </div>
+      {:else}
       <div class="empty">
         <svg class="empty-mark" viewBox="0 0 64 64" fill="none" stroke-width="8" stroke-linecap="round" aria-hidden="true">
           <path d="M46 15 A24 24 0 1 0 54 32" stroke="var(--text)" opacity=".85"/>
@@ -201,6 +210,7 @@
         <p class="empty-title">要让 agent 做什么？</p>
         <p class="empty-hint">在下方描述任务——它将在本项目目录中运行。需要时可附上图片。</p>
       </div>
+      {/if}
     {/if}
   </div>
 </div>
@@ -366,16 +376,27 @@
     display: flex;
     flex-direction: column;
   }
-  /* Message entrance: new cards rise in; a freshly loaded history cascades
-     with a small capped stagger instead of blinking in as a block. */
-  .stream > :global(*) {
+  /* Message entrance — ONLY the newest card rises, and only when it arrives
+     live. History mounts instantly (batch insert → only the true :last-child
+     ever matches, so a loaded backlog never replays the animation). */
+  .stream > :global(*):last-child {
     animation: ocrc-rise var(--dur-enter, 200ms) var(--ease-out, ease-out) backwards;
   }
-  .stream > :global(*):nth-child(2) { animation-delay: 30ms; }
-  .stream > :global(*):nth-child(3) { animation-delay: 60ms; }
-  .stream > :global(*):nth-child(4) { animation-delay: 90ms; }
-  .stream > :global(*):nth-child(5) { animation-delay: 120ms; }
-  .stream > :global(*):nth-child(n + 6) { animation-delay: 0ms; }
+  .loading {
+    display: flex;
+    justify-content: center;
+    gap: 7px;
+    padding: 18vh 24px 40px;
+  }
+  .ldot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-3);
+    animation: ocrc-pulse 1.2s ease-in-out infinite;
+  }
+  .ldot:nth-child(2) { animation-delay: .15s; }
+  .ldot:nth-child(3) { animation-delay: .3s; }
   .empty {
     display: flex;
     flex-direction: column;

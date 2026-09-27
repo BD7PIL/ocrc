@@ -85,6 +85,9 @@
       })
       .catch((err) => {
         console.warn('[layout] history failed', err)
+        // An empty feed — NOT a missing one: a missing feed keeps the
+        // "loading" state alive forever and reads as flicker on the page.
+        setHistory(id, [], 0)
         wsClient?.send({ type: 'subscribe', sessionId: id })
       })
   }

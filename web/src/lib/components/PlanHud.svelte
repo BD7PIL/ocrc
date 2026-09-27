@@ -206,7 +206,7 @@
             <span>Parent session …{breadcrumb.slice(-8)}</span>
           </button>
         {/if}
-        <div class="prog mono">Progress {sum.done}/{sum.total}</div>
+        <div class="prog mono">Tasks {sum.done}/{sum.total}</div>
 
         {#if doneItems.length}
           <button class="grp" aria-expanded={showDone} on:click={() => (showDone = !showDone)}>
@@ -241,7 +241,7 @@
         {/if}
 
         {#if subs.length}
-          <div class="grp static"><span class="sub-label">Subagents</span></div>
+          <div class="grp static"><span class="sub-label">Subagents · {subs.length}</span></div>
           {#each subs as s (s.id)}
             <button class="row sub jump" on:click={() => jumpToSub(s)} title="Open subagent session">
               {#if s.total > 0}<span class="sub-count mono">{s.done}/{s.total}</span>{/if}

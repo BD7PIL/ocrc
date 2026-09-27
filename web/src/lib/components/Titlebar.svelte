@@ -38,16 +38,16 @@
   </div>
 
   <!-- New actions menu -->
-  <button class="new-session" bind:this={newButtonAnchor} on:click={() => plusMenuOpen.update((v) => !v)} title="New session, command palette…">
+  <button class="new-session" bind:this={newButtonAnchor} on:click={() => plusMenuOpen.update((v) => !v)} title="新建会话、命令面板…">
     <span class="new-icon" aria-hidden="true">+</span>
-    <span class="new-label">New</span>
+    <span class="new-label">新建</span>
     <span class="new-caret" aria-hidden="true"><Icon name="caret-down" size={9} /></span>
   </button>
 
   <!-- Command palette trigger -->
-  <button class="palette-trigger" on:click={onPalette} title="Search sessions & commands (⌘K)">
+  <button class="palette-trigger" on:click={onPalette} title="搜索会话与命令 (⌘K)">
     <span class="palette-icon" aria-hidden="true"><Icon name="search" size={14} /></span>
-    <span class="palette-label">Search sessions & commands…</span>
+    <span class="palette-label">搜索会话与命令…</span>
     <kbd class="palette-keycap mono">⌘K</kbd>
   </button>
 

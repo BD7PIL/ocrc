@@ -37,8 +37,8 @@
     <Icon name="bolt" size={11} /> <span class="txt">{label}</span> <Icon name="caret-down" size={9} />
   </button>
   {#if open}
-    <div class="pop" role="listbox" aria-label="Model override">
-      {#if providers.length === 0}<div class="none label">no models</div>{/if}
+    <div class="pop" role="listbox" aria-label="模型覆盖">
+      {#if providers.length === 0}<div class="none label">暂无模型</div>{/if}
       {#each providers as p (p.id)}
         <div class="prov label mono">{p.id}</div>
         {#each p.models as mo (mo.id)}
@@ -53,7 +53,7 @@
           </button>
         {/each}
       {/each}
-      <button class="opt clear" role="option" aria-selected={current.model == null} on:click={clear}><Icon name="close" size={11} /> clear override</button>
+      <button class="opt clear" role="option" aria-selected={current.model == null} on:click={clear}><Icon name="close" size={11} /> 清除覆盖</button>
     </div>
   {/if}
 </div>

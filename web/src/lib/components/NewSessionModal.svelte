@@ -64,7 +64,7 @@
   async function submit() {
     const dir = directory.trim()
     if (!dir) {
-      error = 'Working directory is required'
+      error = '需要填写工作目录'
       return
     }
     if (creating) return
@@ -128,20 +128,20 @@
 
 {#if $newSessionOpen}
   <div class="overlay">
-    <button class="backdrop" aria-label="Close" on:click={close}></button>
-    <div class="modal" role="dialog" aria-modal="true" aria-label="Create new session" bind:this={modalEl} use:manageFocus>
+    <button class="backdrop" aria-label="关闭" on:click={close}></button>
+    <div class="modal" role="dialog" aria-modal="true" aria-label="新建会话" bind:this={modalEl} use:manageFocus>
       <div class="header">
         <span class="title">New session</span>
-        <button class="close" aria-label="Close" on:click={close}><Icon name="close" size={14} /></button>
+        <button class="close" aria-label="关闭" on:click={close}><Icon name="close" size={14} /></button>
       </div>
 
       <div class="body">
         {#if agents.length === 0}
-          <div class="empty">Loading agents…</div>
+          <div class="empty">正在加载 agent…</div>
         {:else}
           <div class="field">
             <span class="label">Agent</span>
-            <div class="agent-chips" role="radiogroup" aria-label="Select agent">
+            <div class="agent-chips" role="radiogroup" aria-label="选择 agent">
               {#each agents as a (a.id)}
                 {@const theme = agentAccent(a.id)}
                 {@const selected = a.id === selectedAgentId}
@@ -179,7 +179,7 @@
               bind:value={directory}
               on:focus={() => { showRecents = true }}
             />
-            <button class="browse" type="button" on:click={() => (showRecents = !showRecents)} title="Recent directories for this agent">Recent</button>
+            <button class="browse" type="button" on:click={() => (showRecents = !showRecents)} title="该 agent 最近使用的目录">最近</button>
           </div>
           {#if agentRecents.length > 0}
             <div class="recents" class:open={showRecents}>
@@ -211,7 +211,7 @@
       </div>
 
       <div class="footer">
-        <button class="btn secondary" type="button" on:click={close} disabled={creating}>Cancel</button>
+        <button class="btn secondary" type="button" on:click={close} disabled={creating}>取消</button>
         <button class="btn primary" type="button" on:click={submit} disabled={creating || !directory.trim()}>
           {creating ? 'Creating…' : 'Create'}
         </button>

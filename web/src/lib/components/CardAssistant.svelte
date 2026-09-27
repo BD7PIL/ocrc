@@ -48,9 +48,9 @@
       </div>
       <div class="actions">
         {#if onRegenerate}
-          <button class="icon" title="Regenerate" aria-label="Regenerate" on:click={onRegenerate}><Icon name="refresh" size={13} /></button>
+          <button class="icon" title="重新生成" aria-label="重新生成" on:click={onRegenerate}><Icon name="refresh" size={13} /></button>
         {/if}
-        <button class="icon" class:copied title="Copy" aria-label="Copy" on:click={copy}>
+        <button class="icon" class:copied title="复制" aria-label="复制" on:click={copy}>
           {#if copied}<Icon name="check" size={13} />{:else}<Icon name="copy" size={13} />{/if}
         </button>
       </div>

@@ -80,7 +80,7 @@
     retryLast()
   }
 
-  const STARTERS = ['Summarize this project', 'What changed recently?', 'Run the checks']
+  const STARTERS = ['总结这个项目', '最近有什么改动？', '运行检查']
   let chipsDismissed = false
   // Tier2 (model-generated) suggestions — fetched once per finished turn.
   let tier2: string[] = []
@@ -157,11 +157,11 @@
   <div class="sub-header">
     <div class="left">
       <!-- Mobile: back to the Sessions screen (dual-screen nav). -->
-      <button class="back" on:click={() => goto('/')} aria-label="Back to sessions">
+      <button class="back" on:click={() => goto('/')} aria-label="返回会话列表">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
       </button>
       {#if !$leftPanelOpen}
-        <button class="expand" title="Expand left panel" aria-label="Expand left panel" on:click={() => leftPanelOpen.set(true)}>
+        <button class="expand" title="Expand left panel" aria-label="展开左侧面板" on:click={() => leftPanelOpen.set(true)}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
         </button>
       {/if}
@@ -172,11 +172,11 @@
       {#if busy}
         <span class="pill running mono">
           <span class="dot" aria-hidden="true"></span>
-          running {fmtRunTime(runElapsed)}
+          运行中 {fmtRunTime(runElapsed)}
         </span>
-        <button class="abort" on:click={abort} disabled={aborting}>Abort</button>
+        <button class="abort" on:click={abort} disabled={aborting}>停止</button>
       {:else}
-        <span class="idle mono">idle</span>
+        <span class="idle mono">空闲</span>
       {/if}
       <!-- Mobile: open the inspector bottom sheet. -->
       <button class="inspect" on:click={() => inspectorOpen.update((v) => !v)} aria-label="Inspector">
@@ -198,17 +198,17 @@
           <path d="M46 15 A24 24 0 1 0 54 32" stroke="var(--text)" opacity=".85"/>
           <circle cx="49" cy="20" r="6" fill="var(--accent)" stroke="none"/>
         </svg>
-        <p class="empty-title">What should the agent do?</p>
-        <p class="empty-hint">Describe the task below — it runs in this project's directory. Attach an image if useful.</p>
+        <p class="empty-title">要让 agent 做什么？</p>
+        <p class="empty-hint">在下方描述任务——它将在本项目目录中运行。需要时可附上图片。</p>
       </div>
     {/if}
   </div>
 </div>
 
 {#if !pinnedToBottom && cards.length > 0}
-  <button class="jump" on:click={pinBottom} aria-label="Jump to latest">
+  <button class="jump" on:click={pinBottom} aria-label="跳到最新">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/></svg>
-    latest
+    最新
   </button>
 {/if}
 

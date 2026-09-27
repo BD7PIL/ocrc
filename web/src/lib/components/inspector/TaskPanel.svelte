@@ -48,7 +48,7 @@
 
 <div class="task">
   <div class="hd">
-    <span class="section-label">Tasks</span>
+    <span class="section-label">任务</span>
     {#if s.total}<span class="meta">{effDone}/{s.total}</span>{/if}
   </div>
   {#if s.total}
@@ -64,7 +64,7 @@
         <span class="tx">{it.text}</span>
       </button>
     {/each}
-    {#if s.total === 0}<div class="section-label">No tasks</div>{/if}
+    {#if s.total === 0}<div class="section-label">暂无任务</div>{/if}
   </div>
 </div>
 

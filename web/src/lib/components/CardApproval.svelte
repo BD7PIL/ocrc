@@ -8,10 +8,10 @@
     try { await api.approve(card.sessionId, card.requestId, decision); done = decision } catch { done = 'error' }
   }
   const LABEL: Record<string, string> = {
-    once: 'Approved — patch applied',
-    always: 'Auto-allow set',
-    reject: 'Rejected — patch discarded',
-    error: 'Failed',
+    once: '已批准 — 已应用',
+    always: '已设为自动允许',
+    reject: '已拒绝 — 未应用',
+    error: '失败',
   }
   $: resolved = !!done
   $: isReject = done === 'reject' || done === 'error'
@@ -28,16 +28,16 @@
   <div class="appr pending">
     <div class="header">
       <span class="warn-dot" aria-hidden="true"></span>
-      <span class="label">APPROVAL REQUIRED</span>
+      <span class="label">需要审批</span>
       <span class="rule" aria-hidden="true"></span>
       <span class="tool mono">{card.title}</span>
     </div>
     <pre class="diff mono">{diffText}</pre>
     <div class="acts">
-      <button class="a allow" on:click={() => decide('once')}>Approve</button>
-      <button class="a always" on:click={() => decide('always')}>Always allow</button>
+      <button class="a allow" on:click={() => decide('once')}>批准</button>
+      <button class="a always" on:click={() => decide('always')}>总是允许</button>
       <span class="spacer"></span>
-      <button class="a rej" on:click={() => decide('reject')}>Reject</button>
+      <button class="a rej" on:click={() => decide('reject')}>拒绝</button>
     </div>
   </div>
 {/if}

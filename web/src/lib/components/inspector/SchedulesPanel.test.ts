@@ -48,7 +48,7 @@ describe('SchedulesPanel', () => {
     const { container, getByLabelText } = render(SchedulesPanel)
     await vi.waitFor(() => expect(container.textContent).toContain('nightly checks'))
 
-    await fireEvent.click(getByLabelText('New schedule'))
+    await fireEvent.click(getByLabelText('新建计划'))
     const ta = container.querySelector('.prompt-in') as HTMLTextAreaElement
     ta.value = 'hourly sweep'
     await fireEvent.input(ta)
@@ -70,7 +70,7 @@ describe('SchedulesPanel', () => {
     const del = container.querySelector('.del')!
     await fireEvent.click(del)
     expect(vi.mocked(api.deleteSchedule)).not.toHaveBeenCalled()
-    expect(del.textContent).toBe('sure?')
+    expect(del.textContent).toBe('确认?')
 
     await fireEvent.click(del)
     expect(vi.mocked(api.deleteSchedule)).toHaveBeenCalledWith('sc1')

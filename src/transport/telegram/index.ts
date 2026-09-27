@@ -78,6 +78,8 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
   })
 
   let messageHandler: ((msg: IncomingMessage) => Promise<void>) | undefined
+  // Suggestion-chip tokens: callback ids → the chip text they send.
+  const sugTokens = new Map<number, string>()
   // "Generating" is derived from the relay's per-session abort registry, not a
   // local flag. The relay returns immediately (the response arrives via the
   // event hook), so a local flag would clear before generation finishes. The
@@ -298,6 +300,63 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
 
   bot.callbackQuery('menu:noop', async (ctx) => { await ctx.answerCallbackQuery() })
 
+  // Web C4 parity: two-step session delete from the sessions menu.
+  bot.callbackQuery(/^menu:sdel:(.+)$/, async (ctx) => {
+    const sid = ctx.match[1]
+    const kb = new InlineKeyboard()
+      .text('🗑 确认删除', `menu:sdelok:${sid}`)
+      .text('取消', 'menu:spage:0')
+    await ctx.answerCallbackQuery()
+    try { await ctx.editMessageText(`⚠️ 删除会话 …${sid.slice(-8)}？其全部消息将不可恢复。`, { parse_mode: 'HTML', reply_markup: kb }) } catch { }
+  })
+  bot.callbackQuery(/^menu:sdelok:(.+)$/, async (ctx) => {
+    const sid = ctx.match[1]
+    try {
+      await cfg.backend.deleteSession(sid)
+      if (cfg.state.getPinnedSessionId() === sid) cfg.state.setPinnedSessionId(undefined)
+      await ctx.answerCallbackQuery('🗑 已删除')
+      try { await ctx.editMessageText('🗑 会话已删除。') } catch { }
+      await openSessionsMenu(String(ctx.chat?.id ?? ctx.from?.id ?? ''), 0)
+    } catch (err) {
+      await ctx.answerCallbackQuery(`删除失败：${(err as Error).message.slice(0, 60)}`)
+    }
+  })
+
+  // ── Regenerate (web C3 parity): re-send the last user message of the session.
+  bot.callbackQuery(/^retry:(.+)$/, async (ctx) => {
+    const sid = ctx.match[1]
+    try {
+      const cards = await cfg.backend.getHistory(sid)
+      const lastUser = [...cards].reverse().find((c) => c.kind === 'user') as { text?: string } | undefined
+      const text = lastUser?.text ?? ''
+      if (!text.trim()) { await ctx.answerCallbackQuery('没有可重发的内容'); return }
+      await messageHandler?.({
+        userId: String(ctx.from?.id ?? ''),
+        chatId: String(ctx.chat?.id ?? ctx.from?.id ?? ''),
+        text,
+        messageId: `retry_${Date.now()}`,
+        origin: 'telegram',
+      })
+      await ctx.answerCallbackQuery('↻ 已重发上一条')
+    } catch (err) {
+      await ctx.answerCallbackQuery(`重发失败：${(err as Error).message.slice(0, 80)}`)
+    }
+  })
+
+  // Suggestion chips (web C2 parity): tap = send directly (no draft box on TG).
+  bot.callbackQuery(/^sug:(\d+)$/, async (ctx) => {
+    const text = sugTokens.get(Number(ctx.match[1]))
+    if (!text) { await ctx.answerCallbackQuery('该建议已过期'); return }
+    await messageHandler?.({
+      userId: String(ctx.from?.id ?? ''),
+      chatId: String(ctx.chat?.id ?? ctx.from?.id ?? ''),
+      text,
+      messageId: `sug_${Date.now()}`,
+      origin: 'telegram',
+    })
+    await ctx.answerCallbackQuery('已发送')
+  })
+
   /** Open the agents menu as an editable message. */
   async function openAgentsMenu(chatId: string): Promise<void> {
     try {
@@ -438,6 +497,35 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
         chatId,
       )
 
+      // Tier2 suggestion chips (web C2 parity): the relay generates them
+      // fire-and-forget AFTER finalize and parks them in state — poll twice,
+      // then send up to 3 as an inline keyboard. Tapping a chip SENDS it
+      // (Telegram has no draft box — the web "fill, don't send" semantics
+      // doesn't exist here; user-approved deviation).
+      const suggestionTimers = new Map<string, ReturnType<typeof setTimeout>[]>()
+      let sugSeq = 0
+      function scheduleSuggestions(sid: string) {
+        const prev = suggestionTimers.get(sid)
+        if (prev) prev.forEach(clearTimeout)
+        const timers = [3_000, 9_000].map((ms) =>
+          setTimeout(async () => {
+            const items = cfg.state.getSessionSuggestions?.(sid) ?? []
+            if (items.length === 0 || suggestionTimers.get(sid) !== timers) return
+            suggestionTimers.delete(sid)
+            const kb = new InlineKeyboard()
+            for (const item of items.slice(0, 3)) {
+              const tok = ++sugSeq
+              sugTokens.set(tok, item)
+              kb.text(`💡 ${item.slice(0, 64)}`, `sug:${tok}`).row()
+            }
+            await bot.api
+              .sendMessage(chatId, '💡 建议下一步（点按直接发送）', { reply_markup: kb })
+              .catch((err: Error) => log.warn('suggestions send failed', err.message))
+          }, ms),
+        )
+        suggestionTimers.set(sid, timers)
+      }
+
       cardBus.subscribeAll((card) => {
         if (!('sessionId' in card) || !card.sessionId) return
         log.info(`[telegram] card received: kind=${card.kind} sessionId=${card.sessionId}`)
@@ -452,7 +540,17 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
                 sr.onStreaming(card.sessionId, (card as any).messageId, text)
                 return
               }
-              if (card.kind === 'assistant') { await sr.onFinalize(card.sessionId, card.blocks, card.meta); return }
+              if (card.kind === 'assistant') {
+                // P2c parity: regenerate action bar on the final message…
+                const actions = isEphemeralSession(card.sessionId)
+                  ? undefined
+                  : { text: '⌨️ 操作', keyboard: new InlineKeyboard().text('↻ 重发上一条', `retry:${card.sessionId}`) }
+                await sr.onFinalize(card.sessionId, card.blocks, card.meta, actions)
+                // …and Tier2 suggestion chips as a follow-up message (they are
+                // generated fire-and-forget after finalize — poll briefly).
+                if (!isEphemeralSession(card.sessionId)) scheduleSuggestions(card.sessionId)
+                return
+              }
               if (card.kind === 'error') { await sr.onError(card.sessionId, (card as any).message ?? 'error'); return }
             } catch (err) {
               log.error(`[telegram] streaming onCard failed for ${card.kind}`, err as Error)

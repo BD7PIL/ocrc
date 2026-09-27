@@ -26,7 +26,7 @@
 
 <aside class="inspector">
   <div class="head">
-    <div class="section-label">Session</div>
+    <div class="section-label">会话</div>
     <div class="name" title={title ?? sessionId}>
       <span class="title-text">{title || (sessionId ? '…' + sessionId.slice(-8) : 'No session')}</span>
     </div>

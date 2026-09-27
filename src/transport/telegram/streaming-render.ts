@@ -138,8 +138,15 @@ export class StreamingRenderer {
     this.streamer.enqueue(sessionId, key, { parts })
   }
 
-  /** The turn finalized: flush the stream in place, then append tools/meta. */
-  async onFinalize(sessionId: string, blocks: ContentBlock[], meta?: AssistantMeta): Promise<void> {
+  /** The turn finalized: flush the stream in place, then append tools/meta.
+      `actions` (optional) is attached as the inline keyboard on the final
+      message — the regenerate/suggestion action bar (P2c parity). */
+  async onFinalize(
+    sessionId: string,
+    blocks: ContentBlock[],
+    meta?: AssistantMeta,
+    actions?: { text: string; keyboard: unknown },
+  ): Promise<void> {
     const turn = this.turns.get(sessionId)
     const text = blocks
       .filter((b) => b.type === 'text')
@@ -175,6 +182,13 @@ export class StreamingRenderer {
       await this.api.sendMessage(this.chatId, footer, { parse_mode: 'HTML' }).catch((err) => {
         log.warn(`[${sessionId}] footer send failed`, (err as Error).message)
       })
+    }
+
+    // Action bar on the final message (regenerate etc.).
+    if (actions && streamedIds.length > 0) {
+      await this.api
+        .editMessageReplyMarkup(this.chatId, streamedIds[streamedIds.length - 1], { reply_markup: actions.keyboard } as any)
+        .catch((err: Error) => log.warn(`[${sessionId}] action bar failed`, err.message))
     }
 
     this.turns.delete(sessionId)

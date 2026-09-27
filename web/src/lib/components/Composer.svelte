@@ -197,7 +197,7 @@
           {#each pendingImages as img, i}
             <div class="thumb">
               <img src={img.preview} alt="attachment" />
-              <button class="remove" on:click={() => removeImage(i)} aria-label="Remove image">×</button>
+              <button class="remove" on:click={() => removeImage(i)} aria-label="移除图片">×</button>
             </div>
           {/each}
         </div>
@@ -211,13 +211,13 @@
         on:focus={() => (focused = true)}
         on:blur={() => (focused = false)}
         on:click={updateMention}
-        placeholder={$connection === 'connected' ? `Message ${$backendName}…` : 'Disconnected…'}
-        aria-label="Message input"
+        placeholder={$connection === 'connected' ? `给 ${$backendName} 留言…` : '连接断开…'}
+        aria-label="消息输入"
         rows={1}
       ></textarea>
       <div class="footer">
         {#if $can('imageInput')}
-          <button class="attach" on:click={() => fileInput.click()} aria-label="Attach image">
+          <button class="attach" on:click={() => fileInput.click()} aria-label="附加图片">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
           </button>
           <input type="file" accept="image/*" multiple bind:this={fileInput} on:change={onFilesSelected} style="display:none" />
@@ -227,10 +227,10 @@
           <ModelChip />
         {/if}
         {#if $can('sessionControls')}<SessionControls {sessionId} />{/if}
-        <button class="hint command" on:click={() => paletteOpen.set(true)}>/ for commands</button>
+        <button class="hint command" on:click={() => paletteOpen.set(true)}>「/」命令</button>
         <span class="spacer"></span>
-        <span class="hint send-hint">↵ send · ⇧↵ newline</span>
-        <button class="send" on:click={send} aria-label="Send"
+        <span class="hint send-hint">↵ 发送 · ⇧↵ 换行</span>
+        <button class="send" on:click={send} aria-label="发送"
                 disabled={sending || (!text.trim() && pendingImages.length === 0) || $connection !== 'connected'}>
           {#if sending}…{:else}
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>

@@ -23,20 +23,20 @@
 
   function connect() {
     const token = parseToken(input)
-    if (!token || token.length < 16) { err = 'That doesn’t look like a valid token.'; return }
+    if (!token || token.length < 16) { err = '这看起来不是有效的令牌。'; return }
     // Persist + flip the auth store. No reload: the layout boots the API/WS
     // connection reactively, and both clients read the token fresh per
     // request/connect, so the next call already carries it.
-    if (!submitPairing(token)) err = 'That doesn’t look like a valid token.'
+    if (!submitPairing(token)) err = '这看起来不是有效的令牌。'
   }
 </script>
 
 <div class="gate">
   <div class="card">
     <div class="brand"><b>ocrc</b></div>
-    <h1>Pair this device</h1>
+    <h1>配对此设备</h1>
     {#if status === 'rejected'}
-      <p class="rejected">The previous token was rejected by the server — pair again below.</p>
+      <p class="rejected">上一次的令牌被服务器拒绝了——请在下方重新配对。</p>
     {/if}
     <p>
       In Telegram, send <code>/pair</code> to your bot, then paste the
@@ -45,14 +45,14 @@
     <input
       class="field mono"
       bind:value={input}
-      placeholder="Paste pairing token or link…"
-      aria-label="Pairing token or link"
+      placeholder="粘贴配对令牌或链接…"
+      aria-label="配对令牌或链接"
       autocapitalize="off" autocorrect="off" spellcheck="false"
       on:keydown={(e) => e.key === 'Enter' && connect()}
     />
     {#if err}<div class="err">{err}</div>{/if}
-    <button class="connect" on:click={connect} disabled={!input.trim()}>Connect</button>
-    <p class="hint">The token is stored only on this device.</p>
+    <button class="connect" on:click={connect} disabled={!input.trim()}>连接</button>
+    <p class="hint">令牌只保存在本设备上。</p>
   </div>
 </div>
 

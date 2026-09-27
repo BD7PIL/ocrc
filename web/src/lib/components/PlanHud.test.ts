@@ -52,12 +52,12 @@ describe('PlanHud', () => {
     const card = container.querySelector('.plan-card')!
     expect(card).toBeTruthy()
     expect(card.textContent).toContain('active task')
-    expect(card.textContent).toContain('Completed 1')
+    expect(card.textContent).toContain('已完成 1')
     // Small plans stay flat: all 3 pending are inline, no remainder group.
     expect(card.textContent).toContain('queued task one')
     expect(card.textContent).toContain('queued task two')
     expect(card.textContent).toContain('queued task three')
-    expect(card.textContent).not.toContain('Pending 1')
+    expect(card.textContent).not.toContain('待处理 1')
   })
 
   it('auto-collapses when tapping outside the card and orb', async () => {
@@ -107,7 +107,7 @@ describe('PlanHud', () => {
     await vi.waitFor(() => expect(container.querySelector('.ball')).toBeTruthy())
 
     await fireEvent.click(container.querySelector('.ball')!)
-    expect(container.querySelector('.plan-card')!.textContent).toContain('Parent session')
+    expect(container.querySelector('.plan-card')!.textContent).toContain('返回父会话')
 
     await fireEvent.click(container.querySelector('.crumb')!)
     expect(jumps).toEqual(['s-parent'])
@@ -120,7 +120,7 @@ describe('PlanHud', () => {
 
     await fireEvent.click(container.querySelector('.ball')!) // expand to reveal the card menu
     await fireEvent.click(container.querySelector('.dots')!)
-    const hide = [...container.querySelectorAll('.menu button')].find((b) => b.textContent === 'Hide for this session')!
+    const hide = [...container.querySelectorAll('.menu button')].find((b) => b.textContent === '本会话隐藏')!
     await fireEvent.click(hide)
     expect(container.querySelector('.ball')).toBeNull()
     expect(container.querySelector('.plan-card')).toBeNull()

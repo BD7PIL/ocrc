@@ -166,7 +166,7 @@
   {#if expanded}
     <div class="plan-card" bind:this={cardEl}>
       <div class="hd">
-        <span class="label">Plan</span>
+        <span class="label">计划</span>
         <span class="title">{title || '…' + sessionId.slice(-8)}</span>
         <button
           class="dots"
@@ -174,15 +174,15 @@
           aria-label="Plan menu"
           on:click|stopPropagation={() => (menuOpen = !menuOpen)}
         >⋯</button>
-        <button class="close" aria-label="Collapse plan" on:click={toggleExpanded}>
+        <button class="close" aria-label="收起计划" on:click={toggleExpanded}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
         </button>
       </div>
 
       {#if menuOpen}
         <div class="menu" bind:this={menuEl} role="menu">
-          <button role="menuitem" on:click={openTasks}>Open task panel</button>
-          <button role="menuitem" on:click={hide}>Hide for this session</button>
+          <button role="menuitem" on:click={openTasks}>打开任务面板</button>
+          <button role="menuitem" on:click={hide}>本会话隐藏</button>
         </div>
       {/if}
 
@@ -190,15 +190,15 @@
         {#if breadcrumb}
           <button class="crumb" on:click={jumpToParent}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
-            <span>Parent session …{breadcrumb.slice(-8)}</span>
+            <span>返回父会话 …{breadcrumb.slice(-8)}</span>
           </button>
         {/if}
-        <div class="prog mono">Tasks {sum.done}/{sum.total}</div>
+        <div class="prog mono">任务 {sum.done}/{sum.total}</div>
 
         {#if doneItems.length}
           <button class="grp" aria-expanded={showDone} on:click={() => (showDone = !showDone)}>
             <svg class="caret" class:open={showDone} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
-            <span>Completed {doneItems.length}</span>
+            <span>已完成 {doneItems.length}</span>
           </button>
           {#if showDone}
             {#each doneItems as it (it.text)}
@@ -218,7 +218,7 @@
         {#if restCount > 0}
           <button class="grp" aria-expanded={showRest} on:click={() => (showRest = !showRest)}>
             <svg class="caret" class:open={showRest} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
-            <span>Pending {restCount}</span>
+            <span>待处理 {restCount}</span>
           </button>
           {#if showRest}
             {#each pendingItems.slice(INLINE_PENDING) as it (it.text)}
@@ -228,9 +228,9 @@
         {/if}
 
         {#if subs.length}
-          <div class="grp static"><span class="sub-label">Subagents · {subs.length}</span></div>
+          <div class="grp static"><span class="sub-label">子代理 · {subs.length}</span></div>
           {#each subs as s (s.id)}
-            <button class="row sub jump" on:click={() => jumpToSub(s)} title="Open subagent session">
+            <button class="row sub jump" on:click={() => jumpToSub(s)} title="打开子代理会话">
               {#if s.total > 0}<span class="sub-count mono">{s.done}/{s.total}</span>{/if}
               <span class="tx">{s.title || '…' + s.id.slice(-6)}</span>
               <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
@@ -244,7 +244,7 @@
   <button
     class="ball"
     bind:this={ballEl}
-    aria-label={`Plan ${sum.done}/${sum.total} — ${expanded ? 'collapse' : 'expand'}`}
+    aria-label={`计划 ${sum.done}/${sum.total} — ${expanded ? '收起' : '展开'}`}
     aria-expanded={expanded}
     on:click={toggleExpanded}
   >

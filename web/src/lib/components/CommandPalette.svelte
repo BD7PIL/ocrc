@@ -18,6 +18,13 @@
   let active = 0
   let cmdError = ''
   let running = ''
+  // B3: about strip (version + uptime, /version parity with TG).
+  let about: { version: string; uptime: string } | null = null
+  $: if (open && !about) {
+    api.version()
+      .then((v) => { about = { version: v.version, uptime: v.uptime } })
+      .catch(() => {})
+  }
   type SessionRow = ReturnType<typeof filterSessions>[number]
   type BackendCommand = { name: string; description: string }
 
@@ -225,23 +232,23 @@
 
 {#if open}
   <div class="overlay">
-    <button class="backdrop" aria-label="Close" on:click={close}></button>
-    <div class="palette" role="dialog" aria-modal="true" aria-label="Search sessions and commands" tabindex="-1" bind:this={paletteEl} on:keydown={trapTab}>
+    <button class="backdrop" aria-label="关闭" on:click={close}></button>
+    <div class="palette" role="dialog" aria-modal="true" aria-label="搜索会话与命令" tabindex="-1" bind:this={paletteEl} on:keydown={trapTab}>
       <div class="header">
         <span class="search-icon" aria-hidden="true"><Icon name="search" size={14} /></span>
         <input
           class="q"
           use:initFocus
-          placeholder="Jump to a session, or run a command…"
-          aria-label="Search sessions and commands"
+          placeholder="跳转会话，或运行命令…"
+          aria-label="搜索会话与命令"
           bind:value={query}
           on:keydown={onKey}
         />
-        <kbd class="keycap mono" aria-label="Press Escape to close">esc</kbd>
+        <kbd class="keycap mono" aria-label="按 Esc 关闭">esc</kbd>
       </div>
-      <div class="results" role="listbox" aria-label="Results">
+      <div class="results" role="listbox" aria-label="结果">
         {#if flatItems.length === 0}
-          <div class="empty">No matches</div>
+          <div class="empty">无匹配结果</div>
         {:else}
           {#each flatItems as item (item.agent?.id ?? item.session?.id ?? item.command?.name ?? item.label ?? '')}
             {#if item.type === 'group'}
@@ -289,13 +296,17 @@
                 <span class="tile" aria-hidden="true">/</span>
                 <span class="label">{item.command?.name ?? ''}</span>
                 <span class="hint mono">
-                  {running === item.command?.name ? 'running…' : commandHint(item.command, item.disabled)}
+                  {running === item.command?.name ? '运行中…' : commandHint(item.command, item.disabled)}
                 </span>
               </button>
             {/if}
           {/each}
         {/if}
         {#if cmdError}<div class="error">{cmdError}</div>{/if}
+        <!-- B3: about strip — version + uptime, same info TG's /version shows. -->
+        {#if about}
+          <div class="about mono">ocrc v{about.version} · uptime {about.uptime}</div>
+        {/if}
       </div>
     </div>
   </div>
@@ -464,5 +475,11 @@
     padding: 10px;
     color: var(--err);
     font-size: 12px;
+  }
+  .about {
+    padding: 8px 14px 10px;
+    border-top: 1px solid var(--border-2);
+    color: var(--text-4);
+    font-size: 10.5px;
   }
 </style>

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { Bot, type Context } from 'grammy'
+import { Bot, InlineKeyboard, type Context } from 'grammy'
 import { inlineKeyboard, btn, type TgBtn } from './ui.js'
 import type { Scheduler } from '../../core/scheduler.js'
 import type { AgentBackend, AgentInfo, ModelProvider } from '../../core/agent/backend.js'
@@ -548,8 +548,7 @@ export function registerHandlers(deps: HandlersDeps): void {
   })
 
   // grinev 对齐：/messages = 当前会话最近消息
-  deps.bot.command('messages', async (ctx: Context) => {
-    try {
+  deps.bot.command('messages', async (ctx: Context) => {    try {
       const sid = deps.state.getPinnedSessionId() ?? deps.state.getLastSessionId()
       if (!sid) { await ctx.reply('没有活动会话。'); return }
       const cards = await deps.backend.getHistory(sid, 6)
@@ -564,6 +563,79 @@ export function registerHandlers(deps: HandlersDeps): void {
         }
       }
       await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' })
+    } catch (err) {
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
+    }
+  })
+
+  // ── P2c parity: subagent visibility (web plan-card C1) ──
+  deps.bot.command('subs', async (ctx: Context) => {
+    try {
+      const sid = deps.state.getPinnedSessionId() ?? deps.state.getLastSessionId()
+      if (!sid) { await ctx.reply('没有活动会话。'); return }
+      const subs = await deps.backend.getSubagents?.(sid)
+      if (!subs) { await ctx.reply('当前后端不支持子代理查询。'); return }
+      if (subs.length === 0) { await ctx.reply('该会话没有子代理。'); return }
+      const lines = [`<b>🧩 子代理 · ${subs.length}</b>`]
+      const kb = new InlineKeyboard()
+      for (const s of subs.slice(0, 8)) {
+        const prog = s.total > 0 ? ` · ${s.done}/${s.total}` : ''
+        lines.push(`• <b>${esc(s.title || '…' + s.id.slice(-6))}</b>${prog}`)
+        try {
+          const { buildPairContext, buildPairUrl } = await import('../../connectivity/pairing.js')
+          const { token, url } = await buildPairContext()
+          kb.url(`📤 打开 ${s.title.slice(0, 16) || '…' + s.id.slice(-6)}`, buildPairUrl(url, token).replace(/#.*$/, '') + `/${s.id}`).row()
+        } catch { /* link build is best-effort */ }
+      }
+      await ctx.reply(lines.join('\n'), { parse_mode: 'HTML', reply_markup: kb })
+    } catch (err) {
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
+    }
+  })
+
+  // ── P2c parity: session-level mode switch (web SessionControls C5) ──
+  const modeTokens = new Map<number, { sid: string; modeId: string }>()
+  let modeSeq = 0
+  deps.bot.command('mode', async (ctx: Context) => {
+    try {
+      const sid = deps.state.getPinnedSessionId() ?? deps.state.getLastSessionId()
+      if (!sid) { await ctx.reply('没有活动会话。'); return }
+      const controls = await deps.backend.getControls?.(sid)
+      const options = controls?.mode?.options ?? []
+      if (options.length === 0) { await ctx.reply('当前后端没有可切换的 mode。'); return }
+      const kb = new InlineKeyboard()
+      for (const o of options) {
+        const tok = ++modeSeq
+        modeTokens.set(tok, { sid, modeId: o.id })
+        kb.text(`${o.id === controls?.mode?.current ? '📍 ' : ''}${o.name || o.id}`, `tmode:${tok}`).row()
+      }
+      await ctx.reply('<b>🎚 会话模式</b>', { parse_mode: 'HTML', reply_markup: kb })
+    } catch (err) {
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
+    }
+  })
+  deps.bot.callbackQuery(/^tmode:(\d+)$/, async (ctx) => {
+    const t = modeTokens.get(Number(ctx.match[1]))
+    if (!t) { await ctx.answerCallbackQuery('已过期 — 重新 /mode'); return }
+    try {
+      await deps.backend.setMode?.(t.sid, t.modeId)
+      await ctx.answerCallbackQuery(`已切换 → ${t.modeId}`)
+      try { await ctx.editMessageText(`🎚 已切换 → <b>${esc(t.modeId)}</b>`, { parse_mode: 'HTML' }) } catch { }
+    } catch (err) {
+      await ctx.answerCallbackQuery(`切换失败：${(err as Error).message.slice(0, 60)}`)
+    }
+  })
+
+  // ── P2c parity: cleanup finished subagent sessions (web C4) ──
+  deps.bot.command('cleanup', async (ctx: Context) => {
+    try {
+      const all = await deps.backend.listSessions()
+      const children = all.filter((s) => s.parentID)
+      let deleted = 0
+      for (const c of children) {
+        try { await deps.backend.deleteSession(c.id); deleted += 1 } catch { /* skip */ }
+      }
+      await ctx.reply(`🧹 已清理 ${deleted} 个子代理会话。`)
     } catch (err) {
       await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }
@@ -694,6 +766,9 @@ export function registerHandlers(deps: HandlersDeps): void {
     { command: 'workspaces', description: 'List/switch workspaces' },
     { command: 'new', description: 'New session in active workspace' },
     { command: 'rename', description: 'Rename the pinned/last session' },
+    { command: 'subs', description: 'List subagents of the session' },
+    { command: 'mode', description: 'Switch the session mode (build/plan…)' },
+    { command: 'cleanup', description: 'Delete finished subagent sessions' },
     { command: 'help', description: 'Show help' },
   ]
 

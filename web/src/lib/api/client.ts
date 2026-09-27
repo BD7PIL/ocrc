@@ -98,6 +98,7 @@ export const api = {
     jsonGet<string[]>(`/api/session/${id}/files?q=${encodeURIComponent(q)}`),
   schedules: () => jsonGet<{ schedules: ScheduleRow[] }>('/api/schedules'),
   subagents: (id: string) => jsonGet<{ subagents: SubagentRow[] }>(`/api/session/${id}/subagents`),
+  version: () => jsonGet<{ version: string; commit?: string; uptime: string; node?: string }>('/api/version'),
   addSchedule: (body: { name?: string; prompt: string; spec: ScheduleSpec; enabled?: boolean }) =>
     jsonPost<{ schedule?: ScheduleRow; error?: string }>('/api/schedules', body),
   setScheduleEnabled: (id: string, enabled: boolean) =>

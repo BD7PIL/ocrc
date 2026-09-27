@@ -35,14 +35,14 @@
     <Icon name="cpu" size={11} /> {label} <Icon name="caret-down" size={9} />
   </button>
   {#if open}
-    <div class="pop" role="listbox" aria-label="Agent override">
-      {#if agents.length === 0}<div class="none label">no agents configured</div>{/if}
+    <div class="pop" role="listbox" aria-label="Agent 覆盖">
+      {#if agents.length === 0}<div class="none label">未配置 agent</div>{/if}
       {#each agents as a (a.name)}
         <button class="opt" class:sel={a.name === current.agent} role="option" aria-selected={a.name === current.agent} on:click={() => pick(a)}>
           <span>{a.name}</span> <span class="label mono">{a.model.split('/').pop()}</span>
         </button>
       {/each}
-      <button class="opt clear" role="option" aria-selected={current.agent == null} on:click={clear}><Icon name="close" size={11} /> clear override</button>
+      <button class="opt clear" role="option" aria-selected={current.agent == null} on:click={clear}><Icon name="close" size={11} /> 清除覆盖</button>
     </div>
   {/if}
 </div>

@@ -75,43 +75,43 @@
 
 <div class="schedules">
   <div class="hd">
-    <div class="label">Schedules</div>
-    <button class="add" on:click={() => (creating = !creating)} aria-label={creating ? 'Cancel new schedule' : 'New schedule'}>{creating ? '×' : '+'}</button>
+    <div class="label">定时任务</div>
+    <button class="add" on:click={() => (creating = !creating)} aria-label={creating ? '取消新建计划' : '新建计划'}>{creating ? '×' : '+'}</button>
   </div>
 
   <div class="list">
     {#each rows as r (r.id)}
       <div class="row" class:off={!r.enabled}>
-        <button class="switch" class:on={r.enabled} on:click={() => toggle(r)} aria-pressed={r.enabled} aria-label={`${r.enabled ? 'Disable' : 'Enable'} ${rowLabel(r)}`}>
+        <button class="switch" class:on={r.enabled} on:click={() => toggle(r)} aria-pressed={r.enabled} aria-label={`${r.enabled ? '停用' : '启用'} ${rowLabel(r)}`}>
           <span class="dot" aria-hidden="true"></span>
         </button>
         <div class="txt">
           <div class="prompt">{rowLabel(r)}</div>
           <div class="spec mono">{specLabel(r.spec)}</div>
         </div>
-        <button class="del" class:arm={armed === r.id} on:click={() => remove(r.id)} aria-label="Delete {rowLabel(r)}">{armed === r.id ? 'sure?' : '✕'}</button>
+        <button class="del" class:arm={armed === r.id} on:click={() => remove(r.id)} aria-label="删除 {rowLabel(r)}">{armed === r.id ? '确认?' : '✕'}</button>
       </div>
     {/each}
-    {#if rows.length === 0 && !creating}<div class="label">none</div>{/if}
+    {#if rows.length === 0 && !creating}<div class="label">暂无</div>{/if}
   </div>
 
   {#if creating}
     <div class="form">
-      <textarea class="prompt-in" rows="2" placeholder="What should the agent do?" bind:value={prompt}></textarea>
+      <textarea class="prompt-in" rows="2" placeholder="让 agent 做什么？" bind:value={prompt}></textarea>
       <div class="kind">
         <label class:sel={kind === 'every'}>
           <input type="radio" bind:group={kind} value="every" />
-          every
-          <input class="num" type="number" min="1" max="10080" bind:value={minutes} disabled={kind !== 'every'} /> min
+          每
+          <input class="num" type="number" min="1" max="10080" bind:value={minutes} disabled={kind !== 'every'} /> 分钟
         </label>
         <label class:sel={kind === 'daily'}>
           <input type="radio" bind:group={kind} value="daily" />
-          daily
+          每天
           <input class="time" type="time" bind:value={time} disabled={kind !== 'daily'} />
         </label>
       </div>
       {#if error}<div class="err">{error}</div>{/if}
-      <button class="go" on:click={create} disabled={!prompt.trim()}>Schedule</button>
+      <button class="go" on:click={create} disabled={!prompt.trim()}>创建</button>
     </div>
   {/if}
 </div>

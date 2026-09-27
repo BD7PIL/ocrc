@@ -4,9 +4,9 @@
 
 <span class="badge {$connection}">
   <span class="dot"></span>
-  {#if $connection === 'connected'}connected
-  {:else if $connection === 'reconnecting'}reconnecting…
-  {:else}offline{/if}
+  {#if $connection === 'connected'}已连接
+  {:else if $connection === 'reconnecting'}重连中…
+  {:else}离线{/if}
 </span>
 
 <style>

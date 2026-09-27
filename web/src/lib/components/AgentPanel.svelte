@@ -121,13 +121,13 @@
         <span class="caret" aria-hidden="true"><Icon name="caret-down" size={11} /></span>
       </button>
       {#if !drawer}
-        <button class="collapse" title="Collapse panel" aria-label="Collapse panel" on:click={() => leftPanelOpen.set(false)}>
+        <button class="collapse" title="收起面板" aria-label="收起面板" on:click={() => leftPanelOpen.set(false)}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
         </button>
       {/if}
 
       {#if pickerOpen}
-        <div class="picker" role="dialog" aria-label="Agent picker">
+        <div class="picker" role="dialog" aria-label="Agent 选择">
           <div class="picker-list">
             {#each agents as a (a.id)}
               {@const theme = agentThemes[a.id] ?? agentAccent(a.id)}
@@ -156,7 +156,7 @@
                   <button
                     class="swatch"
                     class:active={activeTheme === accent}
-                    aria-label="Set {accent} theme"
+                    aria-label="设置 {accent} 主题"
                     style="background:{ACCENT_HEX[accent]}"
                     on:click={() => setAgentAccent(activeBackendId, accent)}
                   ></button>
@@ -189,16 +189,16 @@
     {#if drawer}
       <button class="mobile-search" on:click={() => paletteOpen.set(true)}>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-        <span>Search sessions &amp; commands</span>
+        <span>搜索会话与命令</span>
       </button>
     {/if}
     <div class="list">
       <SessionList {activeId} agentId={activeBackendId} agentName={activeAgent?.name ?? activeAgent?.id} />
     </div>
     <div class="footer mono">
-      <span>{activeCount} active</span>
+      <span>{activeCount} 活跃</span>
       <span class="sep">·</span>
-      <span>{pushedCount} pushed</span>
+      <span>{pushedCount} 已推送</span>
     </div>
   </div>
 </div>

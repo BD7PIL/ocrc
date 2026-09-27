@@ -7,6 +7,7 @@
   import { api } from '$lib/api/client.js'
   import { createWsClient } from '$lib/ws/client.js'
   import { sessionList, feeds, upsertCard, setHistory, pruneFeeds } from '$lib/stores/sessions.js'
+  import { setViewedSession, noteSessionActivity } from '$lib/notify.js'
   import { capabilities, loadCapabilities, backends, loadBackends, viewedSessionId, applyAgentTheme } from '$lib/stores/capabilities.js'
   import { paletteOpen } from '$lib/stores/palette.js'
   import { leftPanelOpen, plusMenuOpen, newSessionOpen, inspectorOpen } from '$lib/stores/ui.js'
@@ -59,6 +60,7 @@
     if (get(auth) !== 'ready') return
     // Capability gating keys off the viewed session's backend.
     viewedSessionId.set(id)
+    setViewedSession(id)
     // Only the viewed session is subscribed, so evict every other feed —
     // visited sessions' histories must not accumulate in memory forever.
     // Leaving the viewed session evicts EVERYTHING and must also clear the
@@ -117,6 +119,9 @@
         // hello (on connect) and sessions (live updates) both carry the list.
         if ((msg.type === 'hello' || msg.type === 'sessions') && msg.sessions) {
           sessionList.set(msg.sessions)
+          // B1: background-completion notifications (title flash) — feed the
+          // same broadcast; non-viewed activity raises the counter.
+          noteSessionActivity(msg.sessions)
         }
         // replayEnd: buffered catch-up done; nothing to do (cards already applied).
       },

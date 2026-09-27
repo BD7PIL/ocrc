@@ -71,14 +71,14 @@
 </script>
 
 <div class="usage">
-  <div class="hd"><span class="section-label">Usage</span></div>
+  <div class="hd"><span class="section-label">用量</span></div>
   <div class="tiles">
     <div class="tile">
-      <div class="label">Tokens in</div>
+      <div class="label">输入 tokens</div>
       <div class="num mono">{fmt(tin)}</div>
     </div>
     <div class="tile">
-      <div class="label">Tokens out</div>
+      <div class="label">输出 tokens</div>
       <div class="num mono">{fmt(tout)}</div>
     </div>
   </div>

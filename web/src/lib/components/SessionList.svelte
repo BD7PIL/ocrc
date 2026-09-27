@@ -111,7 +111,7 @@
       await api.renameSession(id, title)
       sessionList.set(await api.sessions())
     } catch (err) {
-      alert(`Rename failed: ${(err as Error).message}`)
+      alert(`重命名失败：${(err as Error).message}`)
     } finally {
       renaming = null
       editing = null
@@ -141,7 +141,7 @@
       sessionList.set(await api.sessions())
       if (activeId === id) goto('/')
     } catch (err) {
-      alert(`Delete failed: ${(err as Error).message}`)
+      alert(`删除失败：${(err as Error).message}`)
     } finally {
       deleting = null
     }
@@ -194,12 +194,12 @@
               />
             {:else}
               <span class="title">{s.title || 'Untitled session'}</span>
-              {#if $pinnedSessions.includes(s.id)}<span class="pin-dot" aria-label="Pinned">●</span>{/if}
+              {#if $pinnedSessions.includes(s.id)}<span class="pin-dot" aria-label="已钉住">●</span>{/if}
               <span class="actions">
                 <button
                   class="act rename"
-                  title="Rename session"
-                  aria-label="Rename session"
+                  title="重命名会话"
+                  aria-label="重命名会话"
                   on:click={(e) => startRename(e, s)}
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
@@ -207,16 +207,16 @@
                 <button
                   class="act pin"
                   class:on={$pinnedSessions.includes(s.id)}
-                  title={$pinnedSessions.includes(s.id) ? 'Unpin' : 'Pin'}
-                  aria-label="Pin session"
+                  title={$pinnedSessions.includes(s.id) ? '取消钉住' : '钉住'}
+                  aria-label="钉住会话"
                   on:click={(e) => togglePin(e, s.id)}
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill={$pinnedSessions.includes(s.id) ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6z"/><line x1="12" y1="15" x2="12" y2="21"/></svg>
                 </button>
                 <button
                   class="act trash"
-                  title="Delete session"
-                  aria-label="Delete session"
+                  title="删除会话"
+                  aria-label="删除会话"
                   disabled={deleting === s.id}
                   on:click={(e) => deleteSession(e, s.id)}
                 >

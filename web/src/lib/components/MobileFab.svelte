@@ -10,8 +10,8 @@
 
   type Action = { label: string; icon: string; run: () => void }
   const actions: Action[] = [
-    { label: 'New session', icon: '＋', run: () => newSessionOpen.set(true) },
-    { label: 'Search & commands', icon: '⌕', run: () => paletteOpen.set(true) },
+    { label: '新建会话', icon: '＋', run: () => newSessionOpen.set(true) },
+    { label: '搜索与命令', icon: '⌕', run: () => paletteOpen.set(true) },
   ]
 
   function pick(a: Action) { a.run(); close() }
@@ -37,7 +37,7 @@
     </div>
   {/if}
 
-  <button class="fab" class:rot={open} aria-label={open ? 'Close menu' : 'Quick actions'} aria-expanded={open} on:click={toggle}>
+  <button class="fab" class:rot={open} aria-label={open ? '关闭菜单' : '快捷操作'} aria-expanded={open} on:click={toggle}>
     <span aria-hidden="true">＋</span>
   </button>
 </div>

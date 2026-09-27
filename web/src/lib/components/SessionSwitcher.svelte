@@ -107,7 +107,7 @@
   </button>
 
   {#if open}
-    <div class="popover" role="dialog" aria-label="Session switcher">
+    <div class="popover" role="dialog" aria-label="会话切换">
       <div class="list">
         {#each sessions as s (s.id)}
           <button class="row" class:active={s.id === activeId} on:click={() => select(s.id)}>

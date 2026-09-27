@@ -40,7 +40,9 @@ export function renderSessionsMenu(
     const mark = s.id === activeId ? '📍 ' : ''
     const when = s.lastActiveAt ? ` · ${fmtWhen(s.lastActiveAt)}` : ''
     const label = `${mark}${(s.title ?? '未命名').slice(0, 28)}${when}`
-    kb.text(label, `menu:session:${s.id}`).row()
+    // Web C4 parity: per-session delete — the 🗑 arms a confirm step before
+    // the actual delete (handled next to the other menu: callbacks).
+    kb.text(label, `menu:session:${s.id}`).text('🗑', `menu:sdel:${s.id}`).row()
   }
   if (pages > 1) {
     if (p > 0) kb.text('◀️', `menu:spage:${p - 1}`)

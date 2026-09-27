@@ -12,11 +12,11 @@
 </script>
 
 {#if suggestions.length > 0}
-  <div class="suggestions" role="list" aria-label="Suggested follow-ups">
+  <div class="suggestions" role="list" aria-label="建议的后续操作">
     {#each suggestions as s (s)}
       <button class="chip" role="listitem" on:click={() => onPick(s)}>{s}</button>
     {/each}
-    <button class="dismiss" on:click={onDismiss} aria-label="Dismiss suggestions"><Icon name="close" size={12} /></button>
+    <button class="dismiss" on:click={onDismiss} aria-label="忽略建议"><Icon name="close" size={12} /></button>
   </div>
 {/if}
 

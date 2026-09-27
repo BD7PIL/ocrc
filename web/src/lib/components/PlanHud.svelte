@@ -19,28 +19,28 @@
 
   const KEY = 'ocrc.planHud'
   const INLINE_PENDING = 5
-  // The enso mark as EXPLICIT ARC PATHS (no stroke-dash math — dash start
-  // points/offsets render differently across engines; <path A> commands are
-  // universal). Angles are degrees clockwise from 3 o'clock:
-  //   ink = 0°→310° (gap 310°→360°, top-right 1→3 o'clock, as the favicon)
-  //   sun = 310°→310°+pct*360 (grows from the gap clockwise; ≤4° renders as
-  //   the logo's round-cap dot, ≥360° wraps the full ring over the ink)
-  const R = 16
-  const INK_SWEEP = 310
-  const SUN_START = 310
-  const pt = (a: number): string => {
+  // The mark, as explicit arc paths (no stroke-dash math — dash start points
+  // render differently across engines; <path A> commands are universal).
+  // Two CONCENTRIC rings with clear spacing (user ruling: different colors
+  // must not overlap):
+  //   outer = the enso logo itself, ink 0°→310° (gap top-right) + persimmon
+  //   dot at 310° — identical to the favicon, never touched by progress;
+  //   inner = the progress gauge, accent arc from 12 o'clock clockwise
+  //   (r10/stroke3, 2.5px of air between the bands).
+  const R_OUT = 16
+  const R_IN = 10
+  const pt = (a: number, r: number): string => {
     const rad = (a * Math.PI) / 180
-    return `${19 + R * Math.cos(rad)} ${19 + R * Math.sin(rad)}`
+    return `${19 + r * Math.cos(rad)} ${19 + r * Math.sin(rad)}`
   }
-  const arcPath = (from: number, sweep: number): string => {
-    // Cap below 360°: a full-circle two-arc path shows a seam at the join, and
-    // an almost-closed ring with round caps IS the enso's signature opening.
+  const arcPath = (from: number, sweep: number, r: number): string => {
+    // Cap below 360°: a two-arc full circle shows a seam at the join.
     const clamped = Math.min(sweep, 355)
     const large = clamped > 180 ? 1 : 0
-    return `M ${pt(from)} A ${R} ${R} 0 ${large} 1 ${pt(from + clamped)}`
+    return `M ${pt(from, r)} A ${r} ${r} 0 ${large} 1 ${pt(from + clamped, r)}`
   }
-  $: inkPath = arcPath(0, INK_SWEEP)
-  $: sunPath = arcPath(SUN_START, Math.max(pct * 360, 4))
+  $: inkPath = arcPath(0, 310, R_OUT)
+  $: sunPath = arcPath(270, Math.max(pct * 360, 4), R_IN)
 
   type HudState = { dismissed?: string[]; expanded?: boolean }
   function loadState(): HudState {
@@ -264,10 +264,12 @@
     aria-expanded={expanded}
     on:click={toggleExpanded}
   >
-    <!-- The enso mark: fixed ink ring + the persimmon dot growing with progress.
-         r16 + stroke 4 in the 38-box mirrors the favicon's 24/8 in 64. -->
+    <!-- The enso mark (outer, untouchable) + the progress gauge (inner ring).
+         Outer r16/stroke4 = the favicon mark incl. its persimmon dot; inner
+         r10/stroke3 accent arc = todo progress, 2.5px of air between them. -->
     <svg class="ring" viewBox="0 0 38 38" aria-hidden="true">
       <path class="ink" d={inkPath} />
+      <circle class="dot-mark" cx="31.7" cy="13.1" r="2.6" />
       <path class="sun" d={sunPath} />
     </svg>
     <span class="ball-count mono">{sum.done}<i>/</i>{sum.total}</span>
@@ -305,10 +307,13 @@
   }
   .ball:active { transform: scale(.92); }
   .ring { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .ring path { fill: none; stroke-width: 4; stroke-linecap: round; }
+  .ring path, .dot-mark { fill: none; stroke-width: 4; stroke-linecap: round; }
   .ink { stroke: var(--text); }
+  /* The favicon's persimmon dot, nested in the ink gap (logo identity). */
+  .dot-mark { fill: var(--accent); stroke: none; }
   .sun {
     stroke: var(--accent);
+    stroke-width: 3;
   }
   .ball-count {
     position: relative;

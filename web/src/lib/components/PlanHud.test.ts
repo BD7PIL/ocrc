@@ -37,13 +37,14 @@ describe('PlanHud', () => {
     expect(container.querySelector('.ball')).toBeNull()
   })
 
-  it('shows the progress orb and expands to grouped items on tap', async () => {
+  it('shows the enso orb and expands to grouped items on tap', async () => {
     vi.mocked(api.todo).mockResolvedValue(TODOS)
     const { container } = render(PlanHud, { props: { sessionId: 's-groups' } })
     await vi.waitFor(() => expect(container.querySelector('.ball')).toBeTruthy())
-    // Orb shows the done/total count and the progress arc (enso single arc).
-    expect(container.textContent).toContain('1')
-    expect(container.querySelector('.arc')!.getAttribute('stroke-dasharray')).toBeTruthy()
+    // The mark: fixed ink ring + the progress dot/arc (orange) on top.
+    expect(container.querySelector('.ink')!.getAttribute('stroke-dasharray')).toBeTruthy()
+    const sun = container.querySelector('.sun')!
+    expect(sun.getAttribute('stroke-dasharray')).toMatch(/^[\d.]+ /)
     // Expanded card is closed while the orb shows.
     expect(container.querySelector('.plan-card')).toBeNull()
 

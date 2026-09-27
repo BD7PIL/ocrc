@@ -1,9 +1,10 @@
 <!-- src/lib/components/PlanHud.svelte — mobile plan orb (≤820px).
-     An enso-style floating ball with the session's todo progress as a ring
-     stroke around it; tap to expand into the grouped plan card. Fixed anchor
-     above the composer (ZCode parity: not draggable). Also surfaces subagent
-     (child-session) todo progress — ZCode shows this, our data plane is
-     parentID + per-child todos. Read-only: opencode has no todo write API. -->
+     The orb IS the ocrc enso mark: the ink ring (fixed 310° arc, gap top-right)
+     plus the persimmon dot — except the dot GROWS with plan progress: at 0%
+     it is exactly the logo's dot nested in the gap, at 100% the orange wraps
+     the full ring over the ink. Tap to expand into the grouped plan card.
+     Subagent (child-session) progress rides along (badge + card list).
+     Read-only: opencode has no todo write API. -->
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { api } from '$lib/api/client.js'
@@ -16,8 +17,15 @@
 
   const KEY = 'ocrc.planHud'
   const INLINE_PENDING = 5
-  const R = 17
+  // Favicon geometry, rescaled from the 64-box: ring r24→14.5, stroke 8→4,
+  // ink sweep 310° starting at 3 o'clock (gap = top-right 1→3 o'clock),
+  // dot home at 325° (=-35°, nested in the gap).
+  const R = 14.5
+  const STROKE = 4
   const CIRC = 2 * Math.PI * R
+  const INK_DASH = CIRC * (310 / 360)
+  const DOT_HOME = -(325 / 360) * CIRC // negative offset = start clockwise at 325°
+  const DOT_MIN = CIRC * 0.03 // round caps inflate it to ~the logo dot at 0%
 
   type HudState = { dismissed?: string[]; expanded?: boolean }
   function loadState(): HudState {
@@ -204,18 +212,20 @@
   <button
     class="ball"
     bind:this={ballEl}
-    aria-label={`${expanded ? 'Collapse' : 'Expand'} plan (${sum.done}/${sum.total})`}
+    aria-label={`Plan ${sum.done}/${sum.total} — ${expanded ? 'collapse' : 'expand'}`}
     aria-expanded={expanded}
     on:click={toggleExpanded}
   >
+    <!-- The enso mark: fixed ink ring + the persimmon dot growing with progress -->
     <svg class="ring" viewBox="0 0 38 38" aria-hidden="true">
+      <circle class="ink" cx="19" cy="19" r={R} stroke-dasharray={`${INK_DASH} ${CIRC}`} />
       <circle
-        class="arc"
+        class="sun"
         cx="19" cy="19" r={R}
-        stroke-dasharray={`${Math.max(CIRC * pct, CIRC * 0.04)} ${CIRC}`}
+        stroke-dasharray={`${Math.max(CIRC * pct, DOT_MIN)} ${CIRC}`}
+        stroke-dashoffset={DOT_HOME}
       />
     </svg>
-    <span class="ball-count mono">{sum.done}<i>/</i>{sum.total}</span>
     {#if subs.length > 0}<span class="badge mono">{subs.length}</span>{/if}
   </button>
 {/if}
@@ -228,8 +238,9 @@
     .plan-card { display: block; }
   }
 
-  /* ── The orb: enso mark as progress — a single accent arc (no track), fixed
-     above the composer. Sized to the titlebar avatar so they read as kin. ── */
+  /* ── The orb IS the enso mark: ink ring (theme-tracked) + persimmon dot that
+     grows along the ring with plan progress. Same proportions as the favicon
+     and the titlebar brand mark. ── */
   .ball {
     position: fixed;
     right: 16px;
@@ -247,21 +258,13 @@
     transition: transform .15s var(--ease, ease);
   }
   .ball:active { transform: scale(.92); }
-  .ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
-  .arc {
-    fill: none;
+  .ring { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .ring circle { fill: none; stroke-width: 4; stroke-linecap: round; }
+  .ink { stroke: var(--text); }
+  .sun {
     stroke: var(--accent);
-    stroke-width: 2.5;
-    stroke-linecap: round;
     transition: stroke-dasharray .4s var(--ease, ease);
   }
-  .ball-count {
-    position: relative;
-    font-size: 9.5px;
-    color: var(--text);
-    letter-spacing: -.02em;
-  }
-  .ball-count i { font-style: normal; color: var(--text-3); padding: 0 1px; }
   .badge {
     position: absolute;
     top: -3px;

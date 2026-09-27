@@ -309,11 +309,11 @@
   .ball-count i { font-style: normal; color: var(--text-3); padding: 0 1px; }
   /* Bottom-right of the orb — top-right is the enso gap where the sun arc
      lives; a badge there covered the mark's focal point. */
-  /* Parked fully OUTSIDE the ring (top-right, past the edge) so it never
-     covers the track/arc — the user callout was it intruding on the mark. */
+  /* Parked fully OUTSIDE the ring (bottom-right per user, past the edge) so
+     it never covers the track/arc; bg ring separates it from the track. */
   .badge {
     position: absolute;
-    top: -9px;
+    bottom: -8px;
     right: -9px;
     min-width: 15px;
     height: 15px;

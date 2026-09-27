@@ -79,7 +79,7 @@
   let timer: ReturnType<typeof setTimeout> | undefined
   $: seq = $feeds[sessionId]?.lastSeq ?? 0
   $: if (seq !== lastSeqSeen) { lastSeqSeen = seq; clearTimeout(timer); timer = setTimeout(() => (tick += 1), 1000) }
-  $: if (tick) { void refresh(sessionId); if (expanded) void refreshSubs(sessionId) }
+  $: if (tick) { void refresh(sessionId); void refreshSubs(sessionId) }
   onDestroy(() => clearTimeout(timer))
 
   $: session = $sessionList.find((r) => r.id === sessionId)
@@ -92,20 +92,24 @@
   $: pct = sum.total ? sum.done / sum.total : 0
   $: dismissed = hud.dismissed?.includes(sessionId) ?? false
 
-  // ── Subagents (child sessions): fetched when the card opens and on feed
-  // activity. Unsupported backends answer with an empty list. Rows jump into
-  // the child session (ZCode parity); the parent link is stashed so the child
-  // card can offer a way back.
+  // ── Subagents (child sessions): fetched on session switch and alongside
+  // every debounced tick — the badge must be live WITHOUT expanding (user
+  // ask) and the card must not pop in empty on expand. Rows jump into the
+  // child session (ZCode parity); the parent link is stashed so the child
+  // card can offer a way back. Guarded against request pileup.
   interface SubRow { id: string; title: string; done: number; total: number }
   let subs: SubRow[] = []
   let subsFor: string | undefined
+  let subsBusy = false
   async function refreshSubs(sid: string) {
+    if (subsBusy) return
+    subsBusy = true
     try {
       const r = await api.subagents(sid)
       if (sid !== sessionId) return
       subs = r.subagents ?? []
       subsFor = sid
-    } catch { subs = [] }
+    } catch { subs = [] } finally { subsBusy = false }
   }
   $: if (expanded && sessionId && subsFor !== sessionId) void refreshSubs(sessionId)
 
@@ -139,7 +143,6 @@
 
   function toggleExpanded() {
     expanded = !expanded
-    if (expanded) void refreshSubs(sessionId)
     save({ expanded })
   }
 
@@ -175,7 +178,7 @@
 
 <svelte:window on:pointerdown={onOutside} />
 
-{#if loadedFor === sessionId && (sum.total > 0 || breadcrumb) && !dismissed && $can('todos')}
+{#if loadedFor === sessionId && (sum.total > 0 || subs.length > 0 || breadcrumb) && !dismissed && $can('todos')}
   {#if expanded}
     <div class="plan-card" bind:this={cardEl}>
       <div class="hd">

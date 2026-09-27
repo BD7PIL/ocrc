@@ -27,6 +27,7 @@ describe('PlanHud', () => {
     vi.mocked(api.subagents).mockReset?.()
     vi.mocked(api.subagents).mockResolvedValue({ subagents: [] })
     localStorage.removeItem('ocrc.planHud')
+    sessionStorage.clear()
   })
   afterEach(cleanup)
 
@@ -75,18 +76,42 @@ describe('PlanHud', () => {
     expect(stored.expanded).toBe(false)
   })
 
-  it('lists subagent progress inside the expanded card', async () => {
+  it('lists subagent progress and jumps into a child on tap', async () => {
     vi.mocked(api.todo).mockResolvedValue(TODOS)
     vi.mocked(api.subagents).mockResolvedValue({
-      subagents: [{ id: 'sub_1', title: 'researcher', done: 2, total: 3 }],
+      subagents: [{ id: 'sub_abc123', title: 'researcher', done: 2, total: 3 }],
     })
-    const { container } = render(PlanHud, { props: { sessionId: 's-subs' } })
+    const jumps: string[] = []
+    const { container } = render(PlanHud, {
+      props: { sessionId: 's-subs', onJump: (id: string) => jumps.push(id) },
+    })
     await vi.waitFor(() => expect(container.querySelector('.ball')).toBeTruthy())
 
     await fireEvent.click(container.querySelector('.ball')!) // expand → fetches subagents
     await vi.waitFor(() => expect(container.textContent).toContain('researcher'))
     expect(container.textContent).toContain('2/3')
-    expect(vi.mocked(api.subagents)).toHaveBeenCalledWith('s-subs')
+
+    await fireEvent.click(container.querySelector('.row.sub.jump')!)
+    expect(jumps).toEqual(['sub_abc123'])
+    // Parent stashed so the child card can offer the way back.
+    expect(sessionStorage.getItem('ocrc.subparent.sub_abc123')).toBe('s-subs')
+  })
+
+  it('offers the parent breadcrumb on a child session and jumps back', async () => {
+    sessionStorage.setItem('ocrc.subparent.s-child', 's-parent')
+    vi.mocked(api.todo).mockResolvedValue([]) // child has no todos of its own
+    const jumps: string[] = []
+    const { container } = render(PlanHud, {
+      props: { sessionId: 's-child', onJump: (id: string) => jumps.push(id) },
+    })
+    // The orb renders even without todos — the breadcrumb needs an exit.
+    await vi.waitFor(() => expect(container.querySelector('.ball')).toBeTruthy())
+
+    await fireEvent.click(container.querySelector('.ball')!)
+    expect(container.querySelector('.plan-card')!.textContent).toContain('Parent session')
+
+    await fireEvent.click(container.querySelector('.crumb')!)
+    expect(jumps).toEqual(['s-parent'])
   })
 
   it('hides via the ⋯ menu and persists the dismissal per session', async () => {

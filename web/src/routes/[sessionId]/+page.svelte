@@ -221,8 +221,9 @@
   <Composer {sessionId} />
 </div>
 
-<!-- ZCode-mobile-style floating plan card — mobile only (inside the component). -->
-<PlanHud {sessionId} />
+<!-- ZCode-mobile-style floating plan card — mobile only (inside the component).
+     Subagent rows jump into the child session via the SPA router. -->
+<PlanHud {sessionId} onJump={(sid) => goto('/session/' + sid)} />
 
 <style>
   .jump {

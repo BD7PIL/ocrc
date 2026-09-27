@@ -14,6 +14,8 @@
   import { summarizeTodos, type TodoSummary } from '$lib/inspector/summarizeTodos.js'
 
   export let sessionId: string
+  /** Jump target — the page owns navigation (goto), the HUD stays $app-free. */
+  export let onJump: (id: string) => void = () => {}
 
   const KEY = 'ocrc.planHud'
   const INLINE_PENDING = 5
@@ -79,7 +81,9 @@
   $: dismissed = hud.dismissed?.includes(sessionId) ?? false
 
   // ── Subagents (child sessions): fetched when the card opens and on feed
-  // activity. Unsupported backends answer with an empty list.
+  // activity. Unsupported backends answer with an empty list. Rows jump into
+  // the child session (ZCode parity); the parent link is stashed so the child
+  // card can offer a way back.
   interface SubRow { id: string; title: string; done: number; total: number }
   let subs: SubRow[] = []
   let subsFor: string | undefined
@@ -92,6 +96,27 @@
     } catch { subs = [] }
   }
   $: if (expanded && sessionId && subsFor !== sessionId) void refreshSubs(sessionId)
+
+  // Breadcrumb: when THIS session is a subagent that was reached via the HUD,
+  // the stashed parent gives the card a "back to parent" row (and keeps the
+  // card renderable even if the child has no todos of its own).
+  const SUB_PARENT_KEY = (id: string) => `ocrc.subparent.${id}`
+  let breadcrumb: string | undefined
+  function readBreadcrumb(sid: string) {
+    try { breadcrumb = sessionStorage.getItem(SUB_PARENT_KEY(sid)) ?? undefined } catch { breadcrumb = undefined }
+  }
+  readBreadcrumb(sessionId)
+  $: if (sessionId) readBreadcrumb(sessionId)
+  function jumpToSub(s: SubRow) {
+    try { sessionStorage.setItem(SUB_PARENT_KEY(s.id), sessionId) } catch { /* private mode */ }
+    menuOpen = false
+    onJump(s.id)
+  }
+  function jumpToParent() {
+    const p = breadcrumb
+    breadcrumb = undefined
+    if (p) onJump(p)
+  }
 
   // Per-session reset of group/menu state.
   let groupSid: string | undefined
@@ -138,7 +163,7 @@
 
 <svelte:window on:pointerdown={onOutside} />
 
-{#if loadedFor === sessionId && sum.total > 0 && !dismissed && $can('todos')}
+{#if loadedFor === sessionId && (sum.total > 0 || breadcrumb) && !dismissed && $can('todos')}
   {#if expanded}
     <div class="plan-card" bind:this={cardEl}>
       <div class="hd">
@@ -163,6 +188,12 @@
       {/if}
 
       <div class="body">
+        {#if breadcrumb}
+          <button class="crumb" on:click={jumpToParent}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+            <span>Parent session …{breadcrumb.slice(-8)}</span>
+          </button>
+        {/if}
         <div class="prog mono">Progress {sum.done}/{sum.total}</div>
 
         {#if doneItems.length}
@@ -200,10 +231,11 @@
         {#if subs.length}
           <div class="grp static"><span class="sub-label">Subagents</span></div>
           {#each subs as s (s.id)}
-            <div class="row sub">
+            <button class="row sub jump" on:click={() => jumpToSub(s)} title="Open subagent session">
               <span class="sub-count mono">{s.done}/{s.total}</span>
               <span class="tx">{s.title || '…' + s.id.slice(-6)}</span>
-            </div>
+              <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+            </button>
           {/each}
         {/if}
       </div>
@@ -443,6 +475,40 @@
   .row.running .tx { color: var(--text); font-weight: 500; }
 
   .row.sub { padding-left: 2px; }
+  .row.sub.jump {
+    margin: 0;
+    padding: 3px 2px;
+    width: 100%;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-xs);
+    text-align: left;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+    align-items: center;
+  }
+  .row.sub.jump:active { background: var(--bg-elev2); }
+  .row.sub.jump .tx { flex: 1; min-width: 0; }
+  .go { flex-shrink: 0; width: 12px; height: 12px; color: var(--text-3); }
+  .crumb {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    margin: 9px 0 0;
+    padding: 6px 8px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-2);
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .crumb svg { width: 12px; height: 12px; flex-shrink: 0; }
+  .crumb:active { color: var(--text); border-color: var(--accent); }
   .sub-count {
     flex-shrink: 0;
     margin-top: 1px;

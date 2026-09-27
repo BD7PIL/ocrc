@@ -19,28 +19,12 @@
 
   const KEY = 'ocrc.planHud'
   const INLINE_PENDING = 5
-  // The mark, as explicit arc paths (no stroke-dash math — dash start points
-  // render differently across engines; <path A> commands are universal).
-  // Two CONCENTRIC rings with clear spacing (user ruling: different colors
-  // must not overlap):
-  //   outer = the enso logo itself, ink 0°→310° (gap top-right) + persimmon
-  //   dot at 310° — identical to the favicon, never touched by progress;
-  //   inner = the progress gauge, accent arc from 12 o'clock clockwise
-  //   (r10/stroke3, 2.5px of air between the bands).
-  const R_OUT = 16
-  const R_IN = 10
-  const pt = (a: number, r: number): string => {
-    const rad = (a * Math.PI) / 180
-    return `${19 + r * Math.cos(rad)} ${19 + r * Math.sin(rad)}`
-  }
-  const arcPath = (from: number, sweep: number, r: number): string => {
-    // Cap below 360°: a two-arc full circle shows a seam at the join.
-    const clamped = Math.min(sweep, 355)
-    const large = clamped > 180 ? 1 : 0
-    return `M ${pt(from, r)} A ${r} ${r} 0 ${large} 1 ${pt(from + clamped, r)}`
-  }
-  $: inkPath = arcPath(0, 310, R_OUT)
-  $: sunPath = arcPath(270, Math.max(pct * 360, 4), R_IN)
+  // A plain progress ring — the honest design at 38px (logo-mark experiments
+  // with brand arc + gauge + dot + count all read as clutter; the brand lives
+  // in the titlebar/favicon). Dim full track + accent arc from 12 o'clock
+  // (classic rotate -90°, real-unit dasharray, no pathLength/offset tricks).
+  const R = 16
+  const CIRC = 2 * Math.PI * R
 
   type HudState = { dismissed?: string[]; expanded?: boolean }
   function loadState(): HudState {
@@ -264,13 +248,15 @@
     aria-expanded={expanded}
     on:click={toggleExpanded}
   >
-    <!-- The enso mark (outer, untouchable) + the progress gauge (inner ring).
-         Outer r16/stroke4 = the favicon mark incl. its persimmon dot; inner
-         r10/stroke3 accent arc = todo progress, 2.5px of air between them. -->
+    <!-- Progress ring: dim full track + accent arc from 12 o'clock. -->
     <svg class="ring" viewBox="0 0 38 38" aria-hidden="true">
-      <path class="ink" d={inkPath} />
-      <circle class="dot-mark" cx="31.7" cy="13.1" r="2.6" />
-      <path class="sun" d={sunPath} />
+      <circle class="track" cx="19" cy="19" r={R} />
+      <circle
+        class="arc"
+        cx="19" cy="19" r={R}
+        stroke-dasharray={`${Math.max(CIRC * pct, CIRC * 0.02)} ${CIRC}`}
+        transform="rotate(-90 19 19)"
+      />
     </svg>
     <span class="ball-count mono">{sum.done}<i>/</i>{sum.total}</span>
     {#if subs.length > 0}<span class="badge mono">{subs.length}</span>{/if}
@@ -307,13 +293,12 @@
   }
   .ball:active { transform: scale(.92); }
   .ring { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .ring path, .dot-mark { fill: none; stroke-width: 4; stroke-linecap: round; }
-  .ink { stroke: var(--text); }
-  /* The favicon's persimmon dot, nested in the ink gap (logo identity). */
-  .dot-mark { fill: var(--accent); stroke: none; }
-  .sun {
+  .ring circle { fill: none; stroke-linecap: round; }
+  .track { stroke: var(--border); stroke-width: 3.5; }
+  .arc {
     stroke: var(--accent);
-    stroke-width: 3;
+    stroke-width: 3.5;
+    transition: stroke-dasharray .4s var(--ease, ease);
   }
   .ball-count {
     position: relative;
@@ -324,10 +309,12 @@
   .ball-count i { font-style: normal; color: var(--text-3); padding: 0 1px; }
   /* Bottom-right of the orb — top-right is the enso gap where the sun arc
      lives; a badge there covered the mark's focal point. */
+  /* Parked fully OUTSIDE the ring (top-right, past the edge) so it never
+     covers the track/arc — the user callout was it intruding on the mark. */
   .badge {
     position: absolute;
-    bottom: -5px;
-    right: -5px;
+    top: -9px;
+    right: -9px;
     min-width: 15px;
     height: 15px;
     padding: 0 3px;
@@ -339,6 +326,7 @@
     font-size: 9px;
     font-weight: 700;
     box-sizing: border-box;
+    box-shadow: 0 0 0 2px var(--bg); /* separates it from the ring underneath */
   }
 
   /* ── Expanded card: anchored above the ball; only the BODY scrolls (the card

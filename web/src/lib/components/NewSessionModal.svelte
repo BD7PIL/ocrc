@@ -238,6 +238,7 @@
     padding: 0;
     margin: 0;
     cursor: default;
+    animation: ocrc-fade .16s ease backwards;
   }
   .modal {
     position: relative;

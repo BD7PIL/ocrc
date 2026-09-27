@@ -13,8 +13,9 @@
 
 {#if suggestions.length > 0}
   <div class="suggestions" role="list" aria-label="建议的后续操作">
-    {#each suggestions as s (s)}
-      <button class="chip" role="listitem" on:click={() => onPick(s)}>{s}</button>
+  <!-- each chip rises with a small stagger (CSS below) -->
+    {#each suggestions as s, i (s)}
+      <button class="chip" style={`animation-delay: ${Math.min(i, 5) * 45}ms`} role="listitem" on:click={() => onPick(s)}>{s}</button>
     {/each}
     <button class="dismiss" on:click={onDismiss} aria-label="忽略建议"><Icon name="close" size={12} /></button>
   </div>
@@ -37,6 +38,7 @@
     font-size: 12px;
     padding: 6px 13px;
     cursor: pointer;
+    animation: ocrc-rise .22s var(--ease-out, ease-out) backwards;
     transition: border-color .12s var(--ease, ease), color .12s var(--ease, ease);
   }
   .chip:hover { border-color: var(--accent); color: var(--text); }

@@ -290,6 +290,7 @@
     cursor: pointer;
     place-items: center;
     transition: transform .15s var(--ease, ease);
+    animation: ocrc-pop .22s var(--ease-out, ease-out) backwards;
   }
   .ball:active { transform: scale(.92); }
   .ring { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -342,6 +343,8 @@
     border-radius: var(--radius);
     box-shadow: 0 10px 30px rgba(0, 0, 0, .2);
     overflow: visible;
+    transform-origin: 85% 100%;
+    animation: ocrc-pop .18s var(--ease-out, ease-out) backwards;
   }
 
   .hd {

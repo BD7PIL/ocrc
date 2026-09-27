@@ -237,6 +237,24 @@
   }
 }
 
+/* ── Shared motion vocabulary (entry only — no perpetual motion here) ── */
+:root {
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --dur-enter: 200ms;
+}
+@keyframes ocrc-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes ocrc-pop {
+  from { opacity: 0; transform: scale(.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes ocrc-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* ── Alternate accent themes (per-agent chrome). Persimmon (default, in the
    palettes above), azure, amber, violet. Values are theme-aware: dark block
    at base, light overrides under both light paths. ── */

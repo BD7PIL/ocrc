@@ -366,6 +366,16 @@
     display: flex;
     flex-direction: column;
   }
+  /* Message entrance: new cards rise in; a freshly loaded history cascades
+     with a small capped stagger instead of blinking in as a block. */
+  .stream > :global(*) {
+    animation: ocrc-rise var(--dur-enter, 200ms) var(--ease-out, ease-out) backwards;
+  }
+  .stream > :global(*):nth-child(2) { animation-delay: 30ms; }
+  .stream > :global(*):nth-child(3) { animation-delay: 60ms; }
+  .stream > :global(*):nth-child(4) { animation-delay: 90ms; }
+  .stream > :global(*):nth-child(5) { animation-delay: 120ms; }
+  .stream > :global(*):nth-child(n + 6) { animation-delay: 0ms; }
   .empty {
     display: flex;
     flex-direction: column;

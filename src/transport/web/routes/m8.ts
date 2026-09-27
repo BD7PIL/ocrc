@@ -10,7 +10,7 @@ import type { SessionState } from '../../../core/state.js'
 export function registerM8(app: Hono, reg: BackendRegistry, state: SessionState) {
   // Hono's Context.query has overloads that fight structural typing — any here.
   const dir = (c: any): string => {
-    const q = String(c.query('directory') ?? '')
+    const q = String(c.req?.query('directory') ?? '')
     if (q) return q
     const active = state.getActiveWorkspace()
     return active ?? ''

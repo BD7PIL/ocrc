@@ -49,3 +49,27 @@
 - **P2**：C2 TG 建议 chips（需裁决点击语义）+ C3 TG regenerate。
 - **P3**：C1 /subs、C4 会话删除、C5 /mode、B3 关于信息。
 - **押后**：B2 web 中文（等 /settings i18n 开关项）。
+
+
+---
+
+## 附录：实施记录（2026-09-28 无人值守批次）
+
+- **B1 ✅** `web/src/lib/notify.ts`：ws sessions 广播差分 → 非当前会话活动闪烁标题
+  `🔔 N 新动态 — ocrc`；回到标签页或进入会话即清。
+- **B2 ✅** web 界面全面中文化（直排 zh，与 TG 同策略）：标题栏/composer/空态/
+  Inspector 各面板/审批卡/chips/palette/modal/pair gate/悬浮球/FAB/连接徽标。
+- **B3 ✅** 命令面板底部 about 条：`ocrc v<version> · uptime …`（/api/version）。
+- **C1 ✅** TG `/subs`：子代理列表 + 「📤 打开」web 深链按钮。
+- **C2 ✅** TG 建议 chips：finalize 后 3s/9s 轮询 state 建议 → inline 键盘，
+  点按=直接发送（TG 无草稿箱，已裁决的语义偏离）。
+- **C3 ✅** TG regenerate：最终消息 ↻ 重发上一条（文本取自会话历史，web 发起
+  的对话同样可重发）。
+- **C4 ✅** /sessions 行内 🗑 两步确认 + `/cleanup` 清理子代理会话。
+- **C5 ✅** `/mode`：会话级 mode 切换（getControls/setMode）。
+- **额外（M9 部分预埋）**：`core/channels.ts` 通道设置存储（~/.ocrc/channels.json，
+  原子写 0600）；`/api/channels` GET/PATCH/reset；`/api/pair/qr`（服务端 SVG）；
+  web「机器人与通道」弹窗（启用开关/凭证表单/回复粒度/工作区范围/重置/配对 QR）；
+  TG 粒度消费（standard 隐藏工具行）、工作区范围过滤 /workspaces 与 /new、
+  enabled=false 时启动不创建 TG transport；`/channels` TG 状态命令。
+  飞书/微信通道本体仍等外部凭证；pending-token 吊销语义为二期。

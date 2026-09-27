@@ -19,13 +19,28 @@
 
   const KEY = 'ocrc.planHud'
   const INLINE_PENDING = 5
-  // The mark, normalized with pathLength=100 (one unit = 3.6°): the ink ring
-  // is a fixed 86-unit arc starting at 3 o'clock (gap = top-right 1→3
-  // o'clock, matching the favicon); the sun arc starts at unit 86 (the gap)
-  // and sweeps `pct*100` clockwise — at 0% it is the logo's dot in the gap,
-  // at 100% it wraps the whole ring over the ink.
-  const INK_DASH = 86
-  const SUN_HOME = -86
+  // The enso mark as EXPLICIT ARC PATHS (no stroke-dash math — dash start
+  // points/offsets render differently across engines; <path A> commands are
+  // universal). Angles are degrees clockwise from 3 o'clock:
+  //   ink = 0°→310° (gap 310°→360°, top-right 1→3 o'clock, as the favicon)
+  //   sun = 310°→310°+pct*360 (grows from the gap clockwise; ≤4° renders as
+  //   the logo's round-cap dot, ≥360° wraps the full ring over the ink)
+  const R = 16
+  const INK_SWEEP = 310
+  const SUN_START = 310
+  const pt = (a: number): string => {
+    const rad = (a * Math.PI) / 180
+    return `${19 + R * Math.cos(rad)} ${19 + R * Math.sin(rad)}`
+  }
+  const arcPath = (from: number, sweep: number): string => {
+    // Cap below 360°: a full-circle two-arc path shows a seam at the join, and
+    // an almost-closed ring with round caps IS the enso's signature opening.
+    const clamped = Math.min(sweep, 355)
+    const large = clamped > 180 ? 1 : 0
+    return `M ${pt(from)} A ${R} ${R} 0 ${large} 1 ${pt(from + clamped)}`
+  }
+  $: inkPath = arcPath(0, INK_SWEEP)
+  $: sunPath = arcPath(SUN_START, Math.max(pct * 360, 4))
 
   type HudState = { dismissed?: string[]; expanded?: boolean }
   function loadState(): HudState {
@@ -249,14 +264,10 @@
     <!-- The enso mark: fixed ink ring + the persimmon dot growing with progress.
          r16 + stroke 4 in the 38-box mirrors the favicon's 24/8 in 64. -->
     <svg class="ring" viewBox="0 0 38 38" aria-hidden="true">
-      <circle class="ink" cx="19" cy="19" r="16" pathLength="100" stroke-dasharray={`${INK_DASH} 100`} />
-      <circle
-        class="sun"
-        cx="19" cy="19" r="16" pathLength="100"
-        stroke-dasharray={`${Math.max(pct * 100, 1.6)} 100`}
-        stroke-dashoffset={SUN_HOME}
-      />
+      <path class="ink" d={inkPath} />
+      <path class="sun" d={sunPath} />
     </svg>
+    <span class="ball-count mono">{sum.done}<i>/</i>{sum.total}</span>
     {#if subs.length > 0}<span class="badge mono">{subs.length}</span>{/if}
   </button>
 {/if}
@@ -291,16 +302,24 @@
   }
   .ball:active { transform: scale(.92); }
   .ring { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .ring circle { fill: none; stroke-width: 4; stroke-linecap: round; }
+  .ring path { fill: none; stroke-width: 4; stroke-linecap: round; }
   .ink { stroke: var(--text); }
   .sun {
     stroke: var(--accent);
-    transition: stroke-dasharray .4s var(--ease, ease);
   }
+  .ball-count {
+    position: relative;
+    font-size: 9.5px;
+    color: var(--text);
+    letter-spacing: -.02em;
+  }
+  .ball-count i { font-style: normal; color: var(--text-3); padding: 0 1px; }
+  /* Bottom-right of the orb — top-right is the enso gap where the sun arc
+     lives; a badge there covered the mark's focal point. */
   .badge {
     position: absolute;
-    top: -3px;
-    right: -3px;
+    bottom: -5px;
+    right: -5px;
     min-width: 15px;
     height: 15px;
     padding: 0 3px;

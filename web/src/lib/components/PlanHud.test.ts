@@ -42,10 +42,9 @@ describe('PlanHud', () => {
     vi.mocked(api.todo).mockResolvedValue(TODOS)
     const { container } = render(PlanHud, { props: { sessionId: 's-groups' } })
     await vi.waitFor(() => expect(container.querySelector('.ball')).toBeTruthy())
-    // The mark: fixed ink ring + the progress dot/arc (orange) on top.
-    expect(container.querySelector('.ink')!.getAttribute('stroke-dasharray')).toBeTruthy()
-    const sun = container.querySelector('.sun')!
-    expect(sun.getAttribute('stroke-dasharray')).toMatch(/^[\d.]+ /)
+    // The mark: fixed ink arc + the progress arc (orange, explicit SVG paths).
+    expect(container.querySelector('.ink')!.getAttribute('d')).toMatch(/^M /)
+    expect(container.querySelector('.sun')!.getAttribute('d')).toMatch(/^M /)
     // Expanded card is closed while the orb shows.
     expect(container.querySelector('.plan-card')).toBeNull()
 

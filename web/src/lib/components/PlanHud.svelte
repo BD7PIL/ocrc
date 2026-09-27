@@ -19,16 +19,13 @@
 
   const KEY = 'ocrc.planHud'
   const INLINE_PENDING = 5
-  // Favicon geometry, rescaled from the 64-box to the 38px orb: ring r24→14.5,
-  // stroke 8→4, ink sweep 310° starting at 3 o'clock (gap = top-right 1→3
-  // o'clock), dot home at 325°. 38px, not 44: the ink ring's visual weight
-  // makes it read bigger than the send button at equal size (user ruling).
-  const R = 14.5
-  const STROKE = 4
-  const CIRC = 2 * Math.PI * R
-  const INK_DASH = CIRC * (310 / 360)
-  const DOT_HOME = -(325 / 360) * CIRC // negative offset = start clockwise at 325°
-  const DOT_MIN = CIRC * 0.03 // round caps inflate it to ~the logo dot at 0%
+  // The mark, normalized with pathLength=100 (one unit = 3.6°): the ink ring
+  // is a fixed 86-unit arc starting at 3 o'clock (gap = top-right 1→3
+  // o'clock, matching the favicon); the sun arc starts at unit 86 (the gap)
+  // and sweeps `pct*100` clockwise — at 0% it is the logo's dot in the gap,
+  // at 100% it wraps the whole ring over the ink.
+  const INK_DASH = 86
+  const SUN_HOME = -86
 
   type HudState = { dismissed?: string[]; expanded?: boolean }
   function loadState(): HudState {
@@ -249,14 +246,15 @@
     aria-expanded={expanded}
     on:click={toggleExpanded}
   >
-    <!-- The enso mark: fixed ink ring + the persimmon dot growing with progress -->
+    <!-- The enso mark: fixed ink ring + the persimmon dot growing with progress.
+         r16 + stroke 4 in the 38-box mirrors the favicon's 24/8 in 64. -->
     <svg class="ring" viewBox="0 0 38 38" aria-hidden="true">
-      <circle class="ink" cx="19" cy="19" r={R} stroke-dasharray={`${INK_DASH} ${CIRC}`} />
+      <circle class="ink" cx="19" cy="19" r="16" pathLength="100" stroke-dasharray={`${INK_DASH} 100`} />
       <circle
         class="sun"
-        cx="19" cy="19" r={R}
-        stroke-dasharray={`${Math.max(CIRC * pct, DOT_MIN)} ${CIRC}`}
-        stroke-dashoffset={DOT_HOME}
+        cx="19" cy="19" r="16" pathLength="100"
+        stroke-dasharray={`${Math.max(pct * 100, 1.6)} 100`}
+        stroke-dashoffset={SUN_HOME}
       />
     </svg>
     {#if subs.length > 0}<span class="badge mono">{subs.length}</span>{/if}
@@ -283,10 +281,10 @@
     width: 38px;
     height: 38px;
     padding: 0;
-    border: none;
+    border: 1px solid var(--border-2);
     border-radius: 50%;
     background: var(--bg-elev);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, .26);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .22);
     cursor: pointer;
     place-items: center;
     transition: transform .15s var(--ease, ease);

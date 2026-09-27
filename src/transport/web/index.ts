@@ -52,6 +52,14 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         scheduler: cfg.scheduler,
       })
 
+      // Immutable hashed assets cache forever; everything else (above all
+      // index.html, which references those hashes) must revalidate on every
+      // load — a cached stale index points at deleted hashes and the app
+      // half-loads after any redeploy ("every refresh looks different").
+      app.use('/_app/immutable/*', async (c, next) => {
+        await next()
+        c.header('Cache-Control', 'public, max-age=31536000, immutable')
+      })
       app.use('/*', serveStatic({ root: cfg.staticRoot }))
 
       // SPA fallback — SvelteKit static adapter only prerenders index.html;
@@ -68,6 +76,7 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
       app.get('*', (c) => {
         const path = c.req.path
         if (path.startsWith('/api/') || path === '/ws') return c.notFound()
+        c.header('Cache-Control', 'no-cache')
         return c.html(indexHtml)
       })
 

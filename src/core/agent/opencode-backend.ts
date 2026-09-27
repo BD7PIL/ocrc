@@ -7,6 +7,7 @@
 import type { OpencodeClient } from '@opencode-ai/sdk'
 import type {
   AgentBackend, AgentInfo, BackendCapabilities, CommandInfo, DiffEntry, McpServer, ModelProvider, SubagentInfo,
+  SkillInfo, FileEntry, WorktreeInfo,
   PermissionDecision, PromptInput, SessionContext, SessionMeta, SessionRef, SessionSummary,
 } from './backend.js'
 import { buildDiffEntry } from './diff-util.js'
@@ -57,6 +58,9 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     sessionControls: false, // opencode keeps its own agent/model override chip
     imageInput: true, // prompt carries image attachments as inline file parts
     suggestions: process.env.OCRC_SUGGESTIONS !== 'off', // Tier2 follow-up generation
+    skills: true, // GET /skill verified on 1.18.32
+    files: true, // GET /file + /file/content
+    worktrees: true, // GET/POST/DELETE /experimental/worktree (beta upstream)
   }
 
   async function prompt(sessionId: string, input: PromptInput): Promise<void> {
@@ -371,8 +375,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     }))
   }
 
-  async function getSubagents(sessionId: string): Promise<SubagentInfo[]> {
-    const all = (await listAllSessions(client)) as Array<{
+  async function getSubagents(sessionId: string): Promise<SubagentInfo[]> {    const all = (await listAllSessions(client)) as Array<{
       id: string; parentID?: string; title?: string; time?: { updated?: number }
     }>
     const children = all.filter((s) => s.parentID === sessionId).slice(0, 8)
@@ -400,6 +403,78 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
 
   function listWorkspaces() {
     return listWorkspacesImpl(client)
+  }
+
+  // ── M8: skills / files / worktree sandboxes ────────────────────────────────
+  // /skill and /experimental/worktree have no typed SDK members in 1.17.13 —
+  // raw fetch against the server (same posture as selectTuiSession).
+
+  async function getSkills(directory?: string): Promise<SkillInfo[]> {
+    try {
+      const q = new URLSearchParams()
+      if (directory) q.set('directory', directory)
+      const res = await fetch(`${baseUrl}/skill?${q.toString()}`)
+      if (!res.ok) return []
+      const raw = (await res.json()) as Array<{ name?: string; description?: string }>
+      return (raw ?? []).map((s) => ({ name: String(s?.name ?? ''), description: s?.description }))
+    } catch { return [] }
+  }
+
+  async function listFiles(directory: string | undefined, path: string): Promise<FileEntry[]> {
+    try {
+      const q = new URLSearchParams({ path })
+      if (directory) q.set('directory', directory)
+      const res = await fetch(`${baseUrl}/file?${q.toString()}`)
+      if (!res.ok) return []
+      const raw = (await res.json()) as Array<{ name?: string; path?: string; type?: string }>
+      return (raw ?? []).map((f) => ({
+        name: String(f?.name ?? ''),
+        path: String(f?.path ?? ''),
+        type: f?.type === 'directory' ? 'directory' : 'file',
+      }))
+    } catch { return [] }
+  }
+
+  async function readFile(directory: string | undefined, path: string): Promise<{ type: string; content: string }> {
+    const q = new URLSearchParams({ path })
+    if (directory) q.set('directory', directory)
+    const res = await fetch(`${baseUrl}/file/content?${q.toString()}`)
+    if (!res.ok) throw new Error(`file/content ${res.status}`)
+    const body = (await res.json()) as { type?: string; content?: string }
+    return { type: body?.type ?? 'text', content: body?.content ?? '' }
+  }
+
+  async function listWorktreeSandboxes(directory?: string): Promise<WorktreeInfo[]> {
+    try {
+      const q = new URLSearchParams()
+      if (directory) q.set('directory', directory)
+      const res = await fetch(`${baseUrl}/experimental/worktree?${q.toString()}`)
+      if (!res.ok) return []
+      const raw = (await res.json()) as Array<{ name?: string; directory?: string }> | string[]
+      return (Array.isArray(raw) ? raw : []).map((w) =>
+        typeof w === 'string' ? { name: w } : { name: String(w?.name ?? ''), directory: w?.directory },
+      )
+    } catch { return [] }
+  }
+
+  async function createWorktreeSandboxes(directory: string | undefined, name: string): Promise<WorktreeInfo | null> {
+    const q = new URLSearchParams()
+    if (directory) q.set('directory', directory)
+    const res = await fetch(`${baseUrl}/experimental/worktree?${q.toString()}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+    if (!res.ok) return null
+    const body = (await res.json().catch(() => null)) as { name?: string; directory?: string } | null
+    return body ? { name: body.name ?? name, directory: body.directory } : { name, directory: undefined }
+  }
+
+  async function removeWorktreeSandboxes(directory: string | undefined, name: string): Promise<boolean> {
+    const q = new URLSearchParams()
+    if (directory) q.set('directory', directory)
+    const res = await fetch(`${baseUrl}/experimental/worktree?${q.toString()}`, { method: 'DELETE' })
+    return res.ok
   }
 
   async function listCommands(): Promise<CommandInfo[]> {
@@ -441,7 +516,9 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     prompt, abort,
     hasSession, listSessions, listSessionSummaries, createSession, deleteSession, renameSession,
     getSessionMeta, getContext, getHistory, getMessageBlocks, getDiff, getTodos, getSessionsStatus, ping,
-    getAgents, getModels, getMcp, getSubagents, listWorkspaces, listCommands, runCommand,
+    getAgents, getModels, getMcp, getSubagents, getSkills, listFiles, readFile,
+    listWorktreeSandboxes, createWorktreeSandboxes, removeWorktreeSandboxes,
+    listWorkspaces, listCommands, runCommand,
     resolvePermission,
     selectTuiSession,
     suggestFollowUps,

@@ -99,6 +99,18 @@ export const api = {
   schedules: () => jsonGet<{ schedules: ScheduleRow[] }>('/api/schedules'),
   subagents: (id: string) => jsonGet<{ subagents: SubagentRow[] }>(`/api/session/${id}/subagents`),
   version: () => jsonGet<{ version: string; commit?: string; uptime: string; node?: string }>('/api/version'),
+  skills: (directory?: string) =>
+    jsonGet<{ skills: SkillRow[] }>(`/api/skills${directory ? `?directory=${encodeURIComponent(directory)}` : ''}`),
+  browse: (directory: string, path: string) =>
+    jsonGet<{ files: FileEntryRow[] }>(`/api/browse?directory=${encodeURIComponent(directory)}&path=${encodeURIComponent(path)}`),
+  fileContent: (directory: string, path: string) =>
+    jsonGet<{ type: string; content: string }>(`/api/file-content?directory=${encodeURIComponent(directory)}&path=${encodeURIComponent(path)}`),
+  worktrees: (directory?: string) =>
+    jsonGet<{ worktrees: WorktreeRow[] }>(`/api/worktrees${directory ? `?directory=${encodeURIComponent(directory)}` : ''}`),
+  createWorktree: (directory: string, name: string) =>
+    jsonPost<{ worktree?: WorktreeRow; error?: string }>('/api/worktrees', { directory, name }),
+  removeWorktree: (directory: string, name: string) =>
+    jsonDelete<{ ok: boolean }>(`/api/worktrees?directory=${encodeURIComponent(directory)}&name=${encodeURIComponent(name)}`),
   addSchedule: (body: { name?: string; prompt: string; spec: ScheduleSpec; enabled?: boolean }) =>
     jsonPost<{ schedule?: ScheduleRow; error?: string }>('/api/schedules', body),
   setScheduleEnabled: (id: string, enabled: boolean) =>
@@ -117,3 +129,6 @@ export interface ScheduleRow {
   lastRunAt?: number
 }
 export interface SubagentRow { id: string; title: string; updatedAt?: number; done: number; total: number }
+export interface SkillRow { name: string; description?: string }
+export interface FileEntryRow { name: string; path: string; type: 'file' | 'directory' }
+export interface WorktreeRow { name: string; directory?: string }

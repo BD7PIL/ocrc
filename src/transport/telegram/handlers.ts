@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { Bot, InlineKeyboard, type Context } from 'grammy'
 import { inlineKeyboard, btn, type TgBtn } from './ui.js'
 import type { Scheduler } from '../../core/scheduler.js'
-import type { AgentBackend, AgentInfo, ModelProvider } from '../../core/agent/backend.js'
+import type { AgentBackend, AgentInfo, ModelProvider, SkillInfo } from '../../core/agent/backend.js'
 import type { SessionState } from '../../core/state.js'
 import type { CardBus } from '../../core/card-bus.js'
 import { createLogger } from '../../utils/logger.js'
@@ -639,6 +639,220 @@ export function registerHandlers(deps: HandlersDeps): void {
     } catch (err) {
       await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }
+  })
+
+  // ── M8: /skills /ls /open /worktree (web parity with the Skills/Files panels) ──
+  const skillsCache: SkillInfo[] = []
+  const lsDirs = new Map<number, string>()
+  const lsFiles = new Map<number, string>()
+  let lsSeq = 0
+  const wtTokens = new Map<number, string>()
+  let wtSeq = 0
+
+  deps.bot.command('skills', async (ctx: Context) => {
+    try {
+      const list = await deps.backend.getSkills?.(deps.opencodeProject)
+      if (!list || list.length === 0) { await ctx.reply('没有可用的技能。'); return }
+      skillsCache.length = 0
+      skillsCache.push(...list)
+      const PAGE = 6
+      const pages = Math.max(1, Math.ceil(skillsCache.length / PAGE))
+      const p = 0
+      const lines = [`<b>🧩 Skills</b> · ${p + 1}/${pages} 页 · 共 ${skillsCache.length}`]
+      const kb = new InlineKeyboard()
+      for (const s of skillsCache.slice(p * PAGE, p * PAGE + PAGE)) {
+        lines.push(`• <b>${esc(s.name)}</b> — ${esc((s.description ?? '').slice(0, 90))}`)
+      }
+      if (pages > 1) {
+        if (p > 0) kb.text('◀️', `sk:page:${p - 1}`)
+        kb.text(`${p + 1}/${pages}`, 'menu:noop')
+        if (p < pages - 1) kb.text('▶️', `sk:page:${p + 1}`)
+      }
+      await ctx.reply(lines.join('\n'), { parse_mode: 'HTML', reply_markup: kb })
+    } catch (err) {
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
+    }
+  })
+  deps.bot.callbackQuery(/^sk:page:(\d+)$/, async (ctx) => {
+    const p = Math.max(0, Number(ctx.match[1]))
+    const PAGE = 6
+    const pages = Math.max(1, Math.ceil(skillsCache.length / PAGE))
+    const pp = Math.min(p, pages - 1)
+    const lines = [`<b>🧩 Skills</b> · ${pp + 1}/${pages} 页 · 共 ${skillsCache.length}`]
+    const kb = new InlineKeyboard()
+    for (const s of skillsCache.slice(pp * PAGE, pp * PAGE + PAGE)) {
+      lines.push(`• <b>${esc(s.name)}</b> — ${esc((s.description ?? '').slice(0, 90))}`)
+    }
+    if (pages > 1) {
+      if (pp > 0) kb.text('◀️', `sk:page:${pp - 1}`)
+      kb.text(`${pp + 1}/${pages}`, 'menu:noop')
+      if (pp < pages - 1) kb.text('▶️', `sk:page:${pp + 1}`)
+    }
+    await ctx.answerCallbackQuery()
+    try { await ctx.editMessageText(lines.join('\n'), { parse_mode: 'HTML', reply_markup: kb }) } catch { }
+  })
+
+  deps.bot.command('ls', async (ctx: Context) => {
+    try {
+      const arg = (ctx.message?.text ?? '').replace(/^\/ls\s*/, '').trim()
+      const path = arg || '.'
+      const files = await deps.backend.listFiles?.(deps.opencodeProject, path)
+      if (!files) { await ctx.reply('当前后端不支持文件浏览。'); return }
+      if (files.length === 0) { await ctx.reply(`📂 ${path}：空目录。`); return }
+      const lines = [`<b>📂 ${esc(path)}</b> · 共 ${files.length}`]
+      const kb = new InlineKeyboard()
+      if (path !== '.') {
+        const upTok = ++lsSeq
+        lsDirs.set(upTok, path)
+        kb.text('↰ ..', `ls:up:${upTok}`)
+      }
+      for (const f of files.slice(0, 20)) {
+        if (f.type === 'directory') {
+          const tok = ++lsSeq
+          lsDirs.set(tok, f.path)
+          kb.text(`📁 ${f.name}`, `ls:dir:${tok}`).row()
+        } else {
+          const tok = ++lsSeq
+          lsFiles.set(tok, f.path)
+          kb.text(`📄 ${f.name}`, `ls:cat:${tok}`)
+        }
+      }
+      if (files.length > 20) lines.push(`… 其余 ${files.length - 20} 项未显示`)
+      await ctx.reply(lines.join('\n'), { parse_mode: 'HTML', reply_markup: kb })
+    } catch (err) {
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
+    }
+  })
+  deps.bot.callbackQuery(/^ls:dir:(\d+)$/, async (ctx) => {
+    const path = lsDirs.get(Number(ctx.match[1]))
+    if (!path) { await ctx.answerCallbackQuery('已过期 — 重新 /ls'); return }
+    await ctx.answerCallbackQuery()
+    try {
+      const files = (await deps.backend.listFiles?.(deps.opencodeProject, path)) ?? []
+      const lines = [`<b>📂 ${esc(path)}</b> · 共 ${files.length}`]
+      const kb = new InlineKeyboard()
+      if (path !== '.') {
+        const upTok = ++lsSeq
+        lsDirs.set(upTok, path)
+        kb.text('↰ ..', `ls:up:${upTok}`)
+      }
+      for (const f of files.slice(0, 20)) {
+        if (f.type === 'directory') {
+          const tok = ++lsSeq
+          lsDirs.set(tok, f.path)
+          kb.text(`📁 ${f.name}`, `ls:dir:${tok}`).row()
+        } else {
+          const tok = ++lsSeq
+          lsFiles.set(tok, f.path)
+          kb.text(`📄 ${f.name}`, `ls:cat:${tok}`)
+        }
+      }
+      try { await ctx.editMessageText(lines.join('\n'), { parse_mode: 'HTML', reply_markup: kb }) } catch { }
+    } catch (err) {
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
+    }
+  })
+  // Directory navigation re-runs /ls logic via the registered command flow —
+  // simplest correct path: synthesize the message through the same handler.
+  deps.bot.callbackQuery(/^ls:cat:(\d+)$/, async (ctx) => {
+    const path = lsFiles.get(Number(ctx.match[1]))
+    if (!path) { await ctx.answerCallbackQuery('已过期 — 重新 /ls'); return }
+    await ctx.answerCallbackQuery()
+    try {
+      const f = await deps.backend.readFile?.(deps.opencodeProject, path)
+      if (!f) { await ctx.reply('读取失败。'); return }
+      if (f.type !== 'text') { await ctx.reply(`🔒 ${esc(path)}：二进制文件，不预览。`); return }
+      const body = f.content.length > 800 ? f.content.slice(0, 800) + '\n…' : f.content
+      await ctx.reply(`<b>📄 ${esc(path)}</b>\n<pre>${esc(body)}</pre>`, { parse_mode: 'HTML' })
+    } catch (err) {
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
+    }
+  })
+  deps.bot.callbackQuery(/^ls:up:(\d+)$/, async (ctx) => {
+    const cur = lsDirs.get(Number(ctx.match[1]))
+    if (!cur) { await ctx.answerCallbackQuery('已过期'); return }
+    const parent = cur.includes('/') ? cur.replace(/\/[^/]+\/?$/, '') || '.' : '.'
+    await ctx.answerCallbackQuery()
+    try {
+      const files = (await deps.backend.listFiles?.(deps.opencodeProject, parent)) ?? []
+      const lines = [`<b>📂 ${esc(parent)}</b> · 共 ${files.length}`]
+      const kb = new InlineKeyboard()
+      if (parent !== '.') {
+        const upTok = ++lsSeq
+        lsDirs.set(upTok, parent)
+        kb.text('↰ ..', `ls:up:${upTok}`)
+      }
+      for (const f of files.slice(0, 20)) {
+        if (f.type === 'directory') {
+          const tok = ++lsSeq
+          lsDirs.set(tok, f.path)
+          kb.text(`📁 ${f.name}`, `ls:dir:${tok}`).row()
+        } else {
+          const tok = ++lsSeq
+          lsFiles.set(tok, f.path)
+          kb.text(`📄 ${f.name}`, `ls:cat:${tok}`)
+        }
+      }
+      await ctx.editMessageText(lines.join('\n'), { parse_mode: 'HTML', reply_markup: kb })
+    } catch (err) {
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
+    }
+  })
+
+  deps.bot.command('open', async (ctx: Context) => {
+    const arg = (ctx.message?.text ?? '').replace(/^\/open\s*/, '').trim()
+    if (!arg) { await ctx.reply('用法：/open <文件路径>（相对当前工作区，如 src/index.ts）'); return }
+    try {
+      const f = await deps.backend.readFile?.(deps.opencodeProject, arg)
+      if (!f) { await ctx.reply('读取失败。'); return }
+      if (f.type !== 'text') { await ctx.reply(`🔒 ${esc(arg)}：二进制文件，不预览。`); return }
+      const body = f.content.length > 800 ? f.content.slice(0, 800) + '\n…' : f.content
+      await ctx.reply(`<b>📄 ${esc(arg)}</b>\n<pre>${esc(body)}</pre>`, { parse_mode: 'HTML' })
+    } catch (err) {
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
+    }
+  })
+
+  deps.bot.command('worktree', async (ctx: Context) => {
+    try {
+      const arg = (ctx.message?.text ?? '').replace(/^\/worktree\s*/, '').trim()
+      if (arg.startsWith('=')) {
+        const name = arg.slice(1).trim()
+        if (!name) { await ctx.reply('用法：/worktree = <名称>'); return }
+        const dir = deps.state.getActiveWorkspace() || deps.opencodeProject || ''
+        const created = await deps.backend.createWorktreeSandboxes?.(dir, name)
+        if (!created) { await ctx.reply('❌ 创建失败（experimental 接口）。'); return }
+        await ctx.reply(`🌿 已创建 worktree：<b>${esc(created.name)}</b>`)
+        return
+      }
+      if (arg.startsWith('rm ')) {
+        const name = arg.slice(3).trim()
+        if (!name) { await ctx.reply('用法：/worktree rm <名称>'); return }
+        const tok = ++wtSeq
+        wtTokens.set(tok, name)
+        const kb = new InlineKeyboard()
+          .text('🗑 确认删除', `wt:rm:${tok}`)
+          .text('取消', 'menu:noop')
+        await ctx.reply(`⚠️ 删除 worktree <b>${esc(name)}</b>？`, { parse_mode: 'HTML', reply_markup: kb })
+        return
+      }
+      const list = await deps.backend.listWorktreeSandboxes?.(deps.opencodeProject)
+      if (!list) { await ctx.reply('当前后端不支持 worktree 查询。'); return }
+      if (list.length === 0) { await ctx.reply('🌿 暂无 worktree。新建：/worktree = <名称>（beta）'); return }
+      const lines = ['<b>🌿 Worktrees</b> · beta']
+      for (const w of list) lines.push(`• ${esc(w.name)}${w.directory ? ` — <code>${esc(w.directory)}</code>` : ''}`)
+      lines.push('新建：/worktree = <名称> · 删除：/worktree rm <名称>')
+      await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' })
+    } catch (err) {
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
+    }
+  })
+  deps.bot.callbackQuery(/^wt:rm:(\d+)$/, async (ctx) => {
+    const name = wtTokens.get(Number(ctx.match[1]))
+    if (!name) { await ctx.answerCallbackQuery('已过期 — 重新执行 /worktree rm'); return }
+    const ok = (await deps.backend.removeWorktreeSandboxes?.(deps.state.getActiveWorkspace() || deps.opencodeProject || '', name)) ?? false
+    await ctx.answerCallbackQuery(ok ? '🗑 已删除' : '删除失败')
+    try { await ctx.editMessageText(ok ? `🗑 worktree <b>${esc(name)}</b> 已删除。` : '删除失败。', { parse_mode: 'HTML' }) } catch { }
   })
 
   deps.bot.command('new', async (ctx) => {

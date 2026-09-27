@@ -60,6 +60,12 @@ export interface ModelProvider { id: string; name: string; models: Array<{ id: s
 export interface McpServer { name: string; type?: string; status: 'configured' | 'disabled' }
 /** A subagent (child) session of a turn, with its todo progress. */
 export interface SubagentInfo { id: string; title: string; updatedAt?: number; done: number; total: number }
+/** An agent skill from GET /skill (opencode 1.18+). */
+export interface SkillInfo { name: string; description?: string }
+/** A directory entry from GET /file. */
+export interface FileEntry { name: string; path: string; type: 'file' | 'directory' }
+/** A sandbox worktree from /experimental/worktree (beta). */
+export interface WorktreeInfo { name: string; directory?: string }
 export interface CommandInfo { name: string; description: string }
 export interface Workspace { directory: string; name: string; sessionCount: number; lastActiveAt: number }
 
@@ -126,6 +132,12 @@ export interface BackendCapabilities {
   imageInput: boolean
   /** Can generate suggested follow-ups (gates suggestFollowUps). Omitted = no. */
   suggestions?: boolean
+  /** Lists agent skills (GET /skill) — gates the skills surface. Omitted = no. */
+  skills?: boolean
+  /** Browses/reads workspace files (GET /file, /file/content) — gates the files surface. Omitted = no. */
+  files?: boolean
+  /** Manages experimental sandbox worktrees — gates the worktree surface. Omitted = no. */
+  worktrees?: boolean
 }
 
 export interface AgentBackend {
@@ -170,6 +182,17 @@ export interface AgentBackend {
   getMcp(directory?: string): Promise<McpServer[]>
   /** Subagent (child) sessions of a turn with todo progress — gates the plan-HUD badge/list. */
   getSubagents?(sessionId: string): Promise<SubagentInfo[]>
+  // ── M8: skills / files / worktrees (present when capabilities report them) ──
+  /** Agent skills (GET /skill). */
+  getSkills?(directory?: string): Promise<SkillInfo[]>
+  /** Directory listing (GET /file). Paths are workspace-relative. */
+  listFiles?(directory: string | undefined, path: string): Promise<FileEntry[]>
+  /** File content (GET /file/content) — {type:'text',content} or {type:'binary'}. */
+  readFile?(directory: string | undefined, path: string): Promise<{ type: string; content: string }>
+  /** Experimental sandbox worktrees (beta). */
+  listWorktreeSandboxes?(directory?: string): Promise<WorktreeInfo[]>
+  createWorktreeSandboxes?(directory: string | undefined, name: string): Promise<WorktreeInfo | null>
+  removeWorktreeSandboxes?(directory: string | undefined, name: string): Promise<boolean>
   /** Workspaces (directories with sessions) across all opencode projects. */
   listWorkspaces(): Promise<Workspace[]>
   listCommands(): Promise<CommandInfo[]>

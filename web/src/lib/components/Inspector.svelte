@@ -6,6 +6,9 @@
   import TaskPanel from './inspector/TaskPanel.svelte'
   import McpPanel from './inspector/McpPanel.svelte'
   import SchedulesPanel from './inspector/SchedulesPanel.svelte'
+  import SkillsPanel from './inspector/SkillsPanel.svelte'
+  import FilesPanel from './inspector/FilesPanel.svelte'
+  import WorktreesPanel from './inspector/WorktreesPanel.svelte'
   import UsagePanel from './inspector/UsagePanel.svelte'
   import ContextPanel from './inspector/ContextPanel.svelte'
   import WorkingDirPanel from './inspector/WorkingDirPanel.svelte'
@@ -35,6 +38,9 @@
   <div class="pinned">
     <SchedulesPanel {tick} />
     <div class="divider"></div>
+    {#if $can('skills')}<SkillsPanel {tick} /><div class="divider"></div>{/if}
+    {#if $can('files')}<FilesPanel {sessionId} {tick} /><div class="divider"></div>{/if}
+    {#if $can('worktrees')}<WorktreesPanel {sessionId} {tick} /><div class="divider"></div>{/if}
     {#if $can('mcp')}
       <McpPanel {tick} />
       <div class="divider"></div>

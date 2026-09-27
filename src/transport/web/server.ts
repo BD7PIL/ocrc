@@ -37,6 +37,7 @@ import type { Scheduler } from '../../core/scheduler.js'
 import { registerSuggestions } from './routes/suggestions.js'
 import { registerSchedules } from './routes/schedules.js'
 import { registerSubagents } from './routes/subagents.js'
+import { registerM8 } from './routes/m8.js'
 
 export interface BuildServerOpts {
   auth: AuthStrategy
@@ -118,5 +119,6 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerSuggestions(app, opts.state)
   registerSchedules(app, opts.scheduler)
   registerSubagents(app, reg, opts.state)
+  registerM8(app, reg, opts.state)
   return app
 }

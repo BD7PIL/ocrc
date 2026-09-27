@@ -60,6 +60,14 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         await next()
         c.header('Cache-Control', 'public, max-age=31536000, immutable')
       })
+      // index.html — served BOTH as the static file ('/') and by the SPA
+      // fallback below — must always revalidate.
+      app.use(async (c, next) => {
+        await next()
+        if (c.req.path === '/' || c.req.path === '/index.html') {
+          c.header('Cache-Control', 'no-cache')
+        }
+      })
       app.use('/*', serveStatic({ root: cfg.staticRoot }))
 
       // SPA fallback — SvelteKit static adapter only prerenders index.html;
@@ -76,7 +84,6 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
       app.get('*', (c) => {
         const path = c.req.path
         if (path.startsWith('/api/') || path === '/ws') return c.notFound()
-        c.header('Cache-Control', 'no-cache')
         return c.html(indexHtml)
       })
 

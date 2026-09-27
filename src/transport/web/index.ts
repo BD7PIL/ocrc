@@ -23,6 +23,9 @@ export interface WebTransportConfig {
   staticRoot: string
   /** P2b-M7 cross-channel scheduled prompts (optional). */
   scheduler?: Scheduler
+  /** M9 bot-channel settings store + live TG status (optional). */
+  channels?: import('../../core/channels.js').ChannelsStore
+  telegramStatus?: () => { connected: boolean; username?: string } | null
 }
 
 const CAPS: ChannelCapabilities = {
@@ -50,6 +53,8 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         cardBus: deps.cardBus,
         onMessage: (msg) => messageHandler ? messageHandler(msg) : Promise.resolve(),
         scheduler: cfg.scheduler,
+        channels: cfg.channels,
+        telegramStatus: cfg.telegramStatus,
       })
 
       // Immutable hashed assets cache forever; everything else (above all

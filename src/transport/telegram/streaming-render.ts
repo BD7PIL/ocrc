@@ -44,6 +44,8 @@ function metaFooter(meta?: AssistantMeta): string {
 export interface StreamingRenderDeps {
   api: Api
   chatId: string
+  /** M9 回复粒度: standard hides the tool-call footer, detailed shows it. */
+  granularity?: () => 'standard' | 'detailed'
 }
 
 interface TurnState {
@@ -69,12 +71,14 @@ function isNotModified(err: unknown): boolean {
 export class StreamingRenderer {
   private readonly api: Api
   private readonly chatId: string
+  private readonly granularity?: () => 'standard' | 'detailed'
   private readonly streamer: ResponseStreamer
   private readonly turns = new Map<string, TurnState>()
 
   constructor(deps: StreamingRenderDeps) {
     this.api = deps.api
     this.chatId = deps.chatId
+    this.granularity = deps.granularity
     this.streamer = new ResponseStreamer({
       // Progressive: 1s for the first minute, then 2s/5s/10s — protects the
       // edit budget on long generations (ported as-is from grinev).
@@ -176,7 +180,10 @@ export class StreamingRenderer {
     }
 
     // Tools + meta footer as a separate small message (grinev uses a footer line).
-    const tools = blocks.filter((b) => b.type === 'tool') as Array<{ tool?: string; args?: string; status?: string }>
+    // M9 granularity: 'standard' hides the tool-call process (ZCode 标准回复).
+    const tools = this.granularity?.() === 'standard'
+      ? []
+      : blocks.filter((b) => b.type === 'tool') as Array<{ tool?: string; args?: string; status?: string }>
     const footer = [toolsSummary(tools as any), metaFooter(meta)].filter(Boolean).join('\n')
     if (footer.trim()) {
       await this.api.sendMessage(this.chatId, footer, { parse_mode: 'HTML' }).catch((err) => {

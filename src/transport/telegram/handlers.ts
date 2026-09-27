@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { Bot, InlineKeyboard, type Context } from 'grammy'
 import { inlineKeyboard, btn, type TgBtn } from './ui.js'
 import type { Scheduler } from '../../core/scheduler.js'
+import type { ChannelBot, WorkspaceScope } from '../../core/channels.js'
 import type { AgentBackend, AgentInfo, ModelProvider, SkillInfo } from '../../core/agent/backend.js'
 import type { SessionState } from '../../core/state.js'
 import type { CardBus } from '../../core/card-bus.js'
@@ -30,6 +31,23 @@ export interface HandlersDeps {
   cardBus?: CardBus
   /** Project directory where opencode.json lives, used as `directory` query param for /config endpoints. */
   opencodeProject?: string
+  /** M9 bot-channel settings — gates reply granularity and workspace scope. */
+  channels?: () => ChannelBot | undefined
+}
+
+/** M9 工作区访问范围: filter the workspace list per the tg-default bot scope. */
+function scopeWorkspaces<W extends { directory: string }>(deps: { channels?: () => ChannelBot | undefined }, ws: W[]): W[] {
+  const scope: WorkspaceScope | undefined = deps.channels?.()?.workspaces
+  if (!scope || scope.mode === 'all') return ws
+  const allowed = new Set(scope.dirs)
+  return ws.filter((w) => allowed.has(w.directory))
+}
+
+/** M9: is the given workspace allowed for the tg-default bot? */
+function workspaceAllowed(deps: { channels?: () => ChannelBot | undefined }, dir: string): boolean {
+  const scope: WorkspaceScope | undefined = deps.channels?.()?.workspaces
+  if (!scope || scope.mode === 'all') return true
+  return scope.dirs.includes(dir)
 }
 
 /**
@@ -481,8 +499,8 @@ export function registerHandlers(deps: HandlersDeps): void {
 
   const workspacesHandler = async (ctx: Context) => {
     try {
-      const ws = await deps.backend.listWorkspaces()
-      if (ws.length === 0) { await ctx.reply('No workspaces.', { parse_mode: 'HTML' }); return }
+      const ws = scopeWorkspaces(deps, await deps.backend.listWorkspaces())
+      if (ws.length === 0) { await ctx.reply('当前工作区范围设置下没有可用的工作区（M9 工作区访问范围）。', { parse_mode: 'HTML' }); return }
       const active = deps.state.getActiveWorkspace()
       const lines = ['<b>🗂 Workspaces</b>', '']
       for (const w of ws.slice(0, 20)) {
@@ -636,6 +654,25 @@ export function registerHandlers(deps: HandlersDeps): void {
         try { await deps.backend.deleteSession(c.id); deleted += 1 } catch { /* skip */ }
       }
       await ctx.reply(`🧹 已清理 ${deleted} 个子代理会话。`)
+    } catch (err) {
+      await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
+    }
+  })
+
+  // ── M9: /channels — channel status mirror (config UI lives on web) ──
+  deps.bot.command('channels', async (ctx: Context) => {
+    try {
+      const ch = deps.channels?.()?.enabled
+      const tgOn = ch === undefined ? true : ch
+      const lines = [
+        '<b>🤖 机器人 / 通道</b>',
+        tgOn
+          ? '• Telegram — ✅ 已启用（web 端「机器人」面板可配置）'
+          : '• Telegram — ⛔ 已停用（channels.json）',
+        '• 微信 — ⏳ 待接入（凭证到位后启用）',
+        '• Lark — ⏳ 待接入',
+      ]
+      await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' })
     } catch (err) {
       await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }
@@ -858,6 +895,7 @@ export function registerHandlers(deps: HandlersDeps): void {
   deps.bot.command('new', async (ctx) => {
     const dir = deps.state.getActiveWorkspace()
     if (!dir) { await ctx.reply('No active workspace. Use /workspaces first.', { parse_mode: 'HTML' }); return }
+    if (!workspaceAllowed(deps, dir)) { await ctx.reply('当前工作区不在机器人的访问范围内（M9 工作区访问范围）。', { parse_mode: 'HTML' }); return }
     try {
       const text = ctx.message && 'text' in ctx.message ? ctx.message.text.split(' ').slice(1).join(' ').trim() : ''
       const { id } = await deps.backend.createSession({ directory: dir, ...(text ? { title: text.slice(0, 60) } : {}) })
@@ -980,6 +1018,7 @@ export function registerHandlers(deps: HandlersDeps): void {
     { command: 'workspaces', description: 'List/switch workspaces' },
     { command: 'new', description: 'New session in active workspace' },
     { command: 'rename', description: 'Rename the pinned/last session' },
+    { command: 'channels', description: 'Bot channel status' },
     { command: 'subs', description: 'List subagents of the session' },
     { command: 'mode', description: 'Switch the session mode (build/plan…)' },
     { command: 'cleanup', description: 'Delete finished subagent sessions' },

@@ -10,6 +10,8 @@ export interface TransportStartDeps {
 
 export interface Transport {
   readonly name: string
+  /** Live channel status for the web channels panel (optional). */
+  status?: () => { connected: boolean; username?: string } | null
   readonly capabilities: ChannelCapabilities
 
   start(deps: TransportStartDeps): Promise<void>

@@ -4,6 +4,7 @@ import type { PhotoSize } from 'grammy/types'
 import { errorCodeOf, inlineKeyboard, btn } from './ui.js'
 import { isEphemeralSession } from '../../opencode/submit.js'
 import type { Scheduler } from '../../core/scheduler.js'
+import type { ChannelBot } from '../../core/channels.js'
 import type { AgentBackend } from '../../core/agent/backend.js'
 import type { IncomingMessage, ChannelCapabilities } from '../../core/types.js'
 import type { Transport, TransportStartDeps } from '../interface.js'
@@ -46,6 +47,8 @@ export interface TelegramConfig {
   tgChunkSoftLimit?: number
   /** Cross-channel scheduled prompts (M7) — optional; /tasks hidden without it. */
   scheduler?: Scheduler
+  /** M9 bot-channel settings for this channel (granularity/workspace scope). */
+  channels?: () => ChannelBot | undefined
 }
 
 const CAPS: ChannelCapabilities = {
@@ -78,6 +81,8 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
   })
 
   let messageHandler: ((msg: IncomingMessage) => Promise<void>) | undefined
+  /** True while grammY polling is live — surfaced via status() for the channels panel. */
+  let pollingLive = false
   // Suggestion-chip tokens: callback ids → the chip text they send.
   const sugTokens = new Map<number, string>()
   // "Generating" is derived from the relay's per-session abort registry, not a
@@ -434,6 +439,7 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
     approvalTokens,
     opencodeProject: cfg.opencodeProject,
     scheduler: cfg.scheduler,
+    channels: cfg.channels,
   })
 
   // Error catch-all — grammY wraps handler errors in BotError (err.error).
@@ -476,7 +482,7 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
       const { cardBus } = deps
       cardBusRef = cardBus
       const chatId = String(cfg.allowedUserIds[0])
-      streamingRenderer = new StreamingRenderer({ api: bot.api, chatId })
+      streamingRenderer = new StreamingRenderer({ api: bot.api, chatId, granularity: () => cfg.channels?.()?.replyGranularity ?? 'detailed' })
       permissionFlow = new PermissionFlow(
         {
           interactionManager,
@@ -594,8 +600,9 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
         let conflictCount = 0
         for (let retryCount = 0; retryCount < MAX_RETRIES; retryCount++) {
           try {
-            await bot.start({ onStart: (me) => log.info(`bot polling as @${me.username}`) })
+            await bot.start({ onStart: (me) => { pollingLive = true; log.info(`bot polling as @${me.username}`) } })
             log.info('bot polling ended cleanly')
+            pollingLive = false
             return
           } catch (err) {
             const code = errorCodeOf(err)
@@ -626,8 +633,12 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
       }
     },
     async stop() {
+      pollingLive = false
       await bot.stop()
       clearInterval(approvalSweep)
+    },
+    status() {
+      return { connected: pollingLive, username: bot.botInfo?.username }
     },
     async send(_chatId, _card) {
       throw new Error('Transport.send not implemented for Telegram in v0.5.0')

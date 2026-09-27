@@ -12,6 +12,7 @@ import { createCardBus } from '../core/card-bus.js'
 import { startPushNotifications } from '../core/push.js'
 import { tryBecomePrimary, type PrimaryLock } from '../core/primary-election.js'
 import { createScheduler } from '../core/scheduler.js'
+import { createChannelsStore } from '../core/channels.js'
 import type { OcEvent } from '../core/opencode-events.js'
 import type { Transport } from '../transport/interface.js'
 import { createLogger } from '../utils/logger.js'
@@ -154,18 +155,31 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
     })
     scheduler.start()
 
-    const tgTransport = createTelegramTransport({
-      token: config.telegramBotToken,
-      allowedUserIds: config.allowedUserIds,
-      backend,
-      state,
-      baseUrl: plane.serverUrl,
-      tgChunkSoftLimit: config.tgChunkSoftLimit,
-      scheduler,
-    })
+    // M9: bot-channel settings at ~/.ocrc/channels.json — consumed by the TG
+    // transport (reply granularity / workspace scope) and the web channels API.
+    const channels = createChannelsStore(`${config.statePath.replace(/[^/]+$/, '')}channels.json`)
+    const tgChannel = () => channels.get('tg-default')
 
-    const transports: Transport[] = [tgTransport]
-    tgTransport.onMessage(relay)
+    // M9: the channels panel can disable a channel (enabled=false) — the
+    // transport is then not created at all (takes effect on restart).
+    const tgChannelCfg = channels.get('tg-default')
+    const tgEnabled = tgChannelCfg?.enabled ?? true
+    let tgTransport: ReturnType<typeof createTelegramTransport> | undefined
+    const transports: Transport[] = []
+    if (tgEnabled) {
+      tgTransport = createTelegramTransport({
+        token: config.telegramBotToken,
+        allowedUserIds: config.allowedUserIds,
+        backend,
+        state,
+        baseUrl: plane.serverUrl,
+        tgChunkSoftLimit: config.tgChunkSoftLimit,
+        scheduler,
+        channels: tgChannel,
+      })
+      transports.push(tgTransport)
+      tgTransport.onMessage(relay)
+    }
 
     let webTransport: ReturnType<typeof createWebTransport> | undefined
 
@@ -191,6 +205,8 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
         auth,
         staticRoot: config.webStaticRoot,
         scheduler,
+        channels,
+        telegramStatus: () => tgTransport?.status?.() ?? { connected: false },
         })
       webTransport.onMessage(relay)
       transports.push(webTransport)
@@ -260,7 +276,7 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
         case 'permission.asked':
         case 'permission.replied':
         case 'permission.updated':
-          tgTransport.handlePluginPermissionEvent({ type: eventType, properties: (ev as any).properties } as any).catch((err) =>
+          tgTransport?.handlePluginPermissionEvent({ type: eventType, properties: (ev as any).properties } as any).catch((err) =>
             log.error('handlePluginPermissionEvent failed', err as Error),
           )
           break

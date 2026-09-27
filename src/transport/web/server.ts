@@ -36,6 +36,7 @@ import { registerRename } from './routes/rename.js'
 import type { Scheduler } from '../../core/scheduler.js'
 import { registerSuggestions } from './routes/suggestions.js'
 import { registerSchedules } from './routes/schedules.js'
+import { registerChannels } from './routes/channels.js'
 import { registerSubagents } from './routes/subagents.js'
 import { registerM8 } from './routes/m8.js'
 
@@ -47,6 +48,9 @@ export interface BuildServerOpts {
   onMessage?: (msg: IncomingMessage) => Promise<void>
   /** P2b-M7 cross-channel scheduled prompts (optional; web panel hidden w/o it). */
   scheduler?: Scheduler
+  /** M9 bot-channel settings store + live TG status. */
+  channels?: import('../../core/channels.js').ChannelsStore
+  telegramStatus?: () => { connected: boolean; username?: string } | null
 }
 
 export function buildServer(opts: BuildServerOpts): Hono {
@@ -118,6 +122,7 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerRename(app, reg, opts.state)
   registerSuggestions(app, opts.state)
   registerSchedules(app, opts.scheduler)
+  registerChannels(app, opts.channels, opts.telegramStatus)
   registerSubagents(app, reg, opts.state)
   registerM8(app, reg, opts.state)
   return app

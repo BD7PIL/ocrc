@@ -66,7 +66,7 @@
 
   {#if preview}
     <div class="preview-scrim" on:click={closePreview} role="button" tabindex="0" on:keydown={(e) => e.key === 'Escape' && closePreview()}>
-      <div class="preview" role="dialog" aria-label="File preview">
+      <div class="preview" role="dialog" aria-label="File preview" tabindex="-1">
         <div class="p-hd"><span class="mono">{preview.path}</span>
           <button class="p-close" on:click={closePreview} aria-label="关闭预览">✕</button>
         </div>

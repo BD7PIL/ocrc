@@ -111,6 +111,13 @@ export const api = {
     jsonPost<{ worktree?: WorktreeRow; error?: string }>('/api/worktrees', { directory, name }),
   removeWorktree: (directory: string, name: string) =>
     jsonDelete<{ ok: boolean }>(`/api/worktrees?directory=${encodeURIComponent(directory)}&name=${encodeURIComponent(name)}`),
+  channels: () =>
+    jsonGet<{ channels: ChannelRow[] }>('/api/channels'),
+  updateChannel: (id: string, patch: { enabled?: boolean; replyGranularity?: 'standard' | 'detailed'; workspaces?: { mode: 'all' } | { mode: 'custom'; dirs: string[] }; credentials?: Record<string, string> }) =>
+    jsonPatch<{ channel?: ChannelRow; error?: string }>(`/api/channels/${id}`, patch),
+  resetChannel: (id: string) =>
+    jsonPost<{ channel?: ChannelRow; error?: string }>(`/api/channels/${id}/reset`, {}),
+  pairQr: () => jsonGet<{ url: string; svg: string }>('/api/pair/qr'),
   addSchedule: (body: { name?: string; prompt: string; spec: ScheduleSpec; enabled?: boolean }) =>
     jsonPost<{ schedule?: ScheduleRow; error?: string }>('/api/schedules', body),
   setScheduleEnabled: (id: string, enabled: boolean) =>
@@ -132,3 +139,13 @@ export interface SubagentRow { id: string; title: string; updatedAt?: number; do
 export interface SkillRow { name: string; description?: string }
 export interface FileEntryRow { name: string; path: string; type: 'file' | 'directory' }
 export interface WorktreeRow { name: string; directory?: string }
+export type ChannelKind = 'telegram' | 'wechat' | 'lark'
+export interface ChannelRow {
+  id: string
+  channel: ChannelKind
+  enabled: boolean
+  credentials: Record<string, string>
+  replyGranularity: 'standard' | 'detailed'
+  workspaces: { mode: 'all' } | { mode: 'custom'; dirs: string[] }
+  live?: { connected: boolean; username?: string } | null
+}

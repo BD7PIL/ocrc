@@ -18,6 +18,7 @@
   import Inspector from '$lib/components/Inspector.svelte'
   import CommandPalette from '$lib/components/CommandPalette.svelte'
   import NewSessionModal from '$lib/components/NewSessionModal.svelte'
+	import ChannelsModal from '$lib/components/ChannelsModal.svelte'
   import PlusMenu from '$lib/components/PlusMenu.svelte'
   import MobileFab from '$lib/components/MobileFab.svelte'
   import PairGate from '$lib/components/PairGate.svelte'
@@ -261,6 +262,7 @@
 <CommandPalette open={$paletteOpen} on:close={() => paletteOpen.set(false)} />
 <PlusMenu anchor={newButtonAnchor} />
 <NewSessionModal />
+<ChannelsModal />
 {#if !hasSession}<MobileFab />{/if}
 {#if $auth !== 'ready'}<PairGate status={$auth === 'rejected' ? 'rejected' : 'pairing'} />{/if}
 

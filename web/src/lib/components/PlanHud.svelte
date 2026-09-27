@@ -232,7 +232,7 @@
           <div class="grp static"><span class="sub-label">Subagents</span></div>
           {#each subs as s (s.id)}
             <button class="row sub jump" on:click={() => jumpToSub(s)} title="Open subagent session">
-              <span class="sub-count mono">{s.done}/{s.total}</span>
+              {#if s.total > 0}<span class="sub-count mono">{s.done}/{s.total}</span>{/if}
               <span class="tx">{s.title || '…' + s.id.slice(-6)}</span>
               <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
             </button>

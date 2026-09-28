@@ -6,7 +6,7 @@
   import { afterNavigate } from '$app/navigation'
   import { api } from '$lib/api/client.js'
   import { createWsClient } from '$lib/ws/client.js'
-  import { sessionList, feeds, upsertCard, setHistory, pruneFeeds } from '$lib/stores/sessions.js'
+  import { sessionList, feeds, upsertCard, setHistory, pruneFeeds, isSeqGap } from '$lib/stores/sessions.js'
   import { setViewedSession, noteSessionActivity } from '$lib/notify.js'
   import { capabilities, loadCapabilities, backends, loadBackends, viewedSessionId, applyAgentTheme } from '$lib/stores/capabilities.js'
   import { paletteOpen } from '$lib/stores/palette.js'
@@ -54,6 +54,28 @@
     installEvent = null
   }
   let lastLoaded: string | null = null
+
+  // A torn feed (replay couldn't bridge a long disconnect, or a seq gap
+  // slipped through) can't be repaired by more replay: refetch the REST
+  // snapshot and re-subscribe from its lastSeq. Latched so concurrent
+  // triggers (replayEnd + gap timer) collapse into one fetch.
+  let resyncInFlight = false
+  let lastResyncAt = 0
+  let gapTimer: ReturnType<typeof setTimeout> | undefined
+  async function resyncViaRest(id: string) {
+    if (resyncInFlight || Date.now() - lastResyncAt < 2000) return
+    resyncInFlight = true
+    lastResyncAt = Date.now()
+    try {
+      const { cards, lastSeq } = await api.history(id)
+      setHistory(id, cards, lastSeq)
+      wsClient?.send({ type: 'subscribe', sessionId: id, sinceSeq: lastSeq })
+    } catch (err) {
+      console.warn('[layout] resync failed', err)
+    } finally {
+      resyncInFlight = false
+    }
+  }
 
   function loadSession(id: string | undefined) {
     // No API traffic until the connection is authed (a 401 in pairing state
@@ -118,7 +140,16 @@
       },
       onMessage: (msg) => {
         if (msg.type === 'card' && msg.card) {
+          const sid = (msg.card as { sessionId?: string }).sessionId
+          const lastSeq = sid ? get(feeds)[sid]?.lastSeq ?? 0 : 0
           upsertCard(msg.card)
+          // Gap safety net: a skipped seq on a live socket means missed frames.
+          // Debounced — a burst of gapless cards after the gapped one must not
+          // stack multiple resyncs.
+          if (sid && isSeqGap(lastSeq, msg.card)) {
+            clearTimeout(gapTimer)
+            gapTimer = setTimeout(() => { void resyncViaRest(sid) }, 500)
+          }
         }
         // hello (on connect) and sessions (live updates) both carry the list.
         if ((msg.type === 'hello' || msg.type === 'sessions') && msg.sessions) {
@@ -127,7 +158,11 @@
           // same broadcast; non-viewed activity raises the counter.
           noteSessionActivity(msg.sessions)
         }
-        // replayEnd: buffered catch-up done; nothing to do (cards already applied).
+        // replayEnd with complete=false: the server's ring buffer no longer
+        // reaches back to our snapshot — replay cannot heal this feed.
+        if (msg.type === 'replayEnd' && msg.complete === false && typeof msg.sessionId === 'string') {
+          void resyncViaRest(msg.sessionId)
+        }
       },
     })
 
@@ -205,6 +240,7 @@
       window.removeEventListener('focusout', startSettle)
       window.removeEventListener('orientationchange', onOrient)
       if (settleRAF) cancelAnimationFrame(settleRAF)
+      clearTimeout(gapTimer)
       wsClient?.close()
     }
   })

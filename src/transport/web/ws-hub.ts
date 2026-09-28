@@ -60,13 +60,21 @@ export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry;
         // (the client also dedupes by seq). Earlier code never replayed, which
         // dropped any card that landed between the REST snapshot and subscribe.
         const since = typeof msg.sinceSeq === 'number' ? msg.sinceSeq : 0
+        // The ring buffer keeps only the most recent N cards. When the client's
+        // snapshot predates the buffer's start (long disconnect on a busy
+        // session), the replay below cannot bridge the gap — say so explicitly
+        // (OC Manager's "sse-lagged" lesson) instead of leaving a torn feed
+        // that looks complete. complete=false makes the client resync via REST.
+        const oldest = opts.cardBus.oldestSeq(sid)
+        const current = opts.cardBus.currentSeq(sid)
+        const complete = since === 0 || (oldest === undefined ? since >= current : since >= oldest)
         for (const card of opts.cardBus.recent(sid)) {
           if (isProactive(card)) continue
           if ((card.seq ?? 0) > since && state.ws.readyState === 1) {
             try { state.ws.send(JSON.stringify({ type: 'card', card })) } catch {}
           }
         }
-        try { state.ws.send(JSON.stringify({ type: 'replayEnd', sessionId: sid, lastSeq: opts.cardBus.currentSeq(sid) })) } catch {}
+        try { state.ws.send(JSON.stringify({ type: 'replayEnd', sessionId: sid, lastSeq: current, complete })) } catch {}
       }
     },
     detach(ws) { clients.delete(ws) },

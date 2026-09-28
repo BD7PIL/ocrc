@@ -108,6 +108,41 @@ describe('WsHub', () => {
     expect(ws.sent.filter((m: any) => m.type === 'card').length).toBe(0)
   })
 
+  it('flags replayEnd complete=true when the snapshot is inside the buffer', async () => {
+    const bus = createCardBus(3)
+    bus.publish({ kind: 'user', sessionId: 'ses_1', text: 'a', ts: 0 })         // seq 1
+    bus.publish({ kind: 'assistant', sessionId: 'ses_1', blocks: [], meta: {} }) // seq 2
+    bus.publish({ kind: 'assistant', sessionId: 'ses_1', blocks: [], meta: {} }) // seq 3
+    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const ws = fakeWs()
+    await hub.attach(ws as any, { email: 'u@x' } as any)
+    hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_1', sinceSeq: 1 })
+    expect(ws.sent.at(-1)).toMatchObject({ type: 'replayEnd', lastSeq: 3, complete: true })
+  })
+
+  it('flags replayEnd complete=false when the snapshot predates the buffer (torn feed)', async () => {
+    const bus = createCardBus(2)
+    for (let i = 0; i < 5; i++) bus.publish({ kind: 'user', sessionId: 'ses_1', text: `m${i}`, ts: 0 }) // seq 1..5, buffer holds 4-5
+    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const ws = fakeWs()
+    await hub.attach(ws as any, { email: 'u@x' } as any)
+    hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_1', sinceSeq: 1 })
+    expect(ws.sent.at(-1)).toMatchObject({ type: 'replayEnd', lastSeq: 5, complete: false })
+    const replayed = ws.sent.filter((m: any) => m.type === 'card').map((m: any) => m.card.seq)
+    expect(replayed).toEqual([4, 5]) // replay bridges only part of the gap
+  })
+
+  it('empty buffer with a dropped session reports complete (drop resets the counter)', async () => {
+    const bus = createCardBus()
+    bus.publish({ kind: 'user', sessionId: 'ses_1', text: 'a', ts: 0 }) // seq 1
+    bus.drop('ses_1') // buffer AND seq counter reset → currentSeq = 0
+    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const ws = fakeWs()
+    await hub.attach(ws as any, { email: 'u@x' } as any)
+    hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_1', sinceSeq: 1 })
+    expect(ws.sent.at(-1)).toMatchObject({ type: 'replayEnd', lastSeq: 0, complete: true })
+  })
+
   it('registers the client synchronously: subscribe sent before attach resolves is not lost', async () => {
     const bus = createCardBus()
     let resolveSummaries!: (rows: any[]) => void

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { get } from 'svelte/store'
-import { feeds, upsertCard, setHistory, pruneFeeds, cardsOf } from './sessions.js'
+import { feeds, upsertCard, setHistory, pruneFeeds, cardsOf, isSeqGap } from './sessions.js'
 import type { StructuredCard } from '../api/types.js'
 
 function feed(sid: string) {
@@ -76,5 +76,24 @@ describe('session feed store', () => {
     expect(feed('a')).toBeUndefined()
     upsertCard({ kind: 'user', sessionId: 'a', text: 'new', ts: 0, id: 'a2', seq: 2 })
     expect(cardsOf(feed('a')).map((c) => c.id)).toEqual(['a2'])
+  })
+
+  describe('isSeqGap', () => {
+    const user = (seq?: number) =>
+      ({ kind: 'user', sessionId: 's', text: 'x', ts: 0, seq } as StructuredCard)
+
+    it('flags a card skipping ahead of the cursor', () => {
+      expect(isSeqGap(3, user(5))).toBe(true)
+    })
+
+    it('accepts contiguous seq and duplicates', () => {
+      expect(isSeqGap(3, user(4))).toBe(false)
+      expect(isSeqGap(5, user(4))).toBe(false)
+    })
+
+    it('ignores seq-less cards and the pre-snapshot window', () => {
+      expect(isSeqGap(3, user(undefined))).toBe(false)
+      expect(isSeqGap(0, user(9))).toBe(false) // history still loading
+    })
   })
 })

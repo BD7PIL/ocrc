@@ -82,4 +82,14 @@ describe('CardBus', () => {
     expect(bus.currentSeq('ses_1')).toBe(0)
     expect(bus.recent('ses_1').length).toBe(0)
   })
+
+  it('oldestSeq tracks buffer eviction', () => {
+    const bus = createCardBus(3)
+    expect(bus.oldestSeq('ses_1')).toBeUndefined() // nothing buffered
+    for (let i = 0; i < 5; i++) bus.publish(card('ses_1')) // seq 1..5, buffer evicts 1-2
+    expect(bus.oldestSeq('ses_1')).toBe(3)
+    expect(bus.oldestSeq('ses_2')).toBeUndefined()
+    bus.drop('ses_1')
+    expect(bus.oldestSeq('ses_1')).toBeUndefined()
+  })
 })

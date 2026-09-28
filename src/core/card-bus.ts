@@ -3,13 +3,15 @@ import { createLogger } from '../utils/logger.js'
 
 const log = createLogger('card-bus')
 
-const DEFAULT_BUFFER = 100
+const DEFAULT_BUFFER = 256
 
 export interface CardBus {
   publish(card: StructuredCard): void
   subscribe(sessionId: string, fn: (card: StructuredCard) => void): () => void
   subscribeAll(fn: (card: StructuredCard) => void): () => void
   recent(sessionId: string, limit?: number): StructuredCard[]
+  /** Sequence of the oldest buffered card; undefined when nothing is buffered. */
+  oldestSeq(sessionId: string): number | undefined
   /** Current max sequence number assigned for a session (0 if none). */
   currentSeq(sessionId: string): number
   /** Drop the buffer + subscribers for a deleted session (frees memory). */
@@ -67,6 +69,9 @@ export function createCardBus(bufferSize: number = DEFAULT_BUFFER): CardBus {
     recent(sessionId, limit = bufferSize) {
       const buf = buffers.get(sessionId) ?? []
       return buf.slice(-limit)
+    },
+    oldestSeq(sessionId) {
+      return buffers.get(sessionId)?.[0]?.seq
     },
     currentSeq(sessionId) {
       return seqCounters.get(sessionId) ?? 0

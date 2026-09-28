@@ -34,6 +34,17 @@ export function cardsOf(feed: SessionFeed | undefined): StructuredCard[] {
   return feed.order.map((id) => feed.byId[id]).filter(Boolean)
 }
 
+/**
+ * True when a live card skips ahead of our cursor (`lastSeq + 1`). A live ws
+ * socket is lossless and in-order, so a skipped seq means we missed frames
+ * (e.g. a replay that raced a snapshot) — the caller must resync via REST
+ * rather than keep a torn feed. `lastSeq === 0` means no snapshot yet (history
+ * is still loading), which is not a gap.
+ */
+export function isSeqGap(lastSeq: number, card: StructuredCard): boolean {
+  return typeof card.seq === 'number' && lastSeq > 0 && card.seq > lastSeq + 1
+}
+
 /** Apply a live card: upsert by id, dedupe by seq, clear transient thinking. */
 export function upsertCard(card: StructuredCard) {
   if (!('sessionId' in card) || !card.sessionId) return

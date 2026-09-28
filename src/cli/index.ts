@@ -25,6 +25,12 @@ COMMANDS:
   install       Install as opencode plugin
   uninstall     Remove from opencode plugin config
   pair          Show QR + URL to pair a device
+  start <dir>   Start the production instance (detached; env from ~/.ocrc/config.env)
+  start --watch <dir>  Foreground supervisor: adopt-or-spawn + crash auto-restart
+  restore       Re-launch the last instance under --watch (for @reboot cron)
+  stop          Stop it (watcher first, then the instance)
+  restart [dir] Restart it (keeps the current mode)
+  status        Show instance state (server / watcher / web panel / workdir)
   host          Run standalone against an ACP agent (no opencode; OCRC_ACP_CMD)
   --help, -h    Show this help
 `
@@ -63,6 +69,11 @@ async function main() {
 
   if (cmd === 'host') {
     await import('./host.js').then((m) => m.main())
+    return
+  }
+
+  if (cmd === 'start' || cmd === 'stop' || cmd === 'restart' || cmd === 'status' || cmd === 'restore') {
+    await import('./service.js').then((m) => m.main(process.argv.slice(3)))
     return
   }
 

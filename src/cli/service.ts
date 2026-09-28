@@ -60,13 +60,18 @@ function loadConfig(): ServiceConfig {
 }
 
 /**
- * Watch-loop restart decision: an intentional stop is either the stop file
- * or the process dying to a signal (exit code ≥ 128 — SIGTERM/SIGKILL'ed
- * children report 128+signal). Anything else is a crash → restart.
+ * Watch-loop restart decision. Intentional stop = the stop file, or the child
+ * dying to SIGTERM/SIGINT (the operator's / our own graceful stop). Everything
+ * else is a crash and restarts — including SIGKILL (operator forcing the child
+ * or the OOM killer) and segfaults; octg's old `>= 128` rule treated an
+ * OOM-kill as "intentional" and left the bot dead, which is exactly the
+ * failure mode supervision exists to cover. Operators stop the WATCHER
+ * (ocrc stop terms it first), not the child.
  */
-export function shouldRestart(exitCode: number | null, stopFileExists: boolean): boolean {
+export function shouldRestart(exitCode: number | null, signal: string | null, stopFileExists: boolean): boolean {
   if (stopFileExists) return false
-  if (exitCode !== null && exitCode >= 128) return false
+  if (signal === 'SIGTERM' || signal === 'SIGINT') return false
+  void exitCode
   return true
 }
 
@@ -165,17 +170,17 @@ async function watchLoop(cfg: ServiceConfig, workDir: string): Promise<void> {
       })
       childPid = child.pid ?? null
       console.log(`[watch:${cfg.port}] started opencode (pid ${childPid})`)
-      const code: number | null = await new Promise((resolve) => {
-        child!.once('exit', (_c, signal) => resolve(signal ? 128 + 15 : _c))
+      const outcome: { code: number | null; signal: string | null } = await new Promise((resolve) => {
+        child!.once('exit', (c, sig) => resolve({ code: c, signal: sig ?? null }))
       })
       child = null
       childPid = null
       if (stopping) break
-      if (!shouldRestart(code, existsSync(stopFile))) {
-        console.log(`[watch:${cfg.port}] opencode exited intentionally (code=${code ?? 'signal'})`)
+      if (!shouldRestart(outcome.code, outcome.signal, existsSync(stopFile))) {
+        console.log(`[watch:${cfg.port}] opencode exited intentionally (code=${outcome.code ?? '-'} signal=${outcome.signal ?? '-'})`)
         cleanupAndExit()
       }
-      console.log(`[watch:${cfg.port}] opencode CRASHED (code=${code}); restarting in ${cfg.watchDelayMs / 1000}s`)
+      console.log(`[watch:${cfg.port}] opencode CRASHED (code=${outcome.code ?? '-'} signal=${outcome.signal ?? '-'}); restarting in ${cfg.watchDelayMs / 1000}s`)
     }
     if (stopping) break
     await sleep(cfg.watchDelayMs)

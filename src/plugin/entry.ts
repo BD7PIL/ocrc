@@ -165,7 +165,10 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
     // M9: the channels panel can disable a channel (enabled=false) — the
     // transport is then not created at all (takes effect on restart).
     const tgChannelCfg = channels.get('tg-default')
-    const tgEnabled = tgChannelCfg?.enabled ?? true
+    // M12: web-only is a first-class shape — an empty token means the Telegram
+    // surface simply doesn't exist (no grammY retry spam); the web panel and
+    // its onboarding page carry the product on their own.
+    const tgEnabled = (tgChannelCfg?.enabled ?? true) && !!config.telegramBotToken
 
     // M11: pending-token pairing — /pair surfaces (TG + web QR) issue a
     // short-lived single-use token instead of the permanent access token.

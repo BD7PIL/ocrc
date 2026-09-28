@@ -128,6 +128,13 @@ export const api = {
   resetChannel: (id: string) =>
     jsonPost<{ channel?: ChannelRow; error?: string }>(`/api/channels/${id}/reset`, {}),
   pairQr: () => jsonGet<{ url: string; svg: string; expiresAt?: number }>('/api/pair/qr'),
+  pairOnboarding: () => jsonGet<{
+    url: string
+    svg: string
+    expiresAt: number
+    channels: Array<{ channel: 'telegram' | 'wechat' | 'lark'; enabled: boolean; live: { connected: boolean; username?: string } | null }>
+    host: { hostname: string; platform: string; arch: string }
+  }>('/api/pair/onboarding'),
   exchangePair: (pending: string) => jsonPost<{ token?: string; error?: string }>('/api/pair/exchange', { pending }),
   addSchedule: (body: { name?: string; prompt: string; spec: ScheduleSpec; enabled?: boolean }) =>
     jsonPost<{ schedule?: ScheduleRow; error?: string }>('/api/schedules', body),

@@ -154,8 +154,10 @@ export async function runInstall(options: InstallOptions): Promise<void> {
     rl.close()
   }
 
-  if (!token) { console.error('TELEGRAM_BOT_TOKEN is required.'); process.exit(1) }
-  if (!ids) { console.error('ALLOWED_USER_IDS is required.'); process.exit(1) }
+  // M12: Telegram is optional — a web-only install is a first-class shape.
+  // Leave the token empty and only the Web panel starts.
+  if (!token) console.log('  (no Telegram token — web-only install; the bot surface will not start)')
+  if (!ids) console.log('  (no ALLOWED_USER_IDS — Telegram allowlist left empty)')
 
   upsertEnv({
     TELEGRAM_BOT_TOKEN: token,

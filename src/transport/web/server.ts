@@ -40,7 +40,7 @@ import { registerSchedules } from './routes/schedules.js'
 import { registerChannels } from './routes/channels.js'
 import { registerSubagents } from './routes/subagents.js'
 import { registerM8 } from './routes/m8.js'
-import { registerPairExchange, registerPairQr } from './routes/pairing.js'
+import { registerPairExchange, registerPairQr, registerPairOnboarding } from './routes/pairing.js'
 import type { PairingStore } from '../../connectivity/pairing.js'
 
 export interface BuildServerOpts {
@@ -65,10 +65,13 @@ export function buildServer(opts: BuildServerOpts): Hono {
     await next()
     log.info(`${c.req.method} ${c.req.path} → ${c.res.status} ${Date.now() - t0}ms`)
   })
-  // Pairing exchange sits BEFORE the auth guard: the device holding a pending
-  // token has no real token yet — the pending token itself is the credential
-  // (short-lived, single-use, invalidated by the next issue()).
+  // Pairing exchange + first-run onboarding sit BEFORE the auth guard: a
+  // device holding a pending token has no real token yet. The onboarding page
+  // (owner decision) shows a live pending QR + channel STATUS pre-auth; the
+  // pending token is the credential (5 min, single-use) and the payload never
+  // includes channel credentials.
   registerPairExchange(app, opts.pairing)
+  registerPairOnboarding(app, { pairing: opts.pairing, channels: opts.channels, telegramStatus: opts.telegramStatus })
   app.use('/api/*', opts.auth.httpMiddleware())
   app.get('/api/me', (c) => {
     const user = c.get('user') as { email: string } | undefined

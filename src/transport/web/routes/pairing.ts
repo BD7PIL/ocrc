@@ -1,6 +1,8 @@
 import type { Hono } from 'hono'
+import { hostname } from 'node:os'
 import type { PairingStore, PairContext } from '../../../connectivity/pairing.js'
 import { buildPairContext, buildPairUrlPending } from '../../../connectivity/pairing.js'
+import type { ChannelsStore } from '../../../core/channels.js'
 
 async function qrSvg(pairUrl: string): Promise<string> {
   const QRCode = (await import('qrcode')).default
@@ -9,6 +11,46 @@ async function qrSvg(pairUrl: string): Promise<string> {
 
 async function pairBase(): Promise<PairContext> {
   return buildPairContext()
+}
+
+/**
+ * M12: unauthenticated onboarding surface — the first-run landing page.
+ * Owner decision: on a 0.0.0.0 bind, first-pairing convenience wins over the
+ * LAN-stranger risk, and the page shows what ZCode's 移动端远程控制 dialog
+ * shows: a live pending QR + bot-channel STATUS. Hard lines kept:
+ *  - the QR carries a PENDING token (5 min, single-use, invalidated by the
+ *    next issue) — never the permanent credential;
+ *  - channel payload is STATUS ONLY (name/enabled/live) — no credentials,
+ *    no granularity/scope; management stays behind auth.
+ */
+export function registerPairOnboarding(
+  app: Hono,
+  deps: { pairing?: PairingStore; channels?: ChannelsStore; telegramStatus?: () => { connected: boolean; username?: string } | null },
+) {
+  if (!deps.pairing) return
+  app.get('/api/pair/onboarding', async (c) => {
+    try {
+      const { url } = await pairBase()
+      const p = deps.pairing!.issue()
+      const pairUrl = buildPairUrlPending(url, p.token)
+      const svg = await qrSvg(pairUrl)
+      const status = deps.telegramStatus?.() ?? null
+      const channels = (deps.channels?.list() ?? []).map((b) => ({
+        channel: b.channel,
+        enabled: b.enabled,
+        live: b.channel === 'telegram' && status ? { connected: status.connected, username: status.username } : null,
+      }))
+      return c.json({
+        url: pairUrl,
+        svg,
+        expiresAt: p.expiresAt,
+        channels,
+        host: { hostname: hostname(), platform: process.platform, arch: process.arch },
+      })
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 500)
+    }
+  })
 }
 
 /**

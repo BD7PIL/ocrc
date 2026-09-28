@@ -9,6 +9,7 @@
   import { onMount, onDestroy } from 'svelte'
   import { submitPairing, exchangePairLink, pairHint } from '../auth.js'
   import { api } from '../api/client.js'
+  import ChannelLogo from './ChannelLogo.svelte'
 
   /** 'pairing' = no/absent token; 'rejected' = the server refused the freshest one. */
   export let status: 'pairing' | 'rejected' = 'pairing'
@@ -40,10 +41,10 @@
     } catch { onb = null }
   }
 
-  const CHANNEL_META: Record<string, { name: string; icon: string; note: string }> = {
-    telegram: { name: 'Telegram', icon: '✈️', note: '从 Telegram 打开这台机器' },
-    wechat: { name: '微信', icon: '💬', note: '待接入（配置面板已预埋）' },
-    lark: { name: '飞书 / Lark', icon: '🐦', note: '待接入（配置面板已预埋）' },
+  const CHANNEL_META: Record<string, { name: string; note: string }> = {
+    telegram: { name: 'Telegram', note: '从 Telegram 打开这台机器' },
+    wechat: { name: '微信', note: '待接入（配置面板已预埋）' },
+    lark: { name: '飞书 / Lark', note: '待接入（配置面板已预埋）' },
   }
 
   onMount(() => {
@@ -88,7 +89,12 @@
 <div class="gate">
   <div class="panel">
     <div class="head">
-      <span class="hicon" aria-hidden="true">⌖</span>
+      <span class="hicon" aria-hidden="true">
+        <svg viewBox="0 0 64 64" fill="none" stroke-width="6" stroke-linecap="round">
+          <path d="M46 15 A24 24 0 1 0 54 32" stroke="var(--text)" opacity=".85" />
+          <circle cx="49" cy="20" r="7" fill="var(--accent)" stroke="none" />
+        </svg>
+      </span>
       <div>
         <h1>配对 ocrc 远程控制</h1>
         <p class="sub">扫码或在手机上打开链接，即可远程控制这台机器的 opencode。</p>
@@ -140,7 +146,7 @@
         {#if onb}
           {#each onb.channels as ch (ch.channel)}
             <div class="ch">
-              <span class="ch-icon" aria-hidden="true">{CHANNEL_META[ch.channel]?.icon ?? '🔗'}</span>
+              <span class="ch-icon" aria-hidden="true"><ChannelLogo channel={ch.channel} size={30} /></span>
               <div class="ch-body">
                 <div class="ch-name">
                   {CHANNEL_META[ch.channel]?.name ?? ch.channel}
@@ -205,13 +211,13 @@
   }
   .head { display: flex; gap: 14px; align-items: center; }
   .hicon {
-    width: 46px; height: 46px; flex-shrink: 0;
+    width: 52px; height: 52px; flex-shrink: 0;
     display: grid; place-items: center;
-    font-size: 22px; color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
     border: 1px solid var(--border-2);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius);
   }
+  .hicon svg { width: 34px; height: 34px; display: block; }
   h1 { margin: 0; font-size: 17px; color: var(--text); font-weight: 700; }
   .sub { margin: 2px 0 0; font-size: 12.5px; color: var(--text-2); }
 
@@ -274,7 +280,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
   }
-  .ch-icon { font-size: 18px; line-height: 1.2; }
+  .ch-icon { display: grid; place-items: center; flex-shrink: 0; }
   .ch-name { font-size: 12.5px; font-weight: 650; color: var(--text); display: flex; gap: 8px; align-items: baseline; }
   .ok { font-size: 10.5px; color: var(--ok, #2e9e6b); font-weight: 600; }
   .off { font-size: 10.5px; color: var(--text-3); font-weight: 500; }

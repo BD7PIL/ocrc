@@ -7,6 +7,7 @@
   import { onMount, onDestroy } from 'svelte'
   import { api, type ChannelRow } from '$lib/api/client.js'
   import { channelsOpen } from '$lib/stores/ui.js'
+  import ChannelLogo from './ChannelLogo.svelte'
 
   let channels: ChannelRow[] = []
   let selectedId: string | undefined
@@ -96,6 +97,7 @@
         <div class="list">
           {#each channels as c (c.id)}
             <button class="ch" class:sel={selected?.id === c.id} on:click={() => select(c.id)}>
+              <span class="ch-logo"><ChannelLogo channel={c.channel} size={22} /></span>
               <span class="ch-name">{name(c.channel)}</span>
               <span class="ch-state" class:on={c.enabled}>{c.enabled ? '已启用' : '已停用'}</span>
             </button>
@@ -267,7 +269,10 @@
   .ch {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    align-items: flex-start;
+    gap: 3px;
+  }
+  .ch-logo { display: grid; place-items: center; }
     padding: 8px 10px;
     background: transparent;
     border: 1px solid var(--border);

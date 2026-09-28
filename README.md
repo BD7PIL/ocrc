@@ -7,7 +7,7 @@
 [![Release](https://img.shields.io/github/v/release/BD7PIL/ocrc?color=10b981)](https://github.com/BD7PIL/ocrc/releases)
 [![License: MIT](https://img.shields.io/github/license/BD7PIL/ocrc?color=10b981)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/BD7PIL/ocrc/ci.yml?branch=main&label=CI)](https://github.com/BD7PIL/ocrc/actions)
-[![opencode plugin](https://img.shields.io/badge/opencode-plugin-10b981)](https://opencode.ai)
+[![tests](https://img.shields.io/badge/tests-479%20backend%20%2B%20120%20web-10b981)](CHANGELOG.md)
 
 A fork of [agentjoey/opencode-remote-control](https://github.com/agentjoey/opencode-remote-control)
 (MIT); the Telegram interaction model is inspired by
@@ -15,314 +15,172 @@ A fork of [agentjoey/opencode-remote-control](https://github.com/agentjoey/openc
 Full attribution in [NOTICE](NOTICE). npm `@bd7pil/ocrc` · config `~/.ocrc/` · CLI `ocrc`.
 
 <p align="center">
-  <img src="docs/assets/ocrc-web.png" width="840" alt="OCRC — the Web PWA driving a live opencode session (sessions, live chat, task & cost inspector)">
+  <img src="docs/assets/ocrc-web.png" width="840" alt="ocrc — the Web PWA driving a live opencode session (sessions, live chat, task & cost inspector)">
 </p>
 
-Install once; it auto-starts in-process with opencode. Same sessions stream live to
-**Telegram** and a desktop **PWA** at the same time — switch surfaces mid-task without
-losing context.
+## What it is
 
-## ⚡ Quick start (5 minutes)
+- **One process.** The plugin loads inside opencode — no daemon, no extra
+  services. Telegram and the Web PWA start with opencode and die with it
+  (an optional supervisor is available, see [Lifecycle](#lifecycle)).
+- **Two surfaces, one session.** Prompts in from either side; streaming
+  output, tool calls, diffs, todos, costs mirror to both in real time.
+- **Local-first, single-user.** Runs on your machine against your local
+  opencode server. One allowlisted Telegram user; the web panel is gated by a
+  device token. No cloud, no shared backend.
+- **Honest channel status.** Telegram and Web are implemented and stable.
+  Feishu / WeChat have a configuration panel pre-wired but the transports
+  themselves are **not implemented yet**.
 
-Requires **opencode 1.17+** and **Node 20+** (or Bun). Install from npm —
-`npm i -g @bd7pil/ocrc` — or build from source below. (The
-`opencode-remote-control` name on npm is an unrelated package — don't `npx` it.)
+## Quick start
 
-There are two ways to run it — pick one:
-
-### Mode A — Plugin (default; controls opencode)
+Requires **opencode 1.17+** (verified on 1.18.32) and **Node 20+**.
 
 ```bash
-# 1. Install globally, then run the interactive installer
+# 1. Install
 npm i -g @bd7pil/ocrc
-ocrc install                  # paste your Telegram bot token + user id
+ocrc install          # interactive: Telegram bot token + your user id
+                      # (the `opencode-remote-control` name on npm is an
+                      #  unrelated package — don't npx it)
 
-# 2. Run opencode from any directory — the plugin auto-starts
-opencode
+# 2. Start (supervised: crash auto-restart)
+ocrc start --watch /path/to/your/project
+
+# 3. Talk to it
+#    Telegram: send "hello" to your bot
+#    Web:      open http://<host>:4099 and pair (see below)
 ```
 
-Prefer building from source?
+Upgrades: `npm i -g @bd7pil/ocrc@<version>` + restart. The opencode binary
+itself is yours to manage (`opencode upgrade <version>` — pin the version).
+
+## Pairing a device
+
+Web access is gated by a device token. Two ways to pair — **Telegram is not
+required**:
+
+1. **From the host terminal** (works always, no Telegram):
+   ```bash
+   ocrc pair        # prints a QR + link — scan or open on the device
+   ```
+2. **From Telegram** (once the bot is running): send `/pair`, open the link.
+
+Links carry a *pending* token — valid **5 minutes, single use**, and issuing
+a new one invalidates the old (refresh = new code). The device exchanges it
+for the real access token on first open; the token never appears in a URL
+again. Already-paired sessions can onboard further devices from the web
+panel's QR (机器人面板 → 配对新设备).
+
+## Lifecycle
 
 ```bash
-git clone https://github.com/BD7PIL/ocrc
-cd ocrc
-npm install && npm run build:all
-node dist/cli/install.js     # interactive — paste your Telegram bot token + user id
-
-opencode
+ocrc start <dir>             # start (detached, no supervision)
+ocrc start --watch <dir>     # start under the supervisor (recommended)
+ocrc status                  # server / watcher / web panel at a glance
+ocrc stop                    # graceful stop (watcher first, then the instance)
+ocrc restart [dir]           # restart, keeping the current mode
+ocrc restore                 # re-launch the last instance under --watch
 ```
 
-`install.js` writes a plugin bridge to `~/.config/opencode/plugins/` and your
-config to `.env`. The plugin then loads in-process whenever opencode runs.
+`--watch` is a foreground supervisor with octg-proven semantics: adopts an
+already-running instance, restarts the child after a crash (default 5 s,
+`OCRC_WATCH_DELAY`), and treats SIGKILL / segfaults as crashes — an OOM kill
+self-heals. SIGTERM or the stop file means "stop for real". Boot-time
+recovery is opt-in:
 
-- **Telegram:** make a bot with [@BotFather](https://t.me/BotFather); get your numeric id from [@userinfobot](https://t.me/userinfobot) (the installer asks for both). Send "hello" → the assistant replies.
-- **Web PWA:** enabled by default. Run `ocrc pair` (or send `/pair` in Telegram) → open the URL/QR it prints. Auth is a device **token** (persisted at `~/.ocrc/token`) — no Cloudflare Access needed.
-- **From another device:** the web binds to `localhost`, so expose it over a tunnel or VPN — e.g. `tailscale serve 17081`. See [Remote access without a domain](#remote-access-without-a-domain).
-
-## 🔁 Production lifecycle
-
-```bash
-ocrc start --watch /path/to/project   # start under the supervisor (crash auto-restart)
-ocrc status                           # server / watcher / web panel at a glance
-ocrc stop                             # graceful stop (watcher first, then the instance)
-ocrc restore                          # boot-time re-launch — optional @reboot cron line:
-                                      #   @reboot sleep 60 && ocrc restore >> ~/.ocrc/prod.log 2>&1
+```
+@reboot sleep 60 && ocrc restore >> ~/.ocrc/prod.log 2>&1
 ```
 
-### Mode B — Standalone multi-backend host (opencode + ACP agents)
+## Telegram
 
-Run OCRC as its own process serving **multiple agents at once** (opencode + any
-[ACP](https://agentclientprotocol.com) agent like Kimi) with an in-UI switcher —
-no opencode plugin needed. Requires the ACP agent to be installed and logged in
-(e.g. `kimi login`).
+~34 commands, grouped: sessions (`/sessions /session /new /rename /workspaces
+/projects /cleanup`), running work (`/skills /ls /open /worktree /diff /todo
+/context /subs`), controls (`/agent /model /mode /task /tasks /tasklist
+/taskdel /mcps /commands /messages /detach`), ops (`/start /status /version
+/pair /channels /help`), plus `/abort` and plain text relay. Send any text to
+drive the agent; approvals and interactive questions arrive as buttons.
 
-```bash
-git clone https://github.com/BD7PIL/ocrc
-cd ocrc
-npm install && npm run build:all
+## Web panel
 
-cp .env.acp.example .env.acp   # set WEB_TOKEN; OCRC_BACKENDS="opencode, kimi=kimi acp"
-scripts/run-acp-host.sh        # run in a real terminal (needs full PATH to spawn agents)
-```
+PWA (installable), token-gated, with a live inspector per session: todos,
+MCP servers, schedules, usage/cost, context, working-dir diff, skills, file
+browser, worktrees — plus a floating plan HUD for subagent jumps. The bot
+channels panel configures reply granularity, workspace scope, and shows the
+pairing QR.
 
-For an always-on service (auto-start + crash-restart), install the launchd unit
-from `deploy/com.ocrc.host.plist`. Full runbook: [`docs/OPS.md`](docs/OPS.md).
+## Remote access
 
-> Note: `ocrc` isn't on your PATH by default — use `node dist/cli/index.js <cmd>`
-> (e.g. `node dist/cli/index.js pair`), or `npm link` to get the `ocrc` shim.
+The web binds `0.0.0.0:4099` by default (token-gated). For a PWA install you
+need a secure context:
 
-## How we're different
+| Method | Command | Notes |
+|---|---|---|
+| **LAN, plain HTTP** | open `http://<lan-ip>:4099` | Works in-browser; PWA install needs HTTPS |
+| **Tailscale** | `tailscale serve 4099` | Stable `https://<host>.ts.net`, device auth |
+| **cloudflared** | `cloudflared tunnel --url http://localhost:4099` | Free, URL rotates; set `OCRC_WEB_PUBLIC_URL` |
 
-- **Runs as an opencode plugin, in-process.** One install, no extra process, no
-  daemon to babysit — it starts and stops with `opencode` itself.
-- **Telegram + Web from a single codebase.** The same sessions stream live to
-  Telegram and a desktop PWA simultaneously; switch surfaces mid-task without
-  losing context.
-- **SDK-native.** Built on `@opencode-ai/sdk` and the opencode plugin event
-  hook — it speaks opencode's own protocol rather than scraping a UI, so agent /
-  model overrides, approvals, diffs, and cost/token metadata all come through
-  first-class.
-- **Transport-agnostic core.** A channel-neutral `CardBus` carries structured
-  cards; each transport renders them independently. Adding a new channel
-  (Discord, Slack, …) doesn't touch the relay core.
-- **Local-first & single-user.** It runs on your machine against your local
-  opencode server, stores state in a local file, and answers to one allowlisted
-  user. No cloud, no shared backend.
+## Security model
+
+- One allowlisted Telegram user; web devices hold a token generated at first
+  start (persisted `0600` at `~/.ocrc/token`), verified with constant-time
+  compare on HTTP and WS.
+- Pairing QR links carry a pending token (5 min, single use) — never the
+  permanent credential.
+- If the opencode server itself runs with `OPENCODE_SERVER_PASSWORD`, ocrc
+  authenticates its server calls with HTTP Basic (same env, no extra config).
+- No cloud. Everything stays on the machine except Telegram API traffic.
+
+## Configuration
+
+Settings live in `~/.ocrc/config.env` (`0600`; `KEY=VALUE`). Highlights:
+
+| Key | Default | Notes |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | — | required for the Telegram surface |
+| `ALLOWED_USER_IDS` | — | comma-separated Telegram user ids |
+| `OCRC_WEB_ENABLED` | `true` | web panel on/off |
+| `OCRC_WEB_PORT` | `4099` | web panel port |
+| `OCRC_WEB_HOST` | `0.0.0.0` | bind address |
+| `OCRC_SERVER_PORT` | `4096` | opencode server port (lifecycle commands) |
+| `OCRC_SERVER_BIN` | `~/.local/bin/opencode` | binary used by `ocrc start` |
+| `OCRC_WATCH_DELAY` | `5` | supervisor restart delay (s) |
+| `OPENCODE_SERVER_PASSWORD` | — | enables HTTP Basic for server calls |
+| `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
+
+Legacy `WEB_*` names are honored as fallbacks. Full list:
+[`docs/OPS.md`](docs/OPS.md).
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────┐
-│  opencode (single process)                            │
-│                                                       │
-│  ┌──────────────────┐  ┌───────────────────────────┐ │
-│  │ AI engine :4096  │  │ plugin: remote-control     │ │
-│  │                  │  │  ├─ Telegraf (Telegram)    │ │
-│  │   event hook ────┼──┼─►├─ Hono + WS (Web PWA)    │ │
-│  │                  │  │  └─ relay + CardBus        │ │
-│  └──────────────────┘  └──────────┬────────────────┘ │
-│                                   ▼                   │
-│                          Telegram / Web (PWA)         │
-└──────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────┐
+│  opencode (single process)                          │
+│                                                     │
+│  ┌─────────────────┐  ┌──────────────────────────┐ │
+│  │ AI engine :4096 │  │ plugin: ocrc              │ │
+│  │                 │  │  ├─ grammY (Telegram)     │ │
+│  │  event hook ────┼──┼─►├─ Hono + WS (Web PWA)  │ │
+│  │                 │  │  └─ relay + CardBus       │ │
+│  └─────────────────┘  └─────────┬────────────────┘ │
+│                                 ▼                   │
+│                        Telegram / Web (PWA)         │
+└────────────────────────────────────────────────────┘
 ```
 
-The plugin loads inside opencode and is driven by the plugin **event hook**: it
-submits prompts via the SDK, consumes streaming events, and renders structured
-cards to whichever transports are enabled. A TUI, if you run one, is just
-another client of the same opencode server.
+Deep dive: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-Full deep-dive: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-
-## Quick Start (Telegram)
-
-1. **Create a bot** with [@BotFather](https://t.me/BotFather), get a token.
-2. **Find your user ID** — message [@userinfobot](https://t.me/userinfobot).
-3. **Build and install the plugin** (opencode 1.17+):
-   ```bash
-   npm install && npm run build
-   node dist/cli/install.js
-   ```
-   The installer writes a plugin bridge to `~/.config/opencode/plugins/`
-   (opencode 1.17 loads local plugins from there — directory paths in
-   `opencode.json` no longer work), ensures that dir's `package.json` has
-   `"type": "module"`, and saves `TELEGRAM_BOT_TOKEN` / `ALLOWED_USER_IDS` /
-   `WEB_ENABLED` / `WEB_PORT` to the repo's `.env`.
-4. **Run opencode** from any directory — the plugin loads globally:
-   ```bash
-   opencode
-   ```
-   The plugin auto-starts. For an always-on remote-control hub, run it from a
-   small/empty directory (e.g. `~/ocrc-hub`) so opencode's file watcher stays
-   fast. You can run several opencode instances — they elect one **PRIMARY**
-   (atomic lock at `~/.ocrc/primary.lock`) to own the web (`:4099`) and
-   Telegram singletons; the rest stand down PASSIVE. The web/bot can switch
-   between the workspaces of the running instances.
-5. **Send "hello"** in Telegram → the assistant responds.
-
-## Web UI (PWA)
-
-The Web UI runs alongside Telegram and shows the same sessions in real time
-(full streaming), installable as a desktop/mobile PWA.
-
-1. Set `WEB_ENABLED=true` (and `WEB_PORT` — default `17081`, since opencode's
-   own server occupies `7081`).
-2. Build the web app: `cd web && npm run build`.
-3. The plugin serves the PWA at `http://127.0.0.1:17081`.
-
-### Auth — pair a device (default, no Cloudflare Access needed)
-
-Auth defaults to an app **token** (`WEB_AUTH=token`). Onboard a device with
-`ocrc pair` (or Telegram `/pair`): it prints a URL + QR with the token in the
-fragment (`https://<host>/#token=…`). Open it once — the app stores the token
-and attaches it to every request thereafter. The token is persisted at
-`~/.ocrc/token`, so it survives restarts and re-installs.
-
-> Behind a tunnel, keep `WEB_CF_ACCESS_DEV_BYPASS=false`: `cloudflared` connects
-> from loopback, so a loopback bypass would trust all tunnel traffic.
-
-Prefer Cloudflare Access instead? Set `WEB_AUTH=cf-access` with
-`WEB_CF_ACCESS_TEAM` / `WEB_CF_ACCESS_AUD` — see [`docs/OPS.md`](docs/OPS.md).
-
-### Remote access without a domain
-
-A PWA install needs a **secure context** (HTTPS, or `http://localhost`). To
-reach the hub from another machine without owning a domain:
-
-| Method | Command | Notes |
-|---|---|---|
-| **Tailscale** (recommended) | `tailscale serve 17081` | Stable `https://<host>.ts.net`, device-level auth, survives restarts |
-| **cloudflared quick tunnel** | `cloudflared tunnel --url http://localhost:17081` | Free `https://*.trycloudflare.com`; URL changes each run |
-| **SSH port-forward** | `ssh -L 17081:localhost:17081 <host>` | Then open `http://127.0.0.1:17081` (localhost = secure context) |
-
-Set `WEB_PUBLIC_URL` to the resulting HTTPS URL so `/pair` emits the right
-links. (If you already run a `cloudflared` tunnel to `:4099`, `/pair`
-auto-detects its hostname from `~/.cloudflared`.) Plain `http://<LAN-IP>` is
-**not** a secure context — Chrome won't install it as an app.
-
-### Install as an app
-
-In Chrome: the omnibox install icon, or **⋮ → Cast, save, and share → Install
-page as app…**. The installed PWA reuses the browser's stored token, so it stays
-signed in.
-
-## Commands
-
-| Command | Description |
-|---|---|
-| `/start` | Handshake + health check |
-| `/status` | Server health, session count, pinned session |
-| `/sessions` | List all sessions with pin buttons |
-| `/session <id>` | Pin a specific session |
-| `/workspaces` | List known workspaces (directories) |
-| `/new` | Start a new session in the active workspace |
-| `/rename <title>` | Rename the pinned session |
-| `/files` | Files touched in the last session |
-| `/diff` | Pending git diff for the session |
-| `/todo` | Session todo list |
-| `/context` | Tokens + cost + model for the session |
-| `/agent` | Set next agent (sticky until cleared) |
-| `/model` | Set next model (sticky until cleared) |
-| `/current` | Show pinned session |
-| `/abort` | Stop the current generation |
-| `/pair` | Pair a device (URL + QR with token) for the Web PWA |
-| `/version` | Plugin version + uptime |
-| `/help` | Show this list |
-
-Send any text to relay it into opencode.
-
-## Push notifications
-
-The plugin watches opencode sessions and proactively pushes summaries:
-
-| Trigger | When | Content |
-|---|---|---|
-| Session finished | >60s run completes | Duration + assistant text summary (first 300 chars) |
-| Test failure | Bash output contains FAIL/FAILED | Last 200 chars of output |
-
-Rate limits: max 10 notifications/hour, 5-min cooldown per session. A session
-the foreground UI just delivered is skipped (no double-ping).
-
-## Multi-transport
-
-Telegram and Web run simultaneously and share the same opencode session state,
-relaying output to every connected channel in real time.
-
-| Transport | Status | Notes |
-|---|---|---|
-| Telegram | ✅ Stable | Final-result delivery, pagination, approvals |
-| Web (PWA) | ✅ Stable | SvelteKit, full streaming, token auth (default) / Cloudflare Access |
-
-To add another channel, see
-[`docs/transports/CONTRIBUTING-NEW-TRANSPORT.md`](docs/transports/CONTRIBUTING-NEW-TRANSPORT.md).
-
-## Security model
-
-- **Single-user per install.** Only the Telegram IDs in `ALLOWED_USER_IDS` can
-  interact with the bot.
-- **Local-first.** Runs on your machine, talks to your local opencode server,
-  stores state in a local JSON file (`data/state.json`).
-- **No secrets in repo.** `.env` is gitignored; `.env.example` documents every
-  variable.
-- **Web auth is pluggable.** Default is an app **token** (auto-generated,
-  persisted `0600` at `~/.ocrc/token`), verified on HTTP and WS with a
-  constant-time compare; `WEB_AUTH=cf-access` switches to Cloudflare Access. The
-  dev bypass only trusts a real loopback peer (never the bind address) and is
-  **off by default**.
-
-## Environment variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `TELEGRAM_BOT_TOKEN` | — (required) | Telegram bot token from @BotFather |
-| `ALLOWED_USER_IDS` | — (required) | Comma-separated allowed Telegram user IDs |
-| `OPENCODE_BASE_URL` | — | opencode server URL. Unused in plugin mode (the SDK client is injected); legacy/sidecar only |
-| `CHAT_TIMEOUT_MS` | `600000` | Per-message timeout (ms) |
-| `TUI_VISIBLE` | `true` | Navigate the TUI to the target session; `false` = pure direct API |
-| `STATE_PATH` | `./data/state.json` | Persistent state file |
-| `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` |
-| `TG_CHUNK_SOFT_LIMIT` | `3500` | Telegram message pagination soft limit |
-| **Web** |||
-| `WEB_ENABLED` | `false` | Enable the Web transport |
-| `WEB_HOST` | `127.0.0.1` | Web bind address (keep loopback; front with a tunnel) |
-| `WEB_PORT` | `17081` | Web port (opencode 1.17's own server occupies `7081`) |
-| `WEB_AUTH` | `token` | Auth strategy: `token` (app token) or `cf-access` |
-| `WEB_TOKEN` | auto | App token; auto-generated and persisted `0600` at `~/.ocrc/token` if unset |
-| `WEB_PUBLIC_URL` | — | Public URL for pairing/QR; falls back to LAN, then loopback |
-| `WEB_STATIC_ROOT` | `<repo>/web/dist` | Built PWA path (resolved from the plugin dir, cwd-independent) |
-| `WEB_SESSION_CACHE_SIZE` | `100` | Per-session card ring-buffer size |
-| `WEB_CF_ACCESS_TEAM` | — | Cloudflare Access team name (when `WEB_AUTH=cf-access`) |
-| `WEB_CF_ACCESS_AUD` | — | Cloudflare Access app AUD tag (when `WEB_AUTH=cf-access`) |
-| `WEB_CF_ACCESS_DEV_BYPASS` | `false` | Bypass auth **only for a loopback socket peer** |
-
-## opencode 1.17+ notes
-
-opencode 1.17 changed plugin loading; this project accounts for all of it:
-
-- **Local plugins load from `~/.config/opencode/plugins/`**, not from directory
-  paths in `opencode.json`. The installer writes a bridge file there that
-  re-invokes the built `dist/` (the source of truth — rebuild + restart to
-  update). 1.17 also only calls functions *defined* in the loaded module, so the
-  bridge wraps the plugin in a local function rather than re-exporting it.
-- **Plugins run in a worker thread.** An unhandled rejection would otherwise
-  crash the worker (`Worker has been terminated`), taking down the web server.
-  The plugin installs absorbing guards so it survives.
-- **Web runs on `17081`** because opencode's own server occupies `7081`. Point
-  your tunnel ingress at `17081`.
-- **PRIMARY election.** Web (`:4099`) and the Telegram bot are global
-  singletons. Multiple opencode instances elect one PRIMARY (atomic lock at
-  `~/.ocrc/primary.lock`) to own them; the others stand down PASSIVE.
-  Run the hub from a small/empty directory so the file watcher stays fast.
-
-## Testing
+## Development
 
 ```bash
-npm test                            # backend unit tests
-npx tsc --noEmit                    # backend type-check
-cd web && npm run check             # web type-check (svelte-check)
-cd web && npm test                  # web unit tests
-cd web && npm run build             # build PWA
+npm install && npm run build:all     # plugin + web
+npm test                             # backend (vitest)
+cd web && npm test                   # web (vitest)
+bash scripts/spike-restart.sh        # isolated dev instance (never touches prod)
 ```
 
-## License
+## Credits & license
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE) and [NOTICE](NOTICE): forked from
+[agentjoey/opencode-remote-control](https://github.com/agentjoey/opencode-remote-control);
+Telegram UX model from [@grinev/opencode-telegram-bot](https://github.com/grinev/opencode-telegram-bot).

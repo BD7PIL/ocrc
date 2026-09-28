@@ -271,8 +271,6 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 3px;
-  }
-  .ch-logo { display: grid; place-items: center; }
     padding: 8px 10px;
     background: transparent;
     border: 1px solid var(--border);
@@ -282,6 +280,7 @@
     text-align: left;
     cursor: pointer;
   }
+  .ch-logo { display: grid; place-items: center; }
   .ch.sel { border-color: var(--accent); background: var(--accent-2); }
   .ch-state { font-size: 10px; color: var(--text-3); }
   .ch-state.on { color: var(--ok, var(--accent)); }

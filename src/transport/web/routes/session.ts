@@ -2,6 +2,7 @@ import type { Hono } from 'hono'
 import type { BackendRegistry } from '../../../core/agent/registry.js'
 import type { CardBus } from '../../../core/card-bus.js'
 import type { SessionState } from '../../../core/state.js'
+import { DEFAULT_HISTORY_LIMIT } from '../../../core/history.js'
 
 export function registerSession(app: Hono, reg: BackendRegistry, cardBus: CardBus, state: SessionState) {
   app.get('/api/session/:id', async (c) => {
@@ -9,7 +10,15 @@ export function registerSession(app: Hono, reg: BackendRegistry, cardBus: CardBu
     const id = state.normalizeSessionId(rawId)
     const raw = c.req.query('limit')
     const limit = raw ? Math.max(0, Math.min(500, parseInt(raw, 10) || 0)) : undefined
-    const cards = await reg.forSession(id).getHistory(id, limit)
-    return c.json({ cards, lastSeq: cardBus.currentSeq(id) })
+    const rawOffset = c.req.query('offset')
+    const offset = rawOffset ? Math.max(0, Math.min(2000, parseInt(rawOffset, 10) || 0)) : 0
+    const effectiveLimit = limit ?? DEFAULT_HISTORY_LIMIT
+    const cards = await reg.forSession(id).getHistory(id, limit, offset)
+    // Heuristic: a full page means older messages may exist. Card count can
+    // fall below message count (roles without cards), so this errs toward an
+    // extra empty page — the client hides the button when a page comes back
+    // short, never loses history.
+    const hasMore = cards.length >= effectiveLimit
+    return c.json({ cards, lastSeq: cardBus.currentSeq(id), hasMore })
   })
 }

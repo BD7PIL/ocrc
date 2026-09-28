@@ -292,10 +292,10 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     }
   }
 
-  async function getHistory(id: string, limit?: number): Promise<StructuredCard[]> {
+  async function getHistory(id: string, limit?: number, offset?: number): Promise<StructuredCard[]> {
     const res = await client.session.messages({ path: { id } })
     const messages = (res.data ?? []) as any[]
-    return cardsFromMessages(id, messages, limit)
+    return cardsFromMessages(id, messages, limit, offset)
   }
 
   async function getMessageBlocks(sessionId: string, messageId: string): Promise<ContentBlock[]> {

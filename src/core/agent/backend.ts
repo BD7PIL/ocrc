@@ -163,8 +163,8 @@ export interface AgentBackend {
   // ── reads ─────────────────────────────────────────────────────────────────
   getSessionMeta(id: string): Promise<SessionMeta>
   getContext(id: string): Promise<SessionContext>
-  /** Reconstructed conversation cards (tail-limited). */
-  getHistory(id: string, limit?: number): Promise<StructuredCard[]>
+  /** Reconstructed conversation cards (tail-limited; offset pages backwards). */
+  getHistory(id: string, limit?: number, offset?: number): Promise<StructuredCard[]>
   /** Blocks for one assistant message — streaming-accumulator fallback only. */
   getMessageBlocks(sessionId: string, messageId: string): Promise<ContentBlock[]>
   /** opencode-shaped diff payload (passthrough; normalized when ACP lands). */

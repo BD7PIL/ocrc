@@ -2,7 +2,7 @@
   import { page } from '$app/stores'
   import { goto } from '$app/navigation'
   import { tick, onMount, onDestroy } from 'svelte'
-  import { feeds, cardsOf, sessionList } from '$lib/stores/sessions.js'
+  import { feeds, cardsOf, sessionList, prependHistory } from '$lib/stores/sessions.js'
   import { leftPanelOpen, inspectorOpen, composerDraft, composerEmpty } from '$lib/stores/ui.js'
   import Suggestions from '$lib/components/Suggestions.svelte'
   import { api } from '$lib/api/client.js'
@@ -30,6 +30,60 @@
   }
   function onChatScroll() {
     if (scrollEl) pinnedToBottom = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 80
+  }
+
+  // ── Long-session windowing ──
+  // Only the last WINDOW cards render; "加载更早" widens the window locally and,
+  // once the local feed is exhausted, pages older history from the server
+  // (offset pagination, message space). Keeps the DOM bounded even when a
+  // session streams for hours — 569-card sessions used to freeze the browser.
+  const WINDOW = 80
+  const OLDER_PAGE = 50
+  let visibleCount = WINDOW
+  let olderOffset = 0
+  let hasMoreOlder = true
+  let loadingOlder = false
+  let windowForSid = ''
+
+  $: if (sessionId && sessionId !== windowForSid) {
+    windowForSid = sessionId
+    visibleCount = WINDOW
+    olderOffset = 0
+    hasMoreOlder = true
+    loadingOlder = false
+  }
+
+  $: shownCards = visibleCount >= cards.length ? cards : cards.slice(-visibleCount)
+
+  async function loadEarlier() {
+    if (loadingOlder || !sessionId) return
+    // Local window not exhausted yet — just widen it, no network.
+    if (cards.length > visibleCount) { visibleCount += WINDOW; return }
+    if (!hasMoreOlder) return
+    loadingOlder = true
+    const el = scrollEl
+    const anchor = el ? { h: el.scrollHeight, top: el.scrollTop } : null
+    try {
+      const res = await api.history(sessionId, { limit: OLDER_PAGE, offset: olderOffset })
+      if ((res.cards ?? []).length === 0) {
+        hasMoreOlder = false
+      } else {
+        prependHistory(sessionId, res.cards)
+        olderOffset += OLDER_PAGE
+        visibleCount += WINDOW
+        if (res.hasMore === false) hasMoreOlder = false
+        if (anchor && el) {
+          await tick()
+          // Anchor: prepending grows the content above the viewport; compensate
+          // so the message being read stays put instead of jumping.
+          el.scrollTop = el.scrollHeight - anchor.h + anchor.top
+        }
+      }
+    } catch (err) {
+      console.warn('[page] loadEarlier failed', err)
+    } finally {
+      loadingOlder = false
+    }
   }
 
   $: sessionId = $page.params.sessionId ?? ''
@@ -185,7 +239,12 @@
     </div>
   </div>
   <div class="stream conversation-emerald" aria-live="polite">
-    {#each cards as card (card.id)}
+    {#if cards.length > 0 && (cards.length > visibleCount || hasMoreOlder)}
+      <button class="load-earlier mono" on:click={loadEarlier} disabled={loadingOlder}>
+        {loadingOlder ? '加载中…' : '加载更早消息'}
+      </button>
+    {/if}
+    {#each shownCards as card (card.id)}
       <Card
         {card}
         onRetry={retryLast}
@@ -256,6 +315,20 @@
     box-shadow: var(--shadow-card);
   }
   .jump:hover { color: var(--text); border-color: var(--text-4); }
+
+  .load-earlier {
+    display: block;
+    margin: 0 auto 14px;
+    padding: 6px 14px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    color: var(--text-2);
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+  .load-earlier:hover { color: var(--text); border-color: var(--text-4); }
+  .load-earlier:disabled { opacity: .55; cursor: default; }
 
   .chat {
     flex: 1;

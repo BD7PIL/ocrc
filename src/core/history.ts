@@ -76,14 +76,20 @@ export function messageToCards(sessionId: string, msg: any): StructuredCard[] {
  * subagent tool calls) blow up client-side rendering — 569-card sessions
  * froze the browser. Callers can pass `limit` to override.
  */
-const DEFAULT_HISTORY_LIMIT = 50
+export const DEFAULT_HISTORY_LIMIT = 50
 
 export function cardsFromMessages(
   sessionId: string,
   messages: any[],
   limit: number = DEFAULT_HISTORY_LIMIT,
+  offset = 0,
 ): StructuredCard[] {
-  const recent = limit > 0 && messages.length > limit ? messages.slice(-limit) : messages
+  // Window [len - limit - offset, len - offset): offset=0 is the default
+  // "last `limit` messages" view; larger offsets page backwards through
+  // older history (client-side "load earlier" in long sessions).
+  const end = Math.max(0, messages.length - Math.max(0, offset))
+  const start = limit > 0 ? Math.max(0, end - limit) : 0
+  const recent = messages.slice(start, end)
   const cards: StructuredCard[] = []
   for (const msg of recent) {
     cards.push(...messageToCards(sessionId, msg))

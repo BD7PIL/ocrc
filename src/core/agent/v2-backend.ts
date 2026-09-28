@@ -134,7 +134,7 @@ export function createV2Backend(ctx: V2Context): { backend: AgentBackend; observ
     },
 
     // ── reads not exposed by the V2 ctx — honest empties (capability-gated) ──
-    async getHistory(_id: string, _limit?: number): Promise<StructuredCard[]> {
+    async getHistory(_id: string, _limit?: number, _offset?: number): Promise<StructuredCard[]> {
       return []
     },
     async getMessageBlocks(_sessionId: string, _messageId: string): Promise<ContentBlock[]> {

@@ -69,7 +69,13 @@ export const api = {
   cleanupSubagents: () => jsonPost<{ deleted: number }>('/api/sessions/cleanup-subagents', {}),
   deleteSession: (id: string) => jsonPost<{ ok: boolean }>(`/api/sessions/${id}/delete`, {}),
   renameSession: (id: string, title: string) => jsonPost<{ ok: boolean }>(`/api/sessions/${id}/rename`, { title }),
-  history: (id: string) => jsonGet<{ cards: StructuredCard[]; lastSeq: number }>(`/api/session/${id}`),
+  history: (id: string, opts?: { limit?: number; offset?: number }) => {
+    const q = new URLSearchParams()
+    if (opts?.limit != null) q.set('limit', String(opts.limit))
+    if (opts?.offset != null) q.set('offset', String(opts.offset))
+    const qs = q.toString()
+    return jsonGet<{ cards: StructuredCard[]; lastSeq: number; hasMore?: boolean }>(`/api/session/${id}${qs ? `?${qs}` : ''}`)
+  },
   diff: (id: string) => jsonGet<any[]>(`/api/session/${id}/diff`),
   todo: (id: string) => jsonGet<any[]>(`/api/session/${id}/todo`),
   context: (id: string) => jsonGet<{ sessionId: string; agent?: string; model?: string; tokens?: any; cost?: number; directory?: string; nextAgent?: string; nextModel?: any }>(`/api/session/${id}/context`),

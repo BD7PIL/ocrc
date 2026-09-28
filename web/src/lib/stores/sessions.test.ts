@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { get } from 'svelte/store'
-import { feeds, upsertCard, setHistory, pruneFeeds, cardsOf, isSeqGap } from './sessions.js'
+import { feeds, upsertCard, setHistory, pruneFeeds, cardsOf, isSeqGap, prependHistory } from './sessions.js'
 import type { StructuredCard } from '../api/types.js'
 
 function feed(sid: string) {
@@ -76,6 +76,40 @@ describe('session feed store', () => {
     expect(feed('a')).toBeUndefined()
     upsertCard({ kind: 'user', sessionId: 'a', text: 'new', ts: 0, id: 'a2', seq: 2 })
     expect(cardsOf(feed('a')).map((c) => c.id)).toEqual(['a2'])
+  })
+
+  describe('prependHistory', () => {
+    it('prepends an older page without touching lastSeq, unique ids across pages', () => {
+      setHistory('a', [{ kind: 'user', sessionId: 'a', text: 'A', ts: 0 } as StructuredCard, { kind: 'assistant', sessionId: 'a', blocks: [], meta: {} } as StructuredCard], 7)
+      prependHistory('a', [
+        { kind: 'user', sessionId: 'a', text: 'A', ts: 0 } as StructuredCard, // same shape as snapshot → fresh id, no dedupe
+        { kind: 'assistant', sessionId: 'a', blocks: [], meta: {} } as StructuredCard,
+      ])
+      const f = feed('a')!
+      expect(f.lastSeq).toBe(7)
+      const ids = f.order
+      expect(new Set(ids).size).toBe(ids.length) // no key collisions
+      expect(ids).toHaveLength(4)
+    })
+
+    it('is a no-op on an empty page and preserves live seq cursor', () => {
+      setHistory('a', [], 0)
+      upsertCard({ kind: 'user', sessionId: 'a', text: 'live', ts: 0, id: 'u1', seq: 4 })
+      prependHistory('a', [])
+      const f = feed('a')!
+      expect(f.order).toEqual(['u1'])
+      expect(f.lastSeq).toBe(4)
+    })
+
+    it('two identical pages do not collide (page-tagged fallback ids)', () => {
+      setHistory('a', [], 0)
+      const page = [{ kind: 'user', sessionId: 'a', text: 'X', ts: 0 } as StructuredCard]
+      prependHistory('a', page)
+      prependHistory('a', page)
+      const f = feed('a')!
+      expect(new Set(f.order).size).toBe(2)
+      expect(cardsOf(f).map((c) => (c as any).text)).toEqual(['X', 'X'])
+    })
   })
 
   describe('isSeqGap', () => {

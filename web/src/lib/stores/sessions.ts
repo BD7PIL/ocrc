@@ -109,6 +109,33 @@ export function removeCard(id: string) {
 }
 
 /**
+ * Prepend an older-history page (offset pagination from REST). Historical
+ * cards carry no seq — lastSeq must not move. Each call stamps a unique page
+ * tag into fallback ids: two pages could otherwise produce the same
+ * `kind:index` fallback and collide (Svelte {#each} keys must be unique).
+ */
+let prependPage = 0
+export function prependHistory(sessionId: string, cards: StructuredCard[]) {
+  if (cards.length === 0) return
+  prependPage += 1
+  const page = prependPage
+  feeds.update((map) => {
+    const feed = map[sessionId] ?? emptyFeed()
+    const byId = { ...feed.byId }
+    const head: string[] = []
+    for (let i = cards.length - 1; i >= 0; i--) {
+      const c = cards[i]
+      const id = c.id ?? `${c.kind}:h${page}:${i}`
+      if (id in byId) continue
+      head.push(id)
+      byId[id] = c.id ? c : { ...c, id } as StructuredCard
+    }
+    if (head.length === 0) return map
+    return { ...map, [sessionId]: { order: [...head.reverse(), ...feed.order], byId, lastSeq: feed.lastSeq } }
+  })
+}
+
+/**
  * Drop feeds of sessions that are neither viewed nor subscribed anymore —
  * otherwise every visited session's history (up to 500 cards each) stays in
  * memory forever. Live cards for an evicted session simply recreate its feed.

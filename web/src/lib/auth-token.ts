@@ -19,6 +19,16 @@ export function readTokenFromHash(hash: string): string | null {
   return t && t.trim() ? t.trim() : null
 }
 
+/** Parse a PENDING pairing token out of a fragment like `#pair=abc` (M11).
+ * Pending tokens are short-lived and single-use: the PWA exchanges them at
+ * POST /api/pair/exchange for the real token (see auth.ts boot flow). */
+export function readPairPendingFromHash(hash: string): string | null {
+  const h = hash.startsWith('#') ? hash.slice(1) : hash
+  if (!h) return null
+  const t = new URLSearchParams(h).get('pair')
+  return t && t.trim() ? t.trim() : null
+}
+
 export function getToken(): string | null {
   try {
     const t = localStorage.getItem(STORAGE_KEY)

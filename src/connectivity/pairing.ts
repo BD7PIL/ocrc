@@ -1,4 +1,5 @@
 import QRCode from 'qrcode'
+import { randomBytes } from 'node:crypto'
 import { loadOrCreateToken } from './auth/token.js'
 import { resolvePublicUrl } from './exposure/providers.js'
 
@@ -41,4 +42,51 @@ export async function buildPairContext(): Promise<PairContext> {
   const token = loadOrCreateToken({ token: process.env.WEB_TOKEN })
   const url = await resolvePublicUrl({ publicUrl: process.env.WEB_PUBLIC_URL, port })
   return { token, url }
+}
+
+// ── M11: pending pairing tokens ─────────────────────────────────────────────
+// The legacy pair URL embeds the PERMANENT access token — anyone who sees the
+// QR (screenshot, chat log, shoulder) owns the host forever. Pending tokens
+// flip that: /pair surfaces issue a short-lived single-use token, the device
+// exchanges it for the real token at POST /api/pair/exchange, and the pending
+// dies on use, on expiry, or when a newer one is issued (the "refresh QR"
+// semantics the ZCode reference dialog has).
+
+export interface PendingPairing {
+  token: string
+  expiresAt: number
+}
+
+export interface PairingStore {
+  /** Issue a fresh pending token; the previous one becomes invalid. */
+  issue(): PendingPairing
+  /** Consume a pending token (single-use) → the real access token, or null. */
+  exchange(pending: string): string | null
+}
+
+const DEFAULT_PENDING_TTL_MS = 5 * 60_000
+
+export function createPairingStore(realToken: () => string, ttlMs: number = DEFAULT_PENDING_TTL_MS): PairingStore {
+  const random = (): string => randomBytes(24).toString('base64url')
+  let current: PendingPairing | null = null
+
+  return {
+    issue() {
+      current = { token: random(), expiresAt: Date.now() + ttlMs }
+      return current
+    },
+    exchange(pending) {
+      if (!current || current.token !== pending) return null
+      if (Date.now() > current.expiresAt) { current = null; return null }
+      current = null // single-use
+      return realToken()
+    },
+  }
+}
+
+/** Pairing URL carrying a PENDING token (`#pair=…`) — the PWA exchanges it for
+ * the real token client-side. Distinct scheme from the legacy `#token=…` so
+ * the two flows never collide. */
+export function buildPairUrlPending(base: string, pending: string): string {
+  return `${base.replace(/\/+$/, '')}/#pair=${encodeURIComponent(pending)}`
 }

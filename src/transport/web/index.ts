@@ -26,6 +26,8 @@ export interface WebTransportConfig {
   /** M9 bot-channel settings store + live TG status (optional). */
   channels?: import('../../core/channels.js').ChannelsStore
   telegramStatus?: () => { connected: boolean; username?: string } | null
+  /** M11 pending-token pairing store (optional). */
+  pairing?: import('../../connectivity/pairing.js').PairingStore
 }
 
 const CAPS: ChannelCapabilities = {
@@ -55,6 +57,7 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         scheduler: cfg.scheduler,
         channels: cfg.channels,
         telegramStatus: cfg.telegramStatus,
+        pairing: cfg.pairing,
       })
 
       // Immutable hashed assets cache forever; everything else (above all

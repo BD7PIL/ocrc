@@ -127,7 +127,8 @@ export const api = {
     jsonPatch<{ channel?: ChannelRow; error?: string }>(`/api/channels/${id}`, patch),
   resetChannel: (id: string) =>
     jsonPost<{ channel?: ChannelRow; error?: string }>(`/api/channels/${id}/reset`, {}),
-  pairQr: () => jsonGet<{ url: string; svg: string }>('/api/pair/qr'),
+  pairQr: () => jsonGet<{ url: string; svg: string; expiresAt?: number }>('/api/pair/qr'),
+  exchangePair: (pending: string) => jsonPost<{ token?: string; error?: string }>('/api/pair/exchange', { pending }),
   addSchedule: (body: { name?: string; prompt: string; spec: ScheduleSpec; enabled?: boolean }) =>
     jsonPost<{ schedule?: ScheduleRow; error?: string }>('/api/schedules', body),
   setScheduleEnabled: (id: string, enabled: boolean) =>

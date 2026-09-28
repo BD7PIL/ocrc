@@ -51,19 +51,4 @@ export function registerChannels(
     if (!updated) return c.json({ error: 'not found' }, 404)
     return c.json({ channel: updated })
   })
-
-  // Pairing QR — the pair URL carries the token in its fragment, so this is
-  // only ever rendered inside an already-paired session (same trust model as
-  // TG's /pair command).
-  app.get('/api/pair/qr', async (c) => {
-    try {
-      const { buildPairContext } = await import('../../../connectivity/pairing.js')
-      const QRCode = (await import('qrcode')).default
-      const { token, url } = await buildPairContext()
-      const svg = await QRCode.toString(url, { type: 'svg', margin: 1 })
-      return c.json({ url, svg })
-    } catch (err) {
-      return c.json({ error: (err as Error).message }, 500)
-    }
-  })
 }

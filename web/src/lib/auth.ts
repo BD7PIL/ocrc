@@ -19,7 +19,7 @@
 // in auth-reload.ts guards that loop.
 
 import { get, writable } from 'svelte/store'
-import { readTokenFromHash, getToken, setToken, clearToken } from './auth-token.js'
+import { readTokenFromHash, readPairPendingFromHash, getToken, setToken, clearToken } from './auth-token.js'
 import { handleAuthFailure } from './auth-reload.js'
 
 export type AuthStatus = 'booting' | 'ready' | 'pairing' | 'rejected'
@@ -27,14 +27,82 @@ export type AuthStatus = 'booting' | 'ready' | 'pairing' | 'rejected'
 /** Reactive auth status driving the layout's PairGate and connection boot. */
 export const auth = writable<AuthStatus>('booting')
 
+/**
+ * Set when a `#pair=` link failed to exchange (expired, already used, wrong
+ * host) — the PairGate surfaces it instead of the generic paste prompt.
+ */
+export const pairHint = writable<string>('')
+
 // Module-init seeding: Svelte runs child onMount hooks before the layout's, so
 // panels mounted by the layout would fire requests before any onMount-level
 // capture ran. Module init happens before every component mounts.
+//
+// M11: a `#pair=<pending>` fragment (short-lived single-use pairing token) is
+// exchanged for the real token BEFORE anything else runs. The exchange endpoint
+// is intentionally unauthenticated — the pending token IS the credential. On
+// success the flow ends in 'ready'; on failure the gate shows why. The fragment
+// is stripped either way: unlike `#token` (kept for the iOS home-screen launch
+ // path), a pending token is single-use — keeping it would retry a dead token
+// on every launch.
+let bootPairPending: string | null = null
 if (typeof location !== 'undefined' && typeof window !== 'undefined') {
   const early = readTokenFromHash(location.hash)
   if (early) setToken(early)
+  bootPairPending = readPairPendingFromHash(location.hash)
+  if (bootPairPending) {
+    history.replaceState(null, '', location.pathname + location.search)
+  }
 }
-auth.set(getToken() ? 'ready' : 'pairing')
+if (bootPairPending) {
+  auth.set('booting')
+  void (async () => {
+    try {
+      const res = await fetch('/api/pair/exchange', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ pending: bootPairPending }),
+      })
+      if (!res.ok) throw new Error(String(res.status))
+      const data = (await res.json()) as { token?: string }
+      if (!data.token) throw new Error('no token')
+      setToken(data.token)
+      pairHint.set('')
+      auth.set('ready')
+    } catch {
+      pairHint.set('配对链接已失效（5 分钟过期或已被使用）——请在主机上刷新二维码后重试。')
+      auth.set('pairing')
+    }
+  })()
+} else {
+  auth.set(getToken() ? 'ready' : 'pairing')
+}
+
+/**
+ * Accept a `#pair=` link (or raw pending token) from the in-app gate: exchange
+ * it for the real token and pair. Resolves to an error message on failure,
+ * '' on success.
+ */
+export async function exchangePairLink(link: string): Promise<string> {
+  const m = link.trim().match(/[?#]pair=([^&#\s]+)/)
+  const pending = m ? decodeURIComponent(m[1]) : link.trim()
+  if (!pending) return '这看起来不是有效的配对链接。'
+  try {
+    const res = await fetch('/api/pair/exchange', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ pending }),
+    })
+    if (!res.ok) throw new Error(String(res.status))
+    const data = (await res.json()) as { token?: string }
+    if (!data.token || !submitPairing(data.token)) return '这看起来不是有效的配对链接。'
+    pairHint.set('')
+    return ''
+  } catch {
+    return '配对链接已失效（5 分钟过期或已被使用）——请刷新二维码后重试。'
+  }
+}
 
 /**
  * Handle a 401 from any API call.

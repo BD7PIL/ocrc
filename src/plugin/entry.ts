@@ -13,6 +13,8 @@ import { startPushNotifications } from '../core/push.js'
 import { tryBecomePrimary, type PrimaryLock } from '../core/primary-election.js'
 import { createScheduler } from '../core/scheduler.js'
 import { createChannelsStore } from '../core/channels.js'
+import { createPairingStore } from '../connectivity/pairing.js'
+import { loadOrCreateToken } from '../connectivity/auth/token.js'
 import type { OcEvent } from '../core/opencode-events.js'
 import type { Transport } from '../transport/interface.js'
 import { createLogger } from '../utils/logger.js'
@@ -164,6 +166,10 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
     // transport is then not created at all (takes effect on restart).
     const tgChannelCfg = channels.get('tg-default')
     const tgEnabled = tgChannelCfg?.enabled ?? true
+
+    // M11: pending-token pairing — /pair surfaces (TG + web QR) issue a
+    // short-lived single-use token instead of the permanent access token.
+    const pairing = createPairingStore(() => loadOrCreateToken({ token: config.webToken }))
     let tgTransport: ReturnType<typeof createTelegramTransport> | undefined
     const transports: Transport[] = []
     if (tgEnabled) {
@@ -176,6 +182,7 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
         tgChunkSoftLimit: config.tgChunkSoftLimit,
         scheduler,
         channels: tgChannel,
+        pairing,
       })
       transports.push(tgTransport)
       tgTransport.onMessage(relay)
@@ -206,6 +213,7 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
         staticRoot: config.webStaticRoot,
         scheduler,
         channels,
+        pairing,
         telegramStatus: () => tgTransport?.status?.() ?? { connected: false },
         })
       webTransport.onMessage(relay)

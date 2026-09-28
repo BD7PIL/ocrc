@@ -6,7 +6,7 @@
   pairs *inside* the installed app by pasting the token/link from /pair.
 -->
 <script lang="ts">
-  import { submitPairing } from '../auth.js'
+  import { submitPairing, exchangePairLink, pairHint } from '../auth.js'
 
   /** 'pairing' = no/absent token; 'rejected' = the server refused the freshest one. */
   export let status: 'pairing' | 'rejected' = 'pairing'
@@ -21,7 +21,13 @@
     return m ? decodeURIComponent(m[1]) : t
   }
 
-  function connect() {
+  async function connect() {
+    err = ''
+    // M11: a #pair= link (pending token) must be EXCHANGED for the real token.
+    if (/[?#]pair=/.test(input)) {
+      err = await exchangePairLink(input)
+      return
+    }
     const token = parseToken(input)
     if (!token || token.length < 16) { err = '这看起来不是有效的令牌。'; return }
     // Persist + flip the auth store. No reload: the layout boots the API/WS
@@ -38,9 +44,12 @@
     {#if status === 'rejected'}
       <p class="rejected">上一次的令牌被服务器拒绝了——请在下方重新配对。</p>
     {/if}
+    {#if $pairHint}
+      <p class="rejected">{$pairHint}</p>
+    {/if}
     <p>
       In Telegram, send <code>/pair</code> to your bot, then paste the
-      <strong>token</strong> (or the whole link) below.
+      <strong>link</strong> (or token) below.
     </p>
     <input
       class="field mono"

@@ -3,6 +3,7 @@ import { Bot, InlineKeyboard, type Context } from 'grammy'
 import { inlineKeyboard, btn, type TgBtn } from './ui.js'
 import type { Scheduler } from '../../core/scheduler.js'
 import type { ChannelBot, WorkspaceScope } from '../../core/channels.js'
+import type { PairingStore } from '../../connectivity/pairing.js'
 import type { AgentBackend, AgentInfo, ModelProvider, SkillInfo } from '../../core/agent/backend.js'
 import type { SessionState } from '../../core/state.js'
 import type { CardBus } from '../../core/card-bus.js'
@@ -33,6 +34,8 @@ export interface HandlersDeps {
   opencodeProject?: string
   /** M9 bot-channel settings — gates reply granularity and workspace scope. */
   channels?: () => ChannelBot | undefined
+  /** M11 pending-token pairing store — /pair issues a short-lived token. */
+  pairing?: PairingStore
 }
 
 /** M9 工作区访问范围: filter the workspace list per the tg-default bot scope. */
@@ -451,12 +454,24 @@ export function registerHandlers(deps: HandlersDeps): void {
 
   deps.bot.command('pair', async (ctx) => {
     try {
-      const { buildPairContext, buildPairUrl } = await import('../../connectivity/pairing.js')
-      const { token, url } = await buildPairContext()
-      const pairUrl = buildPairUrl(url, token)
-      // The token travels in the URL fragment. Sending it over Telegram is
-      // acceptable: the user already trusts this bot channel for control.
-      await ctx.reply(`🔗 <b>Pair a device</b>\n\nOpen this once on the device:\n<code>${pairUrl}</code>`, { parse_mode: 'HTML' })
+      const { buildPairContext, buildPairUrl, buildPairUrlPending } = await import('../../connectivity/pairing.js')
+      const { url } = await buildPairContext()
+      if (deps.pairing) {
+        // M11: short-lived single-use pending token — the chat log only ever
+        // holds a credential that dies in 5 minutes or on first use.
+        const p = deps.pairing.issue()
+        const pairUrl = buildPairUrlPending(url, p.token)
+        await ctx.reply(
+          `🔗 <b>Pair a device</b>\n\nOpen this link on the device within <b>5 minutes</b> (single use — sending /pair again invalidates it):\n<code>${pairUrl}</code>`,
+          { parse_mode: 'HTML' },
+        )
+      } else {
+        const { token } = await buildPairContext()
+        const pairUrl = buildPairUrl(url, token)
+        // The token travels in the URL fragment. Sending it over Telegram is
+        // acceptable: the user already trusts this bot channel for control.
+        await ctx.reply(`🔗 <b>Pair a device</b>\n\nOpen this once on the device:\n<code>${pairUrl}</code>`, { parse_mode: 'HTML' })
+      }
     } catch (err) {
       await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }

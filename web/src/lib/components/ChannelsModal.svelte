@@ -4,18 +4,27 @@
      granularity, workspace scope, reset) on the right. Settings persist to
      ~/.ocrc/channels.json via /api/channels. -->
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { api, type ChannelRow } from '$lib/api/client.js'
   import { channelsOpen } from '$lib/stores/ui.js'
 
   let channels: ChannelRow[] = []
   let selectedId: string | undefined
-  let pair: { url: string; svg: string } | null = null
+  let pair: { url: string; svg: string; expiresAt?: number } | null = null
   let tokenDraft = ''
   let credNote = ''
   let workspaceDirs: string[] = []
+  let copied = false
+  // ZCode-style pairing session: countdown from expiresAt; 停止 parks the block
+  // until 刷新二维码 restarts it. No expiresAt = legacy static-token QR (no session).
+  let now = Date.now()
+  let stopped = false
+  let countdownTimer: ReturnType<typeof setInterval> | undefined
 
   $: selected = channels.find((c) => c.id === selectedId) ?? channels[0]
+  $: remaining = pair?.expiresAt ? Math.max(0, pair.expiresAt - now) : null
+  $: expired = remaining !== null && remaining <= 0
+  $: countdown = remaining === null ? '' : `${Math.floor(remaining / 60000)}:${String(Math.floor((remaining % 60000) / 1000)).padStart(2, '0')}`
 
   async function load() {
     try {
@@ -24,12 +33,18 @@
     } catch { /* keep */ }
   }
   async function loadPair() {
+    stopped = false
     try { pair = await api.pairQr() } catch { pair = null }
+  }
+  function stopPairing() {
+    stopped = true
   }
   onMount(() => {
     void load()
     void loadPair()
+    countdownTimer = setInterval(() => (now = Date.now()), 1000)
   })
+  onDestroy(() => { if (countdownTimer) clearInterval(countdownTimer) })
 
   function name(channel: string): string {
     return channel === 'telegram' ? 'Telegram' : channel === 'wechat' ? '微信' : channel === 'lark' ? 'Lark' : channel
@@ -56,7 +71,11 @@
   }
   async function copyLink() {
     if (!pair) return
-    try { await navigator.clipboard.writeText(pair.url) } catch { /* clipboard denied */ }
+    try {
+      await navigator.clipboard.writeText(pair.url)
+      copied = true
+      setTimeout(() => (copied = false), 1600)
+    } catch { /* clipboard denied */ }
   }
   function onKey(e: KeyboardEvent) { if (e.key === 'Escape') close() }
 </script>
@@ -145,16 +164,44 @@
       </div>
 
       <div class="pair">
-        <div class="sec-label">配对新设备</div>
-        {#if pair}
-          <div class="pair-row">
-            <!-- eslint-disable-next-line svelte/no-at-html-tags — server-generated QR SVG -->
-            <div class="qr">{@html pair.svg}</div>
-            <div class="pair-acts">
-              <input class="pair-url mono" readonly value={pair.url} />
-              <button class="copy" on:click={copyLink}>复制链接</button>
-              <button class="copy" on:click={loadPair}>刷新二维码</button>
+        {#if pair && !stopped}
+          <div class="pair-head">
+            <div>
+              <div class="pair-title">
+                等待手机连接
+                {#if remaining !== null}
+                  <span class="cd mono" class:expired>{expired ? '已过期' : `· ${countdown}`}</span>
+                {/if}
+              </div>
+              <div class="hint">用手机扫码，或在手机上打开链接。链接 5 分钟内有效，仅可使用一次。</div>
             </div>
+            <button class="stop" on:click={stopPairing}>停止</button>
+          </div>
+          <div class="qr-big" class:dim={expired}>
+            <!-- eslint-disable-next-line svelte/no-at-html-tags — server-generated QR SVG -->
+            {@html pair.svg}
+            {#if expired}
+              <div class="qr-expired">
+                <span>二维码已过期</span>
+                <button class="copy" on:click={loadPair}>刷新二维码</button>
+              </div>
+            {/if}
+          </div>
+          <div class="pair-acts">
+            <span class="hint">无法扫码？可以在手机上打开链接。</span>
+            <span class="spacer"></span>
+            <button class="copy" on:click={loadPair}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+              刷新二维码
+            </button>
+            <button class="copy" on:click={copyLink}>
+              {copied ? '✓ 已复制' : '复制链接'}
+            </button>
+          </div>
+        {:else if stopped}
+          <div class="pair-stopped">
+            <span>已停止配对。</span>
+            <button class="copy" on:click={loadPair}>重新开始</button>
           </div>
         {:else}
           <p class="hint">配对信息加载中…</p>
@@ -306,21 +353,51 @@
     cursor: pointer;
   }
   .pair { border-top: 1px solid var(--border-2); padding: 12px 18px 16px; }
-  .pair-row { display: flex; gap: 14px; align-items: flex-start; margin-top: 8px; }
-  .qr { width: 128px; flex-shrink: 0; background: #fff; padding: 6px; border-radius: var(--radius-sm); }
-  .qr :global(svg) { width: 100%; height: auto; display: block; }
-  .pair-acts { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0; }
-  .pair-url {
-    width: 100%;
-    box-sizing: border-box;
-    padding: 6px 8px;
+  /* ZCode 手机扫码连接 block: status header (等待手机连接 · countdown + 停止),
+     big centered QR on a white card, actions row. */
+  .pair-head { display: flex; align-items: flex-start; gap: 10px; justify-content: space-between; }
+  .pair-title { font-size: 12.5px; font-weight: 650; color: var(--text); }
+  .cd { font-weight: 500; color: var(--text-3); font-size: 11.5px; margin-left: 4px; }
+  .cd.expired { color: var(--warn); }
+  .stop {
+    flex-shrink: 0;
+    padding: 4px 12px;
     background: var(--bg-input);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     color: var(--text-2);
-    font-size: 10.5px;
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+  .stop:hover { color: var(--err); border-color: var(--err); }
+  .qr-big {
+    position: relative;
+    width: min(200px, 70%);
+    margin: 14px auto 12px;
+    background: #fff;
+    padding: 10px;
+    border-radius: var(--radius);
+    animation: ocrc-fade 180ms var(--ease-out, ease-out);
+  }
+  .qr-big :global(svg) { width: 100%; height: auto; display: block; }
+  .qr-big.dim :global(svg) { opacity: .18; filter: blur(1px); }
+  .qr-expired {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    color: var(--text);
+    font-size: 12px; font-weight: 600;
+  }
+  .pair-acts { display: flex; align-items: center; gap: 8px; }
+  .spacer { flex: 1; }
+  .pair-stopped {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 0 2px;
+    color: var(--text-2);
+    font-size: 12px;
   }
   .copy {
+    display: inline-flex; align-items: center; gap: 5px;
     padding: 5px 10px;
     background: var(--bg-input);
     border: 1px solid var(--border);
@@ -329,7 +406,6 @@
     font: inherit;
     font-size: 11.5px;
     cursor: pointer;
-    text-align: left;
   }
   .copy:hover { border-color: var(--accent); color: var(--text); }
 </style>

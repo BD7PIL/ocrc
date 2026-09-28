@@ -5,6 +5,7 @@ import { errorCodeOf, inlineKeyboard, btn } from './ui.js'
 import { isEphemeralSession } from '../../opencode/submit.js'
 import type { Scheduler } from '../../core/scheduler.js'
 import type { ChannelBot } from '../../core/channels.js'
+import type { PairingStore } from '../../connectivity/pairing.js'
 import type { AgentBackend } from '../../core/agent/backend.js'
 import type { IncomingMessage, ChannelCapabilities } from '../../core/types.js'
 import type { Transport, TransportStartDeps } from '../interface.js'
@@ -50,6 +51,8 @@ export interface TelegramConfig {
   scheduler?: Scheduler
   /** M9 bot-channel settings for this channel (granularity/workspace scope). */
   channels?: () => ChannelBot | undefined
+  /** M11 pending-token pairing store — /pair issues a short-lived token. */
+  pairing?: PairingStore
 }
 
 const CAPS: ChannelCapabilities = {
@@ -468,6 +471,7 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
     opencodeProject: cfg.opencodeProject,
     scheduler: cfg.scheduler,
     channels: cfg.channels,
+    pairing: cfg.pairing,
   })
 
   // Error catch-all — grammY wraps handler errors in BotError (err.error).

@@ -40,6 +40,8 @@ import { registerSchedules } from './routes/schedules.js'
 import { registerChannels } from './routes/channels.js'
 import { registerSubagents } from './routes/subagents.js'
 import { registerM8 } from './routes/m8.js'
+import { registerPairExchange, registerPairQr } from './routes/pairing.js'
+import type { PairingStore } from '../../connectivity/pairing.js'
 
 export interface BuildServerOpts {
   auth: AuthStrategy
@@ -52,6 +54,8 @@ export interface BuildServerOpts {
   /** M9 bot-channel settings store + live TG status. */
   channels?: import('../../core/channels.js').ChannelsStore
   telegramStatus?: () => { connected: boolean; username?: string } | null
+  /** M11 pending-token pairing store (optional; QR falls back to legacy URL). */
+  pairing?: PairingStore
 }
 
 export function buildServer(opts: BuildServerOpts): Hono {
@@ -61,6 +65,10 @@ export function buildServer(opts: BuildServerOpts): Hono {
     await next()
     log.info(`${c.req.method} ${c.req.path} → ${c.res.status} ${Date.now() - t0}ms`)
   })
+  // Pairing exchange sits BEFORE the auth guard: the device holding a pending
+  // token has no real token yet — the pending token itself is the credential
+  // (short-lived, single-use, invalidated by the next issue()).
+  registerPairExchange(app, opts.pairing)
   app.use('/api/*', opts.auth.httpMiddleware())
   app.get('/api/me', (c) => {
     const user = c.get('user') as { email: string } | undefined
@@ -127,5 +135,6 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerChannels(app, opts.channels, opts.telegramStatus)
   registerSubagents(app, reg, opts.state)
   registerM8(app, reg, opts.state)
+  registerPairQr(app, opts.pairing)
   return app
 }

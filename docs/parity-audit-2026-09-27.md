@@ -73,3 +73,30 @@
   TG 粒度消费（standard 隐藏工具行）、工作区范围过滤 /workspaces 与 /new、
   enabled=false 时启动不创建 TG transport；`/channels` TG 状态命令。
   飞书/微信通道本体仍等外部凭证；pending-token 吊销语义为二期。
+
+## 附录 3：OC Manager 调研驱动的三项优化（2026-09-28，四 commit）
+
+调研文档 `docs/oc-manager-research-2026-09-26.md`（Mrsandman327/OpenCode-Client，结论：
+与本插件互补而非竞争）。基于其三个可借鉴发现落地：
+
+- **A ✅ 同步补齐**（ca6d835）：CardBus 环形 buffer 100→256 + `oldestSeq()`；
+  ws `replayEnd` 带 `complete` 标志（快照早于 buffer 起点=false，借鉴其 sse-lagged
+  "慢客户端显式通知"）；客户端 replayEnd/缺口（`isSeqGap`）→ REST 重同步。
+- **B ✅ 长会话窗口化**（4d9e4f5）：渲染只出最近 80 卡 + 顶部"加载更早"；
+  `GET /api/session/:id?offset=`（message 空间分页，`cardsFromMessages` 开窗）
+  + `hasMore`；prepend 滚动锚定。569 卡冻结浏览器问题的根治。
+- **C ✅ question 交互问询双端**（610e32f + 3153987）：backend 三方法
+  （raw fetch，directory 由 session 解析，404→stale）+ capabilities.questions；
+  TG 端 `question-flow`（互斥槽位、逐题单消息、raw-label `string[][]`、
+  外部已答清理；上游 QuestionManager 因答案格式不匹配 API 未直接启用）；
+  Web 端 `CardQuestion`（chips/多选/自定义文本）+ `/api/question/reply|reject`。
+  **关键实证**：1.18.32 的 V1 插件 event hook **不含** question.* 事件——
+  它们只走 `/global/event` SSE（信封 `{directory,project,payload}`），
+  V1 wireEvents 因此补一条仅转发 question.* 的专用 SSE（其余会话事件
+  仍单源走 hook，无双投递）；`questionFlow.present` 按 requestId 幂等兜底。
+- **E2E 留痕**：prompt→SSE→TG 向导+web 卡片→`/api/question/reply` 200→
+  opencode 收答收尾→resolved 卡回推→槽位 `question_answered` 清理。
+- **运维教训**：spike 重启连续失败定位为 spike `opencode.db` schema 偏斜
+  （baseline 迁移报 `no such column: project_id`），备份至
+  `/tmp/ocrc-spike/db-backup-20260928/` 后重建即愈——与代码无关；
+  长会话窗口化的真机压测因 demo 会话随 DB 清空而以单测覆盖为准。

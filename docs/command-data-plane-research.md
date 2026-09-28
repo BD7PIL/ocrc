@@ -88,3 +88,12 @@ ACP/V2 backend：默认三闸 false（`can` 语义：显式 false 才隐藏 → 
 - M8c TG /worktree beta（1d，可与 M8b 并行）
 - 验收：B_bot 真机四命令闭环 + V1 回归子集（收发/三键/pair）+ spike OpenAPI 快照入库
   （tests/fixtures/openapi-1.18.32.json，防上游漂移）。
+
+## 附记（2026-09-28）：/question 端点批次已实施（M10）
+
+`/question` 组三端点已从调研转为落地（`docs/parity-audit-2026-09-27.md` 附录 3 C 节）：
+`GET /question?directory=`、`POST /question/{id}/reply`（body `answers: string[][]`，
+每题一组原始 label）、`POST /question/{id}/reject`；事件 `question.asked/replied/
+rejected` **只经 `/global/event` SSE 广播，V1 插件 event hook 收不到**（实证），
+插件侧已补专用 SSE 转发。SDK 1.17.13 无 question 符号（raw fetch 解决）。
+`question.updated` 之类事件不存在——生命周期就是 asked → replied/rejected。

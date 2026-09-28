@@ -26,7 +26,7 @@
 |---|---|---|
 | opencode 二进制 | `~/.octg/lib/opencode` 1.18.28（musl 包装） | `~/.local/bin/opencode` **1.18.32**（glibc 原生，无包装） |
 | TG 前端 | grinev 0.25.0（独立进程 `node bot/dist/cli.js`，A_bot） | ocrc 插件（**进程内**，A_bot token 迁移） |
-| 守护/自恢复 | run-4096.sh + `@reboot octg restore` | **无**（用户裁决）：`nohup opencode web … &` 一行；崩溃手动重启 |
+| 守护/自恢复 | run-4096.sh + `@reboot octg restore` | `ocrc start --watch`（可选看护：adopt/崩溃自愈含 SIGKILL+OOM；restore 供 @reboot）。裸启动一行命令仍是合法形态 |
 | Web 面板 | 无 | 新增：4099，token 门 + QR 配对（pending-token 语义） |
 | 数据 | `~/.local/share/opencode` 978M | **不变**（零迁移） |
 | 管理器 | `octg` start/stop/restore | 退役（启动/停止一行命令见 §3） |
@@ -58,13 +58,27 @@
 3. **装插件**：`npm i -g @bd7pil/ocrc && ocrc install`（写 `~/.config/opencode/plugins/ocrc.js`
    + `~/.ocrc/` 配置；A_bot token 与 allowed user 从 octg 归档搬运，值不落文档）；
    生产 env：`OPENCODE_SERVER_PASSWORD` 沿用原值（新 server 仍要密码——0.0.0.0 绑定不能裸奔）。
-4. **启动**：`cd /home/demo/develop/ate/WLG5144_dev && nohup ~/.local/bin/opencode web --port 4096 --hostname=0.0.0.0 >> ~/.config/ocrc/prod.log 2>&1 &`
+4. **启动（守护态，v0.12.0+）**：`nohup ocrc start --watch /home/demo/develop/ate/WLG5144_dev >> ~/.ocrc/prod.log 2>&1 &`
+   看护循环接管 run-4096.sh 语义：adopt-or-spawn、崩溃 5s 自动重启（SIGKILL/OOM/段错误也算崩溃；
+   仅 SIGTERM/SIGINT/stop 文件算有意停机）。生命周期：`ocrc start [--watch] / stop / restart / status / restore`。
+   开机自恢复可选装：`@reboot sleep 60 && ocrc restore >> ~/.ocrc/prod.log 2>&1`。
 5. **验证清单**：4096 LISTEN ✓ → 带密码 `/doc` 200 ✓ → 插件日志 `became PRIMARY` ✓ →
    A_bot polling ✓（发 hi 得回复）→ setMyCommands ✓ → web 4099 `/api/me` ✓ → 手机扫码配对 ✓ →
    一个真实任务端到端 ✓ → `/api/skills`（Basic 下 raw fetch）非 401 ✓。
 6. **清除痕迹**：按 §2 清单逐项执行（先归档后删）。
 
-回滚（<3 分钟）：杀新进程 → 删 `~/.config/opencode/plugins/ocrc.js` → 解档 `octg-archive` 回
+回滚（<3 分钟）：`ocrc stop` → 删 `~/.config/opencode/plugins/ocrc.js` → 解档 `octg-archive` 回
+
+## 附记：切换执行记录（2026-09-29）
+
+已完成并验证：备份 733M（`~/ocrc-cutover-backup-20260929/`）→ 二进制 1.18.32（`~/.local/bin/opencode`）→
+插件 0.12.2（npm 全局，nvm v20.20.2 前缀）→ 守护态运行 → **kill -9 子进程实测 5s 自动重启、A_bot 轮询恢复**。
+octg 痕迹归档 `~/octg-archive-20260929.tar.gz`（187M，含 A_bot token，勿外传）后全清（目录/crontab/bashrc//tmp）。
+已知坑三条：①npm prefix 曾指向 octg 树（全局包装错位置，改用 nvm 前缀）；②PLUGIN_ROOT/.env 优先级高于
+OPENCODE_CONFIG_DIR/.env（源码克隆安装前删克隆内 .env）；③发版必须在仓库根跑 `npm version`
+（web/ 子目录会 bump 错包）。
+
+原回滚段：
 `~/.octg` 与 `~/.config/octg` → 恢复 bashrc/crontab 两处 → `run-4096.sh` 原样复活（数据未动）。
 
 ## 4. 已完成的功能补齐（本次交付）

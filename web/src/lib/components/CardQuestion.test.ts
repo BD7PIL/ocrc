@@ -48,12 +48,14 @@ describe('CardQuestion', () => {
     expect((getByText('提交回答') as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('reject posts rejectQuestion', async () => {
+  it('reject posts rejectQuestion and animates the swap (fresh class)', async () => {
     const { container } = render(CardQuestion, { props: { card } })
     const rej = container.querySelector('.a.rej') as HTMLButtonElement
     await fireEvent.click(rej)
     await tick()
     expect(api.rejectQuestion).toHaveBeenCalledWith('ses_1', 'que_1')
+    // Locally triggered resolution softens the swap with the fresh fade.
+    expect(container.querySelector('.qcard.resolved.fresh')).toBeTruthy()
   })
 
   it('renders the resolved state from a republished card (answered elsewhere)', async () => {
@@ -62,5 +64,7 @@ describe('CardQuestion', () => {
     })
     expect(container.textContent).toContain('已回答')
     expect(api.answerQuestion).not.toHaveBeenCalled()
+    // External resolution mounts WITHOUT the fade — replay/history rule 1.
+    expect(container.querySelector('.qcard.resolved.fresh')).toBeNull()
   })
 })

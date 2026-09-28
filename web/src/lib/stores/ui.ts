@@ -14,6 +14,14 @@ export const channelsOpen = writable(false)
 /** Mobile inspector bottom-sheet open state (toggled from the chat header). */
 export const inspectorOpen = writable(false)
 
+/**
+ * True for one beat after a torn-feed REST resync replaced the whole feed:
+ * reconstructed history cards re-key, so the stream's `:last-child` entrance
+ * must be suppressed for that beat (rule 1 — history mounts instantly, and a
+ * resync IS history).
+ */
+export const feedResyncing = writable(false)
+
 /** Draft handed to the composer from suggestion chips: clicking a chip fills
     (never sends) — the composer watches this store, sets its text, focuses,
     and clears it. The nonce makes repeated picks of the same chip re-trigger. */

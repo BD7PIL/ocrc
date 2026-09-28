@@ -10,7 +10,7 @@
   import { setViewedSession, noteSessionActivity } from '$lib/notify.js'
   import { capabilities, loadCapabilities, backends, loadBackends, viewedSessionId, applyAgentTheme } from '$lib/stores/capabilities.js'
   import { paletteOpen } from '$lib/stores/palette.js'
-  import { leftPanelOpen, plusMenuOpen, newSessionOpen, inspectorOpen } from '$lib/stores/ui.js'
+  import { leftPanelOpen, plusMenuOpen, newSessionOpen, inspectorOpen, feedResyncing } from '$lib/stores/ui.js'
   import { auth } from '$lib/auth.js'
   import Titlebar from '$lib/components/Titlebar.svelte'
   import OfflineBanner from '$lib/components/OfflineBanner.svelte'
@@ -68,7 +68,11 @@
     lastResyncAt = Date.now()
     try {
       const { cards, lastSeq } = await api.history(id)
+      // The replacement re-keys history cards — suppress the stream's
+      // :last-child entrance for one beat (a resync IS history, rule 1).
+      feedResyncing.set(true)
       setHistory(id, cards, lastSeq)
+      setTimeout(() => feedResyncing.set(false), 350)
       wsClient?.send({ type: 'subscribe', sessionId: id, sinceSeq: lastSeq })
     } catch (err) {
       console.warn('[layout] resync failed', err)

@@ -147,6 +147,9 @@
     border: none;
     font-size: 12px;
     color: var(--text-3);
+    /* Only ever mounts on a local decision (approval cards carry no external
+       resolved republish) — soften the swap. */
+    animation: ocrc-fade 150ms var(--ease-out, ease-out);
   }
   .appr.resolved .mark { color: var(--accent); font-weight: 700; }
   .appr.resolved.rej .mark { color: var(--err); }

@@ -62,7 +62,7 @@
 </script>
 
 {#if resolved || stale}
-  <div class="qcard resolved" class:rej={resolved === 'rejected' || stale || done === 'error'}>
+  <div class="qcard resolved" class:fresh={done !== ''} class:rej={resolved === 'rejected' || stale || done === 'error'}>
     <span class="mark" aria-hidden="true">{resolved === 'replied' ? '✓' : '✕'}</span>
     <span class="rlabel">{RESOLVED_LABEL[resolved ?? done] ?? ''}</span>
     <span class="rttl mono">{card.requestId.slice(0, 12)}</span>
@@ -204,6 +204,10 @@
     background: transparent; border: none;
     font-size: 12px; color: var(--text-3);
   }
+  /* Soften the pending→resolved swap for LOCALLY triggered resolutions only —
+     a republished resolved card (answered elsewhere) mounts without it
+     (rule 1: replay/history mounts instantly). */
+  .qcard.resolved.fresh { animation: ocrc-fade 150ms var(--ease-out, ease-out); }
   .qcard.resolved .mark { color: var(--accent); font-weight: 700; }
   .qcard.resolved.rej .mark { color: var(--err); }
   .qcard.resolved .rlabel { color: var(--text-2); font-weight: 600; }

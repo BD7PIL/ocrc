@@ -54,14 +54,19 @@
   </div>
 
   <div class="list">
-    {#each rows as w (w.name)}
-      <div class="row">
-        <span class="ico" aria-hidden="true">🌿</span>
-        <span class="name">{w.name}</span>
-        <button class="del" class:arm={armed === w.name} on:click={() => remove(w.name)} aria-label="删除 {w.name}">{armed === w.name ? '确认?' : '✕'}</button>
+    {#if rows.length > 0}
+      <div class="rows">
+        {#each rows as w (w.name)}
+          <div class="row">
+            <span class="ico" aria-hidden="true">🌿</span>
+            <span class="name">{w.name}</span>
+            <button class="del" class:arm={armed === w.name} on:click={() => remove(w.name)} aria-label="删除 {w.name}">{armed === w.name ? '确认?' : '✕'}</button>
+          </div>
+        {/each}
       </div>
-    {/each}
-    {#if rows.length === 0 && !creating}<div class="label">none</div>{/if}
+    {:else if !creating}
+      <div class="label">none</div>
+    {/if}
   </div>
 
   {#if creating}
@@ -96,6 +101,12 @@
   }
   .add:hover { color: var(--text); border-color: var(--accent); }
   .list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+  /* First-arrival fade: the rows block mounts once when data lands; tick
+     refetches swap content in place without replaying it. */
+  .rows {
+    display: flex; flex-direction: column; gap: 4px;
+    animation: ocrc-fade 150ms var(--ease-out, ease-out);
+  }
   .row { display: flex; align-items: center; gap: 6px; }
   .ico { flex-shrink: 0; }
   .name { flex: 1; min-width: 0; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

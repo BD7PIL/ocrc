@@ -16,12 +16,17 @@
 <div class="skills">
   <div class="label">Skills</div>
   <div class="list">
-    {#each skills as s (s.name)}
-      <div class="row" title={s.description}>
-        <span class="name">{s.name}</span>
+    {#if skills.length > 0}
+      <div class="rows">
+        {#each skills as s (s.name)}
+          <div class="row" title={s.description}>
+            <span class="name">{s.name}</span>
+          </div>
+        {/each}
       </div>
-    {/each}
-    {#if skills.length === 0}<div class="label">none</div>{/if}
+    {:else}
+      <div class="label">none</div>
+    {/if}
   </div>
 </div>
 
@@ -34,6 +39,12 @@
     font-size: 10px;
   }
   .list { display: flex; flex-direction: column; gap: 4px; color: var(--text-2); margin-top: 6px; }
+  /* First-arrival fade: mounts once when data lands; tick refetches swap
+     content in place without replaying it. */
+  .rows {
+    display: flex; flex-direction: column; gap: 4px;
+    animation: ocrc-fade 150ms var(--ease-out, ease-out);
+  }
   .row { display: flex; align-items: center; gap: 7px; }
   .name { font-size: 11.5px; }
 </style>

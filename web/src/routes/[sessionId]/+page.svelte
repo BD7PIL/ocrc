@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation'
   import { tick, onMount, onDestroy } from 'svelte'
   import { feeds, cardsOf, sessionList, prependHistory } from '$lib/stores/sessions.js'
-  import { leftPanelOpen, inspectorOpen, composerDraft, composerEmpty } from '$lib/stores/ui.js'
+  import { leftPanelOpen, inspectorOpen, composerDraft, composerEmpty, feedResyncing } from '$lib/stores/ui.js'
   import Suggestions from '$lib/components/Suggestions.svelte'
   import { api } from '$lib/api/client.js'
   import Card from '$lib/components/Card.svelte'
@@ -238,7 +238,7 @@
       </button>
     </div>
   </div>
-  <div class="stream conversation-emerald" aria-live="polite">
+  <div class="stream conversation-emerald" class:suppressed={$feedResyncing} aria-live="polite">
     {#if cards.length > 0 && (cards.length > visibleCount || hasMoreOlder)}
       <button class="load-earlier mono" on:click={loadEarlier} disabled={loadingOlder}>
         {loadingOlder ? '加载中…' : '加载更早消息'}
@@ -302,6 +302,8 @@
     left: 50%;
     transform: translateX(-50%);
     z-index: var(--z-sticky);
+    /* Fade only — a transform animation would fight the translateX centering. */
+    animation: ocrc-fade 150ms var(--ease-out, ease-out) backwards;
     display: inline-flex;
     align-items: center;
     gap: 5px;
@@ -326,6 +328,7 @@
     color: var(--text-2);
     font-size: 11.5px;
     cursor: pointer;
+    animation: ocrc-rise-sm 160ms var(--ease-out, ease-out) backwards;
   }
   .load-earlier:hover { color: var(--text); border-color: var(--text-4); }
   .load-earlier:disabled { opacity: .55; cursor: default; }
@@ -451,9 +454,14 @@
   }
   /* Message entrance — ONLY the newest card rises, and only when it arrives
      live. History mounts instantly (batch insert → only the true :last-child
-     ever matches, so a loaded backlog never replays the animation). */
+     ever matches, so a loaded backlog never replays the animation). The
+     suppressed class additionally mutes it for one beat after a REST resync
+     re-keyed the whole feed. */
   .stream > :global(*):last-child {
     animation: ocrc-rise var(--dur-enter, 200ms) var(--ease-out, ease-out) backwards;
+  }
+  .stream.suppressed > :global(*):last-child {
+    animation: none;
   }
   .loading {
     display: flex;

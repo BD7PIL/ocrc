@@ -186,9 +186,11 @@ async function watchLoop(cfg: ServiceConfig, workDir: string): Promise<void> {
 // ── commands ────────────────────────────────────────────────────────────────
 
 export async function main(argv: string[]): Promise<void> {
-  const watch = argv[0] === '--watch'
-  const cmd = watch ? argv[1] : argv[0]
-  const rest = watch ? argv.slice(2) : argv.slice(1)
+  // argv[0] is the command word; --watch may sit anywhere after it.
+  const watch = argv.includes('--watch')
+  const args = argv.filter((a) => a !== '--watch')
+  const cmd = args[0]
+  const rest = args.slice(1)
   const cfg = loadConfig()
   const webPort = readConfigEnv().OCRC_WEB_PORT ?? '4099'
 

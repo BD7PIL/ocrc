@@ -73,7 +73,7 @@ async function main() {
   }
 
   if (cmd === 'start' || cmd === 'stop' || cmd === 'restart' || cmd === 'status' || cmd === 'restore') {
-    await import('./service.js').then((m) => m.main(process.argv.slice(3)))
+    await import('./service.js').then((m) => m.main(process.argv.slice(2)))
     return
   }
 

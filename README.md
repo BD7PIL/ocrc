@@ -1,38 +1,18 @@
 # ocrc — remote control for opencode
 
-> **ocrc is a fork of [agentjoey/opencode-remote-control](https://github.com/agentjoey/opencode-remote-control) (OCRC, MIT).**
-> Upstream's architecture — the in-process plugin, CardBus, transport
-> interface, Telegram + Web PWA — is kept intact. This fork exists for four
-> reasons, all additive on top of upstream's design:
->
-> 1. **Dual-host** — one default export loads on opencode **V1 (server hook) and
->    V2 (setup hook)**; no plugin beta dependency, local structural V2 types.
-> 2. **More channels** — Feishu (official outbound WebSocket) and WeChat (official
->    iLink bot API) as new transports under the same Transport interface; the
->    relay core stays untouched.
-> 3. **Telegram UX at grinev depth** — the interaction model of
->    [@grinev/opencode-telegram-bot](https://github.com/grinev/opencode-telegram-bot)
->    (MIT): interaction mutex, grouped permission requests, background-session
->    notifications, Chinese i18n — transplanted onto ocrc's relay pipeline.
-> 4. **LAN-first web** — binds `0.0.0.0:4099` by default (token gate mandatory,
->    no cloud relay needed); dual light/dark "paper-ink" theme, auto-switched.
->
-> Fork identity: npm `@bd7pil/ocrc`, config home `~/.ocrc/`, CLI `ocrc`.
-> Functional behaviour otherwise follows upstream's original design — this fork
-> changes identity, defaults and skins, not the interaction model.
+> **Drive your local opencode from your phone or browser** — a Telegram bot
+> plus a scan-to-pair Web PWA, running as an **in-process opencode plugin**.
+> One install; both surfaces stream the same live sessions.
 
-# OCRC — opencode-remote-control (upstream README follows)
-
-> **Drive your local opencode from your phone or browser.** An [opencode](https://opencode.ai)
-> **plugin** that runs a **Telegram bot + a Web PWA** in-process — fire off a prompt from
-> anywhere and watch the assistant code in real time, even when you're away from your desk.
-> Now also drives any [ACP](https://agentclientprotocol.com) agent (e.g. Kimi) in standalone host mode.
-
-[![Release](https://img.shields.io/github/v/release/agentjoey/opencode-remote-control?color=10b981)](https://github.com/BD7PIL/ocrc/releases)
-[![License: MIT](https://img.shields.io/github/license/agentjoey/opencode-remote-control?color=10b981)](LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/agentjoey/opencode-remote-control/ci.yml?branch=main&label=CI)](https://github.com/BD7PIL/ocrc/actions)
+[![Release](https://img.shields.io/github/v/release/BD7PIL/ocrc?color=10b981)](https://github.com/BD7PIL/ocrc/releases)
+[![License: MIT](https://img.shields.io/github/license/BD7PIL/ocrc?color=10b981)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/BD7PIL/ocrc/ci.yml?branch=main&label=CI)](https://github.com/BD7PIL/ocrc/actions)
 [![opencode plugin](https://img.shields.io/badge/opencode-plugin-10b981)](https://opencode.ai)
-[![tests](https://img.shields.io/badge/tests-413%20backend%20%2B%2093%20web-10b981)](./CHANGELOG.md)
+
+A fork of [agentjoey/opencode-remote-control](https://github.com/agentjoey/opencode-remote-control)
+(MIT); the Telegram interaction model is inspired by
+[@grinev/opencode-telegram-bot](https://github.com/grinev/opencode-telegram-bot).
+Full attribution in [NOTICE](NOTICE). npm `@bd7pil/ocrc` · config `~/.ocrc/` · CLI `ocrc`.
 
 <p align="center">
   <img src="docs/assets/ocrc-web.png" width="840" alt="OCRC — the Web PWA driving a live opencode session (sessions, live chat, task & cost inspector)">
@@ -78,6 +58,16 @@ config to `.env`. The plugin then loads in-process whenever opencode runs.
 - **Telegram:** make a bot with [@BotFather](https://t.me/BotFather); get your numeric id from [@userinfobot](https://t.me/userinfobot) (the installer asks for both). Send "hello" → the assistant replies.
 - **Web PWA:** enabled by default. Run `ocrc pair` (or send `/pair` in Telegram) → open the URL/QR it prints. Auth is a device **token** (persisted at `~/.ocrc/token`) — no Cloudflare Access needed.
 - **From another device:** the web binds to `localhost`, so expose it over a tunnel or VPN — e.g. `tailscale serve 17081`. See [Remote access without a domain](#remote-access-without-a-domain).
+
+## 🔁 Production lifecycle
+
+```bash
+ocrc start --watch /path/to/project   # start under the supervisor (crash auto-restart)
+ocrc status                           # server / watcher / web panel at a glance
+ocrc stop                             # graceful stop (watcher first, then the instance)
+ocrc restore                          # boot-time re-launch — optional @reboot cron line:
+                                      #   @reboot sleep 60 && ocrc restore >> ~/.ocrc/prod.log 2>&1
+```
 
 ### Mode B — Standalone multi-backend host (opencode + ACP agents)
 

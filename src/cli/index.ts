@@ -15,7 +15,7 @@ const VERSION = (() => {
 })()
 
 const HELP = `
-ocrc v${VERSION} (fork of agentjoey/opencode-remote-control)
+ocrc v${VERSION}
 
 USAGE:
   ocrc <command>

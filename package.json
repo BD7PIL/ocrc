@@ -47,7 +47,7 @@
     "@opencode-ai/plugin": "^1.17.13",
     "@opencode-ai/sdk": "^1.17.13",
     "diff": "^7.0.0",
-    "dotenv": "^16.4.5",
+    "dotenv": "^18.0.3",
     "grammy": "^1.46.0",
     "hono": "^4.12.19",
     "jose": "^6.2.3",

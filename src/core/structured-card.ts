@@ -49,4 +49,13 @@ export type StructuredCard = CardMeta & (
   | { kind: 'status';       sessionId: string;  fields: Record<string, string>; buttons?: Button[][] }
   | { kind: 'info';         title: string;      sections: InfoSection[]; sessionId?: string;  proactive?: boolean }
   | { kind: 'approval';     sessionId: string;  title: string;  args: unknown;  requestId: string }
+  | {
+      kind: 'question'
+      sessionId: string
+      requestId: string
+      questions: Array<{ question: string; header?: string; options: Array<{ label: string; description?: string }>; multiple?: boolean; custom?: boolean }>
+      /** Set once answered/declined (same card id republished → upsert in place). */
+      resolved?: 'replied' | 'rejected'
+      answers?: string[][]
+    }
 )

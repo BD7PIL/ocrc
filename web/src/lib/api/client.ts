@@ -94,6 +94,10 @@ export const api = {
   suggestions: (sessionId: string) => jsonGet<{ suggestions: string[] }>(`/api/session/${sessionId}/suggestions`),
   approve: (sessionId: string, requestId: string, decision: 'once' | 'always' | 'reject') =>
     jsonPost<{ ok: boolean }>('/api/approval', { sessionId, requestId, decision }),
+  answerQuestion: (sessionId: string, requestId: string, answers: string[][]) =>
+    jsonPost<{ ok: boolean; stale?: boolean }>('/api/question/reply', { sessionId, requestId, answers }),
+  rejectQuestion: (sessionId: string, requestId: string) =>
+    jsonPost<{ ok: boolean; stale?: boolean }>('/api/question/reject', { sessionId, requestId }),
   controls: (id: string) =>
     jsonGet<{ mode?: { current?: string; options: Array<{ id: string; name: string }> }; model?: { current?: string; options: Array<{ id: string; name: string }> } }>(`/api/session/${id}/controls`),
   setMode: (id: string, modeId: string) =>

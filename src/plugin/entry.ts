@@ -288,6 +288,41 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
           }
           break
         }
+        case 'question.asked': {
+          const p = (ev as any)?.properties ?? {}
+          const sid = typeof p.sessionID === 'string' ? p.sessionID : ''
+          const requestId = typeof p.id === 'string' ? p.id : ''
+          if (sid && requestId) {
+            // Stable id so the resolved republish (below) upserts in place.
+            cardBus.publish({
+              kind: 'question', sessionId: sid, requestId, id: `question:${requestId}`,
+              questions: Array.isArray(p.questions) ? p.questions : [],
+            })
+          }
+          tgTransport?.handlePluginQuestionEvent({ type: eventType, properties: p }).catch((err) =>
+            log.error('handlePluginQuestionEvent failed', err as Error),
+          )
+          break
+        }
+        case 'question.replied':
+        case 'question.rejected': {
+          const p = (ev as any)?.properties ?? {}
+          const sid = typeof p.sessionID === 'string' ? p.sessionID : ''
+          const requestId = typeof p.requestID === 'string' ? p.requestID : ''
+          if (sid && requestId) {
+            cardBus.publish({
+              kind: 'question', sessionId: sid, requestId, id: `question:${requestId}`,
+              questions: [],
+              resolved: eventType === 'question.replied' ? 'replied' : 'rejected',
+              answers: Array.isArray(p.answers) ? p.answers : undefined,
+            })
+          }
+          // External resolution (TUI/other device) — let TG close its wizard.
+          tgTransport?.handlePluginQuestionEvent({ type: eventType, properties: p }).catch((err) =>
+            log.error('handlePluginQuestionEvent failed', err as Error),
+          )
+          break
+        }
         case 'session.deleted': {
           // Free per-session memory (card buffer, costs, delivery marks, aborts).
           const sid = (ev as any)?.properties?.sessionID ?? (ev as any)?.properties?.info?.id

@@ -13,6 +13,7 @@ import type { CardBus } from '../../core/card-bus.js'
 import { TelegramSessionRenderer } from './renderer.js'
 import { StreamingRenderer } from './streaming-render.js'
 import { PermissionFlow } from './permission-flow.js'
+import { QuestionFlow } from './question-flow.js'
 import { renderSessionsMenu, renderAgentsMenu, renderModelsMenu, editMenu } from './menus.js'
 import { InteractionManager } from './managers/interaction-manager.js'
 import { PermissionManager } from './managers/permission-manager.js'
@@ -63,6 +64,8 @@ const CAPS: ChannelCapabilities = {
 export interface TelegramTransport extends Transport {
   /** Handle a permission event from the Plugin event hook (Plugin mode). */
   handlePluginPermissionEvent(event: { type: string; properties: any }): Promise<void>
+  /** M10: interactive question-tool requests (asked / replied / rejected). */
+  handlePluginQuestionEvent(event: { type: string; properties: any }): Promise<void>
 }
 
 export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: Bot }): TelegramTransport {
@@ -220,6 +223,7 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
   const interactionManager = new InteractionManager()
   const permissionManager = new PermissionManager(interactionManager)
   let permissionFlow: PermissionFlow | undefined
+  let questionFlow: QuestionFlow | undefined
   /** Latest reply-keyboard payload, refreshed by whoever has fresh data. */
   let keyboardData: { agentName: string; modelLabel: string; context?: { used: number; limit: number } } = {
     agentName: 'opencode',
@@ -260,6 +264,30 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
     if (!permissionFlow) { await ctx.answerCallbackQuery('尚未就绪').catch(() => {}); return }
     await permissionFlow.onDecision(ctx, decision).catch((err) => {
       log.error('permission decision failed', err as Error)
+      ctx.answerCallbackQuery('处理失败').catch(() => {})
+    })
+  })
+
+  // ── M10: question-tool callbacks (q:<tok>:o:<idx> / :ok / :rej) ──
+  bot.callbackQuery(/^q:([0-9a-zA-Z_-]{16}):o:(\d+)$/, async (ctx) => {
+    const m = ctx.match as RegExpMatchArray
+    if (!questionFlow) { await ctx.answerCallbackQuery('尚未就绪').catch(() => {}); return }
+    await questionFlow.onOption(ctx, m[1], parseInt(m[2], 10)).catch((err) => {
+      log.error('question option failed', err as Error)
+      ctx.answerCallbackQuery('处理失败').catch(() => {})
+    })
+  })
+  bot.callbackQuery(/^q:([0-9a-zA-Z_-]{16}):ok$/, async (ctx) => {
+    if (!questionFlow) { await ctx.answerCallbackQuery('尚未就绪').catch(() => {}); return }
+    await questionFlow.onSubmit(ctx, (ctx.match as RegExpMatchArray)[1]).catch((err) => {
+      log.error('question submit failed', err as Error)
+      ctx.answerCallbackQuery('处理失败').catch(() => {})
+    })
+  })
+  bot.callbackQuery(/^q:([0-9a-zA-Z_-]{16}):rej$/, async (ctx) => {
+    if (!questionFlow) { await ctx.answerCallbackQuery('尚未就绪').catch(() => {}); return }
+    await questionFlow.onReject(ctx, (ctx.match as RegExpMatchArray)[1]).catch((err) => {
+      log.error('question reject failed', err as Error)
       ctx.answerCallbackQuery('处理失败').catch(() => {})
     })
   })
@@ -499,6 +527,14 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
             }
           },
           sessionIdOf: (r: PermissionRequest) => r.sessionID,
+        },
+        chatId,
+      )
+      questionFlow = new QuestionFlow(
+        {
+          interactionManager,
+          answer: async (sid, requestId, answers) => await cfg.backend.answerQuestion?.(sid, requestId, answers),
+          reject: async (sid, requestId) => await cfg.backend.rejectQuestion?.(sid, requestId),
         },
         chatId,
       )
@@ -744,6 +780,43 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
         } catch (err) {
           log.warn(`[plugin] couldn't update card after TUI reply: ${(err as Error).message}`)
         }
+      }
+    },
+    /** M10: handle question events from the opencode event hook. */
+    async handlePluginQuestionEvent(event: { type: string; properties: any }) {
+      const props = event.properties ?? {}
+      // The web question card is published by the plugin entry (single source);
+      // this method only drives the Telegram side.
+
+      if (event.type === 'question.asked') {
+        const requestId = props.id as string | undefined
+        const sessionId = props.sessionID as string | undefined
+        if (!requestId || !sessionId || !questionFlow) return
+        const questions = (Array.isArray(props.questions) ? props.questions : []).map((q: any) => ({
+          question: String(q?.question ?? ''),
+          header: typeof q?.header === 'string' && q.header ? q.header : undefined,
+          multiple: q?.multiple === true,
+          custom: q?.custom === true,
+          options: (Array.isArray(q?.options) ? q.options : [])
+            .filter((o: any) => typeof o?.label === 'string' && o.label)
+            .map((o: any) => ({ label: String(o.label), description: typeof o?.description === 'string' ? o.description : undefined })),
+        }))
+        await questionFlow.present(bot.api, {
+          requestId,
+          sessionId: cfg.state.normalizeSessionId(sessionId),
+          questions,
+        }).catch((err) => log.error('question present failed', err as Error))
+        return
+      }
+
+      if (event.type === 'question.replied' || event.type === 'question.rejected') {
+        const requestId = props.requestID as string | undefined
+        if (!requestId || !questionFlow) return
+        await questionFlow.onExternal(
+          bot.api,
+          requestId,
+          event.type === 'question.replied' ? 'replied' : 'rejected',
+        ).catch((err) => log.warn('external question cleanup failed', (err as Error).message))
       }
     },
   }

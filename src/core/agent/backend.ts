@@ -66,6 +66,27 @@ export interface SkillInfo { name: string; description?: string }
 export interface FileEntry { name: string; path: string; type: 'file' | 'directory' }
 /** A sandbox worktree from /experimental/worktree (beta). */
 export interface WorktreeInfo { name: string; directory?: string }
+/** One selectable answer of a pending question (opencode `question` tool). */
+export interface QuestionOption { label: string; description?: string }
+/** A single question inside a pending QuestionRequest. */
+export interface QuestionInfo {
+  question: string
+  header?: string
+  options: QuestionOption[]
+  /** Allow multiple selected labels per question. */
+  multiple?: boolean
+  /** Offer a free-text answer alongside the options. */
+  custom?: boolean
+}
+/** A pending question request (GET /question, event question.asked). */
+export interface QuestionRequest {
+  id: string
+  sessionId: string
+  questions: QuestionInfo[]
+  tool?: { messageID?: string; callID?: string }
+}
+/** Result of answering/rejecting a question. `stale` = already resolved elsewhere. */
+export interface QuestionAnswerResult { ok: boolean; stale?: boolean }
 export interface CommandInfo { name: string; description: string }
 export interface Workspace { directory: string; name: string; sessionCount: number; lastActiveAt: number }
 
@@ -138,6 +159,8 @@ export interface BackendCapabilities {
   files?: boolean
   /** Manages experimental sandbox worktrees — gates the worktree surface. Omitted = no. */
   worktrees?: boolean
+  /** Answers interactive `question`-tool requests — gates the question UI. Omitted = no. */
+  questions?: boolean
 }
 
 export interface AgentBackend {
@@ -193,6 +216,13 @@ export interface AgentBackend {
   listWorktreeSandboxes?(directory?: string): Promise<WorktreeInfo[]>
   createWorktreeSandboxes?(directory: string | undefined, name: string): Promise<WorktreeInfo | null>
   removeWorktreeSandboxes?(directory: string | undefined, name: string): Promise<boolean>
+  // ── M10: interactive questions (present when capabilities.questions) ────────
+  /** Pending question requests for a directory (GET /question). */
+  listQuestions?(directory?: string): Promise<QuestionRequest[]>
+  /** Submit ordered answers (per question, an array of selected labels). */
+  answerQuestion?(sessionId: string, requestId: string, answers: string[][]): Promise<QuestionAnswerResult>
+  /** Decline a pending question request. */
+  rejectQuestion?(sessionId: string, requestId: string): Promise<QuestionAnswerResult>
   /** Workspaces (directories with sessions) across all opencode projects. */
   listWorkspaces(): Promise<Workspace[]>
   listCommands(): Promise<CommandInfo[]>

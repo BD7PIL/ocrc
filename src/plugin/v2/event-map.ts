@@ -185,6 +185,20 @@ export function createV2EventMapper(): V2EventMapper {
           if (!sid) return []
           return [{ type: 'session.deleted', properties: { sessionID: sid } }]
 
+        // ── interactive questions: V2 payloads are field-identical to V1 ─────
+        case 'question.v2.asked': {
+          const q = d as any
+          return (q?.id && q?.questions) ? [{ type: 'question.asked', properties: q }] : []
+        }
+        case 'question.v2.replied': {
+          const q = d as any
+          return (sid && q?.requestID) ? [{ type: 'question.replied', properties: q }] : []
+        }
+        case 'question.v2.rejected': {
+          const q = d as any
+          return (sid && q?.requestID) ? [{ type: 'question.rejected', properties: q }] : []
+        }
+
         // Everything else (usage, vcs, mcp, pty, ...) is not core-relevant yet.
         default:
           return []

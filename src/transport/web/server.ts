@@ -24,6 +24,7 @@ import { registerControls } from './routes/controls.js'
 import { registerFiles } from './routes/files.js'
 import { registerContext } from './routes/context.js'
 import { registerApproval } from './routes/approval.js'
+import { registerQuestion } from './routes/question.js'
 import { registerVersion } from './routes/version.js'
 import { registerLogs } from './routes/logs.js'
 import { registerMcp } from './routes/mcp.js'
@@ -111,6 +112,7 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerFiles(app, reg, opts.state)
   registerContext(app, reg, opts.state)
   registerApproval(app, reg, opts.state)
+  registerQuestion(app, reg, opts.state)
   registerVersion(app)
   registerLogs(app)
   registerMcp(app, reg)

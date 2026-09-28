@@ -8,6 +8,7 @@ import type { OpencodeClient } from '@opencode-ai/sdk'
 import type {
   AgentBackend, AgentInfo, BackendCapabilities, CommandInfo, DiffEntry, McpServer, ModelProvider, SubagentInfo,
   SkillInfo, FileEntry, WorktreeInfo,
+  QuestionRequest, QuestionAnswerResult,
   PermissionDecision, PromptInput, SessionContext, SessionMeta, SessionRef, SessionSummary,
 } from './backend.js'
 import { buildDiffEntry } from './diff-util.js'
@@ -61,6 +62,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     skills: true, // GET /skill verified on 1.18.32
     files: true, // GET /file + /file/content
     worktrees: true, // GET/POST/DELETE /experimental/worktree (beta upstream)
+    questions: true, // GET /question + reply/reject (question tool, 1.18+)
   }
 
   async function prompt(sessionId: string, input: PromptInput): Promise<void> {
@@ -477,6 +479,58 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     return res.ok
   }
 
+  // ── M10: interactive questions (question tool) ─────────────────────────────
+  // /question has no typed SDK members in 1.17.13 — raw fetch. The endpoints
+  // are directory-scoped, and the reply/reject paths don't carry the session,
+  // so resolve the directory from the session first (verified posture).
+
+  async function sessionDirectory(sessionId: string): Promise<string | undefined> {
+    try {
+      const res = await fetch(`${baseUrl}/session/${encodeURIComponent(sessionId)}`)
+      if (!res.ok) return undefined
+      const body = (await res.json()) as { directory?: string }
+      return typeof body?.directory === 'string' ? body.directory : undefined
+    } catch { return undefined }
+  }
+
+  async function listQuestions(directory?: string): Promise<QuestionRequest[]> {
+    try {
+      const q = new URLSearchParams()
+      if (directory) q.set('directory', directory)
+      const res = await fetch(`${baseUrl}/question?${q.toString()}`)
+      if (!res.ok) return []
+      const raw = (await res.json()) as Array<any>
+      return (raw ?? []).map((r) => ({
+        id: String(r?.id ?? ''),
+        sessionId: String(r?.sessionID ?? r?.sessionId ?? ''),
+        questions: Array.isArray(r?.questions) ? r.questions : [],
+        tool: r?.tool ? { messageID: r.tool.messageID, callID: r.tool.callID } : undefined,
+      }))
+    } catch { return [] }
+  }
+
+  async function answerQuestion(sessionId: string, requestId: string, answers: string[][]): Promise<QuestionAnswerResult> {
+    const directory = await sessionDirectory(sessionId)
+    if (directory === undefined) return { ok: false }
+    const q = new URLSearchParams({ directory })
+    const res = await fetch(`${baseUrl}/question/${encodeURIComponent(requestId)}/reply?${q.toString()}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answers }),
+    })
+    if (res.status === 404) return { ok: false, stale: true } // resolved elsewhere
+    return { ok: res.ok }
+  }
+
+  async function rejectQuestion(sessionId: string, requestId: string): Promise<QuestionAnswerResult> {
+    const directory = await sessionDirectory(sessionId)
+    if (directory === undefined) return { ok: false }
+    const q = new URLSearchParams({ directory })
+    const res = await fetch(`${baseUrl}/question/${encodeURIComponent(requestId)}/reject?${q.toString()}`, { method: 'POST' })
+    if (res.status === 404) return { ok: false, stale: true }
+    return { ok: res.ok }
+  }
+
   async function listCommands(): Promise<CommandInfo[]> {
     const data = ((await client.command.list()).data ?? []) as Array<{ name: string; description?: string }>
     return data.map((d) => ({ name: d.name, description: d.description ?? '' }))
@@ -518,6 +572,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     getSessionMeta, getContext, getHistory, getMessageBlocks, getDiff, getTodos, getSessionsStatus, ping,
     getAgents, getModels, getMcp, getSubagents, getSkills, listFiles, readFile,
     listWorktreeSandboxes, createWorktreeSandboxes, removeWorktreeSandboxes,
+    listQuestions, answerQuestion, rejectQuestion,
     listWorkspaces, listCommands, runCommand,
     resolvePermission,
     selectTuiSession,

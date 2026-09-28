@@ -9,6 +9,7 @@
   import CardInfo from './CardInfo.svelte'
   import CardStatus from './CardStatus.svelte'
   import CardApproval from './CardApproval.svelte'
+  import CardQuestion from './CardQuestion.svelte'
 
   export let card: StructuredCard
   /** Error recovery: re-send the last user message (wired by the chat page). */
@@ -33,6 +34,8 @@
   <CardStatus {card} />
 {:else if card.kind === 'approval'}
   <CardApproval {card} />
+{:else if card.kind === 'question'}
+  <CardQuestion {card} />
 {:else}
   <div class="card placeholder">[{(card as StructuredCard).kind}]</div>
 {/if}

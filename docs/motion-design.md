@@ -40,7 +40,11 @@ HIG 减弱动态、ChatGPT/Discord/Slack/Perplexity 的实际模式（见文末�
 | 新消息（含流式定稿） | 仅 :last-child 浮升 200ms | 规则 1、4 |
 | 流式 | 文本节流上屏 + 思考卡 | 规则 2 |
 | 工具行 | running 脉冲点 → done 原地变色 | 规则 5 |
-| 审批卡 | 就地换装（pending→resolved） | 规则 5 |
+| 审批卡/问题卡 | 本地换装 fade 150ms；外部 resolved/回放不播 | 规则 5、1 |
+| 悬浮控件（跳到最新/加载更早） | fade 150ms / rise-sm 160ms 入场，消失瞬时 | 规则 4 |
+| 断线横幅 | 180ms 自头部下滑入，消失瞬时 | 规则 4、5 |
+| Inspector 列表（Skills/Worktrees） | 首次到达 fade 150ms；tick 重取不重播 | 规则 4 |
+| REST 重同步 | 350ms 内压制 :last-child 入场（feedResyncing） | 规则 1 |
 | 悬浮球 | 暗轨+进度弧 0.4s 生长；首现 pop | 规则 4 |
 | 计划卡/建议 chips/palette/modal | pop/fade 入场，chips 45ms 级联 | 规则 4 |
 | reduced-motion | 全局 .01ms 杀开关 | 规则 6 |

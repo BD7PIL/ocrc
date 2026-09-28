@@ -44,23 +44,31 @@ losing context.
 
 ## ⚡ Quick start (5 minutes)
 
-Requires **opencode 1.17+** and **Node 20+** (or Bun). Install from GitHub
-(build from source); the npm package `@bd7pil/ocrc` is the official channel
-(the `opencode-remote-control` name on npm is an unrelated package — don't
-`npx` that).
+Requires **opencode 1.17+** and **Node 20+** (or Bun). Install from npm —
+`npm i -g @bd7pil/ocrc` — or build from source below. (The
+`opencode-remote-control` name on npm is an unrelated package — don't `npx` it.)
 
 There are two ways to run it — pick one:
 
 ### Mode A — Plugin (default; controls opencode)
 
 ```bash
-# 1. Clone, build (backend + PWA), and install the plugin
+# 1. Install globally, then run the interactive installer
+npm i -g @bd7pil/ocrc
+ocrc install                  # paste your Telegram bot token + user id
+
+# 2. Run opencode from any directory — the plugin auto-starts
+opencode
+```
+
+Prefer building from source?
+
+```bash
 git clone https://github.com/BD7PIL/ocrc
 cd ocrc
 npm install && npm run build:all
 node dist/cli/install.js     # interactive — paste your Telegram bot token + user id
 
-# 2. Run opencode from any directory — the plugin auto-starts
 opencode
 ```
 

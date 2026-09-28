@@ -18,6 +18,7 @@ import { listAllSessions } from '../../opencode/list-sessions.js'
 import { listWorkspaces as listWorkspacesImpl } from '../../opencode/workspaces.js'
 import { cardsFromMessages } from '../history.js'
 import { createLogger } from '../../utils/logger.js'
+import { ocFetch } from '../../utils/oc-server-auth.js'
 
 const log = createLogger('opencode-backend')
 
@@ -415,7 +416,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     try {
       const q = new URLSearchParams()
       if (directory) q.set('directory', directory)
-      const res = await fetch(`${baseUrl}/skill?${q.toString()}`)
+      const res = await ocFetch(`${baseUrl}/skill?${q.toString()}`)
       if (!res.ok) return []
       const raw = (await res.json()) as Array<{ name?: string; description?: string }>
       return (raw ?? []).map((s) => ({ name: String(s?.name ?? ''), description: s?.description }))
@@ -426,7 +427,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     try {
       const q = new URLSearchParams({ path })
       if (directory) q.set('directory', directory)
-      const res = await fetch(`${baseUrl}/file?${q.toString()}`)
+      const res = await ocFetch(`${baseUrl}/file?${q.toString()}`)
       if (!res.ok) return []
       const raw = (await res.json()) as Array<{ name?: string; path?: string; type?: string }>
       return (raw ?? []).map((f) => ({
@@ -440,7 +441,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
   async function readFile(directory: string | undefined, path: string): Promise<{ type: string; content: string }> {
     const q = new URLSearchParams({ path })
     if (directory) q.set('directory', directory)
-    const res = await fetch(`${baseUrl}/file/content?${q.toString()}`)
+    const res = await ocFetch(`${baseUrl}/file/content?${q.toString()}`)
     if (!res.ok) throw new Error(`file/content ${res.status}`)
     const body = (await res.json()) as { type?: string; content?: string }
     return { type: body?.type ?? 'text', content: body?.content ?? '' }
@@ -450,7 +451,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     try {
       const q = new URLSearchParams()
       if (directory) q.set('directory', directory)
-      const res = await fetch(`${baseUrl}/experimental/worktree?${q.toString()}`)
+      const res = await ocFetch(`${baseUrl}/experimental/worktree?${q.toString()}`)
       if (!res.ok) return []
       const raw = (await res.json()) as Array<{ name?: string; directory?: string }> | string[]
       return (Array.isArray(raw) ? raw : []).map((w) =>
@@ -462,7 +463,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
   async function createWorktreeSandboxes(directory: string | undefined, name: string): Promise<WorktreeInfo | null> {
     const q = new URLSearchParams()
     if (directory) q.set('directory', directory)
-    const res = await fetch(`${baseUrl}/experimental/worktree?${q.toString()}`, {
+    const res = await ocFetch(`${baseUrl}/experimental/worktree?${q.toString()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
@@ -475,7 +476,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
   async function removeWorktreeSandboxes(directory: string | undefined, name: string): Promise<boolean> {
     const q = new URLSearchParams()
     if (directory) q.set('directory', directory)
-    const res = await fetch(`${baseUrl}/experimental/worktree?${q.toString()}`, { method: 'DELETE' })
+    const res = await ocFetch(`${baseUrl}/experimental/worktree?${q.toString()}`, { method: 'DELETE' })
     return res.ok
   }
 
@@ -486,7 +487,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
 
   async function sessionDirectory(sessionId: string): Promise<string | undefined> {
     try {
-      const res = await fetch(`${baseUrl}/session/${encodeURIComponent(sessionId)}`)
+      const res = await ocFetch(`${baseUrl}/session/${encodeURIComponent(sessionId)}`)
       if (!res.ok) return undefined
       const body = (await res.json()) as { directory?: string }
       return typeof body?.directory === 'string' ? body.directory : undefined
@@ -497,7 +498,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     try {
       const q = new URLSearchParams()
       if (directory) q.set('directory', directory)
-      const res = await fetch(`${baseUrl}/question?${q.toString()}`)
+      const res = await ocFetch(`${baseUrl}/question?${q.toString()}`)
       if (!res.ok) return []
       const raw = (await res.json()) as Array<any>
       return (raw ?? []).map((r) => ({
@@ -513,7 +514,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     const directory = await sessionDirectory(sessionId)
     if (directory === undefined) return { ok: false }
     const q = new URLSearchParams({ directory })
-    const res = await fetch(`${baseUrl}/question/${encodeURIComponent(requestId)}/reply?${q.toString()}`, {
+    const res = await ocFetch(`${baseUrl}/question/${encodeURIComponent(requestId)}/reply?${q.toString()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ answers }),
@@ -526,7 +527,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     const directory = await sessionDirectory(sessionId)
     if (directory === undefined) return { ok: false }
     const q = new URLSearchParams({ directory })
-    const res = await fetch(`${baseUrl}/question/${encodeURIComponent(requestId)}/reject?${q.toString()}`, { method: 'POST' })
+    const res = await ocFetch(`${baseUrl}/question/${encodeURIComponent(requestId)}/reject?${q.toString()}`, { method: 'POST' })
     if (res.status === 404) return { ok: false, stale: true }
     return { ok: res.ok }
   }
@@ -554,7 +555,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
       const normalized = baseUrl.replace(/\/+$/, '')
       const timeoutSignal = AbortSignal.timeout(2000)
       const combined = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
-      const res = await fetch(`${normalized}/tui/select-session`, {
+      const res = await ocFetch(`${normalized}/tui/select-session`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionID: id }), signal: combined,
       })

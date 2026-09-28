@@ -20,6 +20,7 @@ import { createV2Backend } from '../core/agent/v2-backend.js'
 import { createV2EventMapper } from './v2/event-map.js'
 import type { V2Context } from './v2/types.js'
 import { createLogger } from '../utils/logger.js'
+import { ocFetch } from '../utils/oc-server-auth.js'
 
 const log = createLogger('control-plane')
 
@@ -84,7 +85,7 @@ export function createV1ControlPlane(ctx: V1Context): ControlPlane {
         let buf = ''
         while (!controller.signal.aborted) {
           try {
-            const res = await fetch(`${serverUrl}/global/event`, { signal: controller.signal })
+            const res = await ocFetch(`${serverUrl}/global/event`, { signal: controller.signal })
             if (!res.ok || !res.body) throw new Error(`global/event HTTP ${res.status}`)
             const decoder = new TextDecoder()
             const reader = res.body.getReader()

@@ -276,7 +276,7 @@ describe('OpencodeBackend', () => {
       const b = createOpencodeBackend({ client: fakeClient(), baseUrl: 'http://host:4096' })
       const r = await b.answerQuestion!('ses_1', 'que_1', [['Yes'], ['A', 'B']])
       expect(r).toEqual({ ok: true })
-      expect(fetchMock).toHaveBeenNthCalledWith(1, 'http://host:4096/session/ses_1')
+      expect(fetchMock).toHaveBeenNthCalledWith(1, 'http://host:4096/session/ses_1', expect.anything())
       expect(fetchMock).toHaveBeenNthCalledWith(2, 'http://host:4096/question/que_1/reply?directory=%2Fproj',
         expect.objectContaining({ method: 'POST', body: JSON.stringify({ answers: [['Yes'], ['A', 'B']] }) }))
     })
@@ -295,7 +295,7 @@ describe('OpencodeBackend', () => {
       fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => true })
       const b = createOpencodeBackend({ client: fakeClient(), baseUrl: 'http://host:4096' })
       expect(await b.rejectQuestion!('ses_1', 'que_9')).toEqual({ ok: true })
-      expect(fetchMock).toHaveBeenLastCalledWith('http://host:4096/question/que_9/reject?directory=%2Fproj', { method: 'POST' })
+      expect(fetchMock).toHaveBeenLastCalledWith('http://host:4096/question/que_9/reject?directory=%2Fproj', expect.objectContaining({ method: 'POST' }))
     })
 
     it('listQuestions passes the directory filter and normalizes sessionID', async () => {
@@ -305,7 +305,7 @@ describe('OpencodeBackend', () => {
       ] })
       const b = createOpencodeBackend({ client: fakeClient(), baseUrl: 'http://host:4096' })
       const rows = await b.listQuestions!('/proj')
-      expect(fetchMock).toHaveBeenCalledWith('http://host:4096/question?directory=%2Fproj')
+      expect(fetchMock).toHaveBeenCalledWith('http://host:4096/question?directory=%2Fproj', expect.anything())
       expect(rows[0]).toMatchObject({ id: 'que_1', sessionId: 'ses_1' })
     })
   })

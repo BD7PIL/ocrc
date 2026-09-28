@@ -100,3 +100,22 @@
   （baseline 迁移报 `no such column: project_id`），备份至
   `/tmp/ocrc-spike/db-backup-20260928/` 后重建即愈——与代码无关；
   长会话窗口化的真机压测因 demo 会话随 DB 清空而以单测覆盖为准。
+
+## 附录 4：M11 pending-token 配对 + 弹窗对齐 ZCode（2026-09-28，a4f1dfd，v0.10.0）
+
+用户对照 ZCode「移动端远程控制」弹窗指出缺口：我们的配对块没有刷新二维码/倒计时/停止。
+根因即原「二期 pending-token 吊销语义」：QR 里装的是永久主令牌，刷新无意义。
+
+- **pending 语义**：`createPairingStore`（内存，5 分钟 TTL，单次使用，新签发作废旧码）；
+  web `GET /api/pair/qr` 与 TG `/pair` 改发 `#pair=<pending>` 链接；设备经
+  `POST /api/pair/exchange`（注册在 auth 卫兵之前——pending 本身即凭证）换真实令牌。
+  原「吊销」缺口就此收窄：泄露面从「永久」降到「5 分钟 + 单次 + 可被刷新作废」；
+  单设备吊销仍待设备表（另行排期）。
+- **兼容**：legacy `#token=` 链接仍被 PWA 接受；CLI `ocrc pair`（独立进程，无法共享
+  内存 store）走 legacy 路径未改；无 store 的 host 自动回落。
+- **弹窗对齐 ZCode**：等待手机连接 · mm:ss 倒计时 · 停止 · 大幅居中 QR（过期糊化+
+  覆盖层）· 刷新二维码（复制链接带已复制反馈。停止=UI 挂起（pending 由 TTL 自灭）。
+- **PWA**：`#pair=` 启动即交换（成功后剥除 fragment——pending 不得重试；`#token=` 仍
+  保留以兼容 iOS 主屏路径）；PairGate 支持粘贴 pending 链接 + 失效提示。
+- **活体冒烟**：签发（#pair=+expiresAt）→交换（得真实令牌）→重放 404→刷新作废旧码 404。
+- 已随 v0.10.0 经 Trusted Publisher CI 发布。

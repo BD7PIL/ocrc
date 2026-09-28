@@ -1,16 +1,42 @@
-name: ci
-on: [push, pull_request]
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22]
+
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: '20' }
-      - run: npm ci
-      - run: npx tsc --noEmit
-      - run: npm test
-      - run: cd web && npm ci
-      - run: cd web && npm run check
-      - run: cd web && npm run build
-      - run: cd web && npm run test
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install (plugin + web)
+        run: |
+          npm ci
+          npm --prefix web ci
+
+      - name: Typecheck (plugin)
+        run: npm run typecheck
+
+      - name: Test (plugin — unit + integration)
+        run: npm test
+
+      - name: Build (plugin)
+        run: npm run build
+
+      - name: Build (web console)
+        run: npm --prefix web run build
+
+      - name: Test (web console)
+        run: npm --prefix web run test

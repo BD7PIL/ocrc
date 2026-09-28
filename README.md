@@ -28,9 +28,9 @@
 > anywhere and watch the assistant code in real time, even when you're away from your desk.
 > Now also drives any [ACP](https://agentclientprotocol.com) agent (e.g. Kimi) in standalone host mode.
 
-[![Release](https://img.shields.io/github/v/release/agentjoey/opencode-remote-control?color=10b981)](https://github.com/agentjoey/opencode-remote-control/releases)
+[![Release](https://img.shields.io/github/v/release/agentjoey/opencode-remote-control?color=10b981)](https://github.com/BD7PIL/ocrc/releases)
 [![License: MIT](https://img.shields.io/github/license/agentjoey/opencode-remote-control?color=10b981)](LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/agentjoey/opencode-remote-control/ci.yml?branch=main&label=CI)](https://github.com/agentjoey/opencode-remote-control/actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/agentjoey/opencode-remote-control/ci.yml?branch=main&label=CI)](https://github.com/BD7PIL/ocrc/actions)
 [![opencode plugin](https://img.shields.io/badge/opencode-plugin-10b981)](https://opencode.ai)
 [![tests](https://img.shields.io/badge/tests-413%20backend%20%2B%2093%20web-10b981)](./CHANGELOG.md)
 
@@ -44,9 +44,10 @@ losing context.
 
 ## ⚡ Quick start (5 minutes)
 
-Requires **opencode 1.17+** and **Node 20+** (or Bun). **Build from source —
-OCRC is not published to npm** (the `opencode-remote-control` name on npm is an
-unrelated package; don't `npx` it).
+Requires **opencode 1.17+** and **Node 20+** (or Bun). Install from GitHub
+(build from source); the npm package `@bd7pil/ocrc` is the official channel
+(the `opencode-remote-control` name on npm is an unrelated package — don't
+`npx` that).
 
 There are two ways to run it — pick one:
 
@@ -54,8 +55,8 @@ There are two ways to run it — pick one:
 
 ```bash
 # 1. Clone, build (backend + PWA), and install the plugin
-git clone https://github.com/agentjoey/opencode-remote-control
-cd opencode-remote-control
+git clone https://github.com/BD7PIL/ocrc
+cd ocrc
 npm install && npm run build:all
 node dist/cli/install.js     # interactive — paste your Telegram bot token + user id
 
@@ -78,8 +79,8 @@ no opencode plugin needed. Requires the ACP agent to be installed and logged in
 (e.g. `kimi login`).
 
 ```bash
-git clone https://github.com/agentjoey/opencode-remote-control
-cd opencode-remote-control
+git clone https://github.com/BD7PIL/ocrc
+cd ocrc
 npm install && npm run build:all
 
 cp .env.acp.example .env.acp   # set WEB_TOKEN; OCRC_BACKENDS="opencode, kimi=kimi acp"

@@ -1,7 +1,7 @@
 {
   "name": "@bd7pil/ocrc",
   "version": "0.8.1-ocrc.1",
-  "description": "OpenCode Plugin — remote-control your local opencode via Telegram + Web PWA. Fork of agentjoey/opencode-remote-control.",
+  "description": "OpenCode plugin — remote-control your local opencode from Telegram and a mobile web console (channels, schedules, skills, files, worktrees).",
   "type": "module",
   "main": "dist/plugin/entry.js",
   "exports": {
@@ -69,5 +69,25 @@
     "tsx": "^4.15.0",
     "typescript": "^5.4.5",
     "vitest": "^1.6.0"
-  }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BD7PIL/ocrc.git"
+  },
+  "homepage": "https://github.com/BD7PIL/ocrc#readme",
+  "bugs": {
+    "url": "https://github.com/BD7PIL/ocrc/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "telegram",
+    "remote-control",
+    "ai-agent",
+    "mobile"
+  ]
 }

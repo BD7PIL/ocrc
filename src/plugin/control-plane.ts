@@ -19,6 +19,9 @@ import { createOpencodeBackend } from '../core/agent/opencode-backend.js'
 import { createV2Backend } from '../core/agent/v2-backend.js'
 import { createV2EventMapper } from './v2/event-map.js'
 import type { V2Context } from './v2/types.js'
+import { createLogger } from '../utils/logger.js'
+
+const log = createLogger('control-plane')
 
 /** Minimal structural view of the V1 plugin context we consume. */
 export interface V1Context {
@@ -61,15 +64,64 @@ export function createV1ControlPlane(ctx: V1Context): ControlPlane {
       return res?.data as { agent?: string } | undefined
     },
     wireEvents(dispatchEvent) {
-      // The plugin `event` hook is the SINGLE dispatch source. The old design
-      // also pulled /global/event for "other workspaces" on the premise that
-      // the hook only sees its own directory — but on opencode 1.18.32 the
-      // hook demonstrably receives EVERY workspace's events (verified live:
-      // with both sources wired, a turn in another-directory session was
-      // finalized twice, 4ms apart, publishing duplicate assistant cards).
-      // The pulled SSE is also the flakier path ("does NOT reliably deliver"
-      // — verified at runtime). One source, no dedupe needed.
-      return () => {}
+      // The plugin `event` hook is the SINGLE dispatch source for session/relay
+      // events. The old design also pulled /global/event for "other workspaces"
+      // on the premise that the hook only sees its own directory — but on
+      // opencode 1.18.32 the hook demonstrably receives EVERY workspace's
+      // events (verified live: with both sources wired, a turn in another-
+      // directory session was finalized twice, 4ms apart, publishing duplicate
+      // assistant cards).
+      //
+      // EXCEPTION (M10, verified live): the hook does NOT carry `question.*`
+      // events — a pending question appears on /global/event as
+      // question.asked/replied/rejected but never on the hook. Pull a dedicated
+      // SSE and forward ONLY those types, so session events stay single-source
+      // while questions still reach the TG wizard and web cards.
+      const QUESTION_TYPES = new Set(['question.asked', 'question.replied', 'question.rejected'])
+      const controller = new AbortController()
+
+      const consume = async () => {
+        let buf = ''
+        while (!controller.signal.aborted) {
+          try {
+            const res = await fetch(`${serverUrl}/global/event`, { signal: controller.signal })
+            if (!res.ok || !res.body) throw new Error(`global/event HTTP ${res.status}`)
+            const decoder = new TextDecoder()
+            const reader = res.body.getReader()
+            buf = ''
+            for (;;) {
+              const { done, value } = await reader.read()
+              if (done) break
+              buf += decoder.decode(value, { stream: true })
+              let idx: number
+              while ((idx = buf.indexOf('\n')) >= 0) {
+                const line = buf.slice(0, idx).trimEnd()
+                buf = buf.slice(idx + 1)
+                if (!line.startsWith('data:')) continue
+                const payload = line.slice(5).trim()
+                if (!payload) continue
+                try {
+                  // Wire envelope: {directory, project, payload:{type, properties}}
+                  const frame = JSON.parse(payload) as { payload?: { type?: string; properties?: unknown } }
+                  const type = frame?.payload?.type ?? ''
+                  if (!QUESTION_TYPES.has(type)) continue
+                  await dispatchEvent({
+                    type,
+                    properties: (frame.payload as any).properties ?? {},
+                  } as unknown as OcEvent)
+                } catch { /* malformed frame — keep the stream */ }
+              }
+            }
+          } catch (err) {
+            if (controller.signal.aborted) return
+            log.debug('question SSE dropped, reconnecting', (err as Error).message)
+          }
+          if (!controller.signal.aborted) await new Promise((r) => setTimeout(r, 3000))
+        }
+      }
+      void consume()
+
+      return () => controller.abort()
     },
     eventHook(dispatchEvent) {
       return async ({ event }) => {

@@ -91,6 +91,13 @@ export class QuestionFlow {
       return
     }
 
+    // Idempotence guard: the hook and the question SSE could both surface the
+    // same request (or a replay after reconnect) — never double-prompt.
+    if ([...this.pending.values()].some((e) => e.requestId === request.requestId)) {
+      log.info('question already presented; skipping', { requestId: request.requestId })
+      return
+    }
+
     const snap = this.deps.interactionManager.getSnapshot()
     if (snap?.kind === 'permission') {
       // v1: no queueing — permissions first, questions answered on web.

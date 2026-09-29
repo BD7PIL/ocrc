@@ -458,11 +458,11 @@ export function registerHandlers(deps: HandlersDeps): void {
       const { url } = await buildPairContext()
       if (deps.pairing) {
         // M11: short-lived single-use pending token — the chat log only ever
-        // holds a credential that dies in 5 minutes or on first use.
+        // holds a credential that dies in 1 minute or on first use.
         const p = deps.pairing.issue()
         const pairUrl = buildPairUrlPending(url, p.token)
         await ctx.reply(
-          `🔗 <b>Pair a device</b>\n\nOpen this link on the device within <b>5 minutes</b> (single use — sending /pair again invalidates it):\n<code>${pairUrl}</code>`,
+          `🔗 <b>Pair a device</b>\n\nOpen this link on the device within <b>1 minute</b> (single use — sending /pair again invalidates it):\n<code>${pairUrl}</code>`,
           { parse_mode: 'HTML' },
         )
       } else {

@@ -65,7 +65,7 @@ required**:
    ```
 2. **From Telegram** (once the bot is running): send `/pair`, open the link.
 
-Links carry a *pending* token — valid **5 minutes, single use**, and issuing
+Links carry a *pending* token — valid **1 minute, single use**, and issuing
 a new one invalidates the old (refresh = new code). The device exchanges it
 for the real access token on first open; the token never appears in a URL
 again. Already-paired sessions can onboard further devices from the web

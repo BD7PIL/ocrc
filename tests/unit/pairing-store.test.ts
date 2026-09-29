@@ -7,6 +7,7 @@ describe('createPairingStore', () => {
     const p = store.issue()
     expect(p.token).toBeTruthy()
     expect(p.expiresAt).toBeGreaterThan(Date.now())
+    expect(p.expiresAt).toBeLessThan(Date.now() + 65_000) // 1-minute TTL
     expect(store.exchange(p.token)).toBe('real-token')
     // Second exchange with the same pending → dead (single-use).
     expect(store.exchange(p.token)).toBeNull()

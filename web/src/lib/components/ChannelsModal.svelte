@@ -175,7 +175,7 @@
                   <span class="cd mono" class:expired>{expired ? '已过期' : `· ${countdown}`}</span>
                 {/if}
               </div>
-              <div class="hint">用手机扫码，或在手机上打开链接。链接 5 分钟内有效，仅可使用一次。</div>
+              <div class="hint">用手机扫码，或在手机上打开链接。链接 1 分钟内有效，仅可使用一次。</div>
             </div>
             <button class="stop" on:click={stopPairing}>停止</button>
           </div>

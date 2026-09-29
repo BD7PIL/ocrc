@@ -142,7 +142,7 @@
             <button class="btn" on:click={loadPair}>⟳ 刷新二维码</button>
             <button class="btn" on:click={copyLink}>{copied ? '✓ 已复制' : '复制链接'}</button>
           </div>
-          <p class="hint dim">二维码 5 分钟内有效、仅可使用一次；刷新会作废旧码。配对成功后本页自动进入面板。</p>
+          <p class="hint dim">二维码 1 分钟内有效、仅可使用一次；过期自动刷新，刷新会作废旧码。配对成功后本页自动进入面板。</p>
         {:else}
           <p class="hint dim">配对信息加载中…（若宿主机未启用配对组件，请用下方令牌粘贴）</p>
         {/if}

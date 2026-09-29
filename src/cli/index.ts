@@ -25,12 +25,12 @@ COMMANDS:
   install       Install as opencode plugin
   uninstall     Remove from opencode plugin config
   pair          Show QR + URL to pair a device
-  start <dir>   Start the production instance (detached; env from ~/.ocrc/config.env)
-  start --watch <dir>  Foreground supervisor: adopt-or-spawn + crash auto-restart
-  restore       Re-launch the last instance under --watch (for @reboot cron)
-  stop          Stop it (watcher first, then the instance)
-  restart [dir] Restart it (keeps the current mode)
-  status        Show instance state (server / watcher / web panel / workdir)
+  start <dir>   Start the production instance under its supervisor
+                (crash auto-restart; env from ~/.ocrc/config.env)
+  restore       Re-launch the last instance (the @reboot cron calls this)
+  stop          Stop it (supervisor first, then the instance)
+  restart [dir] Restart it
+  status        Show instance state (server / supervisor / web panel / workdir)
   host          Run standalone against an ACP agent (no opencode; OCRC_ACP_CMD)
   --help, -h    Show this help
 `

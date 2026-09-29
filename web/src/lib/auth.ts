@@ -70,7 +70,7 @@ if (bootPairPending) {
       pairHint.set('')
       auth.set('ready')
     } catch {
-      pairHint.set('配对链接已失效（5 分钟过期或已被使用）——请在主机上刷新二维码后重试。')
+      pairHint.set('配对链接已失效（1 分钟过期或已被使用）——请在主机上刷新二维码后重试。')
       auth.set('pairing')
     }
   })()
@@ -100,7 +100,7 @@ export async function exchangePairLink(link: string): Promise<string> {
     pairHint.set('')
     return ''
   } catch {
-    return '配对链接已失效（5 分钟过期或已被使用）——请刷新二维码后重试。'
+    return '配对链接已失效（1 分钟过期或已被使用）——请刷新二维码后重试。'
   }
 }
 

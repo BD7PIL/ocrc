@@ -49,8 +49,8 @@ export async function buildPairContext(): Promise<PairContext> {
 // QR (screenshot, chat log, shoulder) owns the host forever. Pending tokens
 // flip that: /pair surfaces issue a short-lived single-use token, the device
 // exchanges it for the real token at POST /api/pair/exchange, and the pending
-// dies on use, on expiry, or when a newer one is issued (the "refresh QR"
-// semantics the ZCode reference dialog has).
+// dies on use, on expiry (1 minute), or when a newer one is issued (the
+// "refresh QR" semantics the ZCode reference dialog has).
 
 export interface PendingPairing {
   token: string
@@ -64,7 +64,7 @@ export interface PairingStore {
   exchange(pending: string): string | null
 }
 
-const DEFAULT_PENDING_TTL_MS = 5 * 60_000
+const DEFAULT_PENDING_TTL_MS = 60_000
 
 export function createPairingStore(realToken: () => string, ttlMs: number = DEFAULT_PENDING_TTL_MS): PairingStore {
   const random = (): string => randomBytes(24).toString('base64url')

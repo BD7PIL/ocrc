@@ -26,10 +26,25 @@ describe('PlanHud', () => {
     vi.mocked(api.todo).mockReset()
     vi.mocked(api.subagents).mockReset?.()
     vi.mocked(api.subagents).mockResolvedValue({ subagents: [] })
-    localStorage.removeItem('ocrc.planHud')
+    localStorage.removeItem('ocrc.planHud.v2')
     sessionStorage.clear()
+    // jsdom's matchMedia reports desktop widths — pin the MOBILE form (orb)
+    // for these tests; the desktop bar/window gets its own coverage.
+    vi.stubGlobal('matchMedia', (q: string) => ({
+      matches: false,
+      media: q,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      onchange: null,
+      dispatchEvent: () => false,
+    }))
   })
-  afterEach(cleanup)
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    cleanup()
+  })
 
   it('renders nothing when the session has no todos', async () => {
     vi.mocked(api.todo).mockResolvedValue([])
@@ -71,7 +86,7 @@ describe('PlanHud', () => {
     await fireEvent.pointerDown(document.body)
     expect(container.querySelector('.plan-card')).toBeNull()
     // …and the collapse is persisted.
-    const stored = JSON.parse(localStorage.getItem('ocrc.planHud') ?? '{}')
+    const stored = JSON.parse(localStorage.getItem('ocrc.planHud.v2') ?? '{}')
     expect(stored.expanded).toBe(false)
   })
 
@@ -125,7 +140,7 @@ describe('PlanHud', () => {
     expect(container.querySelector('.ball')).toBeNull()
     expect(container.querySelector('.plan-card')).toBeNull()
 
-    const stored = JSON.parse(localStorage.getItem('ocrc.planHud') ?? '{}')
+    const stored = JSON.parse(localStorage.getItem('ocrc.planHud.v2') ?? '{}')
     expect(stored.dismissed).toContain('s-hide')
   })
 

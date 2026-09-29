@@ -407,7 +407,7 @@
   .sub-header .right {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     flex-shrink: 0;
   }
   .pill {
@@ -419,6 +419,13 @@
     background: var(--accent-2);
     color: var(--accent);
     font-size: 11px;
+    /* Narrow screens: the header row must never overflow — the status pill
+       shrinks/truncates before the 停止 button gets clipped by the menu. */
+    min-width: 0;
+    max-width: 30vw;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
   .pill .dot {
     width: 6px;
@@ -531,6 +538,17 @@
     .stream { padding: 14px 12px calc(var(--composer-h, 120px) + var(--kb, 0px) + 8px); }
     /* The titlebar is hidden on the mobile chat screen, so this header is now the top
        bar — clear the status bar / notch via the top safe-area inset. */
-    .sub-header { padding: calc(10px + env(safe-area-inset-top, 0px)) 12px 10px; }
+    .sub-header {
+      gap: 8px;
+      padding: calc(10px + env(safe-area-inset-top, 0px)) 8px 10px;
+    }
+    .sub-header .left { min-width: 0; overflow: hidden; }
+    /* Solid backdrop: chat text must not bleed through the gaps between the
+       input box, chips and send button (user report). */
+    .composer-float {
+      background: var(--bg);
+      border-top: 1px solid var(--border-2);
+      padding: 6px 10px calc(6px + env(safe-area-inset-bottom, 0px));
+    }
   }
 </style>

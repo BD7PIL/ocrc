@@ -17,7 +17,7 @@
   /** Jump target — the page owns navigation (goto), the HUD stays $app-free. */
   export let onJump: (id: string) => void = () => {}
 
-  const KEY_BASE = 'ocrc.planHud'
+  const KEY_BASE = 'ocrc.planHud.v2'
   const INLINE_PENDING = 5
   // A plain progress ring — the honest design at 38px (logo-mark experiments
   // with brand arc + gauge + dot + count all read as clutter; the brand lives
@@ -30,7 +30,7 @@
   let desktop = false
   try { desktop = window.matchMedia('(min-width: 821px)').matches } catch { /* ssr */ }
   // Separate memory per form: desktop = docked window, mobile = orb+card.
-  const KEY = desktop ? 'ocrc.planHud.dt' : KEY_BASE
+  const KEY = desktop ? 'ocrc.planHud.dt2' : KEY_BASE
   function loadState(): HudState {
     if (typeof localStorage === 'undefined') return {}
     try {

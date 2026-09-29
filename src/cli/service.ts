@@ -248,10 +248,16 @@ export async function main(argv: string[]): Promise<void> {
   }
 
   if (cmd === 'restore') {
+    // Idempotent revive: nothing to do when the instance (watched or bare) is
+    // already up — this runs every minute from cron.
+    if (pidOnPort(cfg.port) !== null) {
+      console.log(`already running (port ${cfg.port}) — nothing to restore`)
+      return
+    }
     const workDir = lastWorkDir()
     if (!workDir) { console.error('no previous work_dir on record — usage: ocrc start --watch <work_dir> first'); process.exit(1) }
     console.log(`restoring watched instance for ${workDir}…`)
-    await main(['--watch', workDir])
+    await main(['start', '--watch', workDir])
     return
   }
 

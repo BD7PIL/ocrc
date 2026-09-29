@@ -74,19 +74,18 @@ panel's QR (机器人面板 → 配对新设备).
 ## Lifecycle
 
 ```bash
-ocrc start <dir>             # start (detached, no supervision)
-ocrc start --watch <dir>     # start under the supervisor (recommended)
-ocrc status                  # server / watcher / web panel at a glance
-ocrc stop                    # graceful stop (watcher first, then the instance)
-ocrc restart [dir]           # restart, keeping the current mode
-ocrc restore                 # re-launch the last instance under --watch
+ocrc start <dir>             # start — supervision built in (octg-style)
+ocrc status                  # server / supervisor / web panel at a glance
+ocrc stop                    # graceful stop (supervisor first, then the instance)
+ocrc restart [dir]           # restart
+ocrc restore                 # re-launch the last instance (idempotent)
 ```
 
-`--watch` is a foreground supervisor with octg-proven semantics: adopts an
-already-running instance, restarts the child after a crash (default 5 s,
-`OCRC_WATCH_DELAY`), and treats SIGKILL / segfaults as crashes — an OOM kill
-self-heals. SIGTERM or the stop file means "stop for real". Boot-time
-recovery is opt-in:
+Supervision is always on: the supervisor adopts an already-running
+instance, restarts the child after a crash (default 5 s, `OCRC_WATCH_DELAY`),
+and treats SIGKILL / segfaults as crashes — an OOM kill self-heals.
+SIGTERM or the stop file means "stop for real". Boot-time recovery is
+opt-in:
 
 ```
 @reboot sleep 60 && ocrc restore >> ~/.ocrc/prod.log 2>&1

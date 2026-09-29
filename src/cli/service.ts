@@ -18,6 +18,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync, ope
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 
 const OCRC_HOME = process.env.OCRC_HOME ?? join(homedir(), '.ocrc')
 const RUN_DIR = join(OCRC_HOME, 'run')
@@ -321,4 +322,14 @@ export async function main(argv: string[]): Promise<void> {
 
   console.error('usage: ocrc start <work_dir> | stop | restart [work_dir] | status | restore')
   process.exit(1)
+}
+
+// Direct-invocation guard: `start` spawns SELF with --supervisor; when this
+// module IS the entry script, run main() (index.js's dispatcher is absent).
+const selfPath = fileURLToPath(import.meta.url)
+if (process.argv[1] && resolve(process.argv[1]) === selfPath) {
+  main(process.argv.slice(2)).catch((err) => {
+    console.error(err)
+    process.exit(1)
+  })
 }

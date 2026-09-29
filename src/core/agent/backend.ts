@@ -59,7 +59,7 @@ export interface AgentInfo { name: string; model: string; description: string }
 export interface ModelProvider { id: string; name: string; models: Array<{ id: string; name: string }> }
 export interface McpServer { name: string; type?: string; status: 'configured' | 'disabled' }
 /** A subagent (child) session of a turn, with its todo progress. */
-export interface SubagentInfo { id: string; title: string; updatedAt?: number; done: number; total: number }
+export interface SubagentInfo { id: string; title: string; updatedAt?: number; done: number; total: number; busy?: boolean }
 /** An agent skill from GET /skill (opencode 1.18+). */
 export interface SkillInfo { name: string; description?: string }
 /** A directory entry from GET /file. */

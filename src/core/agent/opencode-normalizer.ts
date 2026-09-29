@@ -14,6 +14,9 @@ function summarizeArgs(tool: string, input?: Record<string, unknown>): string {
   if (tool === 'bash' && typeof input.cmd === 'string') {
     return input.cmd.length > 60 ? input.cmd.slice(0, 57) + '...' : input.cmd
   }
+  if (tool === 'todowrite' && Array.isArray(input.todos)) {
+    return `${input.todos.length} items`
+  }
   const keys = Object.keys(input)
   if (keys.length === 0) return ''
   const first = String(input[keys[0]])
@@ -65,6 +68,16 @@ export function normalizeOpencodeEvent(ev: OcEvent): AgentEvent | null {
   if (type === 'session.error') {
     return { kind: 'error', sessionId: sessionId ?? 'unknown', message: errorMessageOf(p) }
   }
-  // message.updated and everything else are not relay-relevant.
+  if (type === 'message.updated') {
+    // Role announcement: the relay keeps a messageId→role map and drops USER
+    // parts from the streaming path (otherwise every user message is echoed
+    // as a streaming/final assistant card next to its own user bubble).
+    const info = (p.info ?? p) as { id?: unknown; role?: unknown }
+    if (typeof info.id === 'string' && typeof info.role === 'string' && sessionId) {
+      return { kind: 'role', sessionId, messageId: info.id, role: info.role }
+    }
+    return null
+  }
+  // Everything else is not relay-relevant.
   return null
 }

@@ -34,3 +34,6 @@ export type AgentEvent =
   | { kind: 'error'; sessionId: string; message: string }
   /** Out-of-band notice for the user (rendered as an info card; not part of a turn). */
   | { kind: 'notice'; sessionId: string; title: string; body: string }
+  /** Message role announcement (message.updated) — lets the relay drop USER
+   * parts from the streaming path instead of echoing them as assistant text. */
+  | { kind: 'role'; sessionId: string; messageId: string; role: string }

@@ -345,10 +345,31 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
           break
         }
         case 'session.idle':
+          // Busy tracking feeds the plan-HUD subagent rows (running vs done).
+          try {
+            const idleSid = (ev as { properties?: { sessionID?: string } }).properties?.sessionID
+            if (typeof idleSid === 'string' && idleSid) state.setSessionBusy(idleSid, false)
+          } catch { /* best effort */ }
+          {
+            const ae = normalizeOpencodeEvent(ev)
+            if (ae) await relay.handleEvent(ae)
+          }
+          break
         case 'session.error':
         case 'session.created':
         case 'session.updated':
         case 'session.status':
+          try {
+            const st = (ev as { properties?: { sessionID?: string; status?: { type?: string } } }).properties
+            if (typeof st?.sessionID === 'string' && st.sessionID) {
+              state.setSessionBusy(st.sessionID, st.status?.type === 'busy')
+            }
+          } catch { /* best effort */ }
+          {
+            const ae = normalizeOpencodeEvent(ev)
+            if (ae) await relay.handleEvent(ae)
+          }
+          break
         case 'message.part.updated':
         case 'message.part.delta':
         case 'message.updated':

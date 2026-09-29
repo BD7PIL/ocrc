@@ -81,7 +81,7 @@
   // ask) and the card must not pop in empty on expand. Rows jump into the
   // child session (ZCode parity); the parent link is stashed so the child
   // card can offer a way back. Guarded against request pileup.
-  interface SubRow { id: string; title: string; done: number; total: number }
+  interface SubRow { id: string; title: string; done: number; total: number; busy?: boolean }
   let subs: SubRow[] = []
   let subsFor: string | undefined
   let subsBusy = false
@@ -91,7 +91,8 @@
     try {
       const r = await api.subagents(sid)
       if (sid !== sessionId) return
-      subs = r.subagents ?? []
+      // Running first, then done — the list must not read as a tombstone wall.
+      subs = [...(r.subagents ?? [])].sort((a, b) => Number(b.busy ?? false) - Number(a.busy ?? false))
       subsFor = sid
     } catch { subs = [] } finally { subsBusy = false }
   }
@@ -164,6 +165,7 @@
 
 {#if loadedFor === sessionId && (sum.total > 0 || subs.length > 0 || breadcrumb) && !dismissed && $can('todos')}
   {#if expanded}
+    <div class="scrim" aria-hidden="true"></div>
     <div class="plan-card" bind:this={cardEl}>
       <div class="hd">
         <span class="label">计划</span>
@@ -230,7 +232,12 @@
         {#if subs.length}
           <div class="grp static"><span class="sub-label">子代理 · {subs.length}</span></div>
           {#each subs as s (s.id)}
-            <button class="row sub jump" on:click={() => jumpToSub(s)} title="打开子代理会话">
+            <button class="row sub jump" class:idle={!s.busy} on:click={() => jumpToSub(s)} title="打开子代理会话">
+              {#if s.busy}
+                <span class="sub-dot" aria-hidden="true"></span>
+              {:else if s.total > 0 && s.done >= s.total}
+                <span class="sub-check" aria-hidden="true">✓</span>
+              {/if}
               {#if s.total > 0}<span class="sub-count mono">{s.done}/{s.total}</span>{/if}
               <span class="tx">{s.title || '…' + s.id.slice(-6)}</span>
               <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
@@ -330,18 +337,27 @@
     box-shadow: 0 0 0 2px var(--bg); /* separates it from the ring underneath */
   }
 
-  /* ── Expanded card: anchored above the ball; only the BODY scrolls (the card
-     itself stays overflow:visible so the ⋯ menu can escape it) ── */
+  /* Expanded card gets a scrim: chat text behind it must not peek at the
+     edges, and the card sits ABOVE the composer (z-dropdown=10) so the list
+     is never truncated behind the input. Tap scrim = collapse. */
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-hud);
+    background: var(--scrim);
+    border: none;
+    padding: 0;
+  }
   .plan-card {
     position: fixed;
     right: 16px;
     bottom: calc(var(--composer-h, 120px) + var(--kb, 0px) + 54px + env(safe-area-inset-bottom, 0px));
-    z-index: var(--z-hud);
+    z-index: calc(var(--z-hud) + 1);
     width: min(86vw, 320px);
     background: var(--bg-elev);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, .2);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, .45);
     overflow: visible;
     transform-origin: 85% 100%;
     animation: ocrc-pop .18s var(--ease-out, ease-out) backwards;
@@ -490,6 +506,22 @@
   .row.done .tx { color: var(--text-3); text-decoration: line-through; text-decoration-color: var(--border); }
   .row.running .tx { color: var(--text); font-weight: 500; }
 
+  .sub-dot {
+    flex-shrink: 0;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: ocrc-pulse 1.2s ease-in-out infinite;
+  }
+  .sub-check {
+    flex-shrink: 0;
+    font-size: 10px;
+    line-height: 1;
+    color: var(--text-3);
+  }
+  .row.sub.idle .tx { color: var(--text-3); }
+  .row.sub.idle .sub-count { color: var(--text-3); }
   .row.sub { padding-left: 2px; }
   .row.sub.jump {
     margin: 0;

@@ -8,6 +8,10 @@ export function registerSubagents(app: Hono, reg: BackendRegistry, state: Sessio
     const b = reg.forSession(c.req.param('id'))
     if (!b.getSubagents) return c.json({ subagents: [] })
     const id = state.normalizeSessionId(c.req.param('id'))
-    return c.json({ subagents: await b.getSubagents(id) })
+    const rows = await b.getSubagents(id)
+    // Annotate with the live busy flag (session.status/idle events → state):
+    // the plan-HUD rows distinguish 运行中 from 已结束 instead of listing
+    // every subagent forever.
+    return c.json({ subagents: rows.map((r) => ({ ...r, busy: state.isSessionBusy(r.id) })) })
   })
 }

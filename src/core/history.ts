@@ -1,7 +1,8 @@
 import type { StructuredCard, ContentBlock, AssistantMeta } from './structured-card.js'
 
 export function summarizeToolArgs(tool: string, input: any): string {
-  if (tool === 'bash') return (input?.command ?? '').slice(0, 60)
+  if (tool === 'todowrite' && Array.isArray(input?.todos)) return `${input.todos.length} items`
+  if (tool === 'bash') return (input?.command ?? input?.cmd ?? '').slice(0, 60)
   if (tool === 'read' || tool === 'edit' || tool === 'write') return input?.filePath ?? ''
   if (tool === 'grep' || tool === 'find') return input?.pattern ?? input?.query ?? ''
   return ''

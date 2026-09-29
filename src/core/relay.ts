@@ -1,4 +1,5 @@
 import type { CardBus } from './card-bus.js'
+import type { ContentBlock } from './structured-card.js'
 import type { IncomingMessage } from './types.js'
 import type { SessionState } from './state.js'
 import { createStreamAccumulator, type PartInput } from './stream-accumulator.js'
@@ -106,6 +107,11 @@ interface PluginSessionCtx {
   cardId: string
   acc: ReturnType<typeof createStreamAccumulator>
   assistantMessageId?: string
+  /** partId → owning message id: lets a late role announcement retract parts. */
+  partMsgIds: Map<string, string>
+  /** Last rendered block list (mutated in place when roles retract user parts). */
+  blocks: ContentBlock[]
+  assistantConfirmed: boolean
   processedPartIds: Set<string>
   partTextAcc: Map<string, string>
   signal: AbortSignal
@@ -122,6 +128,8 @@ export function createRelay(deps: RelayDeps) {
   )
   /** Per-session response contexts, keyed by session id. */
   const pluginSessions = new Map<string, PluginSessionCtx>()
+/** messageId → role per session (from message.updated), cleared on idle. */
+const messageRoles = new Map<string, Map<string, string>>()
   /**
    * Per-session turn queues. Two concurrent messages for the same session used
    * to clobber each other (the second cleanupPluginSession killed the first
@@ -264,6 +272,9 @@ export function createRelay(deps: RelayDeps) {
         acc: createStreamAccumulator(),
         processedPartIds: new Set(),
         partTextAcc: new Map(),
+        partMsgIds: new Map(),
+        blocks: [],
+        assistantConfirmed: false,
         signal: ac.signal,
         timer,
         abortKey: sessionId !== provisionalKey ? provisionalKey : undefined,
@@ -346,6 +357,36 @@ export function createRelay(deps: RelayDeps) {
     const sid = e.sessionId
     let ctx = pluginSessions.get(sid)
 
+    // Role announcements first: message.updated tells us which message ids are
+    // the USER's. Their parts must never reach the streaming accumulator —
+    // otherwise every user message is echoed as a streaming/final assistant
+    // card next to its own user bubble. If parts raced the announcement into
+    // the accumulator (out-of-order delivery), retract them now.
+    if (e.kind === 'role') {
+      let m = messageRoles.get(sid)
+      if (!m) { m = new Map(); messageRoles.set(sid, m) }
+      m.set(e.messageId, e.role)
+      if (e.role === 'user') {
+        const ctx0 = pluginSessions.get(sid)
+        if (ctx0) {
+          const ids = new Set<string>()
+          for (const [partId, msgId] of ctx0.partMsgIds) {
+            if (msgId === e.messageId) ids.add(partId)
+          }
+          if (ids.size > 0) {
+            ctx0.blocks = ctx0.acc.remove(ids)
+            for (const partId of ids) { ctx0.partMsgIds.delete(partId); ctx0.partTextAcc.delete(partId) }
+            if (!ctx0.signal.aborted) {
+              deps.cardBus.publish({ kind: 'streaming', sessionId: sid, blocks: ctx0.blocks, id: ctx0.cardId })
+            }
+          }
+          if (!ctx0.assistantConfirmed) ctx0.assistantMessageId = undefined
+        }
+      }
+      return
+    }
+
+
     // Adopt externally-initiated turns: a streaming event arrives for a session
     // we never submitted to (a TUI/command turn), so there's no context — create
     // one so it streams/renders in Web/Telegram like any other turn. The ctx gets
@@ -365,6 +406,9 @@ export function createRelay(deps: RelayDeps) {
         acc: createStreamAccumulator(),
         processedPartIds: new Set(),
         partTextAcc: new Map(),
+        partMsgIds: new Map(),
+        blocks: [],
+        assistantConfirmed: false,
         signal: ac.signal,
         timer: setTimeout(() => ac.abort(), deps.chatTimeoutMs),
       }
@@ -377,13 +421,20 @@ export function createRelay(deps: RelayDeps) {
     }
 
     if (e.kind === 'part') {
+      const role = e.messageId ? messageRoles.get(sid)?.get(e.messageId) : undefined
+      if (role === 'user') return
       if (!ctx) return
-      if (!ctx.assistantMessageId && e.messageId) ctx.assistantMessageId = e.messageId
+      if (role === 'assistant') {
+        ctx.assistantConfirmed = true
+        if (!ctx.assistantMessageId && e.messageId) ctx.assistantMessageId = e.messageId
+      }
+      if (e.messageId) ctx.partMsgIds.set(e.part.id, e.messageId)
       const part = e.part
       const isNewPart = !ctx.processedPartIds.has(part.id)
       if (isNewPart) ctx.processedPartIds.add(part.id)
       const input: PartInput = { id: part.id, type: part.type, text: part.text, tool: part.tool, args: part.args, status: part.status }
       const blocks = ctx.acc.update([input])
+      ctx.blocks = blocks
       if (part.type === 'text' && isNewPart && typeof part.text === 'string') {
         ctx.partTextAcc.set(part.id, part.text)
       }
@@ -394,13 +445,17 @@ export function createRelay(deps: RelayDeps) {
     }
 
     if (e.kind === 'delta') {
+      const role = e.messageId ? messageRoles.get(sid)?.get(e.messageId) : undefined
+      if (role === 'user') return
       if (!ctx) return
+      if (role === 'assistant') ctx.assistantConfirmed = true
+      if (e.messageId && e.partId) ctx.partMsgIds.set(e.partId, e.messageId)
       const prev = ctx.partTextAcc.get(e.partId) ?? ''
       const fullText = prev + e.text
       ctx.partTextAcc.set(e.partId, fullText)
       if (!ctx.signal.aborted) {
-        const blocks = ctx.acc.update([{ id: e.partId, type: 'text', text: fullText }])
-        deps.cardBus.publish({ kind: 'streaming', sessionId: sid, blocks, id: ctx.cardId })
+        ctx.blocks = ctx.acc.update([{ id: e.partId, type: 'text', text: fullText }])
+        deps.cardBus.publish({ kind: 'streaming', sessionId: sid, blocks: ctx.blocks, id: ctx.cardId })
       }
       if (!ctx.assistantMessageId && e.messageId) ctx.assistantMessageId = e.messageId
       return
@@ -424,8 +479,10 @@ export function createRelay(deps: RelayDeps) {
           }
         }, 0)
         cleanupPluginSession(sid)
+        messageRoles.delete(sid)
         deps.state.setActiveAbort(sid, undefined)
       } else {
+        messageRoles.delete(sid)
         log.info(`[plugin] session idle (no ctx): ${sid.slice(-8)}`)
         deps.cardBus.publish({ kind: 'status', sessionId: sid, fields: { status: 'idle' } })
       }

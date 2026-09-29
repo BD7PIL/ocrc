@@ -16,7 +16,7 @@ import type { ContentBlock, StructuredCard } from '../structured-card.js'
 import { submitPrompt, markEphemeralSession } from '../../opencode/submit.js'
 import { listAllSessions } from '../../opencode/list-sessions.js'
 import { listWorkspaces as listWorkspacesImpl } from '../../opencode/workspaces.js'
-import { cardsFromMessages } from '../history.js'
+import { cardsFromMessages, summarizeToolArgs } from '../history.js'
 import { createLogger } from '../../utils/logger.js'
 import { ocFetch } from '../../utils/oc-server-auth.js'
 
@@ -311,7 +311,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
           const st = part.state?.status ?? 'running'
           blocks.push({
             type: 'tool', tool: part.tool,
-            args: String(part.state?.input?.cmd ?? part.state?.input ?? '').slice(0, 60),
+            args: summarizeToolArgs(part.tool, part.state?.input ?? {}).slice(0, 60),
             status: st === 'error' ? 'error' : st === 'done' || st === 'completed' ? 'done' : 'running',
           })
         }

@@ -51,6 +51,10 @@ export interface SessionState {
   getAssistantDeliveredAt(sessionId: string): number | undefined
   /** Free all in-memory per-session bookkeeping for a deleted session. */
   dropSession(sessionId: string): void
+  /** Live busy/idle flag per session (from session.status/idle events) — feeds
+   * the plan-HUD subagent rows (running vs done). In-memory only. */
+  setSessionBusy(sessionId: string, busy: boolean): void
+  isSessionBusy(sessionId: string): boolean
   getSessionCost(sessionId: string): number | undefined
   setSessionCost(sessionId: string, cost: number | undefined): void
   /** Multi-backend: the backend that owns a session (undefined → default). */
@@ -80,6 +84,7 @@ export function createFileBackedState(path: string): SessionState {
   // In-memory only — suggestions are ephemeral UI sugar, never state of record.
   const sessionSuggestions = new Map<string, { items: string[]; at: number }>()
   const sessionCosts = new Map<string, number>()
+  const sessionBusy = new Map<string, boolean>()
   const assistantDeliveredAt = new Map<string, number>()
 
   const normalizeSessionId = (sessionId: string): string => {
@@ -187,6 +192,7 @@ export function createFileBackedState(path: string): SessionState {
     markAssistantDelivered: (sid) => { assistantDeliveredAt.set(sid, Date.now()) },
     getAssistantDeliveredAt: (sid) => assistantDeliveredAt.get(sid),
     dropSession: (sid) => {
+      sessionBusy.delete(sid)
       aborts.get(sid)?.abort()
       aborts.delete(sid)
       sessionCosts.delete(sid)
@@ -198,6 +204,8 @@ export function createFileBackedState(path: string): SessionState {
       if (cache.sessionBackends?.[sid]) { delete cache.sessionBackends[sid]; dirty = true }
       if (dirty) void persist()
     },
+    setSessionBusy: (sid, busy) => { if (busy) sessionBusy.set(sid, true); else sessionBusy.delete(sid) },
+    isSessionBusy: (sid) => sessionBusy.get(sid) === true,
     getSessionCost: (sid) => sessionCosts.get(sid),
     setSessionCost: (sid, cost) => {
       if (cost === undefined) sessionCosts.delete(sid)

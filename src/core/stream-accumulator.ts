@@ -22,6 +22,9 @@ interface InternalBlock {
 
 export interface StreamAccumulator {
   update(parts: PartInput[]): ContentBlock[]
+  /** Drop blocks by part id (e.g. USER message parts that raced their role
+   * announcement into the accumulator) and return the corrected block list. */
+  remove(partIds: Iterable<string>): ContentBlock[]
   finalize(): ContentBlock[]
   getText(): string
   getTools(): ContentBlock[]
@@ -69,6 +72,16 @@ export function createStreamAccumulator(): StreamAccumulator {
   }
 
   return {
+    remove(partIds) {
+      const ids = partIds instanceof Set ? partIds : new Set(partIds)
+      if (ids.size === 0) return toContentBlocks()
+      // blocks[], order[] and index[] stay in sync: drop in place, rebuild index.
+      blocks.splice(0, blocks.length, ...blocks.filter((b) => !ids.has(b.partId)))
+      order.splice(0, order.length, ...order.filter((id) => !ids.has(id)))
+      index.clear()
+      blocks.forEach((b, i) => index.set(b.partId, i))
+      return toContentBlocks()
+    },
     update(parts) {
       for (const p of parts) {
         const partId = p.id

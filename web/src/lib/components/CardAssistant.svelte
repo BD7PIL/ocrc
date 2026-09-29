@@ -89,10 +89,10 @@
     border-radius: var(--radius-pill);
     padding: 2px 8px;
   }
+  /* Orange discipline: the agent chip is metadata, not brand — neutral like
+     the other chips. */
   .chip.agent {
-    color: var(--accent);
-    background: var(--accent-2);
-    border-color: var(--accent-line);
+    color: var(--text-2);
   }
   .chip.cost { color: var(--warn); }
   .actions {

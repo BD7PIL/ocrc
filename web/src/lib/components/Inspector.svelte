@@ -12,6 +12,7 @@
   import UsagePanel from './inspector/UsagePanel.svelte'
   import ContextPanel from './inspector/ContextPanel.svelte'
   import WorkingDirPanel from './inspector/WorkingDirPanel.svelte'
+  import Fold from './inspector/Fold.svelte'
   export let sessionId: string | undefined = undefined
 
   $: session = $sessionList.find((s) => s.id === sessionId)
@@ -34,28 +35,30 @@
       <span class="title-text">{title || (sessionId ? '…' + sessionId.slice(-8) : 'No session')}</span>
     </div>
   </div>
-  {#if $can('todos')}<TaskPanel {sessionId} {tick} />{/if}
+  {#if $can('todos')}
+    <Fold key="tasks" title="任务" defaultOpen={true}><TaskPanel {sessionId} {tick} /></Fold>
+  {/if}
   <div class="pinned">
-    <SchedulesPanel {tick} />
+    <Fold key="schedules" title="定时任务" defaultOpen={true}><SchedulesPanel {tick} /></Fold>
     <div class="divider"></div>
-    {#if $can('skills')}<SkillsPanel {tick} /><div class="divider"></div>{/if}
-    {#if $can('files')}<FilesPanel {sessionId} {tick} /><div class="divider"></div>{/if}
-    {#if $can('worktrees')}<WorktreesPanel {sessionId} {tick} /><div class="divider"></div>{/if}
+    {#if $can('skills')}<Fold key="skills" title="Skills" defaultOpen={false}><SkillsPanel {tick} /></Fold><div class="divider"></div>{/if}
+    {#if $can('files')}<Fold key="files" title="Files" defaultOpen={false}><FilesPanel {sessionId} {tick} /></Fold><div class="divider"></div>{/if}
+    {#if $can('worktrees')}<Fold key="worktrees" title="Worktrees" defaultOpen={false}><WorktreesPanel {sessionId} {tick} /></Fold><div class="divider"></div>{/if}
     {#if $can('mcp')}
-      <McpPanel {tick} />
+      <Fold key="mcp" title="MCP" defaultOpen={true}><McpPanel {tick} /></Fold>
       <div class="divider"></div>
     {/if}
-    <UsagePanel {sessionId} {tick} />
+    <Fold key="usage" title="用量" defaultOpen={true}><UsagePanel {sessionId} {tick} /></Fold>
     <div class="divider"></div>
-    <ContextPanel {sessionId} {tick} />
+    <Fold key="context" title="上下文" defaultOpen={true}><ContextPanel {sessionId} {tick} /></Fold>
     <div class="divider"></div>
-    <WorkingDirPanel {sessionId} {tick} showDiff={$can('diff')} />
+    <Fold key="workdir" title="工作目录" defaultOpen={true}><WorkingDirPanel {sessionId} {tick} showDiff={$can('diff')} /></Fold>
   </div>
 </aside>
 
 <style>
   .inspector {
-    width: 280px;
+    width: var(--insp-w, 280px);
     flex-shrink: 0;
     display: flex;
     flex-direction: column;

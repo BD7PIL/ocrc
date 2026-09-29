@@ -49,7 +49,6 @@
 
 <div class="wt">
   <div class="hd">
-    <div class="label">Worktrees · beta</div>
     <button class="add" on:click={() => (creating = !creating)} aria-label={creating ? '取消新建' : '新建 worktree'}>{creating ? '×' : '+'}</button>
   </div>
 

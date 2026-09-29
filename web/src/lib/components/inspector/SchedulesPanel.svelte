@@ -75,7 +75,6 @@
 
 <div class="schedules">
   <div class="hd">
-    <div class="label">定时任务</div>
     <button class="add" on:click={() => (creating = !creating)} aria-label={creating ? '取消新建计划' : '新建计划'}>{creating ? '×' : '+'}</button>
   </div>
 

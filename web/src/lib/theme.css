@@ -119,27 +119,31 @@
 :root[data-theme="light"] {
   color-scheme: light;
 
-  --bg:        #faf9f6;
-  --bg-panel:  #f4f2ec;
+  /* Two-tone (MiMo structure): warm beige frame (--bg) + near-white content
+     canvas (--bg-canvas on the chat pane). Greys are NEUTRAL — the old warm
+     greys multiplied the bg's yellow cast across every hairline and label. */
+  --bg:        #f2efe8;
+  --bg-panel:  #efede5;
+  --bg-canvas: #fbfbfa;
   --bg-elev:   #ffffff;
-  --bg-elev2:  #f3f1ea;
-  --bg-input:  #f7f5f0;
-  --border:    #e9e6df;
-  --border-2:  #f0ede7;
+  --bg-elev2:  #f2f1ed;
+  --bg-input:  #f6f5f2;
+  --border:    #e4e3df;
+  --border-2:  #edece9;
 
-  --text:      #1c1b18;
-  --text-2:    #3f3d38;
-  --text-3:    #8c877d;
-  --text-4:    #6f6d66;  /* ≥4.5:1 on #fff / #faf9f6 */
+  --text:      #1d1c1a;
+  --text-2:    #43413d;
+  --text-3:    #8a8884;
+  --text-4:    #6e6d69;  /* ≥4.5:1 on #fff / #fbfbfa */
 
   --accent:    #e4580f;
   --accent-2:  #fdeee3;
   --accent-ink:#1c1b18;
   --accent-line:#f0c9ac;
 
-  --user-bubble: #f0ede6;
-  --user-ink:  #1c1b18;
-  --bubbleline:#e4e0d6;
+  --user-bubble: #efeeea;
+  --user-ink:  #1d1c1a;
+  --bubbleline:#e2e1dc;
 
   --ok:        #1f7a3d;
   --warn:      #9a6b00;
@@ -158,7 +162,7 @@
   --role-green:  #2f9d68;
   --role-silver: #8a877e;
 
-  --bg-code:   #f2efe8;
+  --bg-code:   #f4f2ec;
   --toolcmd:   #1c1b18;
   --toolout:   #57534e;
 
@@ -174,27 +178,28 @@
   :root:not([data-theme="dark"]) {
     color-scheme: light;
 
-    --bg:        #faf9f6;
-    --bg-panel:  #f4f2ec;
+    --bg:        #f2efe8;
+    --bg-panel:  #efede5;
+    --bg-canvas: #fbfbfa;
     --bg-elev:   #ffffff;
-    --bg-elev2:  #f3f1ea;
-    --bg-input:  #f7f5f0;
-    --border:    #e9e6df;
-    --border-2:  #f0ede7;
+    --bg-elev2:  #f2f1ed;
+    --bg-input:  #f6f5f2;
+    --border:    #e4e3df;
+    --border-2:  #edece9;
 
-    --text:      #1c1b18;
-    --text-2:    #3f3d38;
-    --text-3:    #8c877d;
-    --text-4:    #6f6d66;
+    --text:      #1d1c1a;
+    --text-2:    #43413d;
+    --text-3:    #8a8884;
+    --text-4:    #6e6d69;
 
     --accent:    #e4580f;
     --accent-2:  #fdeee3;
     --accent-ink:#1c1b18;
     --accent-line:#f0c9ac;
 
-    --user-bubble: #f0ede6;
-    --user-ink:  #1c1b18;
-    --bubbleline:#e4e0d6;
+    --user-bubble: #efeeea;
+    --user-ink:  #1d1c1a;
+    --bubbleline:#e2e1dc;
 
     --ok:        #1f7a3d;
     --warn:      #9a6b00;
@@ -213,7 +218,7 @@
     --role-green:  #2f9d68;
     --role-silver: #8a877e;
 
-    --bg-code:   #f2efe8;
+    --bg-code:   #f4f2ec;
     --toolcmd:   #1c1b18;
     --toolout:   #57534e;
 

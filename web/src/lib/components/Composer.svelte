@@ -265,7 +265,7 @@
     .attach { width: 44px; height: 44px; }
   }
   .dock {
-    max-width: 780px;
+    max-width: 880px;
     margin: 0 auto;
   }
   .error {

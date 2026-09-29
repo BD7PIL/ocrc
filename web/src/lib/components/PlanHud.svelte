@@ -17,7 +17,7 @@
   /** Jump target — the page owns navigation (goto), the HUD stays $app-free. */
   export let onJump: (id: string) => void = () => {}
 
-  const KEY = 'ocrc.planHud'
+  const KEY_BASE = 'ocrc.planHud'
   const INLINE_PENDING = 5
   // A plain progress ring — the honest design at 38px (logo-mark experiments
   // with brand arc + gauge + dot + count all read as clutter; the brand lives
@@ -27,6 +27,10 @@
   const CIRC = 2 * Math.PI * R
 
   type HudState = { dismissed?: string[]; expanded?: boolean }
+  let desktop = false
+  try { desktop = window.matchMedia('(min-width: 821px)').matches } catch { /* ssr */ }
+  // Separate memory per form: desktop = docked window, mobile = orb+card.
+  const KEY = desktop ? 'ocrc.planHud.dt' : KEY_BASE
   function loadState(): HudState {
     if (typeof localStorage === 'undefined') return {}
     try {
@@ -35,7 +39,8 @@
     } catch { return {} }
   }
   let hud: HudState = loadState()
-  let expanded = hud.expanded ?? false
+  // Desktop: the ZCode-style window starts EXPANDED (docked, non-blocking).
+  let expanded = hud.expanded ?? desktop
 
   function save(next?: Partial<HudState>) {
     hud = { ...hud, ...next }
@@ -165,7 +170,7 @@
 
 {#if loadedFor === sessionId && (sum.total > 0 || subs.length > 0 || breadcrumb) && !dismissed && $can('todos')}
   {#if expanded}
-    <div class="scrim" aria-hidden="true"></div>
+    {#if !desktop}<div class="scrim" aria-hidden="true"></div>{/if}
     <div class="plan-card" bind:this={cardEl}>
       <div class="hd">
         <span class="label">计划</span>
@@ -248,6 +253,14 @@
     </div>
   {/if}
 
+  {#if desktop && !expanded}
+    <button class="bar" bind:this={ballEl} on:click={toggleExpanded} aria-label={`展开计划 ${sum.done}/${sum.total}`}>
+      <span class="label">计划</span>
+      <span class="bar-count mono">{sum.done}<i>/</i>{sum.total}</span>
+      {#if subs.length > 0}<span class="badge mono">{subs.length}</span>{/if}
+      <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
+    </button>
+  {:else}
   <button
     class="ball"
     bind:this={ballEl}
@@ -268,14 +281,20 @@
     <span class="ball-count mono">{sum.done}<i>/</i>{sum.total}</span>
     {#if subs.length > 0}<span class="badge mono">{subs.length}</span>{/if}
   </button>
+  {/if}
 {/if}
 
 <style>
-  /* Mobile only — desktop keeps the always-visible Inspector task panel. */
+  /* Base = mobile (orb + scrim card). Desktop (min-width 821px) swaps the orb
+     for the ZCode-style slim bar; the card widens to a docked window. */
   .ball, .plan-card { display: none; }
   @media (max-width: 820px) {
     .ball { display: grid; }
     .plan-card { display: block; }
+  }
+  @media (min-width: 821px) {
+    .bar { display: flex; }
+    .plan-card { display: block; width: min(60vw, 380px); }
   }
 
   /* ── The orb IS the enso mark: ink ring (theme-tracked) + persimmon dot that
@@ -283,9 +302,9 @@
      and the titlebar brand mark. Center X still aligned to the send button
      (right = composer 12 + box 8 + half-send 22 − half-orb 19 = 23px). ── */
   .ball {
-    position: fixed;
+    position: absolute;
     right: 23px;
-    bottom: calc(var(--composer-h, 120px) + var(--kb, 0px) + 8px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(var(--composer-h, 120px) + 10px);
     z-index: var(--z-hud);
     width: 38px;
     height: 38px;
@@ -300,6 +319,43 @@
     animation: ocrc-pop .22s var(--ease-out, ease-out) backwards;
   }
   .ball:active { transform: scale(.92); }
+
+  /* Desktop collapsed bar (ZCode window chrome). */
+  .bar {
+    display: none;
+    position: absolute;
+    right: 16px;
+    bottom: calc(var(--composer-h, 120px) + 10px);
+    z-index: var(--z-hud);
+    align-items: center;
+    gap: 10px;
+    padding: 7px 12px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+    cursor: pointer;
+    font: inherit;
+    animation: ocrc-pop .18s var(--ease-out, ease-out) backwards;
+  }
+  .bar .label {
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    font-size: 9.5px;
+    font-weight: 600;
+    color: var(--text-3);
+  }
+  .bar-count { font-size: 11px; color: var(--text); }
+  .bar-count i { font-style: normal; color: var(--text-3); padding: 0 1px; }
+  .bar .badge {
+    min-width: 15px; height: 15px; padding: 0 4px;
+    display: grid; place-items: center;
+    background: var(--accent); color: var(--accent-ink);
+    border-radius: var(--radius-pill);
+    font-size: 9px; font-weight: 700;
+  }
+  .bar .caret { width: 13px; height: 13px; color: var(--text-3); }
+  .bar:hover { border-color: var(--accent-line); }
   .ring { position: absolute; inset: 0; width: 100%; height: 100%; }
   .ring circle { fill: none; stroke-linecap: round; }
   .track { stroke: var(--border); stroke-width: 3.5; }
@@ -341,7 +397,7 @@
      edges, and the card sits ABOVE the composer (z-dropdown=10) so the list
      is never truncated behind the input. Tap scrim = collapse. */
   .scrim {
-    position: fixed;
+    position: absolute;
     inset: 0;
     z-index: var(--z-hud);
     background: var(--scrim);
@@ -349,11 +405,11 @@
     padding: 0;
   }
   .plan-card {
-    position: fixed;
+    position: absolute;
     right: 16px;
-    bottom: calc(var(--composer-h, 120px) + var(--kb, 0px) + 54px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(var(--composer-h, 120px) + 46px);
     z-index: calc(var(--z-hud) + 1);
-    width: min(86vw, 320px);
+    width: min(86vw, 380px);
     background: var(--bg-elev);
     border: 1px solid var(--border);
     border-radius: var(--radius);

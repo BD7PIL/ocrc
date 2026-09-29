@@ -45,7 +45,6 @@
 </script>
 
 <div class="files">
-  <div class="label">Files</div>
   <div class="crumb mono">
     {#if path !== '.'}
       <button class="up" on:click={up} aria-label="上级目录">↰ {path}</button>

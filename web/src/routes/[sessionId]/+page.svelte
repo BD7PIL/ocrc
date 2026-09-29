@@ -358,7 +358,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 11px max(24px, calc((100% - 780px) / 2 + 24px));
+    padding: 11px max(24px, calc((100% - 880px) / 2 + 24px));
     background: var(--bg);
     border-bottom: 1px solid var(--border-2);
   }
@@ -410,14 +410,17 @@
     gap: 8px;
     flex-shrink: 0;
   }
+  /* Orange discipline: the running pill is status, not brand — neutral base,
+     only the pulse dot keeps the accent. */
   .pill {
     display: inline-flex;
     align-items: center;
     gap: 6px;
     padding: 3px 9px;
     border-radius: var(--radius-pill);
-    background: var(--accent-2);
-    color: var(--accent);
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    color: var(--text-2);
     font-size: 11px;
     /* Narrow screens: the header row must never overflow — the status pill
        shrinks/truncates before the 停止 button gets clipped by the menu. */
@@ -431,7 +434,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--accent);
+    background: var(--text-3);
     animation: ocrc-pulse 1.2s ease-in-out infinite;
   }
   .idle {
@@ -453,7 +456,7 @@
   .abort:disabled { opacity: .5; cursor: default; }
 
   .stream {
-    max-width: 720px;
+    max-width: 880px;
     margin: 0 auto;
     padding: 22px 24px 8px;
     display: flex;

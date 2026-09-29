@@ -54,7 +54,6 @@
 
 <div class="ctx">
   <div class="hd">
-    <span class="section-label">Context</span>
     {#if pct != null}<span class="pct">{pct}%</span>{/if}
   </div>
   <div class="body mono">

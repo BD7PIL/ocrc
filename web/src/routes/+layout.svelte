@@ -45,6 +45,40 @@
 
   let email = ''
   let wsClient: ReturnType<typeof createWsClient> | null = null
+
+  // ── Resizable three-pane (desktop): draggable dividers adjust --rail-w /
+  // --insp-w; sizes persist in localStorage. Mobile drawers ignore them
+  // (the ≤820px media block overrides widths and hides the dividers). ──
+  let railW = 250
+  let inspW = 280
+  let resizing: 'rail' | 'insp' | null = null
+  try {
+    railW = Math.max(180, Math.min(520, Number(localStorage.getItem('ocrc.railW')) || 250))
+    inspW = Math.max(220, Math.min(520, Number(localStorage.getItem('ocrc.inspW')) || 280))
+  } catch { /* private mode */ }
+  function startResize(which: 'rail' | 'insp', e: PointerEvent) {
+    if (window.matchMedia('(max-width: 820px)').matches) return
+    e.preventDefault()
+    resizing = which
+    const startX = e.clientX
+    const startW = which === 'rail' ? railW : inspW
+    const move = (ev: PointerEvent) => {
+      const d = which === 'rail' ? ev.clientX - startX : startX - ev.clientX
+      const w = Math.max(which === 'rail' ? 180 : 220, Math.min(520, startW + d))
+      if (which === 'rail') railW = w; else inspW = w
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      resizing = null
+      try {
+        localStorage.setItem('ocrc.railW', String(railW))
+        localStorage.setItem('ocrc.inspW', String(inspW))
+      } catch { /* private mode */ }
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
   // PWA install affordance (Chromium fires beforeinstallprompt when installable).
   let installEvent: any = null
   async function install() {
@@ -269,7 +303,7 @@
 
 <svelte:window on:keydown={onGlobalKey} />
 
-<div class="app" bind:this={appEl}>
+<div class="app" bind:this={appEl} style="--rail-w:{railW}px; --insp-w:{inspW}px">
   <!-- On mobile the chat screen has its own header (back + agent + title + inspector),
        so the global titlebar only shows on desktop and on the mobile Sessions screen. -->
   {#if !(isMobile && hasSession)}
@@ -293,7 +327,23 @@
     <div class="rail-wrap" class:collapsed={!$leftPanelOpen && !isMobile} class:open={drawerLeft || (isMobile && !hasSession)}>
       <AgentPanel activeId={$page.params.sessionId} drawer={isMobile} />
     </div>
+    <div
+      class="divider"
+      class:resizing={resizing === 'rail'}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="调整会话栏宽度"
+      on:pointerdown={(e) => startResize('rail', e)}
+    ></div>
     <main><slot /></main>
+    <div
+      class="divider"
+      class:resizing={resizing === 'insp'}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="调整检查器宽度"
+      on:pointerdown={(e) => startResize('insp', e)}
+    ></div>
     <div class="inspector-wrap" class:open={$inspectorOpen}>
       <Inspector sessionId={$page.params.sessionId} />
     </div>
@@ -317,11 +367,19 @@
      keyboard is open. */
   .app { position: fixed; top: 0; left: 0; right: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; background: var(--bg); }
   .body { display: flex; flex: 1; overflow: hidden; position: relative; }
-  main { position: relative; flex: 1; overflow: hidden; display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
+  /* Content canvas: the chat pane is the near-white sheet (MiMo structure) —
+     the warm --bg stays as the frame (rails/titlebar). Rounded top corners so
+     the sheet reads as a surface over the frame. */
+  main {
+    position: relative; flex: 1; overflow: hidden;
+    display: flex; flex-direction: column; min-width: 0;
+    background: var(--bg-canvas, var(--bg));
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
   /* Drawer wrappers hold the left panel on desktop and become off-canvas drawers on mobile. */
   .rail-wrap {
     display: block;
-    width: 250px;
+    width: var(--rail-w, 250px);
     flex-shrink: 0;
     overflow: hidden;
     /* Slide on the GPU (transform) instead of animating width — a width
@@ -333,9 +391,19 @@
   }
   .rail-wrap.collapsed {
     transform: translateX(-100%);
-    margin-right: -250px;
+    margin-right: calc(-1 * var(--rail-w, 250px));
   }
   .inspector-wrap { display: contents; }
+  .divider {
+    width: 6px;
+    flex-shrink: 0;
+    margin: 0 -3px;
+    z-index: 5;
+    cursor: col-resize;
+    background: transparent;
+    transition: background .15s ease;
+  }
+  .divider:hover, .divider.resizing { background: color-mix(in srgb, var(--accent) 35%, transparent); }
   .backdrop { display: none; }
 
   @media (max-width: 820px) {

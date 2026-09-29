@@ -16,7 +16,6 @@
 </script>
 
 <div class="skills">
-  <div class="label">Skills · {skills.length}</div>
   {#if skills.length > 0}
     <div class="chips" class:clipped={!expanded && skills.length > 18}>
       {#each shown as s (s.name)}

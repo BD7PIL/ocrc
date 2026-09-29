@@ -48,7 +48,6 @@
 
 <div class="task">
   <div class="hd">
-    <span class="section-label">任务</span>
     {#if s.total}<span class="meta">{effDone}/{s.total}</span>{/if}
   </div>
   {#if s.total}

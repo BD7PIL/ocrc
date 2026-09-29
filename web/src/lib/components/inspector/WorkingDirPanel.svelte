@@ -103,7 +103,6 @@
 
 <div class="wd">
   <div class="hd">
-    <span class="section-label">Working dir</span>
     {#if files.length}<span class="counts mono">+{totalAdds}/−{totalDels}</span>{/if}
   </div>
   {#if repoName(dir)}

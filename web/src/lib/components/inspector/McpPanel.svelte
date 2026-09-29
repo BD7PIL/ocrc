@@ -7,7 +7,6 @@
   $: load(), tick
 </script>
 <div class="mcp">
-  <div class="label">MCP</div>
   <div class="list">
     {#each servers as m}<div class="row" class:off={m.status === 'disabled'}><span class="dot" aria-hidden="true"></span><span>{m.name}</span><span class="sr-only">{m.status}</span></div>{/each}
     {#if servers.length === 0}<div class="label">未配置</div>{/if}

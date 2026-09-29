@@ -71,7 +71,6 @@
 </script>
 
 <div class="usage">
-  <div class="hd"><span class="section-label">用量</span></div>
   <div class="tiles">
     <div class="tile">
       <div class="label">输入 tokens</div>

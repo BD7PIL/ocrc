@@ -17,7 +17,7 @@
   /** Jump target — the page owns navigation (goto), the HUD stays $app-free. */
   export let onJump: (id: string) => void = () => {}
 
-  const KEY_BASE = 'ocrc.planHud.v2'
+  const KEY_BASE = 'ocrc.planHud.v3'
   const INLINE_PENDING = 5
   // A plain progress ring — the honest design at 38px (logo-mark experiments
   // with brand arc + gauge + dot + count all read as clutter; the brand lives
@@ -30,7 +30,7 @@
   let desktop = false
   try { desktop = window.matchMedia('(min-width: 821px)').matches } catch { /* ssr */ }
   // Separate memory per form: desktop = docked window, mobile = orb+card.
-  const KEY = desktop ? 'ocrc.planHud.dt2' : KEY_BASE
+  const KEY = desktop ? 'ocrc.planHud.dt3' : KEY_BASE
   function loadState(): HudState {
     if (typeof localStorage === 'undefined') return {}
     try {
@@ -140,6 +140,11 @@
     save({ dismissed: [...(hud.dismissed ?? []), sessionId].slice(-20) })
     menuOpen = false
   }
+  function undismiss() {
+    save({ dismissed: (hud.dismissed ?? []).filter((x) => x !== sessionId) })
+    expanded = true
+    save({ expanded })
+  }
   function openTasks() {
     menuOpen = false
     inspectorOpen.set(true)
@@ -168,8 +173,13 @@
 
 <svelte:window on:pointerdown={onOutside} />
 
-{#if loadedFor === sessionId && (sum.total > 0 || subs.length > 0 || breadcrumb) && !dismissed && $can('todos')}
-  {#if expanded}
+{#if loadedFor === sessionId && (sum.total > 0 || subs.length > 0 || breadcrumb) && $can('todos')}
+  {#if dismissed}
+    <button class="ghost" on:click={undismiss} title="重新显示计划窗">
+      <span class="label">计划</span>
+      <span class="bar-count mono">{sum.done}<i>/</i>{sum.total}</span>
+    </button>
+  {:else if expanded}
     {#if !desktop}<div class="scrim" aria-hidden="true"></div>{/if}
     <div class="plan-card" bind:this={cardEl}>
       <div class="hd">
@@ -319,6 +329,34 @@
     animation: ocrc-pop .22s var(--ease-out, ease-out) backwards;
   }
   .ball:active { transform: scale(.92); }
+
+  /* Dismissed ghost: a quiet re-open affordance so hiding is never a dead end. */
+  .ghost {
+    position: absolute;
+    right: 16px;
+    bottom: calc(var(--composer-h, 120px) + 10px);
+    z-index: var(--z-hud);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    background: transparent;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    color: var(--text-3);
+    font: inherit;
+    cursor: pointer;
+    opacity: .75;
+  }
+  .ghost:hover { opacity: 1; color: var(--text-2); border-color: var(--accent-line); }
+  .ghost .label {
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    font-size: 9.5px;
+    font-weight: 600;
+  }
+  .ghost .bar-count { font-size: 10.5px; }
+  .ghost .bar-count i { font-style: normal; color: var(--text-3); padding: 0 1px; }
 
   /* Desktop collapsed bar (ZCode window chrome). */
   .bar {

@@ -22,6 +22,7 @@
     url: string
     svg: string
     expiresAt: number
+    paired?: number
     channels: Array<{ channel: 'telegram' | 'wechat' | 'lark'; enabled: boolean; live: { connected: boolean; username?: string } | null }>
     host: { hostname: string; platform: string; arch: string }
   }
@@ -32,6 +33,10 @@
 
   $: remaining = onb?.expiresAt ? Math.max(0, onb.expiresAt - now) : null
   $: expired = remaining !== null && remaining <= 0
+  // A device already completed pairing (any device — phone via scan, etc.):
+  // the page stops reading as "stuck waiting" and offers direct entry here.
+  $: pairedCount = onb?.paired ?? 0
+  $: hasPaired = pairedCount > 0
   $: countdown = remaining === null ? '' : `${Math.floor(remaining / 60000)}:${String(Math.floor((remaining % 60000) / 1000)).padStart(2, '0')}`
 
   async function loadPair() {
@@ -116,7 +121,10 @@
         <p class="sub">用手机相机扫码，在手机上打开这台机器。</p>
         {#if onb}
           <div class="wait-row">
-            <span class="wait">等待手机连接 {#if remaining !== null}<span class="mono cd" class:expired>{expired ? '二维码已过期' : `· ${countdown}`}</span>{/if}</span>
+            <span class="wait" class:done={hasPaired}>{hasPaired ? `✓ 已有 ${pairedCount} 台设备完成配对` : '等待手机连接'} {#if remaining !== null}<span class="mono cd" class:expired>{expired ? '二维码已过期' : `· ${countdown}`}</span>{/if}</span>
+            {#if hasPaired}
+              <button class="btn enter" on:click={() => onb && exchangePairLink(onb.url)}>配对此浏览器并进入</button>
+            {/if}
           </div>
           <div class="qr-wrap">
             <!-- eslint-disable-next-line svelte/no-at-html-tags — server-generated QR SVG -->
@@ -237,7 +245,12 @@
     background: var(--bg-elev); border: 1px solid var(--border);
     padding: 2px 8px; border-radius: var(--radius-pill);
   }
-  .wait-row { display: flex; align-items: center; }
+  .wait-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .wait.done { color: var(--ok, #2e9e6b); }
+  .btn.enter {
+    background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
+    font-weight: 600;
+  }
   .wait { font-size: 12px; color: var(--text); font-weight: 600; }
   .cd { font-weight: 500; color: var(--text-3); }
   .cd.expired { color: var(--warn); }

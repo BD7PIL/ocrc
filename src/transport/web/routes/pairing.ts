@@ -1,8 +1,14 @@
 import type { Hono } from 'hono'
 import { hostname } from 'node:os'
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import type { PairingStore, PairContext } from '../../../connectivity/pairing.js'
 import { buildPairContext, buildPairUrlPending } from '../../../connectivity/pairing.js'
 import type { ChannelsStore } from '../../../core/channels.js'
+
+const OCRC_RUN_DIR = process.env.OCRC_HOME
+  ? join(process.env.OCRC_HOME, 'run')
+  : join(process.env.HOME ?? '/tmp', '.ocrc', 'run')
 
 async function qrSvg(pairUrl: string): Promise<string> {
   const QRCode = (await import('qrcode')).default
@@ -11,6 +17,28 @@ async function qrSvg(pairUrl: string): Promise<string> {
 
 async function pairBase(): Promise<PairContext> {
   return buildPairContext()
+}
+
+// Completed-pairing counter (persisted): the onboarding landing page reads it
+// to flip from "waiting for scan" to "a device is already paired" once the
+// first exchange succeeds — otherwise the host-side browser looks stuck in
+// pairing mode forever even after the phone got in.
+function counterFile(): string {
+  return join(OCRC_RUN_DIR, 'paired-count')
+}
+function readPairedCount(): number {
+  try {
+    const n = Number(readFileSync(counterFile(), 'utf-8').trim())
+    return Number.isFinite(n) && n > 0 ? n : 0
+  } catch { return 0 }
+}
+function bumpPairedCount(): number {
+  const n = readPairedCount() + 1
+  try {
+    mkdirSync(OCRC_RUN_DIR, { recursive: true })
+    writeFileSync(counterFile(), String(n))
+  } catch { /* best effort */ }
+  return n
 }
 
 /**
@@ -44,6 +72,7 @@ export function registerPairOnboarding(
         url: pairUrl,
         svg,
         expiresAt: p.expiresAt,
+        paired: readPairedCount(),
         channels,
         host: { hostname: hostname(), platform: process.platform, arch: process.arch },
       })
@@ -71,6 +100,7 @@ export function registerPairExchange(app: Hono, pairing?: PairingStore) {
     if (typeof body.pending !== 'string' || !body.pending) return c.json({ error: 'pending required' }, 400)
     const token = pairing.exchange(body.pending)
     if (!token) return c.json({ error: 'expired' }, 404)
+    bumpPairedCount()
     return c.json({ token })
   })
 }

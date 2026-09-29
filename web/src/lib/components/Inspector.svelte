@@ -62,7 +62,9 @@
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    background: var(--bg-panel);
+    /* Same surface as the chat canvas: one white workspace between warm
+       frame strips (titlebar/rail), not a third tone. */
+    background: var(--bg-elev);
     border-left: 1px solid var(--border-2);
   }
   .head {

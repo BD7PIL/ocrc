@@ -159,13 +159,15 @@
     color: var(--text-2);
   }
 
-  /* done: filled accent box + check ink + struck-through muted label */
+  /* done: outlined box + accent check + struck-through muted label
+   (orange discipline — five solid accent dots stacked read as clutter) */
   .row.done .box {
-    background: var(--accent);
+    background: transparent;
+    border-color: var(--accent-line);
   }
   .row.done .check {
     display: block;
-    color: var(--accent-ink);
+    color: var(--accent);
   }
   .row.done .tx {
     color: var(--text-3);

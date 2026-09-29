@@ -2,9 +2,18 @@ import type { StructuredCard, ContentBlock, AssistantMeta } from './structured-c
 
 export function summarizeToolArgs(tool: string, input: any): string {
   if (tool === 'todowrite' && Array.isArray(input?.todos)) return `${input.todos.length} items`
+  if (tool === 'edit' && Array.isArray(input?.edits)) return `${input.edits.length} edits`
   if (tool === 'bash') return (input?.command ?? input?.cmd ?? '').slice(0, 60)
+  if (Array.isArray(input)) return `${input.length} items`
   if (tool === 'read' || tool === 'edit' || tool === 'write') return input?.filePath ?? ''
   if (tool === 'grep' || tool === 'find') return input?.pattern ?? input?.query ?? ''
+  // Generic fallback: never String() an object/array (the '[object Object]'
+  // wall) — prefer the first string value, count arrays, skip objects.
+  for (const key of Object.keys(input ?? {})) {
+    const v = (input ?? {})[key]
+    if (typeof v === 'string' && v) return v.length > 60 ? v.slice(0, 57) + '...' : v
+    if (Array.isArray(v)) return `${v.length} items`
+  }
   return ''
 }
 

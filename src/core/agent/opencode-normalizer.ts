@@ -7,20 +7,12 @@
 import type { OcEvent, OcPart } from '../opencode-events.js'
 import { sessionIdOf, errorMessageOf } from '../opencode-events.js'
 import type { AgentEvent, NormalizedPart } from './event.js'
+import { summarizeToolArgs } from '../history.js'
 
-/** One-line tool-arg summary (was inside stream-accumulator; opencode-specific). */
+/** One-line tool-arg summary — delegates to the shared safe summarizer
+ * (never String()s objects; arrays render as 'N items' / 'N edits'). */
 function summarizeArgs(tool: string, input?: Record<string, unknown>): string {
-  if (!input) return ''
-  if (tool === 'bash' && typeof input.cmd === 'string') {
-    return input.cmd.length > 60 ? input.cmd.slice(0, 57) + '...' : input.cmd
-  }
-  if (tool === 'todowrite' && Array.isArray(input.todos)) {
-    return `${input.todos.length} items`
-  }
-  const keys = Object.keys(input)
-  if (keys.length === 0) return ''
-  const first = String(input[keys[0]])
-  return first.length > 60 ? first.slice(0, 57) + '...' : first
+  return summarizeToolArgs(tool, input)
 }
 
 function mapToolStatus(s?: string): 'running' | 'done' | 'error' {

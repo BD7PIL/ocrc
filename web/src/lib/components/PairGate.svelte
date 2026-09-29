@@ -168,9 +168,10 @@
                 </div>
                 <div class="ch-note">{CHANNEL_META[ch.channel]?.note ?? ''}</div>
               </div>
+              <span class="lock" title="配对后可配置">🔒</span>
             </div>
           {/each}
-          <p class="hint dim">通道凭证与回复粒度等管理功能，在配对后的「机器人管理」面板中。</p>
+          <p class="hint dim">🔒 通道状态仅展示；凭证与回复粒度等配置在配对后的「机器人管理」面板（标题栏 🤖）中。</p>
         {:else}
           <p class="hint dim">…</p>
         {/if}
@@ -292,7 +293,9 @@
     background: var(--bg-elev);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
+    cursor: default;
   }
+  .lock { margin-left: auto; font-size: 12px; opacity: .65; flex-shrink: 0; }
   .ch-icon { display: grid; place-items: center; flex-shrink: 0; }
   .ch-name { font-size: 12.5px; font-weight: 650; color: var(--text); display: flex; gap: 8px; align-items: baseline; }
   .ok { font-size: 10.5px; color: var(--ok, #2e9e6b); font-weight: 600; }

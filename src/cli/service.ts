@@ -296,7 +296,7 @@ export async function main(argv: string[]): Promise<void> {
       return wpid !== null && alive(wpid)
     })()
     await main(['stop'])
-    await main(wasWatched ? ['--watch', workDir] : ['start', workDir])
+    await main(wasWatched ? ['start', '--watch', workDir] : ['start', workDir])
     return
   }
 

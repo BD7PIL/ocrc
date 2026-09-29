@@ -44,7 +44,7 @@ ocrc install          # interactive: Telegram bot token + your user id
                       #  unrelated package — don't npx it)
 
 # 2. Start (supervised: crash auto-restart)
-ocrc start --watch /path/to/your/project
+ocrc start /path/to/your/project
 
 # 3. Talk to it
 #    Telegram: send "hello" to your bot

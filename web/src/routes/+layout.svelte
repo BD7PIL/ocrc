@@ -36,6 +36,9 @@
   function toggleRight() { inspectorOpen.update((v) => !v); drawerLeft = false }
   function onGlobalKey(e: KeyboardEvent) {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); paletteOpen.set(true); return }
+    // ⌘B / Ctrl+B — the convention toggle for the session rail (same affordance
+    // as the strip and the divider double-click; three roads, one state).
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); leftPanelOpen.update((v) => !v); return }
     if (e.key === 'Escape') {
       if (get(plusMenuOpen)) { plusMenuOpen.set(false); return }
       if (get(newSessionOpen)) { newSessionOpen.set(false); return }
@@ -324,6 +327,18 @@
     {#if drawerLeft || $inspectorOpen}
       <button class="backdrop" aria-label="Close" on:click={closeDrawers}></button>
     {/if}
+    {#if !$leftPanelOpen && !isMobile}
+      <!-- Collapsed-rail strip: the restore affordance is a permanent fixture
+           at the screen edge (VS Code activity-bar register), not a hidden
+           chevron — "collapsed" must never mean "lost" (user report). -->
+      <button class="rail-strip" on:click={() => leftPanelOpen.set(true)} title="展开会话栏 (⌘B)" aria-label="展开会话栏">
+        <svg class="strip-mark" viewBox="0 0 64 64" fill="none" stroke-width="8" stroke-linecap="round" aria-hidden="true">
+          <path d="M46 15 A24 24 0 1 0 54 32" stroke="var(--text)"/>
+          <circle cx="49" cy="20" r="6" fill="var(--accent)" stroke="none"/>
+        </svg>
+        <svg class="strip-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+      </button>
+    {/if}
     <div class="rail-wrap" class:collapsed={!$leftPanelOpen && !isMobile} class:open={drawerLeft || (isMobile && !hasSession)}>
       <AgentPanel activeId={$page.params.sessionId} drawer={isMobile} />
     </div>
@@ -332,8 +347,9 @@
       class:resizing={resizing === 'rail'}
       role="separator"
       aria-orientation="vertical"
-      aria-label="调整会话栏宽度"
+      aria-label="调整会话栏宽度（双击收起/展开）"
       on:pointerdown={(e) => startResize('rail', e)}
+      on:dblclick={() => leftPanelOpen.update((v) => !v)}
     ></div>
     <main><slot /></main>
     <div
@@ -392,8 +408,32 @@
   .rail-wrap.collapsed {
     transform: translateX(-100%);
     margin-right: calc(-1 * var(--rail-w, 250px));
+    /* The strip pushes the rail's origin right by 44px, so the translated-out
+       box still covers the strip's zone — without this, the invisible rail
+       swallows the strip's clicks (found by the click-through test). */
+    pointer-events: none;
   }
   .inspector-wrap { display: contents; }
+  /* Collapsed-rail strip — the always-present restore handle at the screen's
+     left edge. Mobile hides it (drawers have their own toggles). */
+  .rail-strip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    width: 44px;
+    flex-shrink: 0;
+    padding: 14px 0 10px;
+    background: var(--bg-panel);
+    border: none;
+    border-right: 1px solid var(--border-2);
+    color: var(--text-3);
+    cursor: pointer;
+    transition: color .12s ease, background .12s ease;
+  }
+  .rail-strip:hover { color: var(--text); background: var(--bg-elev2); }
+  .rail-strip .strip-mark { width: 22px; height: 22px; flex-shrink: 0; }
+  .rail-strip .strip-caret { width: 14px; height: 14px; }
   .divider {
     width: 6px;
     flex-shrink: 0;
@@ -436,6 +476,7 @@
     .inspector-wrap.open { transform: translateY(0); }
 
     .rail-wrap :global(.agent-panel), .rail-wrap :global(.panel) { width: 100%; }
+    .rail-strip { display: none; }
     .inspector-wrap :global(.inspector) { width: 100%; height: 100%; }
     /* MUST sit below the rail (--z-drawer) AND the inspector sheet (--z-sheet)
        so taps on an open drawer hit the drawer, not the backdrop. It only dims

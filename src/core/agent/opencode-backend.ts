@@ -79,9 +79,15 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
 
   /**
    * Tier2 suggested follow-ups: run a throwaway session asking for three
-   * concise follow-ups, poll until the reply lands, parse the JSON array, then
-   * delete the throwaway session — the source conversation is never touched.
-   * Best-effort: any failure resolves to [].
+   * concise follow-ups, parse the JSON array from the reply, then delete the
+   * throwaway session — the source conversation is never touched.
+   *
+   * Transport = raw ocFetch, NOT the SDK client. The SDK flow (session.create
+   * + promptAsync + poll) never logged a single success or failure in
+   * production while every raw-fetch feature worked — so the flow is rebuilt
+   * on primitives proven live (POST /session, POST /session/:id/message — the
+   * raw message POST is synchronous and returns the assistant reply directly).
+   * Every exit path logs.
    */
   async function suggestFollowUps(
     sessionId: string,
@@ -90,9 +96,17 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     if (process.env.OCRC_SUGGESTIONS === 'off') return []
     let tmpId: string | undefined
     try {
-      const created = (await client.session.create({ body: { title: 'ocrc-suggestions' } })).data as any
-      tmpId = created?.id
-      if (!tmpId) return []
+      const created = await ocFetch(`${baseUrl}/session`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: 'ocrc-suggestions' }),
+      })
+      if (!created.ok) {
+        log.warn(`suggestFollowUps: session create failed (${created.status})`)
+        return []
+      }
+      tmpId = ((await created.json()) as any)?.id
+      if (!tmpId) { log.warn('suggestFollowUps: session create returned no id'); return [] }
       markEphemeralSession(tmpId)
       const instruction = [
         'Below is an exchange between the user and their coding assistant.',
@@ -105,22 +119,22 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
         'Rules: same language as the exchange; each at most 8 words; no numbering, no quotes, no explanations.',
         'Reply with ONLY a JSON array of 3 strings.',
       ].join('\n')
-      await submitPrompt(client, { sessionId: tmpId, text: instruction })
-      // promptAsync resolves on accept — poll for the assistant reply to land.
-      // The messages list wraps each message as {info:{role,...}, parts:[...]}
-      // on some SDK paths and flat on others — read both shapes defensively.
-      let reply = ''
-      for (let i = 0; i < 20; i++) {
-        await new Promise((r) => setTimeout(r, 500))
-        const res = (await client.session.messages({ path: { id: tmpId } })).data as any[] | undefined
-        const last = (res ?? []).at(-1) as any
-        const role = last?.info?.role ?? last?.role
-        if (last && role === 'assistant') {
-          const parts = (last.parts ?? last.info?.parts ?? []) as Array<{ type?: string; text?: string }>
-          reply = parts.filter((p) => p.type === 'text').map((p) => p.text ?? '').join('')
-          if (reply.trim()) break
-        }
+      // The raw message POST runs the turn synchronously — the response IS the
+      // assistant message (info + parts). 45s cap: a stuck/permission-blocked
+      // turn must not hold this fire-and-forget forever.
+      const res = await ocFetch(`${baseUrl}/session/${encodeURIComponent(tmpId)}/message`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ parts: [{ type: 'text', text: instruction }] }),
+        signal: AbortSignal.timeout(45_000),
+      })
+      if (!res.ok) {
+        log.warn(`suggestFollowUps: prompt failed (${res.status})`)
+        return []
       }
+      const body = (await res.json()) as any
+      const parts = (body?.parts ?? body?.info?.parts ?? []) as Array<{ type?: string; text?: string }>
+      const reply = parts.filter((p) => p.type === 'text').map((p) => p.text ?? '').join('')
       const start = reply.indexOf('[')
       const end = reply.lastIndexOf(']')
       let items: string[] = []
@@ -135,10 +149,11 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
       }
       log.info(`suggestFollowUps: ${items.length} suggestions parsed`)
       return items.slice(0, 3)
-    } catch {
+    } catch (err) {
+      log.warn(`suggestFollowUps failed: ${(err as Error).message}`)
       return []
     } finally {
-      if (tmpId) { try { await client.session.delete({ path: { id: tmpId } }) } catch { /* best effort */ } }
+      if (tmpId) { try { await ocFetch(`${baseUrl}/session/${encodeURIComponent(tmpId)}`, { method: 'DELETE' }) } catch { /* best effort */ } }
     }
   }
 

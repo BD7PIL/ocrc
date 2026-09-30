@@ -179,7 +179,7 @@
 <svelte:window on:pointerdown={onOutside} />
 
 {#if loadedFor === sessionId && (sum.total > 0 || subs.length > 0 || breadcrumb) && $can('todos')}
-  {#if dismissed}
+  {#if dismissed && !desktop}
     <button class="ghost" on:click={undismiss} title="重新显示计划窗">
       <span class="label">计划</span>
       <span class="bar-count mono">{sum.done}<i>/</i>{sum.total}</span>
@@ -204,7 +204,7 @@
       {#if menuOpen}
         <div class="menu" bind:this={menuEl} role="menu">
           <button role="menuitem" on:click={openTasks}>打开任务面板</button>
-          <button role="menuitem" on:click={hide}>本会话隐藏</button>
+          {#if !desktop}<button role="menuitem" on:click={hide}>本会话隐藏</button>{/if}
         </div>
       {/if}
 
@@ -281,7 +281,7 @@
     </div>
   {/if}
 
-  {#if !dismissed && desktop && !expanded}
+  {#if desktop && !expanded}
     <button class="bar" bind:this={ballEl} on:click={toggleExpanded} aria-label={`展开计划 ${sum.done}/${sum.total}`}>
       <span class="label">计划</span>
       <span class="bar-count mono">{sum.done}<i>/</i>{sum.total}</span>
@@ -313,17 +313,9 @@
 {/if}
 
 <style>
-  /* Base = mobile (orb + scrim card). Desktop (min-width 821px) swaps the orb
-     for the ZCode-style slim bar; the card widens to a docked window. */
+  /* Base = mobile (orb + scrim card). The desktop swap lives at the END of the
+     style block — see the form-swap media block at the bottom. */
   .ball, .plan-card { display: none; }
-  @media (max-width: 820px) {
-    .ball { display: grid; }
-    .plan-card { display: block; }
-  }
-  @media (min-width: 821px) {
-    .bar { display: flex; }
-    .plan-card { display: block; width: min(60vw, 380px); }
-  }
 
   /* ── The orb IS the enso mark: ink ring (theme-tracked) + persimmon dot that
      grows along the ring with plan progress. Same proportions as the favicon
@@ -675,5 +667,23 @@
     font-size: 10.5px;
     color: var(--accent);
     min-width: 26px;
+  }
+
+  /* ── Form swap by viewport — MUST be the last rules in this block. ──
+     Same specificity as the base rules above, so placement decides: the
+     desktop swap used to sit BEFORE the base `.bar { display:none }`, which
+     let the base rule win and left the collapsed bar permanently invisible —
+     the desktop HUD vanished on first collapse ("悬浮窗时有时无"). */
+  @media (max-width: 820px) {
+    .ball { display: grid; }
+    .plan-card { display: block; }
+  }
+  @media (min-width: 821px) {
+    /* Desktop docking = ZCode register: the window drops from the chat pane's
+       TOP-RIGHT (below the session header), never over the composer. The
+       collapsed bar parks at the exact same corner, so the HUD has ONE fixed
+       address on desktop — it is always findable. */
+    .bar { display: flex; top: 60px; bottom: auto; }
+    .plan-card { display: block; width: min(60vw, 380px); top: 60px; bottom: auto; transform-origin: 85% 0; }
   }
 </style>

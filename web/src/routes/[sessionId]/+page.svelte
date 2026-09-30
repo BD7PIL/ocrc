@@ -358,7 +358,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 11px max(24px, calc((100% - 880px) / 2 + 24px));
+    padding: 11px max(24px, calc((100% - var(--col-w, 880px)) / 2 + 24px));
     background: var(--bg);
     border-bottom: 1px solid var(--border-2);
   }
@@ -461,7 +461,7 @@
   .abort:disabled { opacity: .5; cursor: default; }
 
   .stream {
-    max-width: 880px;
+    max-width: var(--col-w, 880px);
     margin: 0 auto;
     padding: 22px 24px 8px;
     display: flex;

@@ -1,7 +1,20 @@
 import { writable } from 'svelte/store'
 
-/** Desktop left panel open/collapsed state. */
-export const leftPanelOpen = writable(true)
+const RAIL_OPEN_KEY = 'ocrc.railOpen'
+
+/** Desktop left panel open/collapsed state — persisted (ZCode/opencode parity:
+    a reload must not undo the user's collapse; the restore strip makes it
+    findable again). */
+function persistedRailOpen() {
+  let initial = true
+  try { initial = localStorage.getItem(RAIL_OPEN_KEY) !== '0' } catch { /* private mode */ }
+  const store = writable(initial)
+  store.subscribe((v) => {
+    try { localStorage.setItem(RAIL_OPEN_KEY, v ? '1' : '0') } catch { /* private mode */ }
+  })
+  return store
+}
+export const leftPanelOpen = persistedRailOpen()
 
 /** "+ New" multi-action menu open state. */
 export const plusMenuOpen = writable(false)

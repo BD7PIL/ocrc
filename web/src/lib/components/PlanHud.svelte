@@ -263,14 +263,14 @@
     </div>
   {/if}
 
-  {#if desktop && !expanded}
+  {#if !dismissed && desktop && !expanded}
     <button class="bar" bind:this={ballEl} on:click={toggleExpanded} aria-label={`展开计划 ${sum.done}/${sum.total}`}>
       <span class="label">计划</span>
       <span class="bar-count mono">{sum.done}<i>/</i>{sum.total}</span>
       {#if subs.length > 0}<span class="badge mono">{subs.length}</span>{/if}
       <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
     </button>
-  {:else}
+  {:else if !dismissed && !(desktop && !expanded)}
   <button
     class="ball"
     bind:this={ballEl}

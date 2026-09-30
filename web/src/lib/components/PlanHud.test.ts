@@ -26,7 +26,7 @@ describe('PlanHud', () => {
     vi.mocked(api.todo).mockReset()
     vi.mocked(api.subagents).mockReset?.()
     vi.mocked(api.subagents).mockResolvedValue({ subagents: [] })
-    localStorage.removeItem('ocrc.planHud.v2')
+    localStorage.removeItem('ocrc.planHud.v3')
     sessionStorage.clear()
     // jsdom's matchMedia reports desktop widths — pin the MOBILE form (orb)
     // for these tests; the desktop bar/window gets its own coverage.
@@ -86,7 +86,7 @@ describe('PlanHud', () => {
     await fireEvent.pointerDown(document.body)
     expect(container.querySelector('.plan-card')).toBeNull()
     // …and the collapse is persisted.
-    const stored = JSON.parse(localStorage.getItem('ocrc.planHud.v2') ?? '{}')
+    const stored = JSON.parse(localStorage.getItem('ocrc.planHud.v3') ?? '{}')
     expect(stored.expanded).toBe(false)
   })
 
@@ -137,10 +137,13 @@ describe('PlanHud', () => {
     await fireEvent.click(container.querySelector('.dots')!)
     const hide = [...container.querySelectorAll('.menu button')].find((b) => b.textContent === '本会话隐藏')!
     await fireEvent.click(hide)
-    expect(container.querySelector('.ball')).toBeNull()
+    // Hidden = the window disappears; a quiet ghost chip remains as the
+    // re-open affordance (dismissals are no longer dead ends).
     expect(container.querySelector('.plan-card')).toBeNull()
+    expect(container.querySelector('.ball')).toBeNull()
+    expect(container.querySelector('.ghost')).toBeTruthy()
 
-    const stored = JSON.parse(localStorage.getItem('ocrc.planHud.v2') ?? '{}')
+    const stored = JSON.parse(localStorage.getItem('ocrc.planHud.v3') ?? '{}')
     expect(stored.dismissed).toContain('s-hide')
   })
 

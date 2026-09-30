@@ -9,6 +9,7 @@
   import AgentChip from './AgentChip.svelte'
   import ModelChip from './ModelChip.svelte'
   import SessionControls from './SessionControls.svelte'
+  import ContextRing from './ContextRing.svelte'
 
   export let sessionId: string
 
@@ -227,6 +228,7 @@
           <ModelChip />
         {/if}
         {#if $can('sessionControls')}<SessionControls {sessionId} />{/if}
+        <ContextRing {sessionId} />
         <button class="hint command" on:click={() => paletteOpen.set(true)}>「/」命令</button>
         <span class="spacer"></span>
         <span class="hint send-hint">↵ 发送 · ⇧↵ 换行</span>

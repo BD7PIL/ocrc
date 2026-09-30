@@ -153,7 +153,7 @@ export interface ScheduleRow {
   createdAt: number
   lastRunAt?: number
 }
-export interface SubagentRow { id: string; title: string; updatedAt?: number; done: number; total: number }
+export interface SubagentRow { id: string; title: string; updatedAt?: number; done: number; total: number; busy?: boolean }
 export interface SkillRow { name: string; description?: string }
 export interface FileEntryRow { name: string; path: string; type: 'file' | 'directory' }
 export interface WorktreeRow { name: string; directory?: string }

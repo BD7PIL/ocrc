@@ -84,6 +84,28 @@ describe('StreamAccumulator', () => {
     expect(blocks).toHaveLength(0)
   })
 
+  it('snapshotWithReasoning exposes reasoning in first-seen order (streaming payload)', () => {
+    const acc = createStreamAccumulator()
+    acc.update([reasoningPart('r1', 'Let me think')])
+    acc.update([toolPart('t1', 'bash', 'ls', 'done')])
+    acc.update([textPart('p1', 'Answer')])
+    acc.update([reasoningPart('r2', ' more thought')])
+    const snap = acc.snapshotWithReasoning()
+    expect(snap.map((b) => b.type)).toEqual(['reasoning', 'tool', 'text', 'reasoning'])
+    expect(snap[0]).toMatchObject({ type: 'reasoning', text: 'Let me think' })
+    // finalize() keeps its reasoning-free contract
+    expect(acc.finalize().map((b) => b.type)).toEqual(['tool', 'text'])
+  })
+
+  it('getReasoningText concatenates all reasoning text', () => {
+    const acc = createStreamAccumulator()
+    acc.update([reasoningPart('r1', 'Thinking...')])
+    acc.update([textPart('p1', 'Answer')])
+    acc.update([reasoningPart('r2', ' More.')])
+    expect(acc.getReasoningText()).toBe('Thinking... More.')
+    expect(acc.getText()).toBe('Answer')
+  })
+
   it('getText excludes reasoning blocks', () => {
     const acc = createStreamAccumulator()
     acc.update([reasoningPart('r1', 'Thinking...')])

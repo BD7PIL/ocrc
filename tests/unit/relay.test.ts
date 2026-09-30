@@ -440,6 +440,43 @@ describe('createRelay', () => {
       expect(assistantCard.blocks.some((b: any) => b.type === 'text' && b.text === 'response text')).toBe(true)
     })
 
+    it('carries live reasoning on streaming cards and thinkingText on the final card', async () => {
+      const cardBus = createCardBus()
+      const cards: StructuredCard[] = []
+      cardBus.subscribeAll((c) => cards.push(c))
+
+      const state = fakeState()
+      state.getPinnedSessionId = () => 'ses_plugin'
+      const relay = createRelay({
+        cardBus,
+        backend: fakeBackend(),
+        state,
+        chatTimeoutMs: 5000,
+        tuiVisible: false,      })
+      await relay({ userId: '1', chatId: '100', text: 'test', messageId: 'p9' })
+
+      await relay.handleEvent({
+        kind: 'part', sessionId: 'ses_plugin',
+        part: { id: 'r1', type: 'reasoning', text: 'Let me think this through' },
+      })
+      await relay.handleEvent({
+        kind: 'part', sessionId: 'ses_plugin',
+        part: { id: 't9', type: 'text', text: 'The answer' },
+      })
+
+      // Live: reasoning rides the streaming card in first-seen order…
+      const lastStream = cards.filter(c => c.kind === 'streaming').at(-1) as any
+      expect(lastStream.blocks.map((b: any) => b.type)).toEqual(['reasoning', 'text'])
+
+      await relay.handleEvent({ kind: 'idle', sessionId: 'ses_plugin' })
+      await new Promise((r) => setTimeout(r, 10))
+
+      // …final: reasoning leaves the blocks, lands in thinkingText.
+      const assistantCard = cards.find(c => c.kind === 'assistant') as any
+      expect(assistantCard.blocks.some((b: any) => b.type === 'reasoning')).toBe(false)
+      expect(assistantCard.thinkingText).toBe('Let me think this through')
+    })
+
     it('publishes error card when session.error fires', async () => {
       const cardBus = createCardBus()
       const cards: StructuredCard[] = []

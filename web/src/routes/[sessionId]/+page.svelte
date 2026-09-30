@@ -13,6 +13,8 @@
 
   let scrollEl: HTMLDivElement
   let composerEl: HTMLElement
+  let endEl: HTMLDivElement
+  let io: IntersectionObserver | undefined
   let lastSeen = ''
   let ro: ResizeObserver | undefined
   let vvCleanup: (() => void) | undefined
@@ -197,6 +199,18 @@
     })
     if (composerEl) ro.observe(composerEl)
 
+    // Bottom sentinel: card upserts bump the feed seq (re-pins via scrollKey),
+    // but content can also grow WITHOUT a new card — markdown re-flow after a
+    // code block closes, tool-output rAF flushes. The observer catches those:
+    // while pinned, any frame where the end marker left the viewport re-pins.
+    io = new IntersectionObserver(
+      (entries) => {
+        if (pinnedToBottom && entries.some((en) => !en.isIntersecting)) requestAnimationFrame(pinBottom)
+      },
+      { root: scrollEl, threshold: 0 },
+    )
+    if (endEl) io.observe(endEl)
+
     // The keyboard/toolbar shifts the composer via --kb; re-pin the latest message
     // above it (only when already at the bottom, so scroll-up isn't fought).
     const vv = window.visualViewport
@@ -204,7 +218,7 @@
     vv?.addEventListener('resize', onVV)
     vvCleanup = () => vv?.removeEventListener('resize', onVV)
   })
-  onDestroy(() => { ro?.disconnect(); vvCleanup?.(); if (runTimer) clearInterval(runTimer) })
+  onDestroy(() => { ro?.disconnect(); io?.disconnect(); vvCleanup?.(); if (runTimer) clearInterval(runTimer) })
 </script>
 
 <div class="chat" bind:this={scrollEl} on:scroll={onChatScroll}>
@@ -251,6 +265,7 @@
         onRegenerate={card.id === lastCard?.id && card.kind === 'assistant' && !busy ? regenerateLast : undefined}
       />
     {/each}
+    <div class="stream-end" bind:this={endEl} aria-hidden="true"></div>
     {#if cards.length === 0}
       <!-- While the history snapshot is in flight show a quiet loader, NOT the
            empty state — flashing "no messages" before they arrive read as
@@ -471,13 +486,15 @@
      live. History mounts instantly (batch insert → only the true :last-child
      ever matches, so a loaded backlog never replays the animation). The
      suppressed class additionally mutes it for one beat after a REST resync
-     re-keyed the whole feed. */
-  .stream > :global(*):last-child {
+     re-keyed the whole feed. The bottom sentinel is excluded — it IS the
+     last child permanently, and the entrance belongs to the newest card. */
+  .stream > :global(*):last-child:not(.stream-end) {
     animation: ocrc-rise var(--dur-enter, 200ms) var(--ease-out, ease-out) backwards;
   }
-  .stream.suppressed > :global(*):last-child {
+  .stream.suppressed > :global(*):last-child:not(.stream-end) {
     animation: none;
   }
+  .stream-end { height: 1px; flex-shrink: 0; }
   .loading {
     display: flex;
     justify-content: center;

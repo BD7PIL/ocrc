@@ -12,6 +12,7 @@
   import WorktreesPanel from './inspector/WorktreesPanel.svelte'
   import ContextSpecPanel from './inspector/ContextSpecPanel.svelte'
   import WorkingDirPanel from './inspector/WorkingDirPanel.svelte'
+  import SubagentsPanel from './inspector/SubagentsPanel.svelte'
   import { summarizeTodos, type TodoSummary } from '$lib/inspector/summarizeTodos.js'
   export let sessionId: string | undefined = undefined
 
@@ -32,6 +33,7 @@
   // the SKILLS list. ──
   const TABS = [
     { id: 'tasks', label: '任务' },
+    { id: 'subs', label: '子代理' },
     { id: 'context', label: '上下文' },
     { id: 'files', label: '文件' },
     { id: 'skills', label: 'Skills' },
@@ -81,6 +83,8 @@
   <div class="pane">
     {#if tab === 'tasks'}
       {#if $can('todos')}<TaskPanel {sessionId} {tick} />{/if}
+    {:else if tab === 'subs'}
+      {#if $can('todos')}<SubagentsPanel {sessionId} {tick} />{/if}
     {:else if tab === 'context'}
       <ContextSpecPanel {sessionId} {tick} />
     {:else if tab === 'files'}

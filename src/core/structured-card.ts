@@ -22,10 +22,13 @@ export interface Button {
   data: string
 }
 
-/** A single block in a streaming or final assistant message. Order matters. */
+/** A single block in a streaming or final assistant message. Order matters.
+ *  `reasoning` blocks ride ONLY on streaming cards (live thinking); the final
+ *  assistant card carries the turn's reasoning as `thinkingText` instead. */
 export type ContentBlock =
   | { type: 'text'; text: string }
   | { type: 'tool'; tool: string; args: string; status: 'running' | 'done' | 'error' }
+  | { type: 'reasoning'; text: string }
 
 /**
  * Identity stamped by CardBus.publish (callers don't set these):
@@ -43,7 +46,7 @@ export type StructuredCard = CardMeta & (
   | { kind: 'thinking';     sessionId: string;  showStop: boolean }
   | { kind: 'think-stream'; sessionId: string;  thinkingText: string }
   | { kind: 'streaming';    sessionId: string;  blocks: ContentBlock[] }
-  | { kind: 'assistant';    sessionId: string;  blocks: ContentBlock[]; meta: AssistantMeta }
+  | { kind: 'assistant';    sessionId: string;  blocks: ContentBlock[]; meta: AssistantMeta; thinkingText?: string }
   | { kind: 'user';         sessionId: string;  text: string;  ts: number;  origin?: 'telegram' | 'web' | 'scheduler' }
   | { kind: 'error';        sessionId: string;  message: string }
   | { kind: 'status';       sessionId: string;  fields: Record<string, string>; buttons?: Button[][] }

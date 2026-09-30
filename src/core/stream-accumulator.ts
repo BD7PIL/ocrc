@@ -26,6 +26,11 @@ export interface StreamAccumulator {
    * announcement into the accumulator) and return the corrected block list. */
   remove(partIds: Iterable<string>): ContentBlock[]
   finalize(): ContentBlock[]
+  /** Public blocks INCLUDING reasoning, in first-seen order — the streaming
+   * card's payload (live thinking). finalize() stays reasoning-free. */
+  snapshotWithReasoning(): ContentBlock[]
+  /** All reasoning text concatenated — the final card's `thinkingText`. */
+  getReasoningText(): string
   getText(): string
   getTools(): ContentBlock[]
   reset(): void
@@ -66,7 +71,8 @@ export function createStreamAccumulator(): StreamAccumulator {
     for (const b of blocks) {
       if (b.type === 'text') result.push({ type: 'text', text: b.text })
       else if (b.type === 'tool') result.push({ type: 'tool', tool: b.tool ?? 'unknown', args: b.args, status: b.status })
-      // reasoning is internal-only, excluded from public output
+      // reasoning is excluded from the default public output — finalize() keeps
+      // it off the final card; it rides out via snapshotWithReasoning() instead.
     }
     return result
   }
@@ -115,6 +121,24 @@ export function createStreamAccumulator(): StreamAccumulator {
 
     finalize() {
       return toContentBlocks()
+    },
+
+    snapshotWithReasoning() {
+      const result: ContentBlock[] = []
+      for (const b of blocks) {
+        if (b.type === 'text') result.push({ type: 'text', text: b.text })
+        else if (b.type === 'tool') result.push({ type: 'tool', tool: b.tool ?? 'unknown', args: b.args, status: b.status })
+        else if (b.type === 'reasoning') result.push({ type: 'reasoning', text: b.text })
+      }
+      return result
+    },
+
+    getReasoningText() {
+      let out = ''
+      for (const b of blocks) {
+        if (b.type === 'reasoning') out += b.text
+      }
+      return out
     },
 
     getText() {

@@ -321,8 +321,12 @@ const messageRoles = new Map<string, Map<string, string>>()
 
     if (blocks.length === 0) blocks = [{ type: 'text', text: '(empty response)' }]
 
+    // The turn's live reasoning is preserved as a collapsible field on the
+    // final card (blocks stay reasoning-free — TG/plain renderers never see it).
+    const thinkingText = acc.getReasoningText().trim() || undefined
+
     log.info(`relay: publishing assistant card for ${sessionId}, blocks=${blocks.length}`)
-    deps.cardBus.publish({ kind: 'assistant', sessionId, blocks, meta, id: cardId })
+    deps.cardBus.publish({ kind: 'assistant', sessionId, blocks, meta, id: cardId, thinkingText })
     // Mark delivery so the push engine doesn't also fire a "Session finished"
     // notification for a session the user just watched complete.
     deps.state.markAssistantDelivered(sessionId)
@@ -377,7 +381,7 @@ const messageRoles = new Map<string, Map<string, string>>()
             ctx0.blocks = ctx0.acc.remove(ids)
             for (const partId of ids) { ctx0.partMsgIds.delete(partId); ctx0.partTextAcc.delete(partId) }
             if (!ctx0.signal.aborted) {
-              deps.cardBus.publish({ kind: 'streaming', sessionId: sid, blocks: ctx0.blocks, id: ctx0.cardId })
+              deps.cardBus.publish({ kind: 'streaming', sessionId: sid, blocks: ctx0.acc.snapshotWithReasoning(), id: ctx0.cardId })
             }
           }
           if (!ctx0.assistantConfirmed) ctx0.assistantMessageId = undefined
@@ -439,7 +443,7 @@ const messageRoles = new Map<string, Map<string, string>>()
         ctx.partTextAcc.set(part.id, part.text)
       }
       if (!ctx.signal.aborted) {
-        deps.cardBus.publish({ kind: 'streaming', sessionId: sid, blocks, id: ctx.cardId })
+        deps.cardBus.publish({ kind: 'streaming', sessionId: sid, blocks: ctx.acc.snapshotWithReasoning(), id: ctx.cardId })
       }
       return
     }
@@ -455,7 +459,7 @@ const messageRoles = new Map<string, Map<string, string>>()
       ctx.partTextAcc.set(e.partId, fullText)
       if (!ctx.signal.aborted) {
         ctx.blocks = ctx.acc.update([{ id: e.partId, type: 'text', text: fullText }])
-        deps.cardBus.publish({ kind: 'streaming', sessionId: sid, blocks: ctx.blocks, id: ctx.cardId })
+        deps.cardBus.publish({ kind: 'streaming', sessionId: sid, blocks: ctx.acc.snapshotWithReasoning(), id: ctx.cardId })
       }
       if (!ctx.assistantMessageId && e.messageId) ctx.assistantMessageId = e.messageId
       return

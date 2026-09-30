@@ -35,6 +35,12 @@
 </script>
 
 <div class="card assistant">
+  {#if card.thinkingText}
+    <details class="think">
+      <summary>思考过程</summary>
+      <pre>{card.thinkingText}</pre>
+    </details>
+  {/if}
   <ToolCallList {tools} />
   {#if text}<div class="text"><MarkdownView src={text} /></div>{/if}
   {#if hasMeta}
@@ -64,6 +70,46 @@
     width: 100%;
     padding: 4px 2px 8px;
     margin: 6px 0 18px;
+  }
+  /* The turn's reasoning, preserved from the live stream — collapsed by
+     default, plain text (the answer below is the artifact). */
+  .think {
+    margin: 0 0 10px;
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-sm);
+    background: var(--bg-elev);
+    overflow: hidden;
+  }
+  .think summary {
+    padding: 6px 12px;
+    font-size: 12px;
+    font-style: italic;
+    color: var(--text-3);
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .think summary::before {
+    content: '›';
+    transition: transform .15s ease;
+  }
+  .think[open] summary::before { transform: rotate(90deg); }
+  .think summary:hover { color: var(--text-2); }
+  .think pre {
+    margin: 0;
+    padding: 8px 12px 10px;
+    border-top: 1px solid var(--border-2);
+    color: var(--text-3);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 260px;
+    overflow-y: auto;
   }
   .text { color: var(--text); }
   .meta {

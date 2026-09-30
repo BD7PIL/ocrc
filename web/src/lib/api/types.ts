@@ -16,9 +16,10 @@ export type {
   StructuredCard,
 }
 
-/** The 'tool' / 'text' variants of a ContentBlock. */
+/** The 'tool' / 'text' / 'reasoning' variants of a ContentBlock. */
 export type ToolBlock = Extract<ContentBlock, { type: 'tool' }>
 export type TextBlock = Extract<ContentBlock, { type: 'text' }>
+export type ReasoningBlock = Extract<ContentBlock, { type: 'reasoning' }>
 
 export type ExtractStructuredCard<K extends StructuredCard['kind']> = Extract<StructuredCard, { kind: K }>
 

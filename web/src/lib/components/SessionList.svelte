@@ -291,8 +291,11 @@
     transition: background .12s ease;
   }
   .session:hover { background: var(--bg-elev); }
+  /* Selected row = neutral fill + the orange edge bar carries the selection —
+     a full-width peach fill read as a large orange area (user ruling: orange
+     is an accent for key controls, never a surface). */
   .session.active {
-    background: var(--accent-2);
+    background: var(--bg-elev2);
   }
   .session.active::before {
     content: '';

@@ -230,6 +230,46 @@
   }
 }
 
+/* ── desktop neutral surfaces (ZCode / opencode-web register) ─────────────
+   User ruling 2026-09-30: the warm paper frame reads good on mobile but a
+   flat yellow cast on desktop, where large-area warm grounds are rare in
+   dev tools (syntax colors shift, monitors run cool). From the layout
+   breakpoint up, light theme switches to neutral greys: frame = light
+   neutral, canvas = pure white; orange stays accent-only (unchanged).
+   Mobile (≤820px) keeps the warm paper tokens below. Dark is neutral on
+   both ends — nothing to do there.
+   KEEP-IN-SYNC: both selectors mirror the two light blocks above. */
+@media (min-width: 821px) {
+  :root[data-theme="light"] {
+    --bg:        #f7f7f8;
+    --bg-panel:  #f4f4f5;
+    --bg-canvas: #ffffff;
+    --bg-elev:   #ffffff;
+    --bg-elev2:  #f4f4f5;
+    --bg-input:  #ffffff;
+    --border:    #e4e4e7;
+    --border-2:  #ececee;
+    --user-bubble: #f4f4f5;
+    --bubbleline:#e4e4e7;
+    --bg-code:   #f6f6f7;
+  }
+}
+@media (prefers-color-scheme: light) and (min-width: 821px) {
+  :root:not([data-theme="dark"]) {
+    --bg:        #f7f7f8;
+    --bg-panel:  #f4f4f5;
+    --bg-canvas: #ffffff;
+    --bg-elev:   #ffffff;
+    --bg-elev2:  #f4f4f5;
+    --bg-input:  #ffffff;
+    --border:    #e4e4e7;
+    --border-2:  #ececee;
+    --user-bubble: #f4f4f5;
+    --bubbleline:#e4e4e7;
+    --bg-code:   #f6f6f7;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   /* No perpetual or entry motion for reduced-motion users: animations
      complete instantly and transitions are skipped. State that was

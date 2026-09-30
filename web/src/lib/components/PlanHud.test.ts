@@ -102,13 +102,45 @@ describe('PlanHud', () => {
     await vi.waitFor(() => expect(container.querySelector('.ball')).toBeTruthy())
 
     await fireEvent.click(container.querySelector('.ball')!) // expand → fetches subagents
-    await vi.waitFor(() => expect(container.textContent).toContain('researcher'))
+    // Ended subagents start FOLDED behind the "已结束" group…
+    await vi.waitFor(() => expect(container.textContent).toContain('已结束 1'))
+    expect(container.textContent).not.toContain('researcher')
+    await fireEvent.click([...container.querySelectorAll('.grp')].find((b) => b.textContent!.includes('已结束'))!)
+    expect(container.textContent).toContain('researcher')
     expect(container.textContent).toContain('2/3')
 
     await fireEvent.click(container.querySelector('.row.sub.jump')!)
     expect(jumps).toEqual(['sub_abc123'])
     // Parent stashed so the child card can offer the way back.
     expect(sessionStorage.getItem('ocrc.subparent.sub_abc123')).toBe('s-subs')
+  })
+
+  it('keeps running subagents inline and folds only the ended ones', async () => {
+    vi.mocked(api.todo).mockResolvedValue(TODOS)
+    vi.mocked(api.subagents).mockResolvedValue({
+      subagents: [
+        { id: 'sub_live9', title: 'scout', busy: true, done: 0, total: 4 },
+        { id: 'sub_dead1', title: 'filler', done: 3, total: 3 },
+        { id: 'sub_dead2', title: 'filler2', done: 1, total: 2 },
+      ],
+    })
+    const { container } = render(PlanHud, { props: { sessionId: 's-mixed' } })
+    await vi.waitFor(() => expect(container.querySelector('.ball')).toBeTruthy())
+    await fireEvent.click(container.querySelector('.ball')!)
+
+    // The running row is visible immediately — no extra tap.
+    await vi.waitFor(() => expect(container.textContent).toContain('scout'))
+    expect(container.textContent).toContain('子代理 · 运行中 1')
+    // …while the two finished children stay collapsed, and the orb badge
+    // counts live work only (a tombstone wall must not keep the badge lit).
+    expect(container.textContent).toContain('已结束 2')
+    expect(container.textContent).not.toContain('filler')
+    expect(container.querySelector('.badge')!.textContent).toBe('1')
+
+    await fireEvent.click([...container.querySelectorAll('.grp')].find((b) => b.textContent!.includes('已结束'))!)
+    expect(container.textContent).toContain('filler')
+    // Ended rows keep the muted styling.
+    expect(container.querySelector('.row.sub.jump.idle')).toBeTruthy()
   })
 
   it('offers the parent breadcrumb on a child session and jumps back', async () => {

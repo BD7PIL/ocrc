@@ -62,7 +62,7 @@
 <div class="controls" bind:this={rootEl}>
 {#if modeOpts.length > 0}
   <div class="wrap">
-    <button class="chip mono" aria-haspopup="listbox" aria-expanded={openPanel === 'mode'} on:click={() => toggle('mode')}><Icon name="bolt" size={11} /> {modeLabel} <Icon name="caret-down" size={9} /></button>
+    <button class="chip mono" aria-haspopup="listbox" aria-expanded={openPanel === 'mode'} on:click={() => toggle('mode')}><Icon name="bolt" size={11} /> <span class="txt">{modeLabel}</span> <Icon name="caret-down" size={9} /></button>
     {#if openPanel === 'mode'}
       <div class="pop" role="listbox" aria-label="Mode">
         <div class="label">Mode</div>
@@ -78,7 +78,7 @@
 
 {#if modelOpts.length > 0}
   <div class="wrap">
-    <button class="chip mono" aria-haspopup="listbox" aria-expanded={openPanel === 'model'} on:click={() => toggle('model')}><Icon name="cpu" size={11} /> {modelLabel} <Icon name="caret-down" size={9} /></button>
+    <button class="chip mono" aria-haspopup="listbox" aria-expanded={openPanel === 'model'} on:click={() => toggle('model')}><Icon name="cpu" size={11} /> <span class="txt">{modelLabel}</span> <Icon name="caret-down" size={9} /></button>
     {#if openPanel === 'model'}
       <div class="pop" role="listbox" aria-label="Model">
         <div class="label">Model</div>
@@ -97,9 +97,13 @@
   /* display:contents keeps the chips as direct flex items of the composer footer;
      the wrapper only exists so outside-click can test containment. */
   .controls { display: contents; }
-  .wrap { position: relative; }
-  .chip { display: flex; align-items: center; gap: 5px; min-height: 24px; box-sizing: border-box; background: transparent; border: 1px solid var(--border); color: var(--text-2); border-radius: var(--radius-pill); padding: 5px 11px; font-size: 11.5px; white-space: nowrap; cursor: pointer; transition: border-color .15s, color .15s; }
+  .wrap { position: relative; min-width: 0; }
+  /* Same contract as AgentChip/ModelChip: the chip tracks its wrap's width and
+     the label truncates — the mobile footer shrinks wraps, chips must follow. */
+  .chip { display: flex; align-items: center; gap: 5px; min-height: 24px; min-width: 0; max-width: 100%; box-sizing: border-box; background: transparent; border: 1px solid var(--border); color: var(--text-2); border-radius: var(--radius-pill); padding: 5px 11px; font-size: 11.5px; white-space: nowrap; cursor: pointer; transition: border-color .15s, color .15s; }
   .chip:hover { border-color: var(--accent); color: var(--text); }
+  .chip :global(svg) { flex-shrink: 0; }
+  .txt { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
   .pop { position: absolute; bottom: 44px; left: 0; width: 220px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; box-shadow: 0 16px 40px rgba(0,0,0,.5); z-index: var(--z-popover); }
   .opt { display: flex; align-items: center; width: 100%; background: transparent; border: none; color: var(--text); padding: 6px 8px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; }
   .opt:hover, .opt.sel { background: var(--accent-2); }

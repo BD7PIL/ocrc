@@ -59,10 +59,14 @@
 </div>
 
 <style>
-  .wrap { position: relative; }
-  .chip { display: flex; align-items: center; gap: 5px; min-height: 24px; max-width: 150px; box-sizing: border-box; background: transparent; border: 1px solid var(--border); color: var(--text-2); border-radius: var(--radius-pill); padding: 5px 11px; font-size: 11.5px; white-space: nowrap; cursor: pointer; transition: border-color .15s, color .15s; }
+  .wrap { position: relative; min-width: 0; }
+  /* min(150px, 100%): the 150px desktop cap, but never wider than the
+     flex-resolved wrap — the mobile composer shrinks the wrap and this chip
+     must truncate with it, not paint over its sibling. */
+  .chip { display: flex; align-items: center; gap: 5px; min-height: 24px; min-width: 0; max-width: min(150px, 100%); box-sizing: border-box; background: transparent; border: 1px solid var(--border); color: var(--text-2); border-radius: var(--radius-pill); padding: 5px 11px; font-size: 11.5px; white-space: nowrap; cursor: pointer; transition: border-color .15s, color .15s; }
   .chip:hover { border-color: var(--accent); color: var(--text); }
-  .txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .chip :global(svg) { flex-shrink: 0; }
+  .txt { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
   .pop { position: absolute; bottom: 36px; right: 0; width: 248px; max-height: min(56vh, 400px); overflow-y: auto; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; box-shadow: 0 16px 40px rgba(0,0,0,.5); z-index: var(--z-popover); }
   .prov { padding: 7px 8px 2px; color: var(--text-3); }
   .opt { display: flex; justify-content: space-between; align-items: center; width: 100%; background: transparent; border: none; color: var(--text); padding: 6px 8px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; text-align: left; }

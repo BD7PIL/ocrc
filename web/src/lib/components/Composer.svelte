@@ -256,9 +256,11 @@
     .box { padding: 7px 8px 7px 14px; border-radius: var(--radius-pill); }
     .footer { margin-top: 4px; gap: 6px; }
     /* Two override chips + attach + send must fit 390px: the chip wraps are the
-       flex items, so they shrink and ellipsize; the round buttons never do. */
+       flex items, so they shrink and the chips truncate with them (the chips'
+       own .txt spans ellipsize); the round buttons never do. The 36vw cap keeps
+       one long agent name from hogging the row — never wider than its wrap. */
     .footer :global(.wrap) { min-width: 0; flex-shrink: 1; }
-    .footer :global(.chip) { max-width: 36vw; overflow: hidden; }
+    .footer :global(.chip) { max-width: min(36vw, 100%); }
     .send, .attach { flex-shrink: 0; }
     /* ≥44px touch targets on small/coarse screens. */
     .send { width: 44px; height: 44px; }

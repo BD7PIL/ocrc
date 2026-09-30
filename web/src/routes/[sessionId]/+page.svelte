@@ -396,7 +396,12 @@
     .back:active, .inspect:active { background: var(--bg-elev2); }
   }
   .sub-header .branch {
-    flex-shrink: 0;
+    /* Shrinkable + ellipsized: on narrow screens the branch chip yields width
+       before the session pill (or the right cluster) can be pushed out. */
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
     font-size: 11px;
     color: var(--hl-purple);
     background: var(--bg-elev);
@@ -545,7 +550,11 @@
       gap: 8px;
       padding: calc(10px + env(safe-area-inset-top, 0px)) 8px 10px;
     }
-    .sub-header .left { min-width: 0; overflow: hidden; }
+    /* No overflow:hidden here — it used to clip the SessionSwitcher's dropdown
+       popover (the session pill looked dead: tapping "expanded" nothing).
+       Title truncation is handled inside the switcher (min-width:0 + ellipsis),
+       and the branch chip now shrinks too, so .left still can't overflow. */
+    .sub-header .left { min-width: 0; }
     /* Solid backdrop: chat text must not bleed through the gaps between the
        input box, chips and send button (user report). */
     .composer-float {

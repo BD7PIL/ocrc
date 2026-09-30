@@ -80,6 +80,10 @@
   $: restCount = Math.max(0, pendingItems.length - INLINE_PENDING)
   $: pct = sum.total ? sum.done / sum.total : 0
   $: dismissed = hud.dismissed?.includes(sessionId) ?? false
+  // Ended subagents fold away: the badge and the open card surface live work
+  // only, finished children collapse behind a "已结束 N" toggle (user ask).
+  $: runningSubs = subs.filter((s) => s.busy)
+  $: idleSubs = subs.filter((s) => !s.busy)
 
   // ── Subagents (child sessions): fetched on session switch and alongside
   // every debounced tick — the badge must be live WITHOUT expanding (user
@@ -128,8 +132,9 @@
   let groupSid: string | undefined
   let showDone = false
   let showRest = false
+  let showIdle = false
   let menuOpen = false
-  $: if (sessionId !== groupSid) { groupSid = sessionId; showDone = false; showRest = false; menuOpen = false }
+  $: if (sessionId !== groupSid) { groupSid = sessionId; showDone = false; showRest = false; showIdle = false; menuOpen = false }
 
   function toggleExpanded() {
     expanded = !expanded
@@ -244,20 +249,33 @@
           {/if}
         {/if}
 
-        {#if subs.length}
-          <div class="grp static"><span class="sub-label">子代理 · {subs.length}</span></div>
-          {#each subs as s (s.id)}
-            <button class="row sub jump" class:idle={!s.busy} on:click={() => jumpToSub(s)} title="打开子代理会话">
-              {#if s.busy}
-                <span class="sub-dot" aria-hidden="true"></span>
-              {:else if s.total > 0 && s.done >= s.total}
-                <span class="sub-check" aria-hidden="true">✓</span>
-              {/if}
+        {#if runningSubs.length}
+          <div class="grp static"><span class="sub-label">子代理 · 运行中 {runningSubs.length}</span></div>
+          {#each runningSubs as s (s.id)}
+            <button class="row sub jump" on:click={() => jumpToSub(s)} title="打开子代理会话">
+              <span class="sub-dot" aria-hidden="true"></span>
               {#if s.total > 0}<span class="sub-count mono">{s.done}/{s.total}</span>{/if}
               <span class="tx">{s.title || '…' + s.id.slice(-6)}</span>
               <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
             </button>
           {/each}
+        {/if}
+
+        {#if idleSubs.length}
+          <button class="grp" aria-expanded={showIdle} on:click={() => (showIdle = !showIdle)}>
+            <svg class="caret" class:open={showIdle} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+            <span>已结束 {idleSubs.length}</span>
+          </button>
+          {#if showIdle}
+            {#each idleSubs as s (s.id)}
+              <button class="row sub jump idle" on:click={() => jumpToSub(s)} title="打开子代理会话">
+                {#if s.total > 0 && s.done >= s.total}<span class="sub-check" aria-hidden="true">✓</span>{/if}
+                {#if s.total > 0}<span class="sub-count mono">{s.done}/{s.total}</span>{/if}
+                <span class="tx">{s.title || '…' + s.id.slice(-6)}</span>
+                <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+              </button>
+            {/each}
+          {/if}
         {/if}
       </div>
     </div>
@@ -267,7 +285,7 @@
     <button class="bar" bind:this={ballEl} on:click={toggleExpanded} aria-label={`展开计划 ${sum.done}/${sum.total}`}>
       <span class="label">计划</span>
       <span class="bar-count mono">{sum.done}<i>/</i>{sum.total}</span>
-      {#if subs.length > 0}<span class="badge mono">{subs.length}</span>{/if}
+      {#if runningSubs.length > 0}<span class="badge mono">{runningSubs.length}</span>{/if}
       <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
     </button>
   {:else if !dismissed && !(desktop && !expanded)}
@@ -289,7 +307,7 @@
       />
     </svg>
     <span class="ball-count mono">{sum.done}<i>/</i>{sum.total}</span>
-    {#if subs.length > 0}<span class="badge mono">{subs.length}</span>{/if}
+    {#if runningSubs.length > 0}<span class="badge mono">{runningSubs.length}</span>{/if}
   </button>
   {/if}
 {/if}

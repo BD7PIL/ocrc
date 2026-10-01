@@ -2,7 +2,7 @@
   import { tick, onDestroy } from 'svelte'
   import { api } from '../api/client.js'
   import { connection } from '../stores/connection.js'
-  import { upsertCard, removeCard } from '../stores/sessions.js'
+  import { feeds, cardsOf, upsertCard, removeCard } from '../stores/sessions.js'
   import { can, backendName } from '../stores/capabilities.js'
   import { paletteOpen } from '../stores/palette.js'
   import { composerDraft, composerEmpty } from '../stores/ui.js'
@@ -39,6 +39,23 @@
   let mentionTimer: ReturnType<typeof setTimeout> | undefined
 
   $: hasText = text.trim().length > 0
+
+  // Send/stop reuse (ZCode register): while the session runs, the round send
+  // button becomes STOP — but only when the input is empty; typed text still
+  // sends (the relay queues it while busy).
+  $: busy = (() => {
+    const feed = $feeds[sessionId]
+    if (!feed || feed.order.length === 0) return false
+    const last = feed.byId[feed.order[feed.order.length - 1]]
+    return last?.kind === 'thinking' || last?.kind === 'streaming' || last?.kind === 'think-stream'
+  })()
+  let aborting = false
+  async function stopRun() {
+    if (aborting) return
+    aborting = true
+    try { await api.abort(sessionId) } catch { /* ignore */ } finally { aborting = false }
+  }
+  $: showStop = busy && !hasText && !sending
 
   function newClientId(): string {
     return `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
@@ -232,12 +249,18 @@
         <button class="hint command" on:click={() => paletteOpen.set(true)}>「/」命令</button>
         <span class="spacer"></span>
         <span class="hint send-hint">↵ 发送 · ⇧↵ 换行</span>
-        <button class="send" on:click={send} aria-label="发送"
-                disabled={sending || (!text.trim() && pendingImages.length === 0) || $connection !== 'connected'}>
-          {#if sending}…{:else}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-          {/if}
-        </button>
+        {#if showStop}
+          <button class="send stop" on:click={stopRun} aria-label="停止" title="停止生成">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+          </button>
+        {:else}
+          <button class="send" on:click={send} aria-label="发送"
+                  disabled={sending || (!text.trim() && pendingImages.length === 0) || $connection !== 'connected'}>
+            {#if sending}…{:else}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+            {/if}
+          </button>
+        {/if}
       </div>
     </div>
   </div>
@@ -361,6 +384,8 @@
     flex-shrink: 0;
   }
   .send:not(:disabled):hover { transform: scale(1.06); }
+  .send.stop:disabled { background: var(--accent); color: var(--accent-ink); cursor: pointer; }
+  .send.stop:not(:disabled):active { transform: scale(.9); }
   .send:disabled {
     background: var(--border);
     color: var(--text-3);

@@ -18,7 +18,6 @@
   let lastSeen = ''
   let ro: ResizeObserver | undefined
   let vvCleanup: (() => void) | undefined
-  let aborting = false
   // Running-timer state for the busy pill.
   let runStart = 0
   let runElapsed = 0
@@ -170,13 +169,6 @@
     void api.sendMessage({ sessionId, text, clientId: `web_${Date.now()}` })
   }
 
-  async function abort() {
-    if (!sessionId || aborting) return
-    aborting = true
-    try { await api.abort(sessionId) } catch { /* ignore */ }
-    finally { aborting = false }
-  }
-
   // lastSeq increments on every card (including streaming upserts), so this
   // scrolls during streaming too — not only when the card count changes.
   $: scrollKey = `${sessionId}:${feed?.lastSeq ?? 0}:${cards.length}`
@@ -244,14 +236,12 @@
     </div>
     <div class="right">
       {#if busy}
-        <!-- One control, two jobs (ZCode mobile register): shows elapsed time,
-             tapping it aborts. Desktop keeps the separate 停止 button. -->
-        <button class="pill running mono" title="点击停止" on:click={abort} disabled={aborting}>
+        <!-- Pure status — stopping lives in the composer (send button morphs
+             into stop while running; ZCode/ChatGPT register). -->
+        <span class="pill running mono">
           <span class="dot" aria-hidden="true"></span>
           运行中 {fmtRunTime(runElapsed)}
-          <span class="stop-hint">停止</span>
-        </button>
-        <button class="abort" on:click={abort} disabled={aborting}>停止</button>
+        </span>
       {:else}
         <span class="idle mono">空闲</span>
       {/if}
@@ -475,36 +465,11 @@
     background: var(--text-3);
     animation: ocrc-pulse 1.2s ease-in-out infinite;
   }
-  button.pill { cursor: pointer; }
-  .stop-hint { display: none; }
-  @media (max-width: 820px) {
-    /* Mobile: the pill IS the stop button — prominent border, explicit verb. */
-    button.pill.running {
-      border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-      color: var(--text);
-      padding: 5px 11px;
-    }
-    button.pill.running .dot { background: var(--accent); }
-    .stop-hint { display: inline; color: var(--accent); font-weight: 600; }
-    .abort { display: none; }
-  }
+
   .idle {
     font-size: 11px;
     color: var(--text-3);
   }
-  .abort {
-    background: transparent;
-    border: 1px solid var(--border-2);
-    color: var(--text-3);
-    border-radius: var(--radius-pill);
-    padding: 3px 10px;
-    font-size: 11px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: color .15s ease, border-color .15s ease;
-  }
-  .abort:hover { color: var(--err); border-color: var(--err); }
-  .abort:disabled { opacity: .5; cursor: default; }
 
   .stream {
     /* Fluid fill (ZCode register): the transcript uses the full pane width

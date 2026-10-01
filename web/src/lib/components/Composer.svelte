@@ -254,9 +254,10 @@
     .composer { background: var(--bg-canvas, var(--bg)); padding: 6px 28px 18px; }
   }
   @media (max-width: 820px) {
+    /* Single-source side inset: the floating wrapper owns the 10px; adding a
+       second layer here stacked 22px of dead margin on a 390px screen. */
     .composer {
-      padding: 0 12px;
-      padding-bottom: max(8px, calc(env(safe-area-inset-bottom, 0px) + 10px - var(--kb, 0px)));
+      padding: 0 0 max(8px, calc(env(safe-area-inset-bottom, 0px) + 10px - var(--kb, 0px)));
     }
     /* Compact pill on mobile (design = "pill + round send") instead of the taller
        desktop box, so a focused input doesn't read as a bulky floating block. */

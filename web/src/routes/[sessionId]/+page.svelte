@@ -244,10 +244,13 @@
     </div>
     <div class="right">
       {#if busy}
-        <span class="pill running mono">
+        <!-- One control, two jobs (ZCode mobile register): shows elapsed time,
+             tapping it aborts. Desktop keeps the separate 停止 button. -->
+        <button class="pill running mono" title="点击停止" on:click={abort} disabled={aborting}>
           <span class="dot" aria-hidden="true"></span>
           运行中 {fmtRunTime(runElapsed)}
-        </span>
+          <span class="stop-hint">停止</span>
+        </button>
         <button class="abort" on:click={abort} disabled={aborting}>停止</button>
       {:else}
         <span class="idle mono">空闲</span>
@@ -471,6 +474,19 @@
     border-radius: 50%;
     background: var(--text-3);
     animation: ocrc-pulse 1.2s ease-in-out infinite;
+  }
+  button.pill { cursor: pointer; }
+  .stop-hint { display: none; }
+  @media (max-width: 820px) {
+    /* Mobile: the pill IS the stop button — prominent border, explicit verb. */
+    button.pill.running {
+      border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+      color: var(--text);
+      padding: 5px 11px;
+    }
+    button.pill.running .dot { background: var(--accent); }
+    .stop-hint { display: inline; color: var(--accent); font-weight: 600; }
+    .abort { display: none; }
   }
   .idle {
     font-size: 11px;

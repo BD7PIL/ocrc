@@ -640,7 +640,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     })
   }
 
-  async function getVcsDiff(sessionId?: string): Promise<Array<{ file: string; patch?: string; additions?: number; deletions?: number; status?: string }> | undefined> {
+  async function getVcsDiff(sessionId?: string, file?: string): Promise<{ file: string; patch: string } | undefined> {
     return vcsCached(`vcsdiff:${sessionId ?? ''}:${file ?? ''}`, async () => {
       const dir = sessionId ? await sessionDirectory(sessionId) : undefined
       if (!dir || !file) return undefined

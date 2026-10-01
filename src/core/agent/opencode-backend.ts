@@ -596,15 +596,27 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     } catch { return undefined }
   }
 
+  // Server-side git scans on big worktrees take tens of seconds — cache
+  // results per session for 2 minutes so pane re-opens are instant.
+  const VCS_TTL = 120_000
+  const vcsCache = new Map<string, { at: number; data: unknown }>()
+  function vcsCached<T>(key: string, load: () => Promise<T>): Promise<T | undefined> {
+    const hit = vcsCache.get(key)
+    if (hit && Date.now() - hit.at < VCS_TTL) return Promise.resolve(hit.data as T)
+    return load().then((data) => { vcsCache.set(key, { at: Date.now(), data }); return data })
+      .catch(() => { vcsCache.delete(key); return undefined })
+  }
+
   async function getVcs(sessionId?: string): Promise<{ branch?: string; defaultBranch?: string; status: Array<{ file: string; additions?: number; deletions?: number; status?: string }> } | undefined> {
-    try {
-      // /vcs requires the project directory (bare call errors); /vcs/status
-      // tolerates bare but scopes correctly with one.
+    return vcsCached(`vcs:${sessionId ?? ''}`, async () => {
+      try {
+      // /vcs requires the project directory (bare call errors); bare
+      // /vcs/status serves the server's default workdir fast — prefer it.
       const dir = sessionId ? await sessionDirectory(sessionId) : undefined
       const dq = dir ? `?directory=${encodeURIComponent(dir)}` : ''
       const [infoRes, statusRes] = await Promise.all([
         ocFetch(`${baseUrl}/vcs${dq}`),
-        ocFetch(`${baseUrl}/vcs/status${dq}`),
+        ocFetch(`${baseUrl}/vcs/status`),
       ])
       if (!infoRes.ok && !statusRes.ok) return undefined
       const info = infoRes.ok ? ((await infoRes.json()) as any) : {}
@@ -620,10 +632,12 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
         })),
       }
     } catch { return undefined }
+    })
   }
 
   async function getVcsDiff(sessionId?: string): Promise<Array<{ file: string; patch?: string; additions?: number; deletions?: number; status?: string }> | undefined> {
-    try {
+    return vcsCached(`vcsdiff:${sessionId ?? ''}`, async () => {
+      try {
       const dir = sessionId ? await sessionDirectory(sessionId) : undefined
       const dq = dir ? `?directory=${encodeURIComponent(dir)}` : ''
       const res = await ocFetch(`${baseUrl}/vcs/diff${dq}`)
@@ -637,6 +651,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
         status: typeof d?.status === 'string' ? d.status : undefined,
       }))
     } catch { return undefined }
+    })
   }
 
   return {

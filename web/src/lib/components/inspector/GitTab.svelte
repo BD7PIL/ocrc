@@ -5,7 +5,6 @@
   import { api } from '$lib/api/client.js'
 
   export let sessionId: string | undefined = undefined
-  export let sessionId: string | undefined = undefined
   export let tick = 0
 
   interface StatusRow { file: string; additions?: number; deletions?: number; status?: string }

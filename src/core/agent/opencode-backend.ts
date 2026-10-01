@@ -18,6 +18,7 @@ import { listAllSessions } from '../../opencode/list-sessions.js'
 import { listWorkspaces as listWorkspacesImpl } from '../../opencode/workspaces.js'
 import { cardsFromMessages, summarizeToolArgs } from '../history.js'
 import { createLogger } from '../../utils/logger.js'
+import { execFile } from 'node:child_process'
 import { ocFetch } from '../../utils/oc-server-auth.js'
 
 const log = createLogger('opencode-backend')
@@ -596,6 +597,17 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     } catch { return undefined }
   }
 
+  /** Read-only git exec (fixed args, no user input) — the opencode server's
+   *  /vcs endpoints are unusably slow on huge worktrees. */
+  function git(cwd: string, args: string[]): Promise<string> {
+    return new Promise((resolve, reject) => {
+      execFile('git', args, { cwd, timeout: 30_000, maxBuffer: 20 * 1024 * 1024 }, (err, stdout) => {
+        if (err) reject(err)
+        else resolve(String(stdout))
+      })
+    })
+  }
+
   // Server-side git scans on big worktrees take tens of seconds — cache
   // results per session for 2 minutes so pane re-opens are instant.
   const VCS_TTL = 120_000
@@ -609,48 +621,35 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
 
   async function getVcs(sessionId?: string): Promise<{ branch?: string; defaultBranch?: string; status: Array<{ file: string; additions?: number; deletions?: number; status?: string }> } | undefined> {
     return vcsCached(`vcs:${sessionId ?? ''}`, async () => {
-      try {
-      // /vcs requires the project directory (bare call errors); bare
-      // /vcs/status serves the server's default workdir fast — prefer it.
+      // opencode's own /vcs endpoints take minutes on huge worktrees (observed
+      // 279s → 404 on production) — spawn read-only git directly instead.
       const dir = sessionId ? await sessionDirectory(sessionId) : undefined
-      const dq = dir ? `?directory=${encodeURIComponent(dir)}` : ''
-      const [infoRes, statusRes] = await Promise.all([
-        ocFetch(`${baseUrl}/vcs${dq}`),
-        ocFetch(`${baseUrl}/vcs/status`),
+      if (!dir) return undefined
+      const [branch, status] = await Promise.all([
+        git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']),
+        git(dir, ['status', '--porcelain=v1', '-uno']),
       ])
-      if (!infoRes.ok && !statusRes.ok) return undefined
-      const info = infoRes.ok ? ((await infoRes.json()) as any) : {}
-      const status = statusRes.ok ? ((await statusRes.json()) as any) : []
+      const kindOf = (x: string) => (x === 'A' ? 'added' : x === 'D' ? 'deleted' : x ? 'modified' : '')
       return {
-        branch: typeof info?.branch === 'string' ? info.branch : undefined,
-        defaultBranch: typeof info?.default_branch === 'string' ? info.default_branch : undefined,
-        status: (Array.isArray(status) ? status : []).map((s: any) => ({
-          file: String(s?.file ?? ''),
-          additions: typeof s?.additions === 'number' ? s.additions : undefined,
-          deletions: typeof s?.deletions === 'number' ? s.deletions : undefined,
-          status: typeof s?.status === 'string' ? s.status : undefined,
+        branch: branch.trim(),
+        status: status.split('\n').filter(Boolean).map((line) => ({
+          file: line.slice(3),
+          status: kindOf(line[0]) || kindOf(line[1]),
         })),
       }
-    } catch { return undefined }
     })
   }
 
   async function getVcsDiff(sessionId?: string): Promise<Array<{ file: string; patch?: string; additions?: number; deletions?: number; status?: string }> | undefined> {
     return vcsCached(`vcsdiff:${sessionId ?? ''}`, async () => {
-      try {
       const dir = sessionId ? await sessionDirectory(sessionId) : undefined
-      const dq = dir ? `?directory=${encodeURIComponent(dir)}` : ''
-      const res = await ocFetch(`${baseUrl}/vcs/diff${dq}`)
-      if (!res.ok) return undefined
-      const body = (await res.json()) as any
-      return (Array.isArray(body) ? body : []).map((d: any) => ({
-        file: String(d?.file ?? ''),
-        patch: typeof d?.patch === 'string' ? d.patch : undefined,
-        additions: typeof d?.additions === 'number' ? d.additions : undefined,
-        deletions: typeof d?.deletions === 'number' ? d.deletions : undefined,
-        status: typeof d?.status === 'string' ? d.status : undefined,
-      }))
-    } catch { return undefined }
+      if (!dir) return undefined
+      const patch = await git(dir, ['diff', 'HEAD', '--patch', '--no-color'])
+      return patch.split(/\ndiff --git /).filter((c) => c.includes('+++')).map((chunk) => {
+        const file = /^diff --git a\/(\S+)|^a\/(\S+)/.exec(chunk)?.[1]
+          ?? /\n\+\+\+ b\/(\S+)/.exec('\n' + chunk)?.[1] ?? ''
+        return { file, patch: chunk.startsWith('diff --git') ? chunk : 'diff --git ' + chunk }
+      }).filter((f) => f.file)
     })
   }
 

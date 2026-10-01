@@ -51,6 +51,9 @@ export function messageToCards(sessionId: string, msg: any): StructuredCard[] {
           type: 'tool',
           tool: part.tool,
           args: summarizeToolArgs(part.tool, part.state?.input ?? {}),
+          // ids let the web transcript open the tool's full-output page.
+          partId: typeof part.id === 'string' ? part.id : undefined,
+          messageId: typeof info.id === 'string' ? info.id : undefined,
           // opencode's terminal status is 'completed' (never 'done'); without
           // mapping it, finished tools stay 'running' and blink forever.
           status: status === 'error' ? 'error'

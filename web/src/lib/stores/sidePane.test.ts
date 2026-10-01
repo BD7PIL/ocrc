@@ -17,7 +17,7 @@ describe('sidePane store', () => {
     await fresh()
   })
 
-  it('opens a tab idempotently — same id activates in place, no duplicate', () => {
+  it('opens a tab idempotently — same id replaces in place (ZCode semantics)', () => {
     const tab = { id: 'sub:s1', kind: 'subagent' as const, title: 'researcher', childId: 's1' }
     sidePane.openPaneTab(tab)
     sidePane.openPaneTab({ ...tab, title: 'renamed' })
@@ -27,11 +27,15 @@ describe('sidePane store', () => {
     expect(s.tabs[0].title).toBe('renamed')
   })
 
-  it('activates without adding when a pinned id is activated', () => {
-    sidePane.openPaneTab({ id: 'file:/a.md', kind: 'file', title: 'a.md', path: '/a.md', directory: '/w' })
-    sidePane.activatePinned('tasks')
-    const s = sidePane.paneSnapshot()
-    expect(s.tabs).toHaveLength(1)
+  it('openHome opens the five well-known singleton tabs, closable like any other', () => {
+    sidePane.openHome('tasks')
+    sidePane.openHome('config')
+    let s = sidePane.paneSnapshot()
+    expect(s.tabs.map((t) => t.id)).toEqual(['tasks', 'config'])
+    expect(s.activeId).toBe('config')
+    sidePane.closePaneTab('config')
+    s = sidePane.paneSnapshot()
+    expect(s.tabs.map((t) => t.id)).toEqual(['tasks'])
     expect(s.activeId).toBe('tasks')
   })
 
@@ -45,10 +49,11 @@ describe('sidePane store', () => {
     // closing the first of one remaining falls forward
     sidePane.closePaneTab('sub:s1')
     expect(sidePane.paneSnapshot().activeId).toBe('sub:s3')
-    // closing the last dynamic tab falls back to a pinned default
+    // closing the last tab leaves an honest empty state
     sidePane.closePaneTab('sub:s3')
-    expect(sidePane.paneSnapshot().activeId).toBe('tasks')
-    expect(sidePane.paneSnapshot().tabs).toHaveLength(0)
+    const s = sidePane.paneSnapshot()
+    expect(s.tabs).toHaveLength(0)
+    expect(s.activeId).toBe('')
   })
 
   it('closing an inactive tab keeps the active id', () => {
@@ -59,12 +64,32 @@ describe('sidePane store', () => {
     expect(sidePane.paneSnapshot().activeId).toBe('sub:s2')
   })
 
+  it('reorders tabs without touching the active id', () => {
+    sidePane.openPaneTab({ id: 'sub:s1', kind: 'subagent', title: 'one', childId: 's1' })
+    sidePane.openPaneTab({ id: 'file:/a', kind: 'file', title: 'a.md', path: '/a', directory: '/w' })
+    sidePane.openPaneTab({ id: 'git', kind: 'git', title: 'Git' })
+    sidePane.activatePane('git')
+    sidePane.reorderPaneTab(2, 0)
+    const s = sidePane.paneSnapshot()
+    expect(s.tabs.map((t) => t.id)).toEqual(['git', 'sub:s1', 'file:/a'])
+    expect(s.activeId).toBe('git')
+  })
+
   it('persists state across a module reload (roundtrip)', async () => {
     sidePane.openPaneTab({ id: 'file:/w/a.md', kind: 'file', title: 'a.md', path: '/w/a.md', directory: '/w' })
     await fresh()
     const s = sidePane.paneSnapshot()
     expect(s.tabs.map((t) => t.id)).toEqual(['file:/w/a.md'])
     expect(s.activeId).toBe('file:/w/a.md')
+  })
+
+  it('migrates pinned-era state: activeId on a well-known home reopens that home tab', async () => {
+    localStorage.setItem('ocrc.sidePane.v1', JSON.stringify({ tabs: [], activeId: 'tasks' }))
+    await fresh()
+    const s = sidePane.paneSnapshot()
+    expect(s.tabs.map((t) => t.id)).toEqual(['tasks'])
+    expect(s.tabs[0].kind).toBe('home')
+    expect(s.activeId).toBe('tasks')
   })
 
   it('caps the tab count, dropping the oldest', async () => {
@@ -81,7 +106,7 @@ describe('sidePane store', () => {
     await fresh()
     const s = sidePane.paneSnapshot()
     expect(s.tabs).toEqual([])
-    expect(s.activeId).toBe('tasks')
+    expect(s.activeId).toBe('')
   })
 
   it('drops malformed persisted tabs', async () => {
@@ -92,6 +117,6 @@ describe('sidePane store', () => {
     await fresh()
     const s = sidePane.paneSnapshot()
     expect(s.tabs).toHaveLength(1)
-    expect(s.tabs[0].childId).toBe('x')
+    expect((s.tabs[0] as { childId: string }).childId).toBe('x')
   })
 })

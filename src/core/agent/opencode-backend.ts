@@ -11,7 +11,7 @@ import type {
   QuestionRequest, QuestionAnswerResult,
   PermissionDecision, PromptInput, SessionContext, SessionMeta, SessionRef, SessionSummary,
 } from './backend.js'
-import { buildDiffEntry } from './diff-util.js'
+import { buildDiffEntry, buildDiffEntryFromPatch } from './diff-util.js'
 import type { ContentBlock, StructuredCard } from '../structured-card.js'
 import { submitPrompt, markEphemeralSession } from '../../opencode/submit.js'
 import { listAllSessions } from '../../opencode/list-sessions.js'
@@ -339,9 +339,14 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
 
   async function getDiff(id: string): Promise<DiffEntry[]> {
     const res = await (client.session as any).diff({ path: { id } } as any)
-    // opencode returns per-file diffs as { file/path, before, after }.
-    const raw = (res.data ?? []) as Array<{ file?: string; path?: string; before?: string; after?: string }>
-    return raw.map((d) => buildDiffEntry(d.file ?? d.path ?? '', d.before ?? '', d.after ?? ''))
+    // 1.18.32 returns SnapshotFileDiff[] {file, patch, additions, deletions,
+    // status} — the old before/after parse silently produced empty diffs.
+    const raw = (res.data ?? []) as Array<any>
+    return raw
+      .filter((d) => (d.file ?? d.path) != null)
+      .map((d) => typeof d.patch === 'string'
+        ? buildDiffEntryFromPatch(String(d.file ?? d.path), d.patch, d.additions, d.deletions)
+        : buildDiffEntry(d.file ?? d.path ?? '', d.before ?? '', d.after ?? ''))
   }
 
   async function getTodos(id: string): Promise<unknown[]> {
@@ -580,6 +585,54 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     }
   }
 
+  // ── 0.18: tool output pages + git pane ────────────────────────────────────
+  // Raw ocFetch (the proven in-plugin transport — see suggestFollowUps).
+
+  async function getMessageRaw(sessionId: string, messageId: string): Promise<{ info: unknown; parts: unknown[] } | undefined> {
+    try {
+      const res = await ocFetch(`${baseUrl}/session/${encodeURIComponent(sessionId)}/message/${encodeURIComponent(messageId)}`)
+      if (!res.ok) return undefined
+      return (await res.json()) as { info: unknown; parts: unknown[] }
+    } catch { return undefined }
+  }
+
+  async function getVcs(): Promise<{ branch?: string; defaultBranch?: string; status: Array<{ file: string; additions?: number; deletions?: number; status?: string }> } | undefined> {
+    try {
+      const [infoRes, statusRes] = await Promise.all([
+        ocFetch(`${baseUrl}/vcs`),
+        ocFetch(`${baseUrl}/vcs/status`),
+      ])
+      if (!infoRes.ok && !statusRes.ok) return undefined
+      const info = infoRes.ok ? ((await infoRes.json()) as any) : {}
+      const status = statusRes.ok ? ((await statusRes.json()) as any) : []
+      return {
+        branch: typeof info?.branch === 'string' ? info.branch : undefined,
+        defaultBranch: typeof info?.default_branch === 'string' ? info.default_branch : undefined,
+        status: (Array.isArray(status) ? status : []).map((s: any) => ({
+          file: String(s?.file ?? ''),
+          additions: typeof s?.additions === 'number' ? s.additions : undefined,
+          deletions: typeof s?.deletions === 'number' ? s.deletions : undefined,
+          status: typeof s?.status === 'string' ? s.status : undefined,
+        })),
+      }
+    } catch { return undefined }
+  }
+
+  async function getVcsDiff(): Promise<Array<{ file: string; patch?: string; additions?: number; deletions?: number; status?: string }> | undefined> {
+    try {
+      const res = await ocFetch(`${baseUrl}/vcs/diff`)
+      if (!res.ok) return undefined
+      const body = (await res.json()) as any
+      return (Array.isArray(body) ? body : []).map((d: any) => ({
+        file: String(d?.file ?? ''),
+        patch: typeof d?.patch === 'string' ? d.patch : undefined,
+        additions: typeof d?.additions === 'number' ? d.additions : undefined,
+        deletions: typeof d?.deletions === 'number' ? d.deletions : undefined,
+        status: typeof d?.status === 'string' ? d.status : undefined,
+      }))
+    } catch { return undefined }
+  }
+
   return {
     id: 'opencode',
     capabilities,
@@ -588,6 +641,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     getSessionMeta, getContext, getHistory, getMessageBlocks, getDiff, getTodos, getSessionsStatus, ping,
     getAgents, getModels, getMcp, getSubagents, getSkills, listFiles, readFile,
     listWorktreeSandboxes, createWorktreeSandboxes, removeWorktreeSandboxes,
+    getMessageRaw, getVcs, getVcsDiff,
     listQuestions, answerQuestion, rejectQuestion,
     listWorkspaces, listCommands, runCommand,
     resolvePermission,

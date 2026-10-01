@@ -1,5 +1,6 @@
 import type { Hono } from 'hono'
 import type { IncomingMessage } from '../../../core/types.js'
+import type { BackendRegistry } from '../../../core/agent/registry.js'
 import { createLogger } from '../../../utils/logger.js'
 
 const log = createLogger('web')
@@ -7,6 +8,7 @@ const log = createLogger('web')
 export function registerMessage(
   app: Hono,
   onMessage: (msg: IncomingMessage) => Promise<void>,
+  reg?: BackendRegistry,
 ) {
   app.post('/api/message', async (c) => {
     const body = await c.req.json().catch(() => ({})) as { sessionId?: string; text?: string; clientId?: string; images?: Array<{ data?: string; mimeType?: string }> }
@@ -34,5 +36,15 @@ export function registerMessage(
     }
     void onMessage(msg).catch((e) => log.warn(`onMessage handler rejected: ${(e as Error).message}`))
     return c.json({ messageId })
+  })
+
+  // Raw message content for tool-output pages: proxied to the backend so the
+  // web sees parts[].state.output (which never rides the event stream).
+  app.get('/api/session/:id/message/:msgId', async (c) => {
+    const backend = reg?.forSession(c.req.param('id'))
+    if (!backend?.getMessageRaw) return c.json({ error: 'unsupported' }, 501)
+    const body = await backend.getMessageRaw(c.req.param('id'), c.req.param('msgId'))
+    if (!body) return c.json({ error: 'not found' }, 404)
+    return c.json(body)
   })
 }

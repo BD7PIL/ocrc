@@ -141,7 +141,7 @@
   // Tier2 (model-generated) suggestions — fetched once per finished turn.
   let tier2: string[] = []
   let fetchedFor: string | undefined
-  $: if (!busy && lastCard?.kind === 'assistant' && sessionId) fetchSuggestions(sessionId, lastCard.id)
+  $: if (!busy && lastCard?.kind === 'assistant' && sessionId && lastCard.id) fetchSuggestions(sessionId, lastCard.id)
   async function fetchSuggestions(sid: string, cid: string) {
     if (fetchedFor === cid) return
     fetchedFor = cid

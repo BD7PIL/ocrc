@@ -24,6 +24,9 @@
   $: if (sessionId) { void sessionId, tick, load() }
 
   function open(s: Row) {
+    // Stash the parent link so the child session offers a way back (same
+    // contract as PlanHud's jump rows).
+    try { sessionStorage.setItem(`ocrc.subparent.${s.id}`, sessionId ?? '') } catch { /* private mode */ }
     openPaneTab({ id: `sub:${s.id}`, kind: 'subagent', title: s.title || '…' + s.id.slice(-6), childId: s.id })
   }
 </script>

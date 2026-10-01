@@ -76,7 +76,6 @@ export const api = {
     const qs = q.toString()
     return jsonGet<{ cards: StructuredCard[]; lastSeq: number; hasMore?: boolean }>(`/api/session/${id}${qs ? `?${qs}` : ''}`)
   },
-  diff: (id: string) => jsonGet<any[]>(`/api/session/${id}/diff`),
   todo: (id: string) => jsonGet<any[]>(`/api/session/${id}/todo`),
   context: (id: string) => jsonGet<{ sessionId: string; agent?: string; model?: string; tokens?: any; cost?: number; directory?: string; nextAgent?: string; nextModel?: any }>(`/api/session/${id}/context`),
   workspaces: () => jsonGet<Array<{ directory: string; name: string; sessionCount: number; lastActiveAt: number }>>('/api/workspaces'),
@@ -108,6 +107,13 @@ export const api = {
     jsonGet<string[]>(`/api/session/${id}/files?q=${encodeURIComponent(q)}`),
   schedules: () => jsonGet<{ schedules: ScheduleRow[] }>('/api/schedules'),
   subagents: (id: string) => jsonGet<{ subagents: SubagentRow[] }>(`/api/session/${id}/subagents`),
+  /** Raw server message — tool parts carry state.output (tool output pages). */
+  messageRaw: (id: string, messageId: string) =>
+    jsonGet<{ info: unknown; parts: Array<Record<string, any>> }>(`/api/session/${id}/message/${encodeURIComponent(messageId)}`),
+  /** Git pane: branch + per-file working-tree status. */
+  vcs: () => jsonGet<{ branch?: string; defaultBranch?: string; status: Array<{ file: string; additions?: number; deletions?: number; status?: string }> }>('/api/vcs'),
+  /** Git pane: per-file working-tree patches. */
+  vcsDiff: () => jsonGet<{ files: Array<{ file: string; patch?: string; additions?: number; deletions?: number; status?: string }> }>('/api/vcs/diff'),
   version: () => jsonGet<{ version: string; commit?: string; uptime: string; node?: string }>('/api/version'),
   skills: (directory?: string) =>
     jsonGet<{ skills: SkillRow[] }>(`/api/skills${directory ? `?directory=${encodeURIComponent(directory)}` : ''}`),

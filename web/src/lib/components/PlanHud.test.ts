@@ -27,6 +27,7 @@ describe('PlanHud', () => {
     vi.mocked(api.subagents).mockReset?.()
     vi.mocked(api.subagents).mockResolvedValue({ subagents: [] })
     localStorage.removeItem('ocrc.planHud.v3')
+    localStorage.removeItem('ocrc.sidePane.v1')
     sessionStorage.clear()
     // jsdom's matchMedia reports desktop widths — pin the MOBILE form (orb)
     // for these tests; the desktop bar/window gets its own coverage.
@@ -90,7 +91,7 @@ describe('PlanHud', () => {
     expect(stored.expanded).toBe(false)
   })
 
-  it('lists subagent progress and jumps into a child on tap', async () => {
+  it('lists subagent progress and opens a live pane tab on tap', async () => {
     vi.mocked(api.todo).mockResolvedValue(TODOS)
     vi.mocked(api.subagents).mockResolvedValue({
       subagents: [{ id: 'sub_abc123', title: 'researcher', done: 2, total: 3 }],
@@ -109,8 +110,14 @@ describe('PlanHud', () => {
     expect(container.textContent).toContain('researcher')
     expect(container.textContent).toContain('2/3')
 
+    // Tapping the row opens a `sub:<id>` pane tab (ZCode register) — the
+    // middle column stays on the parent; no onJump navigation fires.
     await fireEvent.click(container.querySelector('.row.sub.jump')!)
-    expect(jumps).toEqual(['sub_abc123'])
+    const { paneSnapshot } = await import('$lib/stores/sidePane.js')
+    const pane = paneSnapshot()
+    expect(pane.tabs.map((t) => t.id)).toEqual(['sub:sub_abc123'])
+    expect(pane.activeId).toBe('sub:sub_abc123')
+    expect(jumps).toEqual([])
     // Parent stashed so the child card can offer the way back.
     expect(sessionStorage.getItem('ocrc.subparent.sub_abc123')).toBe('s-subs')
   })

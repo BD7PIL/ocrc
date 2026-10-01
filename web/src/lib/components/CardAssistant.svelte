@@ -11,7 +11,7 @@
 
   $: tools = card.blocks
     .filter((b): b is ToolBlock => b.type === 'tool')
-    .map(b => ({ tool: b.tool, args: b.args, status: b.status }))
+    .map(b => ({ tool: b.tool, args: b.args, status: b.status, partId: b.partId, messageId: b.messageId }))
   $: text = card.blocks
     .filter((b): b is TextBlock => b.type === 'text')
     .map(b => b.text).join('')
@@ -41,7 +41,7 @@
       <pre>{card.thinkingText}</pre>
     </details>
   {/if}
-  <ToolCallList {tools} />
+  <ToolCallList {tools} sessionId={card.sessionId} />
   {#if text}<div class="text"><MarkdownView src={text} /></div>{/if}
   {#if hasMeta}
     <div class="meta">

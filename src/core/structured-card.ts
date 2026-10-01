@@ -2,6 +2,9 @@ export interface ToolCall {
   tool: string
   args: string
   status: 'running' | 'done' | 'error'
+  /** Present when known — lets the web transcript open the full output page. */
+  partId?: string
+  messageId?: string
 }
 
 export interface AssistantMeta {
@@ -24,10 +27,12 @@ export interface Button {
 
 /** A single block in a streaming or final assistant message. Order matters.
  *  `reasoning` blocks ride ONLY on streaming cards (live thinking); the final
- *  assistant card carries the turn's reasoning as `thinkingText` instead. */
+ *  assistant card carries the turn's reasoning as `thinkingText` instead.
+ *  Tool blocks carry partId/messageId when known — the web transcript uses
+ *  them to open full-output pages (GET /api/session/:id/message/:msgId). */
 export type ContentBlock =
   | { type: 'text'; text: string }
-  | { type: 'tool'; tool: string; args: string; status: 'running' | 'done' | 'error' }
+  | { type: 'tool'; tool: string; args: string; status: 'running' | 'done' | 'error'; partId?: string; messageId?: string }
   | { type: 'reasoning'; text: string }
 
 /**

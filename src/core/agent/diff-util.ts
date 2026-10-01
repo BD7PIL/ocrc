@@ -53,3 +53,38 @@ export function buildDiffEntry(path: string, oldText: string, newText: string): 
   })
   return { path, additions, deletions, lines }
 }
+
+/**
+ * Build a normalized DiffEntry from a unified-diff patch (1.18.32's
+ * /session/:id/diff returns {file, patch} — NOT the old before/after pair the
+ * opencode-backend used to parse, which silently produced empty diffs).
+ * Keeps +/-/context lines; collapses long unchanged runs like buildDiffEntry.
+ */
+export function buildDiffEntryFromPatch(path: string, patch: string, additions = 0, deletions = 0): DiffEntry {
+  const bodyLines = (patch ?? '').split('\n').filter((l) => !l.startsWith('--- ') && !l.startsWith('+++ ') && !/^@@/.test(l) && !/^diff /g.test(l) && !/^index /.test(l))
+  const lines: DiffLine[] = []
+  let ctxRun: string[] = []
+  let changed = 0
+  const flushCtx = (keepFirst: boolean, keepLast: boolean) => {
+    if (ctxRun.length === 0) return
+    if (ctxRun.length <= CTX * 2) lines.push(...ctxRun.map((text) => ({ kind: 'ctx' as const, text })))
+    else if (keepFirst) lines.push(...ctxRun.slice(0, CTX).map((text) => ({ kind: 'ctx' as const, text })), { kind: 'ctx', text: '…' })
+    else if (keepLast) lines.push({ kind: 'ctx', text: '…' }, ...ctxRun.slice(-CTX).map((text) => ({ kind: 'ctx' as const, text })))
+    else lines.push({ kind: 'ctx', text: '…' })
+    ctxRun = []
+  }
+  for (const l of bodyLines) {
+    if (l.startsWith('+')) { flushCtx(false, false); lines.push({ kind: 'add', text: l.slice(1) }); changed++ }
+    else if (l.startsWith('-')) { flushCtx(false, false); lines.push({ kind: 'del', text: l.slice(1) }); changed++ }
+    else if (l.startsWith('\\')) { /* "\ No newline at end of file" */ }
+    else ctxRun.push(l)
+  }
+  flushCtx(false, true)
+  const totalAdd = additions || lines.filter((l) => l.kind === 'add').length
+  const totalDel = deletions || lines.filter((l) => l.kind === 'del').length
+  if (totalAdd + totalDel === 0) return { path, additions: 0, deletions: 0, lines: [] }
+  if (changed > MAX_CHANGED) {
+    return { path, additions: totalAdd, deletions: totalDel, lines: [{ kind: 'ctx', text: `… ${totalAdd + totalDel} changed lines (truncated) …` }] }
+  }
+  return { path, additions: totalAdd, deletions: totalDel, lines }
+}

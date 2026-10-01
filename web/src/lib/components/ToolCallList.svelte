@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ToolCall } from '../api/types.js'
   import TerminalBlock from './TerminalBlock.svelte'
+  import { openPaneTab } from '$lib/stores/sidePane.js'
 
   interface ToolCallExtra extends ToolCall {
     adds?: number
@@ -9,6 +10,9 @@
   }
 
   export let tools: ToolCall[]
+  /** Present on transcript cards — rows with tool-call ids open the
+     full-output page (a dynamic pane tab). */
+  export let sessionId: string | undefined = undefined
   const LIMIT = 12
   /** args longer than this (or multi-line) render as a terminal block. */
   const INLINE_MAX = 100
@@ -38,6 +42,19 @@
     if (s < 1) return `${(s * 1000).toFixed(0)}ms`
     return `${s.toFixed(1)}s`
   }
+
+  function openOutput(t: ToolCallExtra) {
+    if (!sessionId || !t.partId || !t.messageId) return
+    openPaneTab({
+      id: `tool:${sessionId}:${t.partId}`,
+      kind: 'tool',
+      title: t.tool,
+      sessionId,
+      messageId: t.messageId,
+      partId: t.partId,
+    })
+  }
+  const openable = (t: ToolCallExtra) => !!(sessionId && t.partId && t.messageId)
 </script>
 
 {#if tools.length > 0}
@@ -50,9 +67,11 @@
     <div class="rows">
       {#each shown as t, i}
         {#if isLong(t, i)}
-          <TerminalBlock text={t.args} tool={t.tool} status={t.status} dur={t.dur} adds={t.adds} dels={t.dels} />
+          <button class="bare" disabled={!openable(t)} title={openable(t) ? '查看完整输出' : undefined} on:click={() => openOutput(t)}>
+            <TerminalBlock text={t.args} tool={t.tool} status={t.status} dur={t.dur} adds={t.adds} dels={t.dels} />
+          </button>
         {:else}
-          <div class="row {t.status}">
+          <button class="row {t.status} bare" disabled={!openable(t)} title={openable(t) ? '查看完整输出' : undefined} on:click={() => openOutput(t)}>
             <div class="row-main">
               <span class="status" aria-hidden="true"></span>
               <span class="sr-only">{t.status}</span>
@@ -70,8 +89,9 @@
               {:else if t.dur != null}
                 <span class="dur mono">{fmtDur(t.dur)}</span>
               {/if}
+              {#if openable(t)}<span class="go" aria-hidden="true">↗</span>{/if}
             </div>
-          </div>
+          </button>
         {/if}
       {/each}
       {#if typed.length > LIMIT && !expanded}
@@ -116,6 +136,27 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
+  }
+  /* Rows are buttons when the tool call carries ids (click → full-output
+     page); reset the button chrome so they read exactly as before. */
+  .bare {
+    display: block;
+    width: 100%;
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+  }
+  .bare:disabled { cursor: default; }
+  .bare:not(:disabled) { cursor: pointer; }
+  .bare:not(:disabled):hover { background: var(--bg-input); border-radius: var(--radius-xs); }
+  .go {
+    flex-shrink: 0;
+    color: var(--text-4);
+    font-size: 11px;
   }
   .row {
     display: flex;

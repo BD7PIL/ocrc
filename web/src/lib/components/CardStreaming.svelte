@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ExtractStructuredCard, ToolBlock, TextBlock, ReasoningBlock } from '../api/types.js'
+  import type { ExtractStructuredCard, ToolBlock, TextBlock, ReasoningBlock, ToolCall } from '../api/types.js'
   import MarkdownView from './MarkdownView.svelte'
   import ToolCallList from './ToolCallList.svelte'
 
@@ -7,7 +7,7 @@
 
   type Seg =
     | { kind: 'text'; text: string }
-    | { kind: 'tools'; tools: Array<{ tool: string; args: string; status: string }> }
+    | { kind: 'tools'; tools: ToolCall[] }
     | { kind: 'reasoning'; text: string }
 
   // Walk blocks in first-seen order, coalescing consecutive same-kind blocks.
@@ -22,7 +22,7 @@
         else out.push({ kind: 'text', text: b.text })
       } else if (b.type === 'tool') {
         const last = out[out.length - 1]
-        const t = { tool: b.tool, args: b.args, status: b.status }
+        const t = { tool: b.tool, args: b.args, status: b.status, partId: b.partId, messageId: b.messageId }
         if (last?.kind === 'tools') last.tools.push(t)
         else out.push({ kind: 'tools', tools: [t] })
       } else if (b.type === 'reasoning') {
@@ -45,7 +45,7 @@
     {#if seg.kind === 'text'}
       {#if seg.text.trim()}<div class="text"><MarkdownView src={seg.text} throttle streaming /></div>{/if}
     {:else if seg.kind === 'tools'}
-      <ToolCallList tools={seg.tools} />
+      <ToolCallList tools={seg.tools} sessionId={card.sessionId} />
     {:else if seg.text.trim()}
       <div class="think">
         <button class="think-head" on:click={() => (thinkOpen = !thinkOpen)} aria-expanded={thinkOpen}>

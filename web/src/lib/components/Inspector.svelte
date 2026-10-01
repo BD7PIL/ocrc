@@ -1,13 +1,15 @@
-<!-- Inspector.svelte — the right pane: pinned tabs (任务/文件/子代理/Skills/配置)
-     + dynamic content tabs opened on demand (`sub:<id>` live subagent
-     transcripts, `file:<path>` viewers) — ZCode workspaceSidePane register.
-     Context lives in the composer's ContextRing, NOT here (user ruling). -->
+<!-- Inspector.svelte — the right pane: ZCode workspaceSidePane register.
+     NOTHING is pinned. Every tab is a closable dynamic page opened from
+     context (PlanHud rows → subagents, transcript tool rows → outputs/files)
+     or from the "+" menu listing the five well-known homes. -->
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { sessionList, feeds } from '$lib/stores/sessions.js'
   import { can } from '$lib/stores/capabilities.js'
   import { api } from '$lib/api/client.js'
-  import { sidePane, closePaneTab, type PinnedId } from '$lib/stores/sidePane.js'
+  import {
+    sidePane, closePaneTab, reorderPaneTab, openHome, HOMES,
+  } from '$lib/stores/sidePane.js'
   import TaskPanel from './inspector/TaskPanel.svelte'
   import McpPanel from './inspector/McpPanel.svelte'
   import SchedulesPanel from './inspector/SchedulesPanel.svelte'
@@ -17,6 +19,8 @@
   import SubagentsPanel from './inspector/SubagentsPanel.svelte'
   import SubagentSessionTab from './inspector/SubagentSessionTab.svelte'
   import FileViewerTab from './inspector/FileViewerTab.svelte'
+  import ToolOutputTab from './inspector/ToolOutputTab.svelte'
+  import GitTab from './inspector/GitTab.svelte'
   import { summarizeTodos, type TodoSummary } from '$lib/inspector/summarizeTodos.js'
   export let sessionId: string | undefined = undefined
 
@@ -32,21 +36,29 @@
   $: if (seq !== lastSeen) { lastSeen = seq; clearTimeout(timer); timer = setTimeout(() => (tick += 1), 1000) }
   onDestroy(() => clearTimeout(timer))
 
-  // ── Pinned tabs + dynamic tabs share one activeId namespace (the store). ──
-  const PINNED: Array<{ id: PinnedId; label: string }> = [
-    { id: 'tasks', label: '任务' },
-    { id: 'files', label: '文件' },
-    { id: 'subs', label: '子代理' },
-    { id: 'skills', label: 'Skills' },
-    { id: 'config', label: '配置' },
-  ]
   $: activeId = $sidePane.activeId
   $: activeTab = $sidePane.tabs.find((t) => t.id === activeId)
+  $: activeIndex = $sidePane.tabs.findIndex((t) => t.id === activeId)
+
+  // ── Drag reorder (D1) ──
+  let dragFrom = -1
+  function onDragStart(i: number) { dragFrom = i }
+  function onDrop(i: number) {
+    if (dragFrom !== -1) reorderPaneTab(dragFrom, i)
+    dragFrom = -1
+  }
+
+  // ── "+" menu ──
+  let plusOpen = false
+  let plusEl: HTMLElement
+  function onWindowClick(e: MouseEvent) { if (plusOpen && plusEl && !plusEl.contains(e.target as Node)) plusOpen = false }
+  function onWindowKey(e: KeyboardEvent) { if (e.key === 'Escape') plusOpen = false }
 
   // Task summary for the tab badge (done/total), same data plane as the HUD.
   let sum: TodoSummary = { total: 0, done: 0, items: [] }
   let loadedFor: string | undefined
-  async function refresh(sid: string) {
+  async function refresh(sid: string | undefined) {
+    if (!sid) return
     try {
       const todos = await api.todo(sid)
       if (sid !== sessionId) return
@@ -57,7 +69,11 @@
   let loadedSid: string | undefined
   $: if (sessionId !== loadedSid) { loadedSid = sessionId; void refresh(sessionId) }
   $: if (tick) { void refresh(sessionId) }
+
+  const homeBadge = (homeId: string) => homeId === 'tasks' && sum.total > 0 ? `${sum.done}/${sum.total}` : ''
 </script>
+
+<svelte:window on:click={onWindowClick} on:keydown={onWindowKey} />
 
 <aside class="inspector">
   <div class="head">
@@ -68,27 +84,22 @@
   </div>
 
   <div class="tabs" role="tablist">
-    {#each PINNED as p (p.id)}
+    {#each $sidePane.tabs as t, i (t.id)}
       <button
         class="tab"
-        class:active={activeId === p.id}
-        role="tab"
-        aria-selected={activeId === p.id}
-        on:click={() => sidePane.activatePane(p.id)}
-      >
-        {p.label}{#if p.id === 'tasks' && sum.total > 0}<span class="tbadge mono">{sum.done}/{sum.total}</span>{/if}
-      </button>
-    {/each}
-    {#each $sidePane.tabs as t (t.id)}
-      <button
-        class="tab dyn"
         class:active={activeId === t.id}
         role="tab"
         aria-selected={activeId === t.id}
+        draggable="true"
         title={t.kind === 'file' ? t.path : t.title}
         on:click={() => sidePane.activatePane(t.id)}
+        on:dragstart={() => onDragStart(i)}
+        on:dragover|preventDefault={() => {}}
+        on:drop={() => onDrop(i)}
+        on:auxclick|preventDefault={(e) => { if (e.button === 1) closePaneTab(t.id) }}
       >
         <span class="dlabel">{t.title}</span>
+        {#if t.kind === 'home' && t.homeId === 'tasks' && sum.total > 0}<span class="tbadge mono">{sum.done}/{sum.total}</span>{/if}
         <span
           class="closer"
           role="button"
@@ -99,27 +110,52 @@
         >✕</span>
       </button>
     {/each}
+    <div class="plus" bind:this={plusEl}>
+      <button class="plus-btn" aria-label="打开面板" title="打开面板" on:click={() => (plusOpen = !plusOpen)}>+</button>
+      {#if plusOpen}
+        <div class="plus-menu" role="menu">
+          {#each HOMES as h (h.homeId)}
+            <button role="menuitem" on:click={() => { openHome(h.homeId); plusOpen = false }}>
+              {h.title}{#if homeBadge(h.homeId)}<span class="tbadge mono">{homeBadge(h.homeId)}</span>{/if}
+            </button>
+          {/each}
+          <div class="menu-sep"></div>
+          <button role="menuitem" on:click={() => { sidePane.openPaneTab({ id: 'git', kind: 'git', title: 'Git' }); plusOpen = false }}>Git</button>
+        </div>
+      {/if}
+    </div>
   </div>
 
   <div class="pane">
-    {#if activeId === 'tasks'}
-      {#if $can('todos')}<TaskPanel {sessionId} {tick} />{/if}
-    {:else if activeId === 'files'}
-      <FilesPanel {sessionId} {tick} />
-      <div class="gap"></div>
-      {#if $can('worktrees')}<WorktreesPanel {sessionId} {tick} />{/if}
-    {:else if activeId === 'subs'}
-      {#if $can('todos')}<SubagentsPanel {sessionId} {tick} />{/if}
-    {:else if activeId === 'skills'}
-      {#if $can('skills')}<SkillsPanel {tick} />{/if}
-    {:else if activeId === 'config'}
-      <SchedulesPanel {tick} />
-      <div class="gap"></div>
-      {#if $can('mcp')}<McpPanel {tick} />{/if}
+    {#if activeTab?.kind === 'home'}
+      {#if activeTab.homeId === 'tasks'}
+        {#if $can('todos')}<TaskPanel {sessionId} {tick} />{/if}
+      {:else if activeTab.homeId === 'files'}
+        <FilesPanel {sessionId} {tick} />
+        <div class="gap"></div>
+        {#if $can('worktrees')}<WorktreesPanel {sessionId} {tick} />{/if}
+      {:else if activeTab.homeId === 'subs'}
+        {#if $can('todos')}<SubagentsPanel {sessionId} {tick} />{/if}
+      {:else if activeTab.homeId === 'skills'}
+        {#if $can('skills')}<SkillsPanel {tick} />{/if}
+      {:else if activeTab.homeId === 'config'}
+        <SchedulesPanel {tick} />
+        <div class="gap"></div>
+        {#if $can('mcp')}<McpPanel {tick} />{/if}
+      {/if}
     {:else if activeTab?.kind === 'subagent'}
       <SubagentSessionTab childId={activeTab.childId} {tick} />
     {:else if activeTab?.kind === 'file'}
       <FileViewerTab directory={activeTab.directory} path={activeTab.path} />
+    {:else if activeTab?.kind === 'tool'}
+      <ToolOutputTab sessionId={activeTab.sessionId} messageId={activeTab.messageId} partId={activeTab.partId} {tick} />
+    {:else if activeTab?.kind === 'git'}
+      <GitTab {tick} />
+    {:else}
+      <div class="empty">
+        <p class="empty-title">没有打开的面板</p>
+        <p class="empty-hint">从会话流（计划窗、工具行）或右上 + 打开——任务、文件、子代理、Skills、配置、Git。</p>
+      </div>
     {/if}
   </div>
 </aside>
@@ -162,12 +198,12 @@
     text-overflow: ellipsis;
   }
 
-  /* Tabs: quiet text tabs, active gets ink + a short accent underline.
-     Dynamic tabs carry a closer and truncate to fit alongside the pinned set. */
+  /* Tabs: all dynamic, all closable, drag-reorderable; "+" menu at the end. */
   .tabs {
     display: flex;
+    align-items: center;
     gap: 2px;
-    padding: 0 10px;
+    padding: 0 6px 0 10px;
     border-bottom: 1px solid var(--border-2);
     overflow-x: auto;
     scrollbar-width: none;
@@ -178,7 +214,7 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 9px 8px 8px;
+    padding: 9px 6px 8px;
     background: transparent;
     border: none;
     color: var(--text-3);
@@ -193,14 +229,14 @@
   .tab.active::after {
     content: '';
     position: absolute;
-    left: 8px; right: 8px; bottom: -1px;
+    left: 6px; right: 6px; bottom: -1px;
     height: 2px;
     background: var(--accent);
     border-radius: var(--radius-pill);
   }
-  .tbadge { margin-left: 4px; font-size: 9.5px; color: var(--text-3); }
+  .dlabel { max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
+  .tbadge { font-size: 9.5px; color: var(--text-3); }
   .tab.active .tbadge { color: var(--text-2); }
-  .dyn .dlabel { max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
   .closer {
     display: inline-grid;
     place-items: center;
@@ -214,6 +250,53 @@
   .closer:hover { color: var(--text); background: var(--bg-input); }
   .tab.active .closer { color: var(--text-3); }
 
+  .plus { position: relative; margin-left: auto; flex-shrink: 0; }
+  .plus-btn {
+    display: inline-grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-xs);
+    color: var(--text-3);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .plus-btn:hover { color: var(--text); background: var(--bg-input); }
+  .plus-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 130px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 14px 36px rgba(0, 0, 0, .25);
+    padding: 4px;
+    z-index: var(--z-popover);
+    animation: ocrc-pop .14s var(--ease-out, ease-out);
+  }
+  .plus-menu button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    padding: 6px 9px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-xs);
+    color: var(--text-2);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .plus-menu button:hover { background: var(--bg-input); color: var(--text); }
+  .menu-sep { height: 1px; background: var(--border-2); margin: 4px 2px; }
+
   .pane {
     flex: 1;
     min-height: 0;
@@ -222,6 +305,9 @@
     padding: 12px 14px 18px;
   }
   .gap { height: 14px; }
+  .empty { padding: 8vh 16px 0; text-align: center; }
+  .empty-title { margin: 0 0 6px; font-family: var(--font-serif); font-size: 14px; color: var(--text-3); }
+  .empty-hint { margin: 0; font-size: 11.5px; line-height: 1.7; color: var(--text-4); }
 
   /* Mobile bottom sheet: same tabs, per-tab scroll. */
   @media (max-width: 820px) {

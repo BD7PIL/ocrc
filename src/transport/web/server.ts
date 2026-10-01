@@ -18,7 +18,7 @@ import { registerSessions } from './routes/sessions.js'
 import { registerSession } from './routes/session.js'
 import { registerMessage } from './routes/message.js'
 import { registerAbort } from './routes/abort.js'
-import { registerDiff } from './routes/diff.js'
+import { registerVcs } from './routes/vcs.js'
 import { registerTodo } from './routes/todo.js'
 import { registerControls } from './routes/controls.js'
 import { registerFiles } from './routes/files.js'
@@ -115,9 +115,9 @@ export function buildServer(opts: BuildServerOpts): Hono {
   })
   registerSessions(app, reg, opts.state)
   registerSession(app, reg, opts.cardBus, opts.state)
-  if (opts.onMessage) registerMessage(app, opts.onMessage)
+  if (opts.onMessage) registerMessage(app, opts.onMessage, reg)
   registerAbort(app, reg, opts.state)
-  registerDiff(app, reg, opts.state)
+  registerVcs(app, reg)
   registerTodo(app, reg, opts.state)
   registerControls(app, reg, opts.state)
   registerFiles(app, reg, opts.state)

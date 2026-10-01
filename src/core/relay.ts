@@ -321,6 +321,13 @@ const messageRoles = new Map<string, Map<string, string>>()
 
     if (blocks.length === 0) blocks = [{ type: 'text', text: '(empty response)' }]
 
+    // Stamp the assistant message id onto tool blocks missing one (finalize's
+    // accumulator blocks carry partId only) — the web transcript needs both to
+    // open a tool's full-output page.
+    if (assistantMessageId) {
+      blocks = blocks.map((b) => (b.type === 'tool' && !b.messageId ? { ...b, messageId: assistantMessageId } : b))
+    }
+
     // The turn's live reasoning is preserved as a collapsible field on the
     // final card (blocks stay reasoning-free — TG/plain renderers never see it).
     const thinkingText = acc.getReasoningText().trim() || undefined
@@ -360,6 +367,16 @@ const messageRoles = new Map<string, Map<string, string>>()
   relay.handleEvent = async function handleEvent(e: AgentEvent) {
     const sid = e.sessionId
     let ctx = pluginSessions.get(sid)
+
+    /** Tool blocks carry their part's messageId so the web transcript can
+     *  open the full-output page (the message endpoint is keyed by message). */
+    function stampMessageIds(blocks: import('./structured-card.js').ContentBlock[], partMsgIds: Map<string, string>) {
+      return blocks.map((b) =>
+        b.type === 'tool' && !b.messageId && b.partId
+          ? { ...b, messageId: partMsgIds.get(b.partId) }
+          : b,
+      )
+    }
 
     // Role announcements first: message.updated tells us which message ids are
     // the USER's. Their parts must never reach the streaming accumulator —
@@ -443,7 +460,7 @@ const messageRoles = new Map<string, Map<string, string>>()
         ctx.partTextAcc.set(part.id, part.text)
       }
       if (!ctx.signal.aborted) {
-        deps.cardBus.publish({ kind: 'streaming', sessionId: sid, blocks: ctx.acc.snapshotWithReasoning(), id: ctx.cardId })
+        deps.cardBus.publish({ kind: 'streaming', sessionId: sid, blocks: stampMessageIds(ctx.acc.snapshotWithReasoning(), ctx.partMsgIds), id: ctx.cardId })
       }
       return
     }
@@ -459,7 +476,7 @@ const messageRoles = new Map<string, Map<string, string>>()
       ctx.partTextAcc.set(e.partId, fullText)
       if (!ctx.signal.aborted) {
         ctx.blocks = ctx.acc.update([{ id: e.partId, type: 'text', text: fullText }])
-        deps.cardBus.publish({ kind: 'streaming', sessionId: sid, blocks: ctx.acc.snapshotWithReasoning(), id: ctx.cardId })
+        deps.cardBus.publish({ kind: 'streaming', sessionId: sid, blocks: stampMessageIds(ctx.acc.snapshotWithReasoning(), ctx.partMsgIds), id: ctx.cardId })
       }
       if (!ctx.assistantMessageId && e.messageId) ctx.assistantMessageId = e.messageId
       return

@@ -166,16 +166,6 @@ describe('web routes', () => {
     expect(backend.abort).toHaveBeenCalledWith('ses_a')
   })
 
-  it('GET /api/session/:id/diff passes through to opencode', async () => {
-    const backend = fakeBackend({
-      getDiff: vi.fn().mockResolvedValue([{ path: 'a.ts', patch: '@@' }]),
-    })
-    const app = buildServer(baseOpts(fakeState(), backend))
-    const res = await app.request('/api/session/ses_a/diff', undefined, LOOPBACK)
-    expect(res.status).toBe(200)
-    expect((await res.json() as any[])[0].path).toBe('a.ts')
-  })
-
   it('GET /api/session/:id/context composes session state', async () => {
     const backend = fakeBackend({
       getContext: vi.fn().mockResolvedValue({
@@ -344,14 +334,6 @@ describe('web routes', () => {
       ...fakeState(),
       normalizeSessionId: (id: string) => (id === 'short1' ? 'ses_full1' : id),
     }) as any
-
-    it('GET /api/session/:id/diff normalizes the id', async () => {
-      const backend = fakeBackend()
-      const app = buildServer(baseOpts(normState(), backend))
-      const res = await app.request('/api/session/short1/diff', undefined, LOOPBACK)
-      expect(res.status).toBe(200)
-      expect(backend.getDiff).toHaveBeenCalledWith('ses_full1')
-    })
 
     it('GET /api/session/:id/todo normalizes the id', async () => {
       const backend = fakeBackend()

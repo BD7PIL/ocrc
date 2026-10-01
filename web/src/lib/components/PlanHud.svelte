@@ -11,7 +11,7 @@
   import { feeds, sessionList } from '$lib/stores/sessions.js'
   import { can } from '$lib/stores/capabilities.js'
   import { inspectorOpen } from '$lib/stores/ui.js'
-  import { activatePinned } from '$lib/stores/sidePane.js'
+  import { openHome, openPaneTab } from '$lib/stores/sidePane.js'
   import { summarizeTodos, type TodoSummary } from '$lib/inspector/summarizeTodos.js'
 
   export let sessionId: string
@@ -121,7 +121,10 @@
   function jumpToSub(s: SubRow) {
     try { sessionStorage.setItem(SUB_PARENT_KEY(s.id), sessionId) } catch { /* private mode */ }
     menuOpen = false
-    onJump(s.id)
+    // ZCode register: a subagent row opens the pane tab (live view while
+    // staying in the parent); the tab itself offers "在中栏打开" to navigate.
+    openPaneTab({ id: `sub:${s.id}`, kind: 'subagent', title: s.title || '…' + s.id.slice(-6), childId: s.id })
+    inspectorOpen.set(true)
   }
   function jumpToParent() {
     const p = breadcrumb
@@ -153,7 +156,7 @@
   }
   function openTasks() {
     menuOpen = false
-    activatePinned('tasks')
+    openHome('tasks')
     inspectorOpen.set(true)
   }
 

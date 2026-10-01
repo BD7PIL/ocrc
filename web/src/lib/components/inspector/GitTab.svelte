@@ -5,17 +5,17 @@
   import { api } from '$lib/api/client.js'
 
   export let sessionId: string | undefined = undefined
+  export let sessionId: string | undefined = undefined
   export let tick = 0
 
   interface StatusRow { file: string; additions?: number; deletions?: number; status?: string }
-  interface DiffRow { file: string; patch?: string; additions?: number; deletions?: number; status?: string }
 
   let branch = ''
   let status: StatusRow[] = []
   let diffs: Map<string, string> = new Map()
   let expanded = new Set<string>()
   let loading = true
-  let diffLoading = false
+  let diffLoading: string | null = null
 
   async function load() {
     try {
@@ -63,12 +63,12 @@
         </span>
       </button>
       {#if expanded.has(f.file)}
-        {#if diffLoading && !diffs.has(f.file)}
+        {#if diffLoading === f.file}
           <div class="hint mono">…</div>
         {:else if diffs.get(f.file)}
           <pre class="patch mono">{diffs.get(f.file)}</pre>
         {:else}
-          <div class="hint mono">（无 patch）</div>
+          <div class="hint mono">（无改动内容）</div>
         {/if}
       {/if}
     </div>

@@ -16,8 +16,10 @@ export function registerVcs(app: Hono, reg: BackendRegistry) {
   app.get('/api/vcs/diff', async (c) => {
     const backend = reg.forSession(c.req.query('sessionId') ?? '')
     if (!backend.getVcsDiff) return c.json({ error: 'unsupported' }, 501)
-    const body = await backend.getVcsDiff(c.req.query('sessionId'))
+    const file = c.req.query('file')
+    if (!file) return c.json({ error: 'file required' }, 400)
+    const body = await backend.getVcsDiff(c.req.query('sessionId'), file)
     if (!body) return c.json({ error: 'unavailable' }, 404)
-    return c.json({ files: body })
+    return c.json(body)
   })
 }

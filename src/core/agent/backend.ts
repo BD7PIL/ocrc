@@ -222,8 +222,9 @@ export interface AgentBackend {
   /** VCS branch info + per-file working-tree status (GET /vcs, /vcs/status).
    *  The server's /vcs requires the project directory — resolved from the session. */
   getVcs?(sessionId?: string): Promise<{ branch?: string; defaultBranch?: string; status: Array<{ file: string; additions?: number; deletions?: number; status?: string }> } | undefined>
-  /** Per-file working-tree patches (GET /vcs/diff) — {file, patch, additions, deletions, status}. */
-  getVcsDiff?(sessionId?: string): Promise<Array<{ file: string; patch?: string; additions?: number; deletions?: number; status?: string }> | undefined>
+  /** One file's working-tree patch vs HEAD (fetched lazily per file — the
+   *  whole-tree diff is gigabytes on big repos). */
+  getVcsDiff?(sessionId?: string, file?: string): Promise<{ file: string; patch: string } | undefined>
   // ── M10: interactive questions (present when capabilities.questions) ────────
   /** Pending question requests for a directory (GET /question). */
   listQuestions?(directory?: string): Promise<QuestionRequest[]>

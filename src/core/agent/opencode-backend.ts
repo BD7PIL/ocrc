@@ -641,17 +641,16 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
   }
 
   async function getVcsDiff(sessionId?: string): Promise<Array<{ file: string; patch?: string; additions?: number; deletions?: number; status?: string }> | undefined> {
-    return vcsCached(`vcsdiff:${sessionId ?? ''}`, async () => {
+    return vcsCached(`vcsdiff:${sessionId ?? ''}:${file ?? ''}`, async () => {
       const dir = sessionId ? await sessionDirectory(sessionId) : undefined
-      if (!dir) return undefined
-      const patch = await git(dir, ['diff', 'HEAD', '--patch', '--no-color'])
-      return patch.split(/\ndiff --git /).filter((c) => c.includes('+++')).map((chunk) => {
-        const file = /^diff --git a\/(\S+)|^a\/(\S+)/.exec(chunk)?.[1]
-          ?? /\n\+\+\+ b\/(\S+)/.exec('\n' + chunk)?.[1] ?? ''
-        return { file, patch: chunk.startsWith('diff --git') ? chunk : 'diff --git ' + chunk }
-      }).filter((f) => f.file)
+      if (!dir || !file) return undefined
+      // Whole-tree diffs reach tens of MB here — one file at a time, capped.
+      const patch = await git(dir, ['diff', 'HEAD', '--patch', '--no-color', '--', file])
+      const MAX = 400_000
+      return { file, patch: patch.length > MAX ? patch.slice(0, MAX) + '\n… (patch truncated)' : patch }
     })
   }
+
 
   return {
     id: 'opencode',

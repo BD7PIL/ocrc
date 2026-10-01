@@ -1,18 +1,22 @@
-<!-- src/lib/components/Inspector.svelte -->
+<!-- Inspector.svelte — the right pane: pinned tabs (任务/文件/子代理/Skills/配置)
+     + dynamic content tabs opened on demand (`sub:<id>` live subagent
+     transcripts, `file:<path>` viewers) — ZCode workspaceSidePane register.
+     Context lives in the composer's ContextRing, NOT here (user ruling). -->
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { sessionList, feeds } from '$lib/stores/sessions.js'
   import { can } from '$lib/stores/capabilities.js'
   import { api } from '$lib/api/client.js'
+  import { sidePane, closePaneTab, type PinnedId } from '$lib/stores/sidePane.js'
   import TaskPanel from './inspector/TaskPanel.svelte'
   import McpPanel from './inspector/McpPanel.svelte'
   import SchedulesPanel from './inspector/SchedulesPanel.svelte'
   import SkillsPanel from './inspector/SkillsPanel.svelte'
   import FilesPanel from './inspector/FilesPanel.svelte'
   import WorktreesPanel from './inspector/WorktreesPanel.svelte'
-  import ContextSpecPanel from './inspector/ContextSpecPanel.svelte'
-  import WorkingDirPanel from './inspector/WorkingDirPanel.svelte'
   import SubagentsPanel from './inspector/SubagentsPanel.svelte'
+  import SubagentSessionTab from './inspector/SubagentSessionTab.svelte'
+  import FileViewerTab from './inspector/FileViewerTab.svelte'
   import { summarizeTodos, type TodoSummary } from '$lib/inspector/summarizeTodos.js'
   export let sessionId: string | undefined = undefined
 
@@ -28,19 +32,16 @@
   $: if (seq !== lastSeen) { lastSeen = seq; clearTimeout(timer); timer = setTimeout(() => (tick += 1), 1000) }
   onDestroy(() => clearTimeout(timer))
 
-  // ── Tabs (opencode-web 审查/上下文 pattern): one section per tab, full
-  // pane height — replaces the stacked fold wall where FILES lived below
-  // the SKILLS list. ──
-  const TABS = [
+  // ── Pinned tabs + dynamic tabs share one activeId namespace (the store). ──
+  const PINNED: Array<{ id: PinnedId; label: string }> = [
     { id: 'tasks', label: '任务' },
-    { id: 'subs', label: '子代理' },
-    { id: 'context', label: '上下文' },
     { id: 'files', label: '文件' },
+    { id: 'subs', label: '子代理' },
     { id: 'skills', label: 'Skills' },
     { id: 'config', label: '配置' },
-  ] as const
-  type TabId = (typeof TABS)[number]['id']
-  let tab: TabId = 'tasks'
+  ]
+  $: activeId = $sidePane.activeId
+  $: activeTab = $sidePane.tabs.find((t) => t.id === activeId)
 
   // Task summary for the tab badge (done/total), same data plane as the HUD.
   let sum: TodoSummary = { total: 0, done: 0, items: [] }
@@ -67,36 +68,58 @@
   </div>
 
   <div class="tabs" role="tablist">
-    {#each TABS as t (t.id)}
+    {#each PINNED as p (p.id)}
       <button
         class="tab"
-        class:active={tab === t.id}
+        class:active={activeId === p.id}
         role="tab"
-        aria-selected={tab === t.id}
-        on:click={() => (tab = t.id)}
+        aria-selected={activeId === p.id}
+        on:click={() => sidePane.activatePane(p.id)}
       >
-        {t.label}{#if t.id === 'tasks' && sum.total > 0}<span class="tbadge mono">{sum.done}/{sum.total}</span>{/if}
+        {p.label}{#if p.id === 'tasks' && sum.total > 0}<span class="tbadge mono">{sum.done}/{sum.total}</span>{/if}
+      </button>
+    {/each}
+    {#each $sidePane.tabs as t (t.id)}
+      <button
+        class="tab dyn"
+        class:active={activeId === t.id}
+        role="tab"
+        aria-selected={activeId === t.id}
+        title={t.kind === 'file' ? t.path : t.title}
+        on:click={() => sidePane.activatePane(t.id)}
+      >
+        <span class="dlabel">{t.title}</span>
+        <span
+          class="closer"
+          role="button"
+          tabindex="-1"
+          aria-label={`关闭 ${t.title}`}
+          on:click|stopPropagation={() => closePaneTab(t.id)}
+          on:keydown|stopPropagation={(e) => e.key === 'Enter' && closePaneTab(t.id)}
+        >✕</span>
       </button>
     {/each}
   </div>
 
   <div class="pane">
-    {#if tab === 'tasks'}
+    {#if activeId === 'tasks'}
       {#if $can('todos')}<TaskPanel {sessionId} {tick} />{/if}
-    {:else if tab === 'subs'}
-      {#if $can('todos')}<SubagentsPanel {sessionId} {tick} />{/if}
-    {:else if tab === 'context'}
-      <ContextSpecPanel {sessionId} {tick} />
-    {:else if tab === 'files'}
+    {:else if activeId === 'files'}
       <FilesPanel {sessionId} {tick} />
       <div class="gap"></div>
       {#if $can('worktrees')}<WorktreesPanel {sessionId} {tick} />{/if}
-    {:else if tab === 'skills'}
+    {:else if activeId === 'subs'}
+      {#if $can('todos')}<SubagentsPanel {sessionId} {tick} />{/if}
+    {:else if activeId === 'skills'}
       {#if $can('skills')}<SkillsPanel {tick} />{/if}
-    {:else if tab === 'config'}
+    {:else if activeId === 'config'}
       <SchedulesPanel {tick} />
       <div class="gap"></div>
       {#if $can('mcp')}<McpPanel {tick} />{/if}
+    {:else if activeTab?.kind === 'subagent'}
+      <SubagentSessionTab childId={activeTab.childId} {tick} />
+    {:else if activeTab?.kind === 'file'}
+      <FileViewerTab directory={activeTab.directory} path={activeTab.path} />
     {/if}
   </div>
 </aside>
@@ -139,7 +162,8 @@
     text-overflow: ellipsis;
   }
 
-  /* Tabs: quiet text tabs, active gets ink + a short accent underline. */
+  /* Tabs: quiet text tabs, active gets ink + a short accent underline.
+     Dynamic tabs carry a closer and truncate to fit alongside the pinned set. */
   .tabs {
     display: flex;
     gap: 2px;
@@ -151,6 +175,9 @@
   .tabs::-webkit-scrollbar { display: none; }
   .tab {
     position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     padding: 9px 8px 8px;
     background: transparent;
     border: none;
@@ -159,6 +186,7 @@
     font-size: 12px;
     white-space: nowrap;
     cursor: pointer;
+    flex-shrink: 0;
   }
   .tab:hover { color: var(--text-2); }
   .tab.active { color: var(--text); font-weight: 600; }
@@ -172,6 +200,19 @@
   }
   .tbadge { margin-left: 4px; font-size: 9.5px; color: var(--text-3); }
   .tab.active .tbadge { color: var(--text-2); }
+  .dyn .dlabel { max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
+  .closer {
+    display: inline-grid;
+    place-items: center;
+    width: 14px;
+    height: 14px;
+    border-radius: var(--radius-xs);
+    color: var(--text-4);
+    font-size: 10px;
+    line-height: 1;
+  }
+  .closer:hover { color: var(--text); background: var(--bg-input); }
+  .tab.active .closer { color: var(--text-3); }
 
   .pane {
     flex: 1;

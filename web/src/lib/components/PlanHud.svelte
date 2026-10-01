@@ -11,6 +11,7 @@
   import { feeds, sessionList } from '$lib/stores/sessions.js'
   import { can } from '$lib/stores/capabilities.js'
   import { inspectorOpen } from '$lib/stores/ui.js'
+  import { activatePinned } from '$lib/stores/sidePane.js'
   import { summarizeTodos, type TodoSummary } from '$lib/inspector/summarizeTodos.js'
 
   export let sessionId: string
@@ -152,6 +153,7 @@
   }
   function openTasks() {
     menuOpen = false
+    activatePinned('tasks')
     inspectorOpen.set(true)
   }
 

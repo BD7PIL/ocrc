@@ -248,6 +248,11 @@
     background: var(--bg);
     padding: 6px 24px 18px;
   }
+  /* Desktop: the composer sits ON the white canvas (same sheet as the
+     transcript — the old frame-grey band read as a misplaced stripe). */
+  @media (min-width: 821px) {
+    .composer { background: var(--bg-canvas, var(--bg)); padding: 6px 28px 18px; }
+  }
   @media (max-width: 820px) {
     .composer {
       padding: 0 12px;
@@ -269,10 +274,8 @@
     .attach { width: 44px; height: 44px; }
   }
   .dock {
-    /* col-w minus the transcript's side paddings: the input box edges land
-       exactly on the message text edges (one shared measure). */
-    max-width: calc(var(--col-w, 880px) - 48px);
-    margin: 0 auto;
+    max-width: none;
+    margin: 0;
   }
   .error {
     color: var(--err);

@@ -464,7 +464,9 @@ describe('createRelay', () => {
         part: { id: 't9', type: 'text', text: 'The answer' },
       })
 
-      // Live: reasoning rides the streaming card in first-seen order…
+      // Live: reasoning rides the streaming card in first-seen order… (the
+      // second publish coalesces onto the 120ms trailing tick — wait it out)
+      await new Promise((r) => setTimeout(r, 200))
       const lastStream = cards.filter(c => c.kind === 'streaming').at(-1) as any
       expect(lastStream.blocks.map((b: any) => b.type)).toEqual(['reasoning', 'text'])
 
@@ -731,5 +733,33 @@ describe('createRelay', () => {
         sections: [{ body: 'reopen to resync' }],
       }))
     })
+  })
+})
+
+describe('createRelay > streaming broadcast throttle', () => {
+  it('coalesces rapid deltas: 50 deltas publish far fewer streaming cards', async () => {
+    const cardBus = createCardBus()
+    const cards: StructuredCard[] = []
+    cardBus.subscribeAll((c) => cards.push(c))
+    const state = fakeState()
+    state.getPinnedSessionId = () => 'ses_plugin'
+    const relay = createRelay({ cardBus, backend: fakeBackend(), state, chatTimeoutMs: 30_000, tuiVisible: false })
+    await relay({ userId: '1', chatId: '100', text: 'go', messageId: 'pt1' })
+    cards.length = 0
+
+    // 50 rapid deltas within ~200ms — unthrottled would publish 50 cards.
+    for (let i = 0; i < 50; i++) {
+      await relay.handleEvent({
+        kind: 'delta', sessionId: 'ses_plugin',
+        partId: 'd1', messageId: 'msg_d', text: `chunk ${i} `,
+      })
+      await new Promise((r) => setTimeout(r, 4))
+    }
+    const streamingCount = cards.filter((c) => c.kind === 'streaming').length
+    expect(streamingCount).toBeLessThan(15)
+    // the trailing tick lands the latest content
+    await new Promise((r) => setTimeout(r, 300))
+    const last = cards.filter((c) => c.kind === 'streaming').at(-1) as any
+    expect(last.blocks.some((b: any) => b.text?.includes('chunk 49'))).toBe(true)
   })
 })

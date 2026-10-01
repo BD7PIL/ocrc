@@ -286,13 +286,6 @@
 :root {
   --ease-out: cubic-bezier(.22, 1, .36, 1);
   --dur-enter: 200ms;
-  /* Reading column: transcript, composer and header padding share one measure
-     so they stay aligned. Wider on desktop — 880 left acres of dead margin on
-     modern monitors (user report); 1100 keeps long code lines readable. */
-  --col-w: 880px;
-}
-@media (min-width: 821px) {
-  :root { --col-w: 1100px; }
 }
 @keyframes ocrc-rise {
   from { opacity: 0; transform: translateY(8px); }

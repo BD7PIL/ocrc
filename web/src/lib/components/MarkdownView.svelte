@@ -105,12 +105,14 @@
     html = rendered
   }
 
-  // Streaming parses are throttled to one per MIN_PARSE_GAP ms (a time window,
-  // not every animation frame — long outputs re-tokenize on each parse, and
-  // 60fps reparsing starves low-end phones). The final render is immediate.
-  const MIN_PARSE_GAP = 45
+  // Streaming parses are throttled to one per gap ms (a time window, not
+  // every animation frame — long outputs re-tokenize on each parse, and 60fps
+  // reparsing starves low-end phones). The gap SCALES with text length: a
+  // 200KB stream re-tokenizes O(n) per parse, so 45ms would spend most of the
+  // CPU budget on markdown. The final render is immediate.
   let lastParsedAt = 0
   let gapTimer: ReturnType<typeof setTimeout> | undefined
+  const parseGap = (text: string) => (text.length > 100_000 ? 250 : text.length > 40_000 ? 120 : 45)
 
   function schedule(text: string) {
     if (!throttle || typeof requestAnimationFrame === 'undefined') {
@@ -121,7 +123,7 @@
     }
     pending = text
     if (raf || gapTimer) return
-    const wait = Math.max(0, MIN_PARSE_GAP - (Date.now() - lastParsedAt))
+    const wait = Math.max(0, parseGap(text) - (Date.now() - lastParsedAt))
     if (wait === 0) {
       raf = requestAnimationFrame(() => { raf = 0; lastParsedAt = Date.now(); apply(pending) })
     } else {

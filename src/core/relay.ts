@@ -116,6 +116,8 @@ interface PluginSessionCtx {
   partTextAcc: Map<string, string>
   signal: AbortSignal
   timer: ReturnType<typeof setTimeout>
+  /** Streaming-broadcast throttle state (leading + trailing 120ms). */
+  flushTimer?: ReturnType<typeof setTimeout>
   /** Provisional abort key kept registered alongside sessionId until the turn ends. */
   abortKey?: string
   /** Releases the per-session turn queue so the next queued message may start. */
@@ -139,11 +141,14 @@ const messageRoles = new Map<string, Map<string, string>>()
   const turnQueues = new Map<string, Promise<void>>()
   /** Last user text per session — feeds Tier2 follow-up generation at finalize. */
   const lastUserText = new Map<string, string>()
+  /** cardId → last streaming broadcast time (web throttle). */
+  const streamLastPublish = new Map<string, number>()
 
   function cleanupPluginSession(sessionId: string) {
     const ctx = pluginSessions.get(sessionId)
     if (ctx) {
       clearTimeout(ctx.timer)
+      if (ctx.flushTimer) { clearTimeout(ctx.flushTimer); ctx.flushTimer = undefined }
       pluginSessions.delete(sessionId)
       if (ctx.abortKey) deps.state.setActiveAbort(ctx.abortKey, undefined)
       ctx.releaseTurn?.()
@@ -378,6 +383,39 @@ const messageRoles = new Map<string, Map<string, string>>()
       )
     }
 
+    /**
+     * Streaming broadcast throttle (web perf): every delta used to publish the
+     * FULL card immediately — WS bytes grew O(n²) with output length and the
+     * client re-rendered per delta. Each publish ships the whole accumulated
+     * card, so the interval SCALES with streamed volume: 120ms for short
+     * output (snappy), up to 1s once hundreds of KB are in flight (frames
+     * bounded per minute; the idle finalize always lands the final card).
+     */
+    function streamGap(ctx: PluginSessionCtx): number {
+      let chars = 0
+      for (const t of ctx.partTextAcc.values()) chars += t.length
+      return chars > 150_000 ? 1000 : chars > 50_000 ? 400 : 120
+    }
+    function publishStreaming(ctx: PluginSessionCtx): void {
+      if (ctx.signal.aborted) return
+      const now = Date.now()
+      const gap = streamGap(ctx)
+      const last = streamLastPublish.get(ctx.cardId) ?? 0
+      if (now - last >= gap) {
+        streamLastPublish.set(ctx.cardId, now)
+        deps.cardBus.publish({ kind: 'streaming', sessionId: ctx.sessionId, blocks: stampMessageIds(ctx.acc.snapshotWithReasoning(), ctx.partMsgIds), id: ctx.cardId })
+        return
+      }
+      if (ctx.flushTimer) return
+      ctx.flushTimer = setTimeout(() => {
+        ctx.flushTimer = undefined
+        streamLastPublish.set(ctx.cardId, Date.now())
+        if (!ctx.signal.aborted) {
+          deps.cardBus.publish({ kind: 'streaming', sessionId: ctx.sessionId, blocks: stampMessageIds(ctx.acc.snapshotWithReasoning(), ctx.partMsgIds), id: ctx.cardId })
+        }
+      }, gap - (now - last))
+    }
+
     // Role announcements first: message.updated tells us which message ids are
     // the USER's. Their parts must never reach the streaming accumulator —
     // otherwise every user message is echoed as a streaming/final assistant
@@ -398,7 +436,7 @@ const messageRoles = new Map<string, Map<string, string>>()
             ctx0.blocks = ctx0.acc.remove(ids)
             for (const partId of ids) { ctx0.partMsgIds.delete(partId); ctx0.partTextAcc.delete(partId) }
             if (!ctx0.signal.aborted) {
-              deps.cardBus.publish({ kind: 'streaming', sessionId: sid, blocks: ctx0.acc.snapshotWithReasoning(), id: ctx0.cardId })
+              publishStreaming(ctx0)
             }
           }
           if (!ctx0.assistantConfirmed) ctx0.assistantMessageId = undefined
@@ -460,7 +498,7 @@ const messageRoles = new Map<string, Map<string, string>>()
         ctx.partTextAcc.set(part.id, part.text)
       }
       if (!ctx.signal.aborted) {
-        deps.cardBus.publish({ kind: 'streaming', sessionId: sid, blocks: stampMessageIds(ctx.acc.snapshotWithReasoning(), ctx.partMsgIds), id: ctx.cardId })
+        publishStreaming(ctx)
       }
       return
     }
@@ -476,7 +514,7 @@ const messageRoles = new Map<string, Map<string, string>>()
       ctx.partTextAcc.set(e.partId, fullText)
       if (!ctx.signal.aborted) {
         ctx.blocks = ctx.acc.update([{ id: e.partId, type: 'text', text: fullText }])
-        deps.cardBus.publish({ kind: 'streaming', sessionId: sid, blocks: stampMessageIds(ctx.acc.snapshotWithReasoning(), ctx.partMsgIds), id: ctx.cardId })
+        publishStreaming(ctx)
       }
       if (!ctx.assistantMessageId && e.messageId) ctx.assistantMessageId = e.messageId
       return

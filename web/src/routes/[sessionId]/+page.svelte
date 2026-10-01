@@ -384,9 +384,13 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 11px max(24px, calc((100% - var(--col-w, 880px)) / 2 + 24px));
+    padding: 11px 28px;
     background: var(--bg);
     border-bottom: 1px solid var(--border-2);
+  }
+  /* Desktop: header sits on the white canvas sheet (band-color fix). */
+  @media (min-width: 821px) {
+    .sub-header { background: var(--bg-canvas, var(--bg)); }
   }
   .sub-header .left {
     display: flex;
@@ -487,13 +491,12 @@
   .abort:disabled { opacity: .5; cursor: default; }
 
   .stream {
-    max-width: var(--col-w, 880px);
-    /* border-box: the measure INCLUDES the side paddings, so the transcript
-       text, the composer box and the header content share one exact column
-       edge (the old content-box left the text 48px wider than the composer). */
+    /* Fluid fill (ZCode register): the transcript uses the full pane width
+       minus a fixed breathing padding — no centered max-width, the old 1100px
+       column left ~280px of dead white on each side at 1920. */
+    width: 100%;
     box-sizing: border-box;
-    margin: 0 auto;
-    padding: 22px 24px 8px;
+    padding: 22px 28px 8px;
     display: flex;
     flex-direction: column;
   }
@@ -510,6 +513,13 @@
     animation: none;
   }
   .stream-end { height: 1px; flex-shrink: 0; }
+  /* Perf: off-screen history cards skip layout/paint entirely (the streaming
+     card and entering cards are excluded — they need live layout). The
+     intrinsic-size guess keeps the scrollbar stable while off-screen. */
+  .stream > :global(*):not(:last-child) {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 120px;
+  }
   .loading {
     display: flex;
     justify-content: center;

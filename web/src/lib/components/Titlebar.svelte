@@ -53,12 +53,12 @@
 
   <span class="spacer"></span>
   <!-- M9 机器人/通道配置入口 -->
-  <button class="themebtn" title="机器人与通道" aria-label="机器人与通道" on:click={() => channelsOpen.set(true)}>
+  <button class="themebtn channels-btn" title="机器人与通道" aria-label="机器人与通道" on:click={() => channelsOpen.set(true)}>
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><path d="M8 16h0M16 16h0"/></svg>
   </button>
 
   <!-- Theme toggle — light/dark with system-follow default (paper-ink) -->
-  <button class="themebtn" on:click={toggleTheme}
+  <button class="themebtn theme-btn" on:click={toggleTheme}
           title={$theme === 'light' ? 'Switch to dark' : 'Switch to light'}
           aria-label="Toggle color theme">
     <Icon name={$theme === 'light' ? 'moon' : 'sun'} size={15} />
@@ -296,5 +296,10 @@
        its own header), so it's just brand + live — drawer toggles, new, palette, and the
        user avatar all move to the FAB / chat header / sessions panel. */
     .palette-trigger, .user-email, .new-session, .new-label, .iconbtn, .user { display: none; }
+  }
+  /* Desktop: identity / theme / channels live in the left rail's bottom foot
+     (ZCode register); the titlebar keeps brand / new / palette / connection. */
+  @media (min-width: 821px) {
+    .channels-btn, .theme-btn, .user { display: none; }
   }
 </style>

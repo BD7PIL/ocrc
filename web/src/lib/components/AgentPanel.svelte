@@ -20,8 +20,11 @@
   import { sessionList } from '$lib/stores/sessions.js'
   import { connection } from '$lib/stores/connection.js'
   import { leftPanelOpen } from '$lib/stores/ui.js'
+  import RailFoot from './RailFoot.svelte'
 
   export let activeId: string | undefined = undefined
+  /** Account identity for the bottom-left rail foot (desktop only). */
+  export let email = ''
   // Drawer mode (mobile): panel fills the off-canvas drawer.
   export let drawer = false
 
@@ -200,6 +203,9 @@
       <span class="sep">·</span>
       <span>{pushedCount} 已推送</span>
     </div>
+    {#if !drawer}
+      <RailFoot {email} />
+    {/if}
   </div>
 </div>
 

@@ -7,6 +7,7 @@
   import { onDestroy } from 'svelte'
   import { api } from '$lib/api/client.js'
   import { feeds, cardsOf } from '$lib/stores/sessions.js'
+  import { contextBreakdown } from '$lib/inspector/contextBreakdown.js'
 
   export let sessionId: string
 
@@ -65,6 +66,11 @@
     { key: '输出', v: tout, c: 'var(--hl-purple)' },
   ].filter((s) => s.v > 0)
   $: barTotal = barSegments.reduce((a, s) => a + s.v, 0)
+
+  // Category breakdown (opencode-web register: client-side estimation over
+  // the feed; residual = system prompt / tool schemas / outputs as 其他).
+  $: feedCards = cardsOf(feed)
+  $: breakdown = contextBreakdown(feedCards, used)
 </script>
 
 <svelte:window on:keydown={onWindowKey} on:click={onWindowClick} />
@@ -100,6 +106,19 @@
           <span class="lg"><span class="dot" style={`background:${s.c}`}></span>{s.key} {fmtK(s.v)}</span>
         {/each}
       </div>
+      {#if breakdown.segments.length > 0}
+        <div class="bd-label">细分 <span class="est">估算</span></div>
+        <div class="bar bd">
+          {#each breakdown.segments as s}
+            <span class="seg" style={`width:${(s.tokens / (breakdown.used || 1)) * 100}%; background:${s.color}`}></span>
+          {/each}
+        </div>
+        <div class="legend">
+          {#each breakdown.segments as s}
+            <span class="lg"><span class="dot" style={`background:${s.color}`}></span>{s.key} {used > 0 ? ((s.tokens / used) * 100).toFixed(1) : '0'}%</span>
+          {/each}
+        </div>
+      {/if}
       <div class="rows">
         {#if cacheHit != null}<div class="row"><span>缓存命中率</span><span class="mono">{cacheHit}%</span></div>{/if}
         {#if msgs > 0}<div class="row"><span>消息</span><span class="mono">{msgs}</span></div>{/if}
@@ -159,6 +178,22 @@
   .legend { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 6px 0 8px; }
   .lg { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-3); }
   .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .bd-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: var(--text-3);
+    margin: 8px 0 4px;
+  }
+  .bd-label .est {
+    font-size: 9px;
+    padding: 0 5px;
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-pill);
+    color: var(--text-4);
+  }
+  .bar.bd { margin-bottom: 6px; }
   .rows { display: flex; flex-direction: column; }
   .row {
     display: flex;

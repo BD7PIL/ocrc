@@ -269,7 +269,9 @@
     .attach { width: 44px; height: 44px; }
   }
   .dock {
-    max-width: var(--col-w, 880px);
+    /* col-w minus the transcript's side paddings: the input box edges land
+       exactly on the message text edges (one shared measure). */
+    max-width: calc(var(--col-w, 880px) - 48px);
     margin: 0 auto;
   }
   .error {

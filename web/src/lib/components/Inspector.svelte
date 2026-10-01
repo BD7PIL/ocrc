@@ -39,6 +39,10 @@
   $: activeId = $sidePane.activeId
   $: activeTab = $sidePane.tabs.find((t) => t.id === activeId)
   $: activeIndex = $sidePane.tabs.findIndex((t) => t.id === activeId)
+  // Zero tabs = strip mode: the pane collapses to a 44px rail with just the
+  // "+" affordance (otherwise the first tab would have no entry point).
+  $: stripMode = $sidePane.tabs.length === 0
+  let stripMenu = false
 
   // ── Drag reorder (D1) ──
   let dragFrom = -1
@@ -75,7 +79,23 @@
 
 <svelte:window on:click={onWindowClick} on:keydown={onWindowKey} />
 
-<aside class="inspector">
+<aside class="inspector" class:strip={stripMode}>
+  {#if stripMode}
+    <div class="strip">
+      <button class="strip-plus" title="打开面板" aria-label="打开面板" on:click={() => (stripMenu = !stripMenu)}>+</button>
+      {#if stripMenu}
+        <div class="strip-menu" role="menu">
+          {#each HOMES as h (h.homeId)}
+            <button role="menuitem" on:click={() => { openHome(h.homeId); stripMenu = false }}>
+              {h.title}{#if homeBadge(h.homeId)}<span class="tbadge mono">{homeBadge(h.homeId)}</span>{/if}
+            </button>
+          {/each}
+          <div class="menu-sep"></div>
+          <button role="menuitem" on:click={() => { sidePane.openPaneTab({ id: 'git', kind: 'git', title: 'Git' }); stripMenu = false }}>Git</button>
+        </div>
+      {/if}
+    </div>
+  {:else}
   <div class="head">
     <div class="section-label">会话</div>
     <div class="name" title={title ?? sessionId}>
@@ -158,11 +178,59 @@
       </div>
     {/if}
   </div>
+  {/if}
 </aside>
 
 <style>
+  /* Strip mode: no tabs open — collapse to a rail with the "+" entry. */
+  .inspector.strip { width: 44px; }
+  .strip { display: flex; flex-direction: column; align-items: center; padding-top: 14px; position: relative; }
+  .strip-plus {
+    display: inline-grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    background: transparent;
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-sm);
+    color: var(--text-3);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .strip-plus:hover { color: var(--text); border-color: var(--border); }
+  .strip-menu {
+    position: absolute;
+    top: 46px;
+    left: 50px;
+    min-width: 130px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 14px 36px rgba(0, 0, 0, .25);
+    padding: 4px;
+    z-index: var(--z-popover);
+    animation: ocrc-pop .14s var(--ease-out, ease-out);
+  }
+  .strip-menu button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    padding: 6px 9px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-xs);
+    color: var(--text-2);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .strip-menu button:hover { background: var(--bg-input); color: var(--text); }
   .inspector {
-    width: var(--insp-w, 280px);
+    width: var(--insp-w, 380px);
     flex-shrink: 0;
     display: flex;
     flex-direction: column;

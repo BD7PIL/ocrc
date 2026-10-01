@@ -196,8 +196,14 @@
         document.documentElement.style.setProperty('--composer-h', `${composerEl.offsetHeight}px`)
         if (pinnedToBottom) pinBottom() // keep latest pinned as the box grows
       }
+      // Scrollbar width → --sbw (the composer insets by it to stay aligned
+      // with the transcript column, which lives inside the scroller).
+      if (scrollEl) {
+        document.documentElement.style.setProperty('--sbw', `${scrollEl.offsetWidth - scrollEl.clientWidth}px`)
+      }
     })
     if (composerEl) ro.observe(composerEl)
+    if (scrollEl) ro.observe(scrollEl)
 
     // Bottom sentinel: card upserts bump the feed seq (re-pins via scrollKey),
     // but content can also grow WITHOUT a new card — markdown re-flow after a
@@ -353,6 +359,11 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+    /* Stable gutter: the scrollbar (classic browsers reserve ~15px) would
+       otherwise shift the transcript column vs the composer, which sits
+       OUTSIDE the scroller — the width-mismatch report. The gutter width is
+       measured into --sbw so the composer can inset by the same amount. */
+    scrollbar-gutter: stable;
   }
   /* Mobile: instead of a frosted panel behind the input, fade the chat content to
      low-brightness as it scrolls down into the composer zone — text "passes under"
@@ -477,6 +488,10 @@
 
   .stream {
     max-width: var(--col-w, 880px);
+    /* border-box: the measure INCLUDES the side paddings, so the transcript
+       text, the composer box and the header content share one exact column
+       edge (the old content-box left the text 48px wider than the composer). */
+    box-sizing: border-box;
     margin: 0 auto;
     padding: 22px 24px 8px;
     display: flex;
@@ -540,7 +555,14 @@
     font-size: 12.5px;
   }
 
-  /* Desktop: composer is a normal in-flow bar at the bottom (unchanged). */
+  /* Desktop: composer is a normal in-flow bar at the bottom. Its right inset
+     absorbs the chat scrollbar (--sbw) so the input box edges align with the
+     transcript text edge exactly. */
+  @media (min-width: 821px) {
+    .composer-float :global(.composer) {
+      padding-right: calc(24px + var(--sbw, 0px));
+    }
+  }
   /* Mobile: the input box just floats (its original form, Composer.svelte); no
      frosted panel. The dim effect comes from the .chat fade mask above. */
   @media (max-width: 820px) {

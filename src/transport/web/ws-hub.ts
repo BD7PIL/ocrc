@@ -8,7 +8,9 @@ import { fetchSessionSummaries } from './session-summary.js'
 interface ClientState {
   ws: WebSocket
   user: { email: string }
-  subscribedSession?: string
+  /** Multi-subscribe (0.18.8): the viewed session PLUS any right-pane live
+   *  tabs (subagent transcripts). Empty set = pre-subscribe, forward all. */
+  subscribed: Set<string>
 }
 
 export interface WsHub {
@@ -32,7 +34,7 @@ export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry;
     const sid = 'sessionId' in card ? card.sessionId : undefined
     for (const state of clients.values()) {
       if (state.ws.readyState !== 1) continue
-      if (sid && state.subscribedSession && state.subscribedSession !== sid) continue
+      if (sid && state.subscribed.size > 0 && !state.subscribed.has(sid)) continue
       try { state.ws.send(JSON.stringify({ type: 'card', card })) } catch {}
     }
   })
@@ -42,7 +44,7 @@ export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry;
       // Register synchronously: messages arriving while summaries load must not
       // be silently dropped, and detach() during the await must not leak a dead
       // client into the map.
-      clients.set(ws, { ws, user })
+      clients.set(ws, { ws, user, subscribed: new Set() })
       const sessions = await fetchSessionSummaries(opts.registry, opts.state).catch(() => [])
       if (ws.readyState !== 1) return
       try { ws.send(JSON.stringify({ type: 'hello', sessions })) } catch {}
@@ -51,9 +53,13 @@ export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry;
       const state = clients.get(ws)
       if (!state) return
       if (msg.type === 'ping') { ws.send(JSON.stringify({ type: 'pong' })); return }
+      if (msg.type === 'unsubscribe' && typeof msg.sessionId === 'string') {
+        state.subscribed.delete(opts.state.normalizeSessionId(msg.sessionId))
+        return
+      }
       if (msg.type === 'subscribe' && typeof msg.sessionId === 'string') {
         const sid = opts.state.normalizeSessionId(msg.sessionId)
-        state.subscribedSession = sid
+        state.subscribed.add(sid)
         // Replay buffered cards published after the client's snapshot. The
         // client sends sinceSeq = lastSeq from GET /api/session/:id; we replay
         // only cards with a higher seq, so there's no gap and no duplicate

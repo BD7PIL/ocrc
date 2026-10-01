@@ -180,3 +180,47 @@ describe('WsHub', () => {
     expect(ws.sent.length).toBe(0)
   })
 })
+
+describe('WsHub multi-subscribe (right-pane live tabs)', () => {
+  it('forwards cards for BOTH the viewed session and a pane-subscribed child', async () => {
+    const bus = createCardBus()
+    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const ws = fakeWs()
+    await hub.attach(ws as any, { email: 'u@x' } as any)
+    hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_main' })
+    hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_child' })
+    bus.publish({ kind: 'thinking', sessionId: 'ses_main', showStop: true })
+    bus.publish({ kind: 'thinking', sessionId: 'ses_child', showStop: true })
+    const sids = ws.sent.filter((m: any) => m.type === 'card').map((m: any) => m.card.sessionId)
+    expect(sids).toContain('ses_main')
+    expect(sids).toContain('ses_child')
+  })
+
+  it('unsubscribe stops forwarding that session but keeps the other', async () => {
+    const bus = createCardBus()
+    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const ws = fakeWs()
+    await hub.attach(ws as any, { email: 'u@x' } as any)
+    hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_main' })
+    hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_child' })
+    hub.handleClientMessage(ws as any, { type: 'unsubscribe', sessionId: 'ses_child' })
+    bus.publish({ kind: 'thinking', sessionId: 'ses_child', showStop: true })
+    bus.publish({ kind: 'thinking', sessionId: 'ses_main', showStop: true })
+    const sids = ws.sent.filter((m: any) => m.type === 'card').map((m: any) => m.card.sessionId)
+    expect(sids).not.toContain('ses_child')
+    expect(sids).toContain('ses_main')
+  })
+
+  it('replays the newly-subscribed child only (not the whole main feed)', async () => {
+    const bus = createCardBus()
+    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const ws = fakeWs()
+    await hub.attach(ws as any, { email: 'u@x' } as any)
+    hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_main' })
+    bus.publish({ kind: 'thinking', sessionId: 'ses_child', showStop: true })
+    ws.sent.length = 0
+    hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_child' })
+    const replayed = ws.sent.filter((m: any) => m.type === 'card').map((m: any) => m.card.sessionId)
+    expect(replayed).toEqual(['ses_child'])
+  })
+})

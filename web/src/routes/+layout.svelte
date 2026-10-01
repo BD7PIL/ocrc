@@ -6,6 +6,8 @@
   import { afterNavigate } from '$app/navigation'
   import { api } from '$lib/api/client.js'
   import { createWsClient } from '$lib/ws/client.js'
+  import { setWsSend } from '$lib/ws/send.js'
+  import { sidePane } from '$lib/stores/sidePane.js'
   import { sessionList, feeds, upsertCard, setHistory, pruneFeeds, isSeqGap } from '$lib/stores/sessions.js'
   import { setViewedSession, noteSessionActivity } from '$lib/notify.js'
   import { capabilities, loadCapabilities, backends, loadBackends, viewedSessionId, applyAgentTheme } from '$lib/stores/capabilities.js'
@@ -52,12 +54,12 @@
   // ── Resizable three-pane (desktop): draggable dividers adjust --rail-w /
   // --insp-w; sizes persist in localStorage. Mobile drawers ignore them
   // (the ≤820px media block overrides widths and hides the dividers). ──
-  let railW = 250
-  let inspW = 280
+  let railW = 264
+  let inspW = 380
   let resizing: 'rail' | 'insp' | null = null
   try {
-    railW = Math.max(180, Math.min(520, Number(localStorage.getItem('ocrc.railW')) || 250))
-    inspW = Math.max(220, Math.min(520, Number(localStorage.getItem('ocrc.inspW')) || 280))
+    railW = Math.max(180, Math.min(520, Number(localStorage.getItem('ocrc.railW')) || 264))
+    inspW = Math.max(280, Math.min(560, Number(localStorage.getItem('ocrc.inspW')) || 380))
   } catch { /* private mode */ }
   function startResize(which: 'rail' | 'insp', e: PointerEvent) {
     if (window.matchMedia('(max-width: 820px)').matches) return
@@ -169,6 +171,8 @@
     loadBackends()
 
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    // Right-pane live tabs send their own subscribe/unsubscribe through here.
+    setWsSend((msg) => wsClient?.send(msg))
     wsClient = createWsClient({
       url: `${protocol}//${location.host}/ws`,
       // On reconnect, re-subscribe with the feed's current lastSeq so the WS
@@ -352,14 +356,16 @@
       on:dblclick={() => leftPanelOpen.update((v) => !v)}
     ></div>
     <main><slot /></main>
-    <div
-      class="divider"
-      class:resizing={resizing === 'insp'}
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="调整检查器宽度"
-      on:pointerdown={(e) => startResize('insp', e)}
-    ></div>
+    {#if $sidePane.tabs.length > 0}
+      <div
+        class="divider"
+        class:resizing={resizing === 'insp'}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整检查器宽度"
+        on:pointerdown={(e) => startResize('insp', e)}
+      ></div>
+    {/if}
     <div class="inspector-wrap" class:open={$inspectorOpen}>
       <Inspector sessionId={$page.params.sessionId} />
     </div>

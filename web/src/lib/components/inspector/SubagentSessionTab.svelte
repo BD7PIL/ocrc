@@ -1,72 +1,82 @@
-<!-- SubagentSessionTab.svelte — a dynamic pane tab: one subagent's live
-     transcript (opened from the 子代理 list or a PlanHud row). Refreshes on
-     the pane's activity tick while the child is producing output; a header
-     button navigates the middle column into the child session. -->
+<!-- SubagentSessionTab.svelte — a dynamic pane tab: one subagent's LIVE
+     transcript. The child session is WS-subscribed alongside the viewed
+     session (multi-subscribe hub), so streaming cards land here in real
+     time with full markdown/thinking/tool rendering via the same Card
+     pipeline as the main column. -->
 <script lang="ts">
+  import { onDestroy } from 'svelte'
+  import { get } from 'svelte/store'
   import { goto } from '$app/navigation'
   import { api } from '$lib/api/client.js'
-  import MarkdownView from '../MarkdownView.svelte'
+  import { feeds, cardsOf, setHistory } from '$lib/stores/sessions.js'
+  import { wsSend } from '$lib/ws/send.js'
+  import Card from '../Card.svelte'
 
   export let childId: string
   export let tick = 0
 
-  type Lite = { kind: string; text?: string; tool?: string; args?: string; status?: string }
-  const TAIL = 40
+  let scrollEl: HTMLElement
+  let pinned = true
+  let backfilledFor: string | undefined
 
-  let transcript: Lite[] = []
-  let loading = false
-
-  async function load() {
-    loading = true
+  async function backfill(id: string) {
+    const feed = get(feeds)[id]
+    if (feed && feed.order.length > 0) return
     try {
-      const res = await api.history(childId, { limit: TAIL })
-      const cards = (res.cards ?? []) as Array<Record<string, any>>
-      const out: Lite[] = []
-      for (const c of cards) {
-        if (c.kind === 'user') out.push({ kind: 'user', text: String(c.text ?? '') })
-        else if (c.kind === 'assistant') {
-          for (const b of (c.blocks ?? []) as Array<any>) {
-            if (b.type === 'text' && b.text?.trim()) out.push({ kind: 'assistant', text: b.text })
-            else if (b.type === 'tool') out.push({ kind: 'tool', tool: b.tool, args: b.args, status: b.status })
-          }
-        } else if (c.kind === 'error') out.push({ kind: 'error', text: String(c.message ?? '') })
-      }
-      transcript = out.slice(-TAIL)
-    } catch { transcript = [] } finally { loading = false }
+      const res = await api.history(id, { limit: 60 })
+      setHistory(id, res.cards ?? [], res.lastSeq ?? 0)
+    } catch { /* live subscription still works */ }
   }
-  $: if (childId) { void childId, tick, load() }
+
+  $: if (childId && childId !== backfilledFor) {
+    backfilledFor = childId
+    void (async () => {
+      await backfill(childId)
+      const seq = get(feeds)[childId]?.lastSeq ?? 0
+      wsSend({ type: 'subscribe', sessionId: childId, sinceSeq: seq })
+    })()
+  }
+  // Parent-feed ticks refetch the list panel; the live tab rides the WS.
+  $: if (childId && tick && get(feeds)[childId]?.order?.length === 0) void backfill(childId)
+  onDestroy(() => { if (childId) wsSend({ type: 'unsubscribe', sessionId: childId }) })
+
+  // $feeds (auto-subscription) — a get(feeds) here would read once and never
+  // re-render when WS cards land.
+  $: cards = childId ? cardsOf($feeds[childId] ?? null) : []
+  $: if (cards) pinIfPinned()
+
+  function pinIfPinned() {
+    if (pinned && scrollEl) requestAnimationFrame(() => { if (scrollEl && pinned) scrollEl.scrollTop = scrollEl.scrollHeight })
+  }
+  function onScroll() {
+    if (!scrollEl) return
+    pinned = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 60
+  }
 </script>
 
 <div class="t-wrap">
   <div class="t-hd">
-    <span class="t-hint mono">{loading ? '刷新中…' : '实况 · 最近 ' + TAIL + ' 条'}</span>
+    <span class="t-hint mono">实况 · {cards.length} 条</span>
     <button class="open" on:click={() => goto('/' + childId)}>在中栏打开此会话 →</button>
   </div>
-  <div class="t-body">
-    {#each transcript as t}
-      {#if t.kind === 'user'}
-        <div class="ln user"><span class="who mono">用户</span><span class="tx">{t.text}</span></div>
-      {:else if t.kind === 'assistant'}
-        <div class="ln md"><MarkdownView src={t.text ?? ''} /></div>
-      {:else if t.kind === 'tool'}
-        <div class="ln tool mono"><span class="who mono">{t.tool}</span><span class="tx mono">{(t.args ?? '').slice(0, 120)}</span></div>
-      {:else if t.kind === 'error'}
-        <div class="ln err mono">{t.text}</div>
-      {/if}
+  <div class="t-body" bind:this={scrollEl} on:scroll={onScroll}>
+    {#each cards as c, i (c.seq ?? c.id ?? i)}
+      <Card card={c} />
     {:else}
-      <div class="empty">{loading ? '…' : '（无输出）'}</div>
+      <div class="empty">（暂无输出——子代理开跑后这里实时滚动）</div>
     {/each}
   </div>
 </div>
 
 <style>
-  .t-wrap { font-size: 11.5px; }
+  .t-wrap { font-size: 12px; display: flex; flex-direction: column; height: 100%; min-height: 0; }
   .t-hd {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
     margin-bottom: 8px;
+    flex-shrink: 0;
   }
   .t-hint { font-size: 10px; color: var(--text-3); }
   .open {
@@ -79,22 +89,14 @@
     cursor: pointer;
     flex-shrink: 0;
   }
-  .t-body { display: flex; flex-direction: column; gap: 10px; }
-  .ln.user { display: flex; gap: 8px; padding: 6px 8px; background: var(--bg-input); border-radius: var(--radius-xs); }
-  .who { flex-shrink: 0; font-size: 9.5px; color: var(--text-3); padding-top: 2px; }
-  .ln.user .tx { color: var(--text-2); white-space: pre-wrap; word-break: break-word; }
-  .ln.md { font-size: 12px; color: var(--text-2); }
-  .ln.md :global(.md) { font-size: 12px; color: var(--text-2); }
-  .ln.tool {
+  .t-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
     display: flex;
-    gap: 8px;
-    font-size: 10.5px;
-    color: var(--text-3);
-    padding-left: 8px;
-    border-left: 2px solid var(--border-2);
+    flex-direction: column;
+    -webkit-overflow-scrolling: touch;
   }
-  .ln.tool .who { color: var(--text-2); }
-  .ln.tool .tx { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .ln.err { color: var(--err); font-size: 11px; }
-  .empty { padding: 10px 0; color: var(--text-3); font-size: 11px; }
+  .t-body :global(.card) { margin: 4px 0 10px; }
+  .empty { padding: 14px 0; color: var(--text-3); font-size: 11.5px; }
 </style>

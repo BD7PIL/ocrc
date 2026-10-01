@@ -150,7 +150,7 @@
     {:else if activeTab?.kind === 'tool'}
       <ToolOutputTab sessionId={activeTab.sessionId} messageId={activeTab.messageId} partId={activeTab.partId} {tick} />
     {:else if activeTab?.kind === 'git'}
-      <GitTab {tick} />
+      <GitTab {sessionId} {tick} />
     {:else}
       <div class="empty">
         <p class="empty-title">没有打开的面板</p>

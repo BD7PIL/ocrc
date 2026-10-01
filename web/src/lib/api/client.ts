@@ -111,9 +111,9 @@ export const api = {
   messageRaw: (id: string, messageId: string) =>
     jsonGet<{ info: unknown; parts: Array<Record<string, any>> }>(`/api/session/${id}/message/${encodeURIComponent(messageId)}`),
   /** Git pane: branch + per-file working-tree status. */
-  vcs: () => jsonGet<{ branch?: string; defaultBranch?: string; status: Array<{ file: string; additions?: number; deletions?: number; status?: string }> }>('/api/vcs'),
+  vcs: (sessionId?: string) => jsonGet<{ branch?: string; defaultBranch?: string; status: Array<{ file: string; additions?: number; deletions?: number; status?: string }> }>(`/api/vcs${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`),
   /** Git pane: per-file working-tree patches. */
-  vcsDiff: () => jsonGet<{ files: Array<{ file: string; patch?: string; additions?: number; deletions?: number; status?: string }> }>('/api/vcs/diff'),
+  vcsDiff: (sessionId?: string) => jsonGet<{ files: Array<{ file: string; patch?: string; additions?: number; deletions?: number; status?: string }> }>(`/api/vcs/diff${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`),
   version: () => jsonGet<{ version: string; commit?: string; uptime: string; node?: string }>('/api/version'),
   skills: (directory?: string) =>
     jsonGet<{ skills: SkillRow[] }>(`/api/skills${directory ? `?directory=${encodeURIComponent(directory)}` : ''}`),

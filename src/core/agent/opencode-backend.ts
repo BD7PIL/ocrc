@@ -596,11 +596,15 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     } catch { return undefined }
   }
 
-  async function getVcs(): Promise<{ branch?: string; defaultBranch?: string; status: Array<{ file: string; additions?: number; deletions?: number; status?: string }> } | undefined> {
+  async function getVcs(sessionId?: string): Promise<{ branch?: string; defaultBranch?: string; status: Array<{ file: string; additions?: number; deletions?: number; status?: string }> } | undefined> {
     try {
+      // /vcs requires the project directory (bare call errors); /vcs/status
+      // tolerates bare but scopes correctly with one.
+      const dir = sessionId ? await sessionDirectory(sessionId) : undefined
+      const dq = dir ? `?directory=${encodeURIComponent(dir)}` : ''
       const [infoRes, statusRes] = await Promise.all([
-        ocFetch(`${baseUrl}/vcs`),
-        ocFetch(`${baseUrl}/vcs/status`),
+        ocFetch(`${baseUrl}/vcs${dq}`),
+        ocFetch(`${baseUrl}/vcs/status${dq}`),
       ])
       if (!infoRes.ok && !statusRes.ok) return undefined
       const info = infoRes.ok ? ((await infoRes.json()) as any) : {}
@@ -618,9 +622,11 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     } catch { return undefined }
   }
 
-  async function getVcsDiff(): Promise<Array<{ file: string; patch?: string; additions?: number; deletions?: number; status?: string }> | undefined> {
+  async function getVcsDiff(sessionId?: string): Promise<Array<{ file: string; patch?: string; additions?: number; deletions?: number; status?: string }> | undefined> {
     try {
-      const res = await ocFetch(`${baseUrl}/vcs/diff`)
+      const dir = sessionId ? await sessionDirectory(sessionId) : undefined
+      const dq = dir ? `?directory=${encodeURIComponent(dir)}` : ''
+      const res = await ocFetch(`${baseUrl}/vcs/diff${dq}`)
       if (!res.ok) return undefined
       const body = (await res.json()) as any
       return (Array.isArray(body) ? body : []).map((d: any) => ({

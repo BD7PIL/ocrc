@@ -219,10 +219,11 @@ export interface AgentBackend {
   // ── 0.18: tool output pages + git pane (present on the opencode backend) ──
   /** Raw server message {info, parts} — tool parts carry state.output. */
   getMessageRaw?(sessionId: string, messageId: string): Promise<{ info: unknown; parts: unknown[] } | undefined>
-  /** VCS branch info + per-file working-tree status (GET /vcs, /vcs/status). */
-  getVcs?(): Promise<{ branch?: string; defaultBranch?: string; status: Array<{ file: string; additions?: number; deletions?: number; status?: string }> } | undefined>
+  /** VCS branch info + per-file working-tree status (GET /vcs, /vcs/status).
+   *  The server's /vcs requires the project directory — resolved from the session. */
+  getVcs?(sessionId?: string): Promise<{ branch?: string; defaultBranch?: string; status: Array<{ file: string; additions?: number; deletions?: number; status?: string }> } | undefined>
   /** Per-file working-tree patches (GET /vcs/diff) — {file, patch, additions, deletions, status}. */
-  getVcsDiff?(): Promise<Array<{ file: string; patch?: string; additions?: number; deletions?: number; status?: string }> | undefined>
+  getVcsDiff?(sessionId?: string): Promise<Array<{ file: string; patch?: string; additions?: number; deletions?: number; status?: string }> | undefined>
   // ── M10: interactive questions (present when capabilities.questions) ────────
   /** Pending question requests for a directory (GET /question). */
   listQuestions?(directory?: string): Promise<QuestionRequest[]>

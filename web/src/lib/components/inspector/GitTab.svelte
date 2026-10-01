@@ -4,6 +4,7 @@
 <script lang="ts">
   import { api } from '$lib/api/client.js'
 
+  export let sessionId: string | undefined = undefined
   export let tick = 0
 
   interface StatusRow { file: string; additions?: number; deletions?: number; status?: string }
@@ -18,7 +19,7 @@
 
   async function load() {
     try {
-      const v = await api.vcs()
+      const v = await api.vcs(sessionId)
       branch = v?.branch ?? ''
       status = v?.status ?? []
     } catch { branch = ''; status = [] } finally { loading = false }
@@ -30,7 +31,7 @@
     if (diffLoading) return
     diffLoading = true
     try {
-      const r = await api.vcsDiff()
+      const r = await api.vcsDiff(sessionId)
       diffs = new Map((r?.files ?? []).map((f) => [f.file, f.patch ?? '']))
     } catch { diffs = new Map() } finally { diffLoading = false }
   }

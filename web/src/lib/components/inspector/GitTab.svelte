@@ -22,23 +22,26 @@
       branch = v?.branch ?? ''
       status = v?.status ?? []
     } catch { branch = ''; status = [] } finally { loading = false }
-    if (expanded.size > 0 && diffs.size === 0) void loadDiffs()
   }
   $: void tick, load()
 
-  async function loadDiffs() {
-    if (diffLoading) return
-    diffLoading = true
+  // Patches are per-file and lazy: a whole-tree diff is tens of MB on the
+  // production worktree — one file at a time, capped server-side.
+  async function loadPatch(file: string) {
+    if (diffs.has(file) || diffLoading !== null) return
+    diffLoading = file
     try {
-      const r = await api.vcsDiff(sessionId)
-      diffs = new Map((r?.files ?? []).map((f) => [f.file, f.patch ?? '']))
-    } catch { diffs = new Map() } finally { diffLoading = false }
+      const r = await api.vcsDiff(sessionId, file)
+      diffs = new Map([...diffs, [file, r?.patch ?? '']])
+    } catch {
+      diffs = new Map([...diffs, [file, '（patch 读取失败）']])
+    } finally { diffLoading = null }
   }
 
   function toggle(file: string) {
     if (expanded.has(file)) { expanded = new Set([...expanded].filter((f) => f !== file)); return }
     expanded = new Set([...expanded, file])
-    if (diffs.size === 0) void loadDiffs()
+    void loadPatch(file)
   }
 
   const statusLabel = (s?: string) =>

@@ -135,6 +135,37 @@
     retryLast()
   }
 
+  // Revert the last exchange (opencode session.revert), then reload the feed —
+  // the server hides messages after the revert point (unrevert restores them).
+  async function revertLast() {
+    if (!sessionId) return
+    try {
+      await api.revertSession(sessionId)
+      const { cards, lastSeq } = await api.history(sessionId)
+      const { setHistory } = await import('$lib/stores/sessions.js')
+      setHistory(sessionId, cards, lastSeq)
+      window.dispatchEvent(new CustomEvent('ocrc:resubscribe', { detail: { sessionId, sinceSeq: lastSeq } }))
+    } catch { /* best effort */ }
+  }
+
+  // Session revert state: when reverted, the header offers 恢复 (unrevert).
+  let reverted = false
+  $: if (sessionId) { void sessionId, checkReverted(sessionId) }
+  async function checkReverted(sid: string) {
+    try { reverted = (await api.revertState(sid)).reverted } catch { reverted = false }
+  }
+  async function unrevert() {
+    if (!sessionId) return
+    try {
+      await api.unrevertSession(sessionId)
+      reverted = false
+      const { cards, lastSeq } = await api.history(sessionId)
+      const { setHistory } = await import('$lib/stores/sessions.js')
+      setHistory(sessionId, cards, lastSeq)
+      window.dispatchEvent(new CustomEvent('ocrc:resubscribe', { detail: { sessionId, sinceSeq: lastSeq } }))
+    } catch { /* best effort */ }
+  }
+
   const STARTERS = ['总结这个项目', '最近有什么改动？', '运行检查']
   let chipsDismissed = false
   // Tier2 (model-generated) suggestions — fetched once per finished turn.
@@ -207,7 +238,15 @@
     // while pinned, any frame where the end marker left the viewport re-pins.
     io = new IntersectionObserver(
       (entries) => {
-        if (pinnedToBottom && entries.some((en) => !en.isIntersecting)) requestAnimationFrame(pinBottom)
+        // The sentinel left the viewport while we believed we were pinned.
+        // Two very different causes: streaming growth (pin again) or the
+        // USER scrolling up with a small wheel tick (their scroll was being
+        // swallowed by the re-pin — the "初段滚不动" report). Decide by the
+        // actual distance: still ≈at-bottom → pin; genuinely moved → yield.
+        if (!pinnedToBottom || !entries.some((en) => !en.isIntersecting)) return
+        const d = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight
+        if (d <= 24) requestAnimationFrame(pinBottom)
+        else pinnedToBottom = false
       },
       { root: scrollEl, threshold: 0 },
     )
@@ -247,6 +286,9 @@
           运行中 {fmtRunTime(runElapsed)}
         </span>
       {:else}
+        {#if reverted}
+          <button class="restore mono" on:click={unrevert} title="恢复被撤销的轮次">恢复上一轮</button>
+        {/if}
         <span class="idle mono">空闲</span>
       {/if}
       <!-- Mobile: open the inspector bottom sheet. -->
@@ -266,6 +308,7 @@
         {card}
         onRetry={retryLast}
         onRegenerate={card.id === lastCard?.id && card.kind === 'assistant' && !busy ? regenerateLast : undefined}
+        onRevert={card.id === lastCard?.id && card.kind === 'assistant' && !busy ? revertLast : undefined}
       />
     {/each}
     <div class="stream-end" bind:this={endEl} aria-hidden="true"></div>
@@ -474,6 +517,17 @@
     font-size: 11px;
     color: var(--text-3);
   }
+  .restore {
+    background: transparent;
+    border: 1px dashed var(--border-2);
+    color: var(--text-3);
+    border-radius: var(--radius-pill);
+    padding: 3px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: color .15s ease, border-color .15s ease;
+  }
+  .restore:hover { color: var(--text); border-color: var(--text-4); }
 
   .stream {
     /* Fluid fill (ZCode register): the transcript uses the full pane width

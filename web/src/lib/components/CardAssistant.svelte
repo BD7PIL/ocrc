@@ -8,6 +8,16 @@
   export let card: ExtractStructuredCard<'assistant'>
   /** Present only on the last assistant card — re-sends the last user message. */
   export let onRegenerate: (() => void) | undefined = undefined
+  /** Present only on the last assistant card — reverts this exchange
+   *  (opencode session.revert); the feed refetches from the layout listener. */
+  export let onRevert: (() => void) | undefined = undefined
+  let reverting = false
+  async function revert() {
+    if (!onRevert || reverting) return
+    if (!confirm('撤销这一轮回复？（可恢复）')) return
+    reverting = true
+    try { onRevert() } finally { reverting = false }
+  }
 
   $: tools = card.blocks
     .filter((b): b is ToolBlock => b.type === 'tool')
@@ -55,6 +65,11 @@
       <div class="actions">
         {#if onRegenerate}
           <button class="icon" title="重新生成" aria-label="重新生成" on:click={onRegenerate}><Icon name="refresh" size={13} /></button>
+        {/if}
+        {#if onRevert}
+          <button class="icon" class:reverting title="撤销这一轮" aria-label="撤销这一轮" disabled={reverting} on:click={revert}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg>
+          </button>
         {/if}
         <button class="icon" class:copied title="复制" aria-label="复制" on:click={copy}>
           {#if copied}<Icon name="check" size={13} />{:else}<Icon name="copy" size={13} />{/if}
@@ -163,4 +178,5 @@
   }
   .icon:hover { color: var(--text); border-color: var(--border); background: var(--bg-elev); }
   .icon.copied { color: var(--accent); border-color: var(--accent-line); background: var(--accent-2); }
+  .icon:disabled { opacity: .5; cursor: default; }
 </style>

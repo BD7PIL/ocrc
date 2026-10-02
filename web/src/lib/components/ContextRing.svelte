@@ -58,15 +58,6 @@
   function onWindowKey(e: KeyboardEvent) { if (e.key === 'Escape') open = false }
   function onWindowClick(e: MouseEvent) { if (open && wrap && !wrap.contains(e.target as Node)) open = false }
 
-  // Stacked bar segments (largest-last for a stable visual order).
-  $: barSegments = [
-    { key: '缓存读', v: cacheRead, c: 'var(--ok)' },
-    { key: '缓存写', v: cacheWrite, c: 'var(--info)' },
-    { key: '输入', v: tin, c: 'var(--text-3)' },
-    { key: '输出', v: tout, c: 'var(--hl-purple)' },
-  ].filter((s) => s.v > 0)
-  $: barTotal = barSegments.reduce((a, s) => a + s.v, 0)
-
   // Category breakdown (opencode-web register: client-side estimation over
   // the feed; residual = system prompt / tool schemas / outputs as 其他).
   $: feedCards = cardsOf(feed)
@@ -96,19 +87,12 @@
         <span class="label">上下文</span>
         <span class="mono dim">{fmtK(used)} / {fmtK(max)}</span>
       </div>
-      <div class="bar" aria-hidden="true">
-        {#each barSegments as s}
-          <span class="seg" style={`width:${(s.v / (barTotal || 1)) * 100}%; background:${s.c}`}></span>
-        {/each}
-      </div>
-      <div class="legend">
-        {#each barSegments as s}
-          <span class="lg"><span class="dot" style={`background:${s.c}`}></span>{s.key} {fmtK(s.v)}</span>
-        {/each}
-      </div>
       {#if breakdown.segments.length > 0}
-        <div class="bd-label">细分 <span class="est">估算</span></div>
-        <div class="bar bd">
+        <!-- THE capacity bar: full scale = model context limit (the ring's
+             semantics), segments = category estimates of the used part. The
+             old cumulative 缓存读/输入/输出 bar measured session totals —
+             incompatible with the ring's full scale (user report). -->
+        <div class="bar" aria-hidden="true">
           {#each breakdown.segments as s}
             <span class="seg" style={`width:${(s.tokens / (breakdown.used || 1)) * 100}%; background:${s.color}`}></span>
           {/each}
@@ -118,6 +102,8 @@
             <span class="lg"><span class="dot" style={`background:${s.color}`}></span>{s.key} {used > 0 ? ((s.tokens / used) * 100).toFixed(1) : '0'}%</span>
           {/each}
         </div>
+      {:else}
+        <div class="bar" aria-hidden="true"></div>
       {/if}
       <div class="rows">
         {#if cacheHit != null}<div class="row"><span>缓存命中率</span><span class="mono">{cacheHit}%</span></div>{/if}

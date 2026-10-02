@@ -225,6 +225,12 @@ export interface AgentBackend {
   /** One file's working-tree patch vs HEAD (fetched lazily per file — the
    *  whole-tree diff is gigabytes on big repos). */
   getVcsDiff?(sessionId?: string, file?: string): Promise<{ file: string; patch: string } | undefined>
+  /** Revert the session's last exchange / undo a revert (POST /session/:id/revert|unrevert).
+   *  Returns the updated Session (carries revert:{messageID,...}|undefined). */
+  revertSession?(sessionId: string): Promise<{ id: string; revert?: { messageID: string } } | undefined>
+  unrevertSession?(sessionId: string): Promise<{ id: string; revert?: { messageID: string } } | undefined>
+  /** Session-level info (revert state etc.) without message data. */
+  getSessionRevert?(sessionId: string): Promise<{ reverted: boolean; messageID?: string } | undefined>
   // ── M10: interactive questions (present when capabilities.questions) ────────
   /** Pending question requests for a directory (GET /question). */
   listQuestions?(directory?: string): Promise<QuestionRequest[]>

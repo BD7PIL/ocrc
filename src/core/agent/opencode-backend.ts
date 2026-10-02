@@ -652,6 +652,28 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
   }
 
 
+  async function revertOrUnrevert(sessionId: string, action: 'revert' | 'unrevert'): Promise<{ id: string; revert?: { messageID: string } } | undefined> {
+    try {
+      const res = await ocFetch(`${baseUrl}/session/${encodeURIComponent(sessionId)}/${action}`, { method: 'POST' })
+      if (!res.ok) { log.warn(`session ${action} HTTP ${res.status}`); return undefined }
+      const body = (await res.json()) as any
+      return { id: String(body?.id ?? sessionId), revert: body?.revert ?? undefined }
+    } catch (err) { log.warn(`session ${action} failed`, (err as Error).message); return undefined }
+  }
+  const revertSession = (sessionId: string) => revertOrUnrevert(sessionId, 'revert')
+  const unrevertSession = (sessionId: string) => revertOrUnrevert(sessionId, 'unrevert')
+
+  async function getSessionRevert(sessionId: string): Promise<{ reverted: boolean; messageID?: string } | undefined> {
+    try {
+      const res = await ocFetch(`${baseUrl}/session/${encodeURIComponent(sessionId)}`)
+      if (!res.ok) return undefined
+      const body = (await res.json()) as any
+      return body?.revert?.messageID
+        ? { reverted: true, messageID: String(body.revert.messageID) }
+        : { reverted: false }
+    } catch { return undefined }
+  }
+
   return {
     id: 'opencode',
     capabilities,
@@ -660,7 +682,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     getSessionMeta, getContext, getHistory, getMessageBlocks, getDiff, getTodos, getSessionsStatus, ping,
     getAgents, getModels, getMcp, getSubagents, getSkills, listFiles, readFile,
     listWorktreeSandboxes, createWorktreeSandboxes, removeWorktreeSandboxes,
-    getMessageRaw, getVcs, getVcsDiff,
+    getMessageRaw, getVcs, getVcsDiff, revertSession, unrevertSession, getSessionRevert,
     listQuestions, answerQuestion, rejectQuestion,
     listWorkspaces, listCommands, runCommand,
     resolvePermission,

@@ -15,6 +15,8 @@
   export let onRetry: (() => void) | undefined = undefined
   /** Regenerate: present on the LAST assistant card only (wired by the chat page). */
   export let onRegenerate: (() => void) | undefined = undefined
+  /** Revert this exchange: same last-card-only contract. */
+  export let onRevert: (() => void) | undefined = undefined
 </script>
 
 {#if card.kind === 'user'}
@@ -24,7 +26,7 @@
 {:else if card.kind === 'streaming'}
   <CardStreaming {card} />
 {:else if card.kind === 'assistant'}
-  <CardAssistant {card} {onRegenerate} />
+  <CardAssistant {card} {onRegenerate} {onRevert} />
 {:else if card.kind === 'error'}
   <CardError {card} {onRetry} />
 {:else if card.kind === 'info'}

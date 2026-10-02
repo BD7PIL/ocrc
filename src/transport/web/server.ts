@@ -18,7 +18,7 @@ import { registerSessions } from './routes/sessions.js'
 import { registerSession } from './routes/session.js'
 import { registerMessage } from './routes/message.js'
 import { registerAbort } from './routes/abort.js'
-import { registerVcs } from './routes/vcs.js'
+import { registerVcs, registerRevert } from './routes/vcs.js'
 import { registerTodo } from './routes/todo.js'
 import { registerControls } from './routes/controls.js'
 import { registerFiles } from './routes/files.js'
@@ -118,6 +118,7 @@ export function buildServer(opts: BuildServerOpts): Hono {
   if (opts.onMessage) registerMessage(app, opts.onMessage, reg)
   registerAbort(app, reg, opts.state)
   registerVcs(app, reg)
+  registerRevert(app, reg)
   registerTodo(app, reg, opts.state)
   registerControls(app, reg, opts.state)
   registerFiles(app, reg, opts.state)

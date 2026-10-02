@@ -307,6 +307,10 @@
   // (which used to cause an effect-update loop in the previous design).
   afterNavigate((nav) => {
     closeDrawers() // selecting a session in the drawer closes it
+    window.addEventListener('ocrc:resubscribe', (e) => {
+      const d = (e as CustomEvent).detail as { sessionId?: string; sinceSeq?: number } | undefined
+      if (d?.sessionId) wsClient?.send({ type: 'subscribe', sessionId: d.sessionId, sinceSeq: d.sinceSeq ?? 0 })
+    })
     loadSession(nav.to?.params?.sessionId)
   })
 </script>

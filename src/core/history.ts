@@ -76,6 +76,8 @@ export function messageToCards(sessionId: string, msg: any): StructuredCard[] {
     return [{
       kind: 'assistant',
       sessionId,
+      // opencode message id — the web revert action targets it.
+      messageId: typeof info.id === 'string' ? info.id : undefined,
       blocks,
       meta,
     }]

@@ -4,6 +4,7 @@
   import { tick, onMount, onDestroy } from 'svelte'
   import { feeds, cardsOf, sessionList, prependHistory } from '$lib/stores/sessions.js'
   import { leftPanelOpen, inspectorOpen, composerDraft, composerEmpty, feedResyncing, sessionBooting } from '$lib/stores/ui.js'
+  import { sidePane } from '$lib/stores/sidePane.js'
   import Suggestions from '$lib/components/Suggestions.svelte'
   import { api } from '$lib/api/client.js'
   import Card from '$lib/components/Card.svelte'
@@ -311,9 +312,13 @@
         {/if}
         <span class="idle mono">空闲</span>
       {/if}
-      <!-- Mobile: open the inspector bottom sheet. -->
+      <!-- Mobile: open the inspector bottom sheet. Desktop: toggle the side
+           pane (ZCode 切换面板 — the pane has no persistent strip). -->
       <button class="inspect" on:click={() => inspectorOpen.update((v) => !v)} aria-label="Inspector">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="14" y2="17"/></svg>
+      </button>
+      <button class="pane-toggle" title="侧栏面板" aria-label="侧栏面板" on:click={() => inspectorOpen.update((v) => !v)}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/><path d="M9 9l3 3-3 3"/></svg>
       </button>
     </div>
   </div>
@@ -324,11 +329,13 @@
       </button>
     {/if}
     {#each shownCards as card (card.id)}
+      {@const isLastAssistant = card.id === lastCard?.id && card.kind === 'assistant' && !busy}
+      {@const revertTarget = isLastAssistant && lastCard?.kind === 'assistant' ? lastCard.messageId : undefined}
       <Card
         {card}
         onRetry={retryLast}
-        onRegenerate={card.id === lastCard?.id && card.kind === 'assistant' && !busy ? regenerateLast : undefined}
-        onRevert={card.id === lastCard?.id && card.kind === 'assistant' && !busy ? () => revertLast(lastCard.messageId) : undefined}
+        onRegenerate={isLastAssistant ? regenerateLast : undefined}
+        onRevert={isLastAssistant && revertTarget ? () => revertLast(revertTarget) : undefined}
       />
     {/each}
     <div class="stream-end" bind:this={endEl} aria-hidden="true"></div>
@@ -475,6 +482,16 @@
   .expand:hover { color: var(--text); border-color: var(--accent); background: var(--accent-2); }
   /* Back + inspector buttons are mobile-only (the chat screen's own header). */
   .back, .inspect { display: none; }
+  .pane-toggle {
+    display: none;
+    align-items: center; justify-content: center;
+    width: 30px; height: 30px; flex-shrink: 0;
+    background: transparent; border: 1px solid var(--border-2);
+    border-radius: var(--radius-sm); color: var(--text-3); cursor: pointer;
+    transition: color .12s ease, border-color .12s ease;
+  }
+  .pane-toggle:hover { color: var(--text); border-color: var(--text-4); }
+  @media (min-width: 821px) { .pane-toggle { display: inline-flex; } }
   @media (max-width: 820px) {
     .expand { display: none; }
     .back, .inspect {

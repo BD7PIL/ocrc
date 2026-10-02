@@ -363,7 +363,7 @@
       on:dblclick={() => leftPanelOpen.update((v) => !v)}
     ></div>
     <main><slot /></main>
-    {#if $sidePane.tabs.length > 0}
+    {#if $inspectorOpen}
       <div
         class="divider"
         class:resizing={resizing === 'insp'}
@@ -372,10 +372,10 @@
         aria-label="调整检查器宽度"
         on:pointerdown={(e) => startResize('insp', e)}
       ></div>
+      <div class="inspector-wrap" class:open={$inspectorOpen}>
+        <Inspector sessionId={$page.params.sessionId} />
+      </div>
     {/if}
-    <div class="inspector-wrap" class:open={$inspectorOpen}>
-      <Inspector sessionId={$page.params.sessionId} />
-    </div>
   </div>
 </div>
 <CommandPalette open={$paletteOpen} on:close={() => paletteOpen.set(false)} />
@@ -411,6 +411,7 @@
     width: var(--rail-w, 250px);
     flex-shrink: 0;
     overflow: hidden;
+    border-right: 1px solid var(--border-2);
     /* Slide on the GPU (transform) instead of animating width — a width
        transition reflows the chat on every frame. The negative margin hands
        the rail's flex space to <main> instantly while the rail slides out. */

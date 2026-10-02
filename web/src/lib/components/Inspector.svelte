@@ -6,6 +6,7 @@
   import { onDestroy } from 'svelte'
   import { sessionList, feeds } from '$lib/stores/sessions.js'
   import { can } from '$lib/stores/capabilities.js'
+  import { inspectorOpen } from '$lib/stores/ui.js'
   import { api } from '$lib/api/client.js'
   import {
     sidePane, closePaneTab, reorderPaneTab, openHome, HOMES,
@@ -39,10 +40,7 @@
   $: activeId = $sidePane.activeId
   $: activeTab = $sidePane.tabs.find((t) => t.id === activeId)
   $: activeIndex = $sidePane.tabs.findIndex((t) => t.id === activeId)
-  // Zero tabs = strip mode: the pane collapses to a 44px rail with just the
-  // "+" affordance (otherwise the first tab would have no entry point).
-  $: stripMode = $sidePane.tabs.length === 0
-  let stripMenu = false
+
 
   // ── Drag reorder (D1) ──
   let dragFrom = -1
@@ -56,7 +54,15 @@
   let plusOpen = false
   let plusEl: HTMLElement
   function onWindowClick(e: MouseEvent) { if (plusOpen && plusEl && !plusEl.contains(e.target as Node)) plusOpen = false }
-  function onWindowKey(e: KeyboardEvent) { if (e.key === 'Escape') plusOpen = false }
+  function onWindowKey(e: KeyboardEvent) { if (e.key === 'Escape') { plusOpen = false; tabsMenu = false } }
+  let tabsMenu = false
+  function closeOthers() {
+    const keep = $sidePane.activeId
+    for (const t of $sidePane.tabs) if (t.id !== keep) closePaneTab(t.id)
+  }
+  function closeAll() {
+    for (const t of $sidePane.tabs) closePaneTab(t.id)
+  }
 
   // Task summary for the tab badge (done/total), same data plane as the HUD.
   let sum: TodoSummary = { total: 0, done: 0, items: [] }
@@ -79,28 +85,17 @@
 
 <svelte:window on:click={onWindowClick} on:keydown={onWindowKey} />
 
-<aside class="inspector" class:strip={stripMode}>
-  {#if stripMode}
-    <div class="strip">
-      <button class="strip-plus" title="打开面板" aria-label="打开面板" on:click={() => (stripMenu = !stripMenu)}>+</button>
-      {#if stripMenu}
-        <div class="strip-menu" role="menu">
-          {#each HOMES as h (h.homeId)}
-            <button role="menuitem" on:click={() => { openHome(h.homeId); stripMenu = false }}>
-              {h.title}{#if homeBadge(h.homeId)}<span class="tbadge mono">{homeBadge(h.homeId)}</span>{/if}
-            </button>
-          {/each}
-          <div class="menu-sep"></div>
-          <button role="menuitem" on:click={() => { sidePane.openPaneTab({ id: 'git', kind: 'git', title: 'Git' }); stripMenu = false }}>Git</button>
-        </div>
-      {/if}
-    </div>
-  {:else}
+<aside class="inspector">
   <div class="head">
-    <div class="section-label">会话</div>
-    <div class="name" title={title ?? sessionId}>
-      <span class="title-text">{title || (sessionId ? '…' + sessionId.slice(-8) : 'No session')}</span>
+    <div class="head-main">
+      <div class="section-label">会话</div>
+      <div class="name" title={title ?? sessionId}>
+        <span class="title-text">{title || (sessionId ? '…' + sessionId.slice(-8) : 'No session')}</span>
+      </div>
     </div>
+    <button class="collapse-btn" title="收起面板" aria-label="收起面板" on:click={() => inspectorOpen.set(false)}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/><path d="M9 9l3 3-3 3"/></svg>
+    </button>
   </div>
 
   <div class="tabs" role="tablist">
@@ -130,6 +125,15 @@
         >✕</span>
       </button>
     {/each}
+    {#if $sidePane.tabs.length > 1}
+      <button class="tabs-more" title="页签操作" aria-label="页签操作" on:click={() => (tabsMenu = !tabsMenu)}>⋯</button>
+      {#if tabsMenu}
+        <div class="tabs-menu" role="menu">
+          <button role="menuitem" on:click={() => { closeOthers(); tabsMenu = false }}>关闭其他</button>
+          <button role="menuitem" on:click={() => { closeAll(); tabsMenu = false }}>关闭全部</button>
+        </div>
+      {/if}
+    {/if}
     <div class="plus" bind:this={plusEl}>
       <button class="plus-btn" aria-label="打开面板" title="打开面板" on:click={() => (plusOpen = !plusOpen)}>+</button>
       {#if plusOpen}
@@ -172,63 +176,38 @@
     {:else if activeTab?.kind === 'git'}
       <GitTab {sessionId} {tick} />
     {:else}
-      <div class="empty">
-        <p class="empty-title">没有打开的面板</p>
-        <p class="empty-hint">从会话流（计划窗、工具行）或右上 + 打开——任务、文件、子代理、Skills、配置、Git。</p>
+      <div class="launcher">
+        <p class="l-title">打开面板</p>
+        <p class="l-desc">选择要在侧栏中打开的面板。</p>
+        <div class="l-list">
+          {#each HOMES as h (h.homeId)}
+            <button class="l-card" on:click={() => openHome(h.homeId)}>
+              <span class="l-ico" aria-hidden="true">
+                {#if h.homeId === 'tasks'}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>
+                {:else if h.homeId === 'files'}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/></svg>
+                {:else if h.homeId === 'subs'}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+                {:else if h.homeId === 'skills'}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8z"/></svg>
+                {:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                {/if}
+              </span>
+              <span class="l-text">
+                {h.title}
+                {#if h.homeId === 'tasks' && sum.total > 0}<span class="tbadge mono">{sum.done}/{sum.total}</span>{/if}
+              </span>
+            </button>
+          {/each}
+          <div class="l-sep"></div>
+          <button class="l-card" on:click={() => sidePane.openPaneTab({ id: 'git', kind: 'git', title: 'Git' })}>
+            <span class="l-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M8 7c6 0 8 2 8 6v2.5"/></svg></span>
+            <span class="l-text">Git</span>
+          </button>
+        </div>
       </div>
     {/if}
   </div>
-  {/if}
 </aside>
 
 <style>
-  /* Strip mode: no tabs open — collapse to a rail with the "+" entry. */
-  .inspector.strip { width: 44px; }
-  .strip { display: flex; flex-direction: column; align-items: center; padding-top: 14px; position: relative; }
-  .strip-plus {
-    display: inline-grid;
-    place-items: center;
-    width: 26px;
-    height: 26px;
-    background: transparent;
-    border: 1px solid var(--border-2);
-    border-radius: var(--radius-sm);
-    color: var(--text-3);
-    font-size: 15px;
-    line-height: 1;
-    cursor: pointer;
-  }
-  .strip-plus:hover { color: var(--text); border-color: var(--border); }
-  .strip-menu {
-    position: absolute;
-    top: 46px;
-    left: 50px;
-    min-width: 130px;
-    background: var(--bg-elev);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    box-shadow: 0 14px 36px rgba(0, 0, 0, .25);
-    padding: 4px;
-    z-index: var(--z-popover);
-    animation: ocrc-pop .14s var(--ease-out, ease-out);
-  }
-  .strip-menu button {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    width: 100%;
-    padding: 6px 9px;
-    background: transparent;
-    border: none;
-    border-radius: var(--radius-xs);
-    color: var(--text-2);
-    font: inherit;
-    font-size: 12px;
-    text-align: left;
-    cursor: pointer;
-  }
-  .strip-menu button:hover { background: var(--bg-input); color: var(--text); }
   .inspector {
     width: var(--insp-w, 380px);
     flex-shrink: 0;
@@ -240,9 +219,63 @@
     border-left: 1px solid var(--border-2);
   }
   .head {
-    padding: 14px 16px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 14px 12px 12px 16px;
     border-bottom: 1px solid var(--border-2);
   }
+  .head-main { flex: 1; min-width: 0; }
+  .collapse-btn {
+    flex-shrink: 0;
+    display: inline-grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    background: transparent;
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-xs);
+    color: var(--text-3);
+    cursor: pointer;
+  }
+  .collapse-btn:hover { color: var(--text); border-color: var(--border); }
+  .collapse-btn svg { width: 14px; height: 14px; }
+
+  /* Empty-pane launcher (ZCode openTabLauncher register): centered column of
+     h-12 entry cards. */
+  .launcher {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 8vh 20px 0;
+    text-align: center;
+  }
+  .l-title { margin: 0 0 4px; font-family: var(--font-serif); font-size: 15px; color: var(--text); }
+  .l-desc { margin: 0 0 18px; font-size: 11.5px; color: var(--text-3); }
+  .l-list { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 260px; }
+  .l-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 46px;
+    padding: 0 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-sm);
+    color: var(--text-2);
+    font: inherit;
+    font-size: 12.5px;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color .12s ease, color .12s ease;
+  }
+  .l-card:hover { border-color: var(--accent-line); color: var(--text); }
+  .l-ico { display: inline-flex; flex-shrink: 0; color: var(--text-3); }
+  .l-card:hover .l-ico { color: var(--accent); }
+  .l-ico svg { width: 16px; height: 16px; }
+  .l-text { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .l-sep { height: 1px; background: var(--border-2); margin: 4px 0; }
   .section-label {
     text-transform: uppercase;
     letter-spacing: .16em;
@@ -318,6 +351,33 @@
   .closer:hover { color: var(--text); background: var(--bg-input); }
   .tab.active .closer { color: var(--text-3); }
 
+  .tabs-more {
+    flex-shrink: 0;
+    display: inline-grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-xs);
+    color: var(--text-3);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .tabs-more:hover { color: var(--text); background: var(--bg-input); }
+  .tabs-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 6px;
+    min-width: 110px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 14px 36px rgba(0, 0, 0, .25);
+    padding: 4px;
+    z-index: var(--z-popover);
+    animation: ocrc-pop .14s var(--ease-out, ease-out);
+  }
   .plus { position: relative; margin-left: auto; flex-shrink: 0; }
   .plus-btn {
     display: inline-grid;

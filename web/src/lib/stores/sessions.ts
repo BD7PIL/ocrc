@@ -28,6 +28,14 @@ function isTransient(kind: string | undefined): boolean {
   return kind === 'thinking' || kind === 'think-stream'
 }
 
+/** Live cards that mean "this session is working": thinking/streaming. A
+ *  queued USER card appended while running must not flip this — busy is
+ *  "any live card exists", not "the last card is live" (user report:
+ *  header showed 空闲 while a queued turn's bash was still streaming). */
+export function isRunningCard(kind: string | undefined): boolean {
+  return kind === 'thinking' || kind === 'streaming' || kind === 'think-stream'
+}
+
 /** Materialize a feed into an ordered card array (for rendering). */
 export function cardsOf(feed: SessionFeed | undefined): StructuredCard[] {
   if (!feed) return []
@@ -74,10 +82,13 @@ export function upsertCard(card: StructuredCard) {
       let order = feed.order
       let byId = feed.byId
       // A new turn's first streaming/assistant/error retires transient thinking.
+      // An error (abort) ALSO retires streaming cards — otherwise a stale
+      // streaming card would keep the session marked busy forever.
       if (card.kind === 'streaming' || card.kind === 'assistant' || card.kind === 'error') {
         byId = { ...byId }
         order = order.filter((x) => {
           if (isTransient(byId[x]?.kind)) { delete byId[x]; return false }
+          if (card.kind === 'error' && byId[x]?.kind === 'streaming' && x !== id) { delete byId[x]; return false }
           return true
         })
       }

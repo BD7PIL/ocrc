@@ -22,12 +22,15 @@
     return conn === 'connected' && Date.now() - lastActiveAt < ACTIVE_WINDOW_MS
   }
 
-  // A session is "busy" if the tail of its live feed is a thinking/streaming card.
+  // "Busy" = any live thinking/streaming card in the feed — a queued user
+  // message appended after the streaming card must not flip it to idle.
   function isBusy(sid: string, all: typeof $feeds): boolean {
     const f = all[sid]
     if (!f || f.order.length === 0) return false
-    const last = f.byId[f.order[f.order.length - 1]]
-    return last?.kind === 'thinking' || last?.kind === 'streaming' || last?.kind === 'think-stream'
+    return f.order.some((id) => {
+      const k = f.byId[id]?.kind
+      return k === 'thinking' || k === 'streaming' || k === 'think-stream'
+    })
   }
 
   // A session is "waiting" if the tail of its feed is an unresolved approval card.

@@ -104,9 +104,14 @@
   $: session = $sessionList.find((s) => s.id === sessionId)
   $: branch = session?.directory ? session.directory.replace(/\/+$/, '').split('/').pop() || '' : ''
   $: busy = (() => {
+    // "Any live card" — NOT "last card is live": a user message queued while
+    // a turn runs lands AFTER the streaming card, and last-card logic then
+    // showed 空闲 while the bash was still streaming (user report).
     if (!feed || feed.order.length === 0) return false
-    const last = feed.byId[feed.order[feed.order.length - 1]]
-    return last?.kind === 'thinking' || last?.kind === 'streaming' || last?.kind === 'think-stream'
+    return feed.order.some((id) => {
+      const k = feed.byId[id]?.kind
+      return k === 'thinking' || k === 'streaming' || k === 'think-stream'
+    })
   })()
 
   // Session the running-timer currently belongs to — jumping directly from one

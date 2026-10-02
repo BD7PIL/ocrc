@@ -39,6 +39,10 @@
   let mentionTimer: ReturnType<typeof setTimeout> | undefined
 
   $: hasText = text.trim().length > 0
+  // autoGrow must also react to PROGRAMMATIC text changes — send() clears the
+  // draft without an input event, which left the box stuck at its grown
+  // height after sending multiline text (user report). $: fires on reassign.
+  $: if (textarea && text !== undefined) autoGrow()
 
   // Send/stop reuse (ZCode register): while the session runs, the round send
   // button becomes STOP — but only when the input is empty; typed text still

@@ -72,6 +72,16 @@
       color: var(--text-2);
     }
   }
+  /* Mobile pop: fixed above the composer — absolute anchoring clipped. */
+  @media (max-width: 820px) {
+    .pop {
+      position: fixed;
+      left: 12px;
+      right: 12px;
+      width: auto;
+      bottom: calc(var(--composer-h, 120px) + env(safe-area-inset-bottom, 0px) + 14px);
+    }
+  }
   .chip:hover { border-color: var(--accent); color: var(--text); }
   .pop { position: absolute; bottom: 36px; left: 0; width: 220px; max-height: min(52vh, 360px); overflow-y: auto; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; box-shadow: 0 16px 40px rgba(0,0,0,.5); z-index: var(--z-popover); }
   .opt { display: flex; justify-content: space-between; align-items: center; width: 100%; background: transparent; border: none; color: var(--text); padding: 6px 8px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; text-align: left; }

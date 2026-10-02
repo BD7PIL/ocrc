@@ -57,6 +57,16 @@ export function upsertCard(card: StructuredCard) {
     if (card.seq != null) feed.lastSeq = Math.max(feed.lastSeq, card.seq)
 
     const stamped = card.id ? card : { ...card, id } as StructuredCard
+    // Consecutive identical status cards (e.g. "status: idle" from external
+    // turns finishing) are noise — replace the last one instead of stacking.
+    if (card.kind === 'status') {
+      const lastId = feed.order[feed.order.length - 1]
+      const last = lastId ? feed.byId[lastId] : undefined
+      if (last?.kind === 'status' && JSON.stringify(last.fields) === JSON.stringify((card as any).fields)) {
+        feed.byId = { ...feed.byId, [lastId]: stamped }
+        return map
+      }
+    }
     if (id in feed.byId) {
       // upsert in place — streaming → final assistant, same turn id
       feed.byId = { ...feed.byId, [id]: stamped }

@@ -54,7 +54,17 @@
     loadingOlder = false
   }
 
-  $: shownCards = visibleCount >= cards.length ? cards : cards.slice(-visibleCount)
+  // Revert cutoff: hide cards from the cutoff message (inclusive) onward.
+  $: revertedCards = revertCutoff
+    ? (() => {
+        let cut = -1
+        for (let i = cards.length - 1; i >= 0; i--) {
+          if ((cards[i] as any).messageId === revertCutoff) { cut = i; break }
+        }
+        return cut === -1 ? cards : cards.slice(0, cut)
+      })()
+    : cards
+  $: shownCards = visibleCount >= revertedCards.length ? revertedCards : revertedCards.slice(-visibleCount)
 
   async function loadEarlier() {
     if (loadingOlder || !sessionId) return
@@ -148,12 +158,22 @@
     } catch { /* best effort */ }
   }
 
-  // Session revert state: when reverted, the header offers 恢复 (unrevert).
+  // Session revert state: when reverted, the header offers 恢复 (unrevert),
+  // and the transcript hides everything after the revert cutoff — opencode
+  // keeps reverted messages server-side and lets the UI hide them.
   let reverted = false
+  let revertCutoff: string | undefined
   $: if (sessionId) { void sessionId, checkReverted(sessionId) }
   async function checkReverted(sid: string) {
-    try { reverted = (await api.revertState(sid)).reverted } catch { reverted = false }
+    try {
+      const st = await api.revertState(sid)
+      reverted = st.reverted
+      revertCutoff = st.messageID
+    } catch { reverted = false; revertCutoff = undefined }
   }
+  // A new turn auto-drops the revert (opencode semantics) — clear the cutoff
+  // so streamed cards render.
+  $: if (busy && revertCutoff) revertCutoff = undefined
   async function unrevert() {
     if (!sessionId) return
     try {

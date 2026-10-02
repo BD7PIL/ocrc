@@ -6,6 +6,7 @@
   import { filterByWorkspace } from '../nav/workspaceFilter.js'
   import { connection } from '../stores/connection.js'
   import { api } from '../api/client.js'
+  import { onDestroy } from 'svelte'
   import type { SessionSummary } from '../api/types.js'
 
   // PWA passes activeId from $page.params and relies on <a href> for routing.
@@ -130,6 +131,28 @@
   }
 
   let deleting: string | null = null
+  // Mobile row menu: touch screens have no hover, and three 40px buttons
+  // permanently ate ~1/3 of a 390px row (user report). One "⋯" opens an
+  // inline menu with the same three actions.
+  let menuFor: string | null = null
+  let menuEl: HTMLElement
+  function toggleMenu(e: Event, id: string) {
+    e.preventDefault()
+    e.stopPropagation()
+    menuFor = menuFor === id ? null : id
+  }
+  function menuAction(action: 'rename' | 'pin' | 'delete', id: string, session?: SessionSummary) {
+    menuFor = null
+    const fake = { preventDefault() {}, stopPropagation() {} } as MouseEvent
+    if (action === 'pin') togglePin(fake, id)
+    else if (action === 'delete') deleteSession(fake, id)
+    else if (session) startRename(fake, session)
+  }
+  function onMenuKey(e: KeyboardEvent) { if (e.key === 'Escape') menuFor = null }
+  function onOutside(e: PointerEvent) {
+    if (menuFor && menuEl && !menuEl.contains(e.target as Node)) menuFor = null
+  }
+  onDestroy(() => { menuFor = null })
   async function deleteSession(e: MouseEvent, id: string) {
     e.preventDefault()
     e.stopPropagation()
@@ -161,6 +184,8 @@
     { key: 'recent', label: 'Recent', rows: recent },
   ]
 </script>
+
+<svelte:window on:pointerdown={onOutside} on:keydown={onMenuKey} />
 
 <div class="sidebar">
   {#each groups as group (group.key)}
@@ -196,32 +221,35 @@
               <span class="title">{s.title || 'Untitled session'}</span>
               {#if $pinnedSessions.includes(s.id)}<span class="pin-dot" aria-label="已钉住">●</span>{/if}
               <span class="actions">
-                <button
-                  class="act rename"
-                  title="重命名会话"
-                  aria-label="重命名会话"
-                  on:click={(e) => startRename(e, s)}
-                >
+                <!-- Desktop: hover-revealed inline buttons (unchanged). -->
+                <button class="act rename" title="重命名会话" aria-label="重命名会话" on:click={(e) => startRename(e, s)}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
                 </button>
-                <button
-                  class="act pin"
-                  class:on={$pinnedSessions.includes(s.id)}
-                  title={$pinnedSessions.includes(s.id) ? '取消钉住' : '钉住'}
-                  aria-label="钉住会话"
-                  on:click={(e) => togglePin(e, s.id)}
-                >
+                <button class="act pin" class:on={$pinnedSessions.includes(s.id)} title={$pinnedSessions.includes(s.id) ? '取消钉住' : '钉住'} aria-label="钉住会话" on:click={(e) => togglePin(e, s.id)}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill={$pinnedSessions.includes(s.id) ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6z"/><line x1="12" y1="15" x2="12" y2="21"/></svg>
                 </button>
-                <button
-                  class="act trash"
-                  title="删除会话"
-                  aria-label="删除会话"
-                  disabled={deleting === s.id}
-                  on:click={(e) => deleteSession(e, s.id)}
-                >
+                <button class="act trash" title="删除会话" aria-label="删除会话" disabled={deleting === s.id} on:click={(e) => deleteSession(e, s.id)}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                 </button>
+                <!-- Mobile: one ⋅⋅⋅ opens the row menu (three 40px buttons
+                     permanently ate a third of the row on touch screens). -->
+                <button
+                  class="act mmore"
+                  class:on={menuFor === s.id}
+                  title="会话操作"
+                  aria-label="会话操作"
+                  aria-expanded={menuFor === s.id}
+                  on:click={(e) => toggleMenu(e, s.id)}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+                </button>
+                {#if menuFor === s.id}
+                  <span class="rowmenu" bind:this={menuEl} role="menu">
+                    <button role="menuitem" on:click|stopPropagation={() => menuAction('rename', s.id, s)}>重命名</button>
+                    <button role="menuitem" on:click|stopPropagation={() => menuAction('pin', s.id)}>{$pinnedSessions.includes(s.id) ? '取消钉住' : '钉住'}</button>
+                    <button role="menuitem" class="danger" on:click|stopPropagation={() => menuAction('delete', s.id)}>删除…</button>
+                  </span>
+                {/if}
               </span>
             {/if}
           </div>
@@ -404,17 +432,48 @@
   .act.trash:hover { color: var(--err); }
   .act:disabled { opacity: .4; cursor: default; }
   @media (hover: none), (max-width: 820px) {
-    /* ≥40px touch targets for the row actions on coarse/small screens. */
-    .act {
-      opacity: .6;
-      padding: 8px;
-      min-width: 40px;
-      min-height: 40px;
-      align-items: center;
-      justify-content: center;
+    /* Touch screens: the three hover buttons collapse into ONE "⋯" that
+       opens a row menu — three 40px buttons ate a third of a 390px row
+       (user report). ≥40px touch target preserved on the single control. */
+    .act { opacity: .6; padding: 8px; min-width: 40px; min-height: 40px; align-items: center; justify-content: center; }
+    .act.rename, .act.pin, .act.trash { display: none; }
+    .act.mmore { display: inline-flex; opacity: .7; }
+    .act.mmore.on { opacity: 1; color: var(--text); }
+    .actions { gap: 2px; position: relative; }
+    .rowmenu {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 2px);
+      min-width: 140px;
+      background: var(--bg-elev);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      box-shadow: 0 14px 36px rgba(0, 0, 0, .3);
+      padding: 4px;
+      z-index: var(--z-popover);
+      display: flex;
+      flex-direction: column;
+      animation: ocrc-pop .14s var(--ease-out, ease-out);
     }
-    .actions { gap: 2px; }
+    .rowmenu button {
+      display: block;
+      width: 100%;
+      padding: 9px 12px;
+      background: transparent;
+      border: none;
+      border-radius: var(--radius-xs);
+      color: var(--text-2);
+      font: inherit;
+      font-size: 12.5px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .rowmenu button:hover { background: var(--bg-input); color: var(--text); }
+    .rowmenu button.danger { color: var(--err); }
   }
+  /* Desktop: the mobile menu button and its menu are hidden (hover
+     buttons suffice) — guards the resize-while-open edge. */
+  .act.mmore, .rowmenu { display: none; }
 
   .meta {
     display: flex;

@@ -36,6 +36,9 @@
   <button class="chip mono" aria-haspopup="listbox" aria-expanded={open} on:click={() => { open = !open; if (open) refresh() }}>
     <Icon name="bolt" size={11} /> <span class="txt">{label}</span> <Icon name="caret-down" size={9} />
   </button>
+  <button class="chip icon mono" aria-haspopup="listbox" aria-label={`模型：${label}`} aria-expanded={open} on:click={() => { open = !open; if (open) refresh() }}>
+    <Icon name="bolt" size={14} />
+  </button>
   {#if open}
     <div class="pop" role="listbox" aria-label="模型覆盖">
       {#if providers.length === 0}<div class="none label">暂无模型</div>{/if}
@@ -67,6 +70,18 @@
   .chip:hover { border-color: var(--accent); color: var(--text); }
   .chip :global(svg) { flex-shrink: 0; }
   .txt { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+  .chip.icon { display: none; }
+  @media (max-width: 820px) {
+    .chip { display: none; }
+    .chip.icon {
+      display: inline-flex;
+      justify-content: center;
+      min-width: 34px;
+      height: 30px;
+      padding: 0 8px;
+      color: var(--text-2);
+    }
+  }
   .pop { position: absolute; bottom: 36px; right: 0; width: 248px; max-height: min(56vh, 400px); overflow-y: auto; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; box-shadow: 0 16px 40px rgba(0,0,0,.5); z-index: var(--z-popover); }
   .prov { padding: 7px 8px 2px; color: var(--text-3); }
   .opt { display: flex; justify-content: space-between; align-items: center; width: 100%; background: transparent; border: none; color: var(--text); padding: 6px 8px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; text-align: left; }

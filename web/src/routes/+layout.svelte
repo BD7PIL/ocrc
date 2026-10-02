@@ -12,7 +12,7 @@
   import { setViewedSession, noteSessionActivity } from '$lib/notify.js'
   import { capabilities, loadCapabilities, backends, loadBackends, viewedSessionId, applyAgentTheme } from '$lib/stores/capabilities.js'
   import { paletteOpen } from '$lib/stores/palette.js'
-  import { leftPanelOpen, plusMenuOpen, newSessionOpen, inspectorOpen, feedResyncing } from '$lib/stores/ui.js'
+  import { leftPanelOpen, plusMenuOpen, newSessionOpen, inspectorOpen, feedResyncing, sessionBooting } from '$lib/stores/ui.js'
   import { auth } from '$lib/auth.js'
   import Titlebar from '$lib/components/Titlebar.svelte'
   import OfflineBanner from '$lib/components/OfflineBanner.svelte'
@@ -142,9 +142,11 @@
     const feedEmpty = !(get(feeds)[id]?.order?.length)
     if (id === lastLoaded && !feedEmpty) return
     lastLoaded = id
+    sessionBooting.set(true)
     api.history(id)
       .then(({ cards, lastSeq }) => {
         setHistory(id, cards, lastSeq)
+        sessionBooting.set(false)
         // Subscribe with sinceSeq so the WS replays only cards published after
         // this snapshot — no gap, no duplicate.
         wsClient?.send({ type: 'subscribe', sessionId: id, sinceSeq: lastSeq })
@@ -154,6 +156,7 @@
         // An empty feed — NOT a missing one: a missing feed keeps the
         // "loading" state alive forever and reads as flicker on the page.
         setHistory(id, [], 0)
+        sessionBooting.set(false)
         wsClient?.send({ type: 'subscribe', sessionId: id })
       })
   }

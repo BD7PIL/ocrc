@@ -1,6 +1,6 @@
 <script lang="ts">
   import { connection, latency } from '$lib/stores/connection.js'
-  import { plusMenuOpen, theme, toggleTheme, channelsOpen } from '$lib/stores/ui.js'
+  import { plusMenuOpen, themeMode, toggleTheme, channelsOpen } from '$lib/stores/ui.js'
   import Icon from '$lib/components/Icon.svelte'
 
   export let email = ''
@@ -59,9 +59,11 @@
 
   <!-- Theme toggle — light/dark with system-follow default (paper-ink) -->
   <button class="themebtn theme-btn" on:click={toggleTheme}
-          title={$theme === 'light' ? 'Switch to dark' : 'Switch to light'}
+          title={$themeMode === 'auto' ? '主题：跟随系统' : $themeMode === 'light' ? '主题：浅色' : '主题：深色'}
           aria-label="Toggle color theme">
-    <Icon name={$theme === 'light' ? 'moon' : 'sun'} size={15} />
+    {#if $themeMode === 'light'}<Icon name="sun" size={15} />
+    {:else if $themeMode === 'dark'}<Icon name="moon" size={15} />
+    {:else}<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>{/if}
   </button>
 
   <!-- Connection pill -->

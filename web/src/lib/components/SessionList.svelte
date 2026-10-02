@@ -431,6 +431,12 @@
   .act.pin.on { opacity: 1; color: var(--accent); }
   .act.trash:hover { color: var(--err); }
   .act:disabled { opacity: .4; cursor: default; }
+  /* Desktop: the mobile ⋯ button and its menu are hidden (hover buttons
+     suffice). MUST precede the media block — same-specificity rules resolve
+     by order, and a later hide would kill the mobile display (the PlanHud
+     form-swap lesson). */
+  .act.mmore, .rowmenu { display: none; }
+
   @media (hover: none), (max-width: 820px) {
     /* Touch screens: the three hover buttons collapse into ONE "⋯" that
        opens a row menu — three 40px buttons ate a third of a 390px row
@@ -471,9 +477,7 @@
     .rowmenu button:hover { background: var(--bg-input); color: var(--text); }
     .rowmenu button.danger { color: var(--err); }
   }
-  /* Desktop: the mobile menu button and its menu are hidden (hover
-     buttons suffice) — guards the resize-while-open edge. */
-  .act.mmore, .rowmenu { display: none; }
+
 
   .meta {
     display: flex;

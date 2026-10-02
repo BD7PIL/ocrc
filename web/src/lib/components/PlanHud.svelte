@@ -269,7 +269,7 @@
         {#if idleSubs.length}
           <button class="grp" aria-expanded={showIdle} on:click={() => (showIdle = !showIdle)}>
             <svg class="caret" class:open={showIdle} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
-            <span>已结束 {idleSubs.length}</span>
+            <span>子代理 · 已结束 {idleSubs.length}</span>
           </button>
           {#if showIdle}
             {#each idleSubs as s (s.id)}

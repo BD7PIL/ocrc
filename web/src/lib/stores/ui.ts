@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store'
+import { writable, get } from 'svelte/store'
 
 const RAIL_OPEN_KEY = 'ocrc.railOpen'
 
@@ -35,6 +35,11 @@ export const inspectorOpen = writable(false)
  */
 export const feedResyncing = writable(false)
 
+/** True while a session's REST history snapshot is in flight — gates the
+ *  STARTERS chips, which must not flash during that window (cards are
+ *  legitimately 0 until the snapshot lands). */
+export const sessionBooting = writable(false)
+
 /** Draft handed to the composer from suggestion chips: clicking a chip fills
     (never sends) — the composer watches this store, sets its text, focuses,
     and clears it. The nonce makes repeated picks of the same chip re-trigger. */
@@ -48,14 +53,15 @@ export const composerEmpty = writable(true)
     script in app.html (keep in sync). Absent = follow the system. */
 const THEME_KEY = 'ocrc-theme'
 
-function initialTheme(): 'light' | 'dark' {
-  if (typeof document !== 'undefined') {
-    const a = document.documentElement.getAttribute('data-theme')
-    if (a === 'light' || a === 'dark') return a
-  }
-  // No stored override — mirror what theme.css's media query decided.
-  if (typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: light)').matches) return 'light'
-  return 'dark'
+export type ThemeMode = 'light' | 'dark' | 'auto'
+
+function initialTheme(): ThemeMode {
+  try {
+    const stored = localStorage.getItem(THEME_KEY)
+    if (stored === 'light' || stored === 'dark' || stored === 'auto') return stored
+  } catch { /* private mode */ }
+  // No stored override — 'auto' (follow the system).
+  return 'auto'
 }
 
 function applyThemeMeta(t: 'light' | 'dark') {
@@ -65,18 +71,48 @@ function applyThemeMeta(t: 'light' | 'dark') {
   document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', c))
 }
 
-/** Effective theme — resolved from the override attribute / system at startup. */
-export const theme = writable<'light' | 'dark'>(initialTheme())
+/** Theme MODE (light/dark/auto) — what the user cycles. The theme.css
+ *  contract: no data-theme attribute = follow prefers-color-scheme (auto). */
+export const themeMode = writable<ThemeMode>(initialTheme())
 
-if (typeof document !== 'undefined') applyThemeMeta(initialTheme())
+/** Resolved theme for icon rendering: auto resolves to the system preference. */
+export const theme = writable<'light' | 'dark'>(initialTheme() === 'dark' ? 'dark' : 'light')
 
-/** Flip light↔dark, persist the override, and apply it to <html> immediately. */
+function resolvedFrom(mode: ThemeMode): 'light' | 'dark' {
+  if (mode !== 'auto') return mode
+  if (typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: light)').matches) return 'light'
+  return 'dark'
+}
+
+function applyMode(mode: ThemeMode) {
+  if (mode === 'auto') {
+    document.documentElement.removeAttribute('data-theme')
+  } else {
+    document.documentElement.setAttribute('data-theme', mode)
+  }
+  const resolved = resolvedFrom(mode)
+  theme.set(resolved)
+  applyThemeMeta(resolved)
+}
+
+if (typeof document !== 'undefined') {
+  const mode = initialTheme()
+  applyMode(mode)
+  themeMode.set(mode)
+  // auto follows live system changes.
+  if (typeof matchMedia !== 'undefined') {
+    matchMedia('(prefers-color-scheme: light)').addEventListener?.('change', () => {
+      if (get(themeMode) === 'auto') applyMode('auto')
+    })
+  }
+}
+
+/** Cycle light → dark → auto (follow system), persist, apply immediately. */
 export function toggleTheme() {
-  theme.update((t) => {
-    const next = t === 'light' ? 'dark' : 'light'
+  themeMode.update((m) => {
+    const next: ThemeMode = m === 'light' ? 'dark' : m === 'dark' ? 'auto' : 'light'
     try { localStorage.setItem(THEME_KEY, next) } catch { /* private mode */ }
-    document.documentElement.setAttribute('data-theme', next)
-    applyThemeMeta(next)
+    applyMode(next)
     return next
   })
 }

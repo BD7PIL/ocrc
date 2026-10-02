@@ -8,6 +8,7 @@
     // via media query). Keep the key in sync with stores/ui.ts (ocrc-theme).
     try {
       var t = localStorage.getItem('ocrc-theme')
+      // 'auto' (or nothing) = follow prefers-color-scheme — no attribute.
       if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t)
     } catch (e) {}
   </script>

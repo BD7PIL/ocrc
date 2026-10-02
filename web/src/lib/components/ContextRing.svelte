@@ -130,8 +130,7 @@
 </div>
 
 <style>
-  .wrap { position: relative; display: none; }
-  @media (min-width: 821px) { .wrap { display: block; } }
+  .wrap { position: relative; }
   .ring {
     position: relative;
     display: inline-flex;
@@ -147,8 +146,14 @@
   .track { fill: none; stroke: var(--border); stroke-width: 3; }
   .arc { fill: none; stroke-width: 3; stroke-linecap: round; transition: stroke-dasharray .3s ease; }
   .pct { font-size: 10.5px; color: var(--text-3); }
+  /* Mobile: icon-only ring (no percent text) — the popover carries the detail. */
+  @media (max-width: 820px) {
+    .pct { display: none; }
+    .ring svg { width: 22px; height: 22px; }
+  }
   .pct i { font-style: normal; font-size: 8.5px; }
   .ring:hover .pct { color: var(--text-2); }
+
 
   .pop {
     position: absolute;
@@ -163,6 +168,19 @@
     z-index: var(--z-popover);
     animation: ocrc-pop .14s var(--ease-out, ease-out);
     cursor: default;
+  }
+/* Mobile pop: fit the viewport (declared after the base rule — the earlier
+     attempt sat before it and lost the cascade, overflowing 390px). */
+  @media (max-width: 820px) {
+    .pop {
+      width: min(72vw, 300px);
+      box-sizing: border-box;
+      /* Center-anchor on the ring icon (the wrap sits mid-footer on mobile —
+         left:0 ran 300px off-screen right, right:0 off-screen left). */
+      left: 50%;
+      right: auto;
+      transform: translateX(-50%);
+    }
   }
   .head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
   .label { font-size: 11px; font-weight: 600; color: var(--text-2); }

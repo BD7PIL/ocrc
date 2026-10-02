@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation'
   import { tick, onMount, onDestroy } from 'svelte'
   import { feeds, cardsOf, sessionList, prependHistory } from '$lib/stores/sessions.js'
-  import { leftPanelOpen, inspectorOpen, composerDraft, composerEmpty, feedResyncing } from '$lib/stores/ui.js'
+  import { leftPanelOpen, inspectorOpen, composerDraft, composerEmpty, feedResyncing, sessionBooting } from '$lib/stores/ui.js'
   import Suggestions from '$lib/components/Suggestions.svelte'
   import { api } from '$lib/api/client.js'
   import Card from '$lib/components/Card.svelte'
@@ -154,7 +154,11 @@
   $: if (sessionId !== chipsForSid) { chipsForSid = sessionId; chipsDismissed = false }
   let suggestions: string[] = []
   $: {
-    const chipGate = busy || chipsDismissed || !$composerEmpty
+    // STARTERS are for a GENUINELY empty session — while the history snapshot
+    // is still loading (feed absent) cards are also 0, and showing them then
+    // meant the chips flashed during load and vanished the instant history
+    // arrived (user report: "永远只在没加载完的时候出现").
+    const chipGate = busy || chipsDismissed || !$composerEmpty || !feed || $sessionBooting
     if (chipGate) suggestions = []
     else if (tier2.length > 0) suggestions = tier2
     else if (cards.length === 0) suggestions = STARTERS

@@ -8,6 +8,7 @@
   import { can } from '$lib/stores/capabilities.js'
   import { inspectorOpen } from '$lib/stores/ui.js'
   import { api } from '$lib/api/client.js'
+  import SideChatTab from './inspector/SideChatTab.svelte'
   import {
     sidePane, closePaneTab, reorderPaneTab, openHome, HOMES,
   } from '$lib/stores/sidePane.js'
@@ -56,6 +57,20 @@
   function onWindowClick(e: MouseEvent) { if (plusOpen && plusEl && !plusEl.contains(e.target as Node)) plusOpen = false }
   function onWindowKey(e: KeyboardEvent) { if (e.key === 'Escape') { plusOpen = false; tabsMenu = false } }
   let tabsMenu = false
+  let sideChatBusy = false
+  async function openSideChat() {
+    if (sideChatBusy) return
+    sideChatBusy = true
+    plusOpen = false
+    try {
+      const directory = session?.directory
+      const created = await api.createSession({ directory, title: '辅助对话' })
+      const id = created.id ?? created.session?.id
+      if (id) {
+        sidePane.openPaneTab({ id: `sidechat:${id}`, kind: 'sidechat', title: '辅助对话', childId: id })
+      }
+    } catch { /* best effort */ } finally { sideChatBusy = false }
+  }
   function closeOthers() {
     const keep = $sidePane.activeId
     for (const t of $sidePane.tabs) if (t.id !== keep) closePaneTab(t.id)
@@ -138,6 +153,8 @@
       <button class="plus-btn" aria-label="打开面板" title="打开面板" on:click={() => (plusOpen = !plusOpen)}>+</button>
       {#if plusOpen}
         <div class="plus-menu" role="menu">
+          <button role="menuitem" disabled={sideChatBusy} on:click={openSideChat}>辅助对话</button>
+          <div class="menu-sep"></div>
           {#each HOMES as h (h.homeId)}
             <button role="menuitem" on:click={() => { openHome(h.homeId); plusOpen = false }}>
               {h.title}{#if homeBadge(h.homeId)}<span class="tbadge mono">{homeBadge(h.homeId)}</span>{/if}
@@ -175,6 +192,8 @@
       <ToolOutputTab sessionId={activeTab.sessionId} messageId={activeTab.messageId} partId={activeTab.partId} {tick} />
     {:else if activeTab?.kind === 'git'}
       <GitTab {sessionId} {tick} />
+    {:else if activeTab?.kind === 'sidechat'}
+      <SideChatTab childId={activeTab.childId} {tick} />
     {:else}
       <div class="launcher">
         <p class="l-title">打开面板</p>
@@ -196,6 +215,11 @@
               </span>
             </button>
           {/each}
+          <div class="l-sep"></div>
+          <button class="l-card" disabled={sideChatBusy} on:click={openSideChat}>
+            <span class="l-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+            <span class="l-text">辅助对话</span>
+          </button>
           <div class="l-sep"></div>
           <button class="l-card" on:click={() => sidePane.openPaneTab({ id: 'git', kind: 'git', title: 'Git' })}>
             <span class="l-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M8 7c6 0 8 2 8 6v2.5"/></svg></span>

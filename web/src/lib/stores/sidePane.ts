@@ -18,6 +18,7 @@ export type PaneTab =
   | { id: string; kind: 'file'; title: string; path: string; directory: string }
   | { id: string; kind: 'tool'; title: string; sessionId: string; messageId: string; partId: string }
   | { id: string; kind: 'git'; title: string }
+  | { id: string; kind: 'sidechat'; title: string; childId: string }
 
 export interface PaneState {
   tabs: PaneTab[]
@@ -46,6 +47,7 @@ function validTab(t: unknown): t is PaneTab {
     case 'file': return typeof x.path === 'string' && typeof x.directory === 'string'
     case 'tool': return typeof x.sessionId === 'string' && typeof x.messageId === 'string' && typeof x.partId === 'string'
     case 'git': return true
+    case 'sidechat': return typeof x.childId === 'string'
     default: return false
   }
 }

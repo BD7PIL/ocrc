@@ -29,6 +29,7 @@ export function registerVcs(app: Hono, reg: BackendRegistry) {
 export function registerRevert(app: Hono, reg: BackendRegistry) {
   const run = (action: 'revert' | 'unrevert' | 'state') =>
     async (c: any) => {
+      if (action === 'revert' && !c.req.query('messageID')) return c.json({ error: 'messageID required' }, 400)
       const id = c.req.param('id')
       const backend = reg.forSession(id)
       if (action === 'state') {
@@ -38,7 +39,10 @@ export function registerRevert(app: Hono, reg: BackendRegistry) {
       }
       const fn = action === 'revert' ? backend.revertSession : backend.unrevertSession
       if (!fn) return c.json({ error: 'unsupported' }, 501)
-      const body = await fn.call(backend, id)
+      const body =
+        action === 'revert'
+          ? await backend.revertSession!(id, String(c.req.query('messageID') ?? ''))
+          : await backend.unrevertSession!(id)
       return body ? c.json(body) : c.json({ error: 'unavailable' }, 404)
     }
   app.post('/api/session/:id/revert', run('revert'))

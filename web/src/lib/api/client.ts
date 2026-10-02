@@ -68,7 +68,7 @@ export const api = {
   sessions: () => jsonGet<SessionSummary[]>('/api/sessions'),
   cleanupSubagents: () => jsonPost<{ deleted: number }>('/api/sessions/cleanup-subagents', {}),
   /** Revert the last exchange / undo a revert (opencode session.revert). */
-  revertSession: (id: string) => jsonPost<{ id: string; revert?: { messageID: string } }>(`/api/session/${id}/revert`, {}),
+  revertSession: (id: string, messageId: string) => jsonPost<{ id: string; revert?: { messageID: string } }>(`/api/session/${id}/revert?messageID=${encodeURIComponent(messageId)}`, {}),
   unrevertSession: (id: string) => jsonPost<{ id: string; revert?: { messageID: string } }>(`/api/session/${id}/unrevert`, {}),
   revertState: (id: string) => jsonGet<{ reverted: boolean; messageID?: string }>(`/api/session/${id}/revert-state`),
   deleteSession: (id: string) => jsonPost<{ ok: boolean }>(`/api/sessions/${id}/delete`, {}),

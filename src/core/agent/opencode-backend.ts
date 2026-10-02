@@ -652,15 +652,21 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
   }
 
 
-  async function revertOrUnrevert(sessionId: string, action: 'revert' | 'unrevert'): Promise<{ id: string; revert?: { messageID: string } } | undefined> {
+  async function revertOrUnrevert(sessionId: string, action: 'revert' | 'unrevert', messageId?: string): Promise<{ id: string; revert?: { messageID: string } } | undefined> {
     try {
-      const res = await ocFetch(`${baseUrl}/session/${encodeURIComponent(sessionId)}/${action}`, { method: 'POST' })
+      // revert REQUIRES {messageID} (revert up to and including that message);
+      // unrevert takes no body (restores the last revert).
+      const res = await ocFetch(`${baseUrl}/session/${encodeURIComponent(sessionId)}/${action}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(action === 'revert' ? { messageID: messageId } : {}),
+      })
       if (!res.ok) { log.warn(`session ${action} HTTP ${res.status}`); return undefined }
       const body = (await res.json()) as any
       return { id: String(body?.id ?? sessionId), revert: body?.revert ?? undefined }
     } catch (err) { log.warn(`session ${action} failed`, (err as Error).message); return undefined }
   }
-  const revertSession = (sessionId: string) => revertOrUnrevert(sessionId, 'revert')
+  const revertSession = (sessionId: string, messageId: string) => revertOrUnrevert(sessionId, 'revert', messageId)
   const unrevertSession = (sessionId: string) => revertOrUnrevert(sessionId, 'unrevert')
 
   async function getSessionRevert(sessionId: string): Promise<{ reverted: boolean; messageID?: string } | undefined> {

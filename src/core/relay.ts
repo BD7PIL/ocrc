@@ -338,7 +338,7 @@ const messageRoles = new Map<string, Map<string, string>>()
     const thinkingText = acc.getReasoningText().trim() || undefined
 
     log.info(`relay: publishing assistant card for ${sessionId}, blocks=${blocks.length}`)
-    deps.cardBus.publish({ kind: 'assistant', sessionId, blocks, meta, id: cardId, thinkingText })
+    deps.cardBus.publish({ kind: 'assistant', sessionId, blocks, meta, id: cardId, thinkingText, messageId: assistantMessageId })
     // Mark delivery so the push engine doesn't also fire a "Session finished"
     // notification for a session the user just watched complete.
     deps.state.markAssistantDelivered(sessionId)

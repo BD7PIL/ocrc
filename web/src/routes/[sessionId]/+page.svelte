@@ -137,10 +137,10 @@
 
   // Revert the last exchange (opencode session.revert), then reload the feed —
   // the server hides messages after the revert point (unrevert restores them).
-  async function revertLast() {
-    if (!sessionId) return
+  async function revertLast(messageId?: string) {
+    if (!sessionId || !messageId) return
     try {
-      await api.revertSession(sessionId)
+      await api.revertSession(sessionId, messageId)
       const { cards, lastSeq } = await api.history(sessionId)
       const { setHistory } = await import('$lib/stores/sessions.js')
       setHistory(sessionId, cards, lastSeq)
@@ -308,7 +308,7 @@
         {card}
         onRetry={retryLast}
         onRegenerate={card.id === lastCard?.id && card.kind === 'assistant' && !busy ? regenerateLast : undefined}
-        onRevert={card.id === lastCard?.id && card.kind === 'assistant' && !busy ? revertLast : undefined}
+        onRevert={card.id === lastCard?.id && card.kind === 'assistant' && !busy ? () => revertLast(lastCard.messageId) : undefined}
       />
     {/each}
     <div class="stream-end" bind:this={endEl} aria-hidden="true"></div>

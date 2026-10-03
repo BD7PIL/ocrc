@@ -446,3 +446,11 @@ body {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+/* Center-anchored pop (mobile context ring): the translateX offset must be
+   baked into every animation frame, or the shared scale keyframes override
+   it mid-play and the popover jumps right then snaps back. */
+@keyframes ocrc-pop-center {
+  from { opacity: 0; transform: translateX(-50%) scale(.94); }
+  to { opacity: 1; transform: translateX(-50%) scale(1); }
+}

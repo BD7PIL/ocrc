@@ -174,6 +174,9 @@
       left: 50%;
       right: auto;
       transform: translateX(-50%);
+      /* ocrc-pop's scale frames REPLACE this transform mid-play — the popover
+         jumped right by half its width then snapped back (user report). */
+      animation-name: ocrc-pop-center;
     }
   }
   .head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }

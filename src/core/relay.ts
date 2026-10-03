@@ -120,8 +120,13 @@ interface PluginSessionCtx {
   partTextAcc: Map<string, string>
   signal: AbortSignal
   timer: ReturnType<typeof setTimeout>
-  /** Streaming-broadcast throttle state (leading + trailing 120ms). */
+  /** Streaming-broadcast throttle state (leading + trailing). */
   flushTimer?: ReturnType<typeof setTimeout>
+  /** sdelta batching (0.25.1): partId → coalesced increments, flushed on a
+   *  250ms timer (and always just before a snapshot) so per-frame envelope
+   *  cost doesn't dominate on token-rate streams. */
+  pendingDelta: Map<string, string>
+  deltaTimer?: ReturnType<typeof setTimeout>
   /** Provisional abort key kept registered alongside sessionId until the turn ends. */
   abortKey?: string
   /** Releases the per-session turn queue so the next queued message may start. */
@@ -153,6 +158,7 @@ const messageRoles = new Map<string, Map<string, string>>()
     if (ctx) {
       clearTimeout(ctx.timer)
       if (ctx.flushTimer) { clearTimeout(ctx.flushTimer); ctx.flushTimer = undefined }
+      if (ctx.deltaTimer) { clearTimeout(ctx.deltaTimer); ctx.deltaTimer = undefined }
       pluginSessions.delete(sessionId)
       if (ctx.abortKey) deps.state.setActiveAbort(ctx.abortKey, undefined)
       ctx.releaseTurn?.()
@@ -282,6 +288,7 @@ const messageRoles = new Map<string, Map<string, string>>()
         processedPartIds: new Set(),
         partTextAcc: new Map(),
         partMsgIds: new Map(),
+        pendingDelta: new Map(),
         blocks: [],
         assistantConfirmed: false,
         signal: ac.signal,
@@ -388,22 +395,38 @@ const messageRoles = new Map<string, Map<string, string>>()
     }
 
     /**
-     * Streaming broadcast throttle (web perf): every delta used to publish the
-     * FULL card immediately — WS bytes grew O(n²) with output length and the
-     * client re-rendered per delta. Each publish ships the whole accumulated
-     * card, so the interval SCALES with streamed volume: 120ms for short
-     * output (snappy), sparse checkpoints (2-3s) once tens of KB are in
-     * flight — `sdelta` frames carry the live increments between checkpoints
-     * (0.25.0), so snapshot bytes no longer dominate the stream. The idle
-     * finalize always lands the final card.
+     * sdelta batching (0.25.1): raw per-token frames measured 180B envelope
+     * per ~2B payload in production — overhead BEAT the snapshots on small
+     * turns. Deltas therefore coalesce per ctx and flush as one frame per
+     * part every 250ms, and ALWAYS immediately before a snapshot card: wire
+     * order "deltas then the snapshot containing them" is what lets the
+     * client wholesale-replace without double-appending.
+     */
+    function flushDeltas(ctx: PluginSessionCtx): void {
+      if (ctx.deltaTimer) { clearTimeout(ctx.deltaTimer); ctx.deltaTimer = undefined }
+      if (ctx.signal.aborted || !deps.onStreamDelta || ctx.pendingDelta.size === 0) { ctx.pendingDelta.clear(); return }
+      for (const [partId, text] of ctx.pendingDelta) {
+        deps.onStreamDelta({ sessionId: ctx.sessionId, cardId: ctx.cardId, partId, text })
+      }
+      ctx.pendingDelta.clear()
+    }
+
+    /**
+     * Streaming broadcast cadence (web perf): every delta used to publish the
+     * FULL card — WS bytes grew O(n²) with output length. Since 0.25.0 the
+     * live tail rides batched `sdelta` frames, so snapshot cards are pure
+     * checkpoints: 1s floor (TG's own streaming throttle is ≥1s anyway, and
+     * tool-status lag ≤1s is imperceptible), sparse 2-3s on huge streams.
+     * The idle finalize always lands the final card.
      */
     function streamGap(ctx: PluginSessionCtx): number {
       let chars = 0
       for (const t of ctx.partTextAcc.values()) chars += t.length
-      return chars > 150_000 ? 3000 : chars > 50_000 ? 2000 : chars > 5_000 ? 400 : 120
+      return chars > 150_000 ? 3000 : chars > 50_000 ? 2000 : 1000
     }
     function publishStreaming(ctx: PluginSessionCtx): void {
       if (ctx.signal.aborted) return
+      flushDeltas(ctx)
       const now = Date.now()
       const gap = streamGap(ctx)
       const last = streamLastPublish.get(ctx.cardId) ?? 0
@@ -417,6 +440,7 @@ const messageRoles = new Map<string, Map<string, string>>()
         ctx.flushTimer = undefined
         streamLastPublish.set(ctx.cardId, Date.now())
         if (!ctx.signal.aborted) {
+          flushDeltas(ctx)
           deps.cardBus.publish({ kind: 'streaming', sessionId: ctx.sessionId, blocks: stampMessageIds(ctx.acc.snapshotWithReasoning(), ctx.partMsgIds), id: ctx.cardId })
         }
       }, gap - (now - last))
@@ -472,6 +496,7 @@ const messageRoles = new Map<string, Map<string, string>>()
         processedPartIds: new Set(),
         partTextAcc: new Map(),
         partMsgIds: new Map(),
+        pendingDelta: new Map(),
         blocks: [],
         assistantConfirmed: false,
         signal: ac.signal,
@@ -515,11 +540,15 @@ const messageRoles = new Map<string, Map<string, string>>()
       if (!ctx) return
       if (role === 'assistant') ctx.assistantConfirmed = true
       if (e.messageId && e.partId) ctx.partMsgIds.set(e.partId, e.messageId)
-      // Forward the raw increment BEFORE accumulating: wire order is then
-      // delta-first, so any snapshot frame that follows already contains the
-      // text and wholesale-replaces it client-side (no double-append).
+      // Batch the raw increment for the web channel; the pending batch is
+      // flushed by its 250ms timer or by the next snapshot publish — either
+      // way the increments reach the wire BEFORE any snapshot containing
+      // them, so the client's wholesale replace stays append-safe.
       if (e.text && !ctx.signal.aborted) {
-        deps.onStreamDelta?.({ sessionId: sid, cardId: ctx.cardId, partId: e.partId, text: e.text })
+        ctx.pendingDelta.set(e.partId, (ctx.pendingDelta.get(e.partId) ?? '') + e.text)
+        if (!ctx.deltaTimer) {
+          ctx.deltaTimer = setTimeout(() => { ctx.deltaTimer = undefined; flushDeltas(ctx) }, 250)
+        }
       }
       const prev = ctx.partTextAcc.get(e.partId) ?? ''
       const fullText = prev + e.text

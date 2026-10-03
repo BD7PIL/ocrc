@@ -465,8 +465,8 @@ describe('createRelay', () => {
       })
 
       // Live: reasoning rides the streaming card in first-seen order… (the
-      // second publish coalesces onto the 120ms trailing tick — wait it out)
-      await new Promise((r) => setTimeout(r, 200))
+      // second publish coalesces onto the 1s checkpoint tick — wait it out)
+      await new Promise((r) => setTimeout(r, 1200))
       const lastStream = cards.filter(c => c.kind === 'streaming').at(-1) as any
       expect(lastStream.blocks.map((b: any) => b.type)).toEqual(['reasoning', 'text'])
 
@@ -551,9 +551,40 @@ describe('createRelay', () => {
       await relay.handleEvent({ kind: 'delta', sessionId: 'ses_plugin', partId: 'd1', text: 'lo' })
       // A user part's delta must never reach the channel (relay drops user text).
       await relay.handleEvent({ kind: 'delta', sessionId: 'ses_plugin', messageId: 'u1', partId: 'u1p', text: 'echo' })
-      expect(deltas).toEqual([
-        { sessionId: 'ses_plugin', cardId: expect.any(String), partId: 'd1', text: 'lo' },
-      ])
+      // Batched (0.25.1): same-part increments coalesce onto the 250ms flush.
+      await relay.handleEvent({ kind: 'delta', sessionId: 'ses_plugin', partId: 'd1', text: ' wo' })
+      await new Promise((r) => setTimeout(r, 300))
+      // Batch COUNT is load-dependent (the timer may fire between deltas) —
+      // the invariant is the joined text and the absent user echo.
+      expect(deltas.filter((d) => d.partId === 'd1').map((d) => d.text).join('')).toBe('lo wo')
+      expect(deltas.some((d) => d.partId === 'u1p')).toBe(false)
+      expect(deltas.every((d) => d.sessionId === 'ses_plugin' && typeof d.cardId === 'string')).toBe(true)
+    })
+
+    it('flushes pending sdelta before a snapshot card (replace-safe wire order)', async () => {
+      const cardBus = createCardBus()
+      const cards: StructuredCard[] = []
+      cardBus.subscribeAll((c) => cards.push(c))
+      const deltas: any[] = []
+      const state = fakeState()
+      state.getPinnedSessionId = () => 'ses_plugin'
+      const relay = createRelay({
+        cardBus,
+        backend: fakeBackend(),
+        state,
+        chatTimeoutMs: 5000,
+        tuiVisible: false,
+        onStreamDelta: (f) => deltas.push(f),
+      })
+      await relay({ userId: '1', chatId: '100', text: 'test', messageId: 'p5' })
+      await relay.handleEvent({ kind: 'part', sessionId: 'ses_plugin', part: { id: 'd1', type: 'text', text: 'Hel' } })
+      await relay.handleEvent({ kind: 'delta', sessionId: 'ses_plugin', partId: 'd1', text: 'lo' })
+      // The next part event publishes a snapshot — pending deltas must hit the
+      // wire first, or the client would re-append text the snapshot already has.
+      await relay.handleEvent({ kind: 'part', sessionId: 'ses_plugin', part: { id: 'd2', type: 'tool', tool: 'bash', args: 'ls', status: 'running' } })
+      const snapIdx = cards.findIndex((c) => c.kind === 'streaming')
+      expect(snapIdx).toBeGreaterThanOrEqual(0)
+      expect(deltas.map((d) => d.text)).toEqual(['lo'])
     })
 
     it('deduplicates tools by part.id on repeated tool updates', async () => {
@@ -781,8 +812,8 @@ describe('createRelay > streaming broadcast throttle', () => {
     }
     const streamingCount = cards.filter((c) => c.kind === 'streaming').length
     expect(streamingCount).toBeLessThan(15)
-    // the trailing tick lands the latest content
-    await new Promise((r) => setTimeout(r, 300))
+    // the trailing tick lands the latest content (checkpoint gap is 1s now)
+    await new Promise((r) => setTimeout(r, 1300))
     const last = cards.filter((c) => c.kind === 'streaming').at(-1) as any
     expect(last.blocks.some((b: any) => b.text?.includes('chunk 49'))).toBe(true)
   })

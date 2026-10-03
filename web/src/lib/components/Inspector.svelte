@@ -293,7 +293,15 @@
     text-align: left;
     cursor: pointer;
     transition: border-color .12s ease, color .12s ease;
+    /* Entrance: rise + per-card stagger (Suggestions register). */
+    animation: ocrc-rise 200ms var(--ease-out, ease-out) backwards;
   }
+  .l-card:nth-child(1) { animation-delay: 30ms; }
+  .l-card:nth-child(2) { animation-delay: 75ms; }
+  .l-card:nth-child(3) { animation-delay: 120ms; }
+  .l-card:nth-child(4) { animation-delay: 165ms; }
+  .l-card:nth-child(5) { animation-delay: 210ms; }
+  .l-card:nth-child(n+6) { animation-delay: 255ms; }
   .l-card:hover { border-color: var(--accent-line); color: var(--text); }
   .l-ico { display: inline-flex; flex-shrink: 0; color: var(--text-3); }
   .l-card:hover .l-ico { color: var(--accent); }

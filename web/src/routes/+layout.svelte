@@ -372,10 +372,12 @@
         aria-label="调整检查器宽度"
         on:pointerdown={(e) => startResize('insp', e)}
       ></div>
-      <div class="inspector-wrap" class:open={$inspectorOpen}>
+    {/if}
+    <div class="inspector-wrap" class:collapsed-insp={!$inspectorOpen && !isMobile} class:open={$inspectorOpen}>
+      <div class="inspector-surface">
         <Inspector sessionId={$page.params.sessionId} />
       </div>
-    {/if}
+    </div>
   </div>
 </div>
 <CommandPalette open={$paletteOpen} on:close={() => paletteOpen.set(false)} />
@@ -427,7 +429,32 @@
        swallows the strip's clicks (found by the click-through test). */
     pointer-events: none;
   }
-  .inspector-wrap { display: contents; }
+  /* Right pane = separated surface (ZCode register): a gap of frame colour
+     between center and pane, the pane on its own rounded card. Collapsed =
+     slide behind the center edge (translate + negative margin, same proven
+     pattern as the rail) — content stays mounted, tabs persist. */
+  .inspector-wrap {
+    width: var(--insp-w, 380px);
+    flex-shrink: 0;
+    padding-left: 10px;
+    background: var(--bg);
+    overflow: hidden;
+    position: relative;
+    z-index: 1;
+    transition: transform .24s var(--ease-out, ease-out);
+  }
+  .inspector-wrap :global(.inspector) {
+    width: 100%;
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius);
+  }
+  .inspector-wrap:not(:has(.inspector)) { background: transparent; }
+  /* collapsed: slide right + hand back the flex width */
+  .inspector-wrap.collapsed-insp {
+    transform: translateX(calc(100% + 10px));
+    margin-right: calc(-1 * (var(--insp-w, 380px) + 10px));
+    pointer-events: none;
+  }
   /* Collapsed-rail strip — the always-present restore handle at the screen's
      left edge. Mobile hides it (drawers have their own toggles). */
   .rail-strip {
@@ -480,6 +507,8 @@
       display: block;
       position: absolute; left: 0; right: 0; bottom: var(--kb, 0px); top: auto; z-index: var(--z-sheet);
       width: 100%; height: min(82vh, 580px);
+      padding-left: 0;
+      background: transparent;
       overflow: hidden;
       transition: transform .24s ease;
       /* Hidden = fully below the visible bottom, INCLUDING the --kb toolbar lift. */
@@ -487,6 +516,11 @@
       border-radius: var(--radius) var(--radius) 0 0;
       box-shadow: 0 -10px 44px rgba(0,0,0,.55);
     }
+    .inspector-wrap.collapsed-insp {
+      transform: translateY(calc(100% + var(--kb, 0px)));
+      margin-right: 0;
+    }
+    .inspector-wrap :global(.inspector) { border: none; border-radius: 0; }
     .inspector-wrap.open { transform: translateY(0); }
 
     .rail-wrap :global(.agent-panel), .rail-wrap :global(.panel) { width: 100%; }

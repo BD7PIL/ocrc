@@ -561,11 +561,36 @@ describe('createRelay', () => {
       expect(deltas.every((d) => d.sessionId === 'ses_plugin' && typeof d.cardId === 'string')).toBe(true)
     })
 
+    it('batches sdelta frames: 50 rapid deltas land in few frames', async () => {
+      const deltas: any[] = []
+      const state = fakeState()
+      state.getPinnedSessionId = () => 'ses_plugin'
+      const relay = createRelay({
+        cardBus: createCardBus(),
+        backend: fakeBackend(),
+        state,
+        chatTimeoutMs: 30_000,
+        tuiVisible: false,
+        onStreamDelta: (f) => deltas.push(f),
+      })
+      await relay({ userId: '1', chatId: '100', text: 'go', messageId: 'p5' })
+      for (let i = 0; i < 50; i++) {
+        await relay.handleEvent({ kind: 'delta', sessionId: 'ses_plugin', partId: 'd1', text: `c${i} ` })
+        await new Promise((r) => setTimeout(r, 4))
+      }
+      await new Promise((r) => setTimeout(r, 300))
+      const joined = deltas.filter((d) => d.partId === 'd1').map((d) => d.text).join('')
+      expect(joined).toContain('c49 ')
+      // One flush is snapshot-aligned (the leading publish), one is the 250ms
+      // timer — per-token emission would be 50 frames (0.25.1 regression guard).
+      expect(deltas.length).toBeLessThanOrEqual(4)
+    })
+
     it('flushes pending sdelta before a snapshot card (replace-safe wire order)', async () => {
       const cardBus = createCardBus()
       const cards: StructuredCard[] = []
-      cardBus.subscribeAll((c) => cards.push(c))
-      const deltas: any[] = []
+      const events: Array<{ k: 'd'; text: string } | { k: 's' }> = []
+      cardBus.subscribeAll((c) => { if (c.kind === 'streaming') { cards.push(c); events.push({ k: 's' }) } })
       const state = fakeState()
       state.getPinnedSessionId = () => 'ses_plugin'
       const relay = createRelay({
@@ -574,17 +599,31 @@ describe('createRelay', () => {
         state,
         chatTimeoutMs: 5000,
         tuiVisible: false,
-        onStreamDelta: (f) => deltas.push(f),
+        onStreamDelta: (f) => events.push({ k: 'd', text: f.text }),
       })
       await relay({ userId: '1', chatId: '100', text: 'test', messageId: 'p5' })
       await relay.handleEvent({ kind: 'part', sessionId: 'ses_plugin', part: { id: 'd1', type: 'text', text: 'Hel' } })
-      await relay.handleEvent({ kind: 'delta', sessionId: 'ses_plugin', partId: 'd1', text: 'lo' })
-      // The next part event publishes a snapshot — pending deltas must hit the
-      // wire first, or the client would re-append text the snapshot already has.
-      await relay.handleEvent({ kind: 'part', sessionId: 'ses_plugin', part: { id: 'd2', type: 'tool', tool: 'bash', args: 'ls', status: 'running' } })
-      const snapIdx = cards.findIndex((c) => c.kind === 'streaming')
-      expect(snapIdx).toBeGreaterThanOrEqual(0)
-      expect(deltas.map((d) => d.text)).toEqual(['lo'])
+
+      // Drive the checkpoint clock deterministically: batch a delta, run out
+      // its 250ms flush, then let the 1s trailing snapshot publish.
+      vi.useFakeTimers()
+      try {
+        await relay.handleEvent({ kind: 'delta', sessionId: 'ses_plugin', partId: 'd1', text: 'lo' })
+        await vi.advanceTimersByTimeAsync(400)
+        await relay.handleEvent({ kind: 'delta', sessionId: 'ses_plugin', partId: 'd1', text: ' wo' })
+        await vi.advanceTimersByTimeAsync(700)
+      } finally {
+        vi.useRealTimers()
+      }
+      const lastDelta = events.map((e) => e.k).lastIndexOf('d')
+      const lastSnap = events.map((e) => e.k).lastIndexOf('s')
+      expect(lastSnap).toBeGreaterThan(0)
+      expect(lastDelta).toBeGreaterThan(0)
+      // Every flushed increment reached the wire BEFORE the snapshot that
+      // contains it — the client wholesale-replaces, so a delta after the
+      // snapshot would double-append.
+      expect(lastDelta).toBeLessThan(lastSnap)
+      expect((cards.at(-1) as any).blocks.some((b: any) => b.text === 'Hello wo')).toBe(true)
     })
 
     it('deduplicates tools by part.id on repeated tool updates', async () => {

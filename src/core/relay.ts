@@ -426,12 +426,14 @@ const messageRoles = new Map<string, Map<string, string>>()
     }
     function publishStreaming(ctx: PluginSessionCtx): void {
       if (ctx.signal.aborted) return
-      flushDeltas(ctx)
       const now = Date.now()
       const gap = streamGap(ctx)
       const last = streamLastPublish.get(ctx.cardId) ?? 0
       if (now - last >= gap) {
         streamLastPublish.set(ctx.cardId, now)
+        // Flush ONLY where a snapshot actually goes out — publishStreaming runs
+        // on every delta, and a top-level flush would defeat the batching.
+        flushDeltas(ctx)
         deps.cardBus.publish({ kind: 'streaming', sessionId: ctx.sessionId, blocks: stampMessageIds(ctx.acc.snapshotWithReasoning(), ctx.partMsgIds), id: ctx.cardId })
         return
       }

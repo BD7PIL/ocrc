@@ -69,7 +69,7 @@
   let timer: ReturnType<typeof setTimeout> | undefined
   $: seq = $feeds[sessionId]?.lastSeq ?? 0
   $: if (seq !== lastSeqSeen) { lastSeqSeen = seq; clearTimeout(timer); timer = setTimeout(() => (tick += 1), 1000) }
-  $: if (tick) { void refresh(sessionId); void refreshSubs(sessionId) }
+  $: if (tick && (typeof document === 'undefined' || !document.hidden)) { void refresh(sessionId); void refreshSubs(sessionId) }
   onDestroy(() => clearTimeout(timer))
 
   $: session = $sessionList.find((r) => r.id === sessionId)

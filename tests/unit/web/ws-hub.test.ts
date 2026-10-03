@@ -224,3 +224,20 @@ describe('WsHub multi-subscribe (right-pane live tabs)', () => {
     expect(replayed).toEqual(['ses_child'])
   })
 })
+
+describe('WsHub fan-out stringify', () => {
+  it('sends identical card bytes to multiple clients (single serialization)', async () => {
+    const bus = createCardBus()
+    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const wsA = fakeWs()
+    const wsB = fakeWs()
+    await hub.attach(wsA as any, { email: 'a@x' } as any)
+    await hub.attach(wsB as any, { email: 'b@x' } as any)
+    hub.handleClientMessage(wsA as any, { type: 'subscribe', sessionId: 'ses_1' })
+    hub.handleClientMessage(wsB as any, { type: 'subscribe', sessionId: 'ses_1' })
+    bus.publish({ kind: 'thinking', sessionId: 'ses_1', showStop: true })
+    const a = wsA.sent.find((m: any) => m.type === 'card')
+    const b = wsB.sent.find((m: any) => m.type === 'card')
+    expect(a).toEqual(b)
+  })
+})

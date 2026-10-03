@@ -25,8 +25,16 @@
   }
   $: if (sessionId !== loadedFor) { loadedFor = sessionId; void load(sessionId) }
   $: seq = $feeds[sessionId]?.lastSeq ?? 0
-  $: if (seq !== lastSeqSeen) { lastSeqSeen = seq; clearTimeout(timer); timer = setTimeout(() => void load(sessionId), 1000) }
-  onDestroy(() => { clearTimeout(timer); clearTimeout(closeTimer) })
+  $: if (seq !== lastSeqSeen) {
+    lastSeqSeen = seq
+    clearTimeout(timer)
+    if (typeof document === 'undefined' || !document.hidden) {
+      timer = setTimeout(() => void load(sessionId), 1000)
+    }
+  }
+  function onVis() { if (!document.hidden) void load(sessionId) }
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVis)
+  onDestroy(() => { clearTimeout(timer); clearTimeout(closeTimer); if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVis) })
 
   $: tin = typeof ctx?.tokens?.input === 'number' ? (ctx.tokens.input as number) : 0
   $: tout = typeof ctx?.tokens?.output === 'number' ? (ctx.tokens.output as number) : 0

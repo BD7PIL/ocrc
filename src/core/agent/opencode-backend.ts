@@ -254,7 +254,19 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     return meta
   }
 
+  // Per-second readers (ContextRing + Inspector tick) hit getContext during
+  // streaming — it re-parses the FULL message list each call (MBs on long
+  // sessions). Short TTL keeps the UI live at a bounded cost.
+  const HOT_TTL_MS = 1500
+  const hotCache = new Map<string, { at: number; data: unknown }>()
+  function hotCached<T>(key: string, ttl: number, load: () => Promise<T>): Promise<T> {
+    const hit = hotCache.get(key)
+    if (hit && Date.now() - hit.at < ttl) return Promise.resolve(hit.data as T)
+    return load().then((data) => { hotCache.set(key, { at: Date.now(), data }); return data })
+  }
+
   async function getContext(id: string): Promise<SessionContext> {
+    return hotCached(`ctx:${id}`, HOT_TTL_MS, async () => {
     const s = ((await client.session.get({ path: { id } })).data ?? {}) as any
 
     // A session can switch models mid-way, and the live context window belongs to
@@ -309,6 +321,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
       cost: typeof s.cost === 'number' ? s.cost : undefined, // caller falls back to state
       directory: typeof s.directory === 'string' ? s.directory : undefined,
     }
+    })
   }
 
   async function getHistory(id: string, limit?: number, offset?: number): Promise<StructuredCard[]> {
@@ -399,7 +412,9 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     }))
   }
 
-  async function getSubagents(sessionId: string): Promise<SubagentInfo[]> {    const all = (await listAllSessions(client)) as Array<{
+  async function getSubagents(sessionId: string): Promise<SubagentInfo[]> {
+    return hotCached(`subs:${sessionId}`, 4000, async () => {
+    const all = (await listAllSessions(client)) as Array<{
       id: string; parentID?: string; title?: string; time?: { updated?: number }
     }>
     const children = all.filter((s) => s.parentID === sessionId).slice(0, 8)
@@ -415,6 +430,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
       out.push({ id: c.id, title: c.title ?? '', updatedAt: c.time?.updated, done, total })
     }
     return out
+    })
   }
 
   async function getMcp(directory?: string): Promise<McpServer[]> {

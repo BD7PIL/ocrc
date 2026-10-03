@@ -35,8 +35,17 @@
   let lastSeen = -1
   let timer: ReturnType<typeof setTimeout> | undefined
   $: seq = sessionId ? ($feeds[sessionId]?.lastSeq ?? 0) : 0
-  $: if (seq !== lastSeen) { lastSeen = seq; clearTimeout(timer); timer = setTimeout(() => (tick += 1), 1000) }
-  onDestroy(() => clearTimeout(timer))
+  // Background tabs skip the tick fan-out (each tick = todo/subagents/context
+  // round trips); returning to the tab refreshes once.
+  $: if (seq !== lastSeen) {
+    lastSeen = seq
+    clearTimeout(timer)
+    if (typeof document === 'undefined' || !document.hidden) {
+      timer = setTimeout(() => (tick += 1), 1000)
+    }
+  }
+  function onVisible() { if (!document.hidden) tick += 1 }
+  onDestroy(() => { clearTimeout(timer); document.removeEventListener('visibilitychange', onVisible) })
 
   $: activeId = $sidePane.activeId
   $: activeTab = $sidePane.tabs.find((t) => t.id === activeId)

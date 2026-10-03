@@ -32,10 +32,15 @@ export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry;
   opts.cardBus.subscribeAll((card) => {
     if (isProactive(card)) return
     const sid = 'sessionId' in card ? card.sessionId : undefined
-    for (const state of clients.values()) {
-      if (state.ws.readyState !== 1) continue
-      if (sid && state.subscribed.size > 0 && !state.subscribed.has(sid)) continue
-      try { state.ws.send(JSON.stringify({ type: 'card', card })) } catch {}
+    const targets = [...clients.values()].filter(
+      (state) => state.ws.readyState === 1 && (!sid || state.subscribed.size === 0 || state.subscribed.has(sid)),
+    )
+    if (targets.length === 0) return
+    // Serialize ONCE for all clients — streaming replays stringify the full
+    // card per client otherwise (O(clients × cardSize) JSON work per frame).
+    const payload = JSON.stringify({ type: 'card', card })
+    for (const state of targets) {
+      try { state.ws.send(payload) } catch {}
     }
   })
 

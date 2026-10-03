@@ -6,7 +6,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import type { BackendRegistry } from '../../core/agent/registry.js'
 import type { IncomingMessage, ChannelCapabilities } from '../../core/types.js'
 import type { Transport, TransportStartDeps } from '../interface.js'
-import type { StructuredCard } from '../../core/structured-card.js'
+import type { StreamDeltaFrame, StructuredCard } from '../../core/structured-card.js'
 import { buildServer } from './server.js'
 import { createWsHub } from './ws-hub.js'
 import { createLogger } from '../../utils/logger.js'
@@ -28,6 +28,10 @@ export interface WebTransportConfig {
   telegramStatus?: () => { connected: boolean; username?: string } | null
   /** M11 pending-token pairing store (optional). */
   pairing?: import('../../connectivity/pairing.js').PairingStore
+  /** sdelta wiring (0.25.0): the host passes a sink object; start() binds it to
+   *  the WS hub so relay deltas reach subscribed clients. Mutable slot because
+   *  the transport (and its hub) boots after the relay is constructed. */
+  streamDeltaSink?: { broadcast?: (frame: StreamDeltaFrame) => void }
 }
 
 const CAPS: ChannelCapabilities = {
@@ -48,6 +52,7 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         throw new Error(`Web static root not found: ${cfg.staticRoot}. Run 'cd web && npm run build' first.`)
       }
       const wsHub = createWsHub({ cardBus: deps.cardBus, registry: cfg.registry, state: deps.state })
+      if (cfg.streamDeltaSink) cfg.streamDeltaSink.broadcast = (frame) => wsHub.broadcastDelta(frame)
       const app = buildServer({
         auth: cfg.auth,
         registry: cfg.registry,

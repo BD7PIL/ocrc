@@ -28,12 +28,29 @@ export interface Button {
 /** A single block in a streaming or final assistant message. Order matters.
  *  `reasoning` blocks ride ONLY on streaming cards (live thinking); the final
  *  assistant card carries the turn's reasoning as `thinkingText` instead.
- *  Tool blocks carry partId/messageId when known — the web transcript uses
- *  them to open full-output pages (GET /api/session/:id/message/:msgId). */
+ *  Blocks carry partId when known — the web transcript keys renders by it and
+ *  applies `sdelta` frames (below) to the matching block; tool blocks also
+ *  carry messageId to open full-output pages (GET /api/session/:id/message/:msgId). */
 export type ContentBlock =
-  | { type: 'text'; text: string }
+  | { type: 'text'; text: string; partId?: string }
   | { type: 'tool'; tool: string; args: string; status: 'running' | 'done' | 'error'; partId?: string; messageId?: string }
-  | { type: 'reasoning'; text: string }
+  | { type: 'reasoning'; text: string; partId?: string }
+
+/**
+ * Incremental streaming frame (0.25.0): the raw text increment from
+ * message.part.delta, relayed to WS clients WITHOUT the CardBus (never
+ * buffered, no seq, replay never carries it). A throttled full `streaming`
+ * card remains the authoritative snapshot — it wholesale-replaces whatever
+ * deltas applied, so ordering or drop concerns reduce to "the next snapshot
+ * heals the feed". Single TCP stream ⇒ deltas arrive in emit order.
+ */
+export interface StreamDeltaFrame {
+  sessionId: string
+  /** The streaming card these deltas belong to (ctx.cardId). */
+  cardId: string
+  partId: string
+  text: string
+}
 
 /**
  * Identity stamped by CardBus.publish (callers don't set these):

@@ -29,6 +29,26 @@ function fakeState() {
 }
 
 describe('WsHub', () => {
+  it('broadcastDelta follows the subscription filter and is never buffered', async () => {
+    const bus = createCardBus()
+    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const sub = fakeWs()
+    const other = fakeWs()
+    await hub.attach(sub as any, { email: 'u@x' } as any)
+    await hub.attach(other as any, { email: 'u@x' } as any)
+    hub.handleClientMessage(sub as any, { type: 'subscribe', sessionId: 'ses_1' })
+    hub.handleClientMessage(other as any, { type: 'subscribe', sessionId: 'ses_2' })
+    hub.broadcastDelta({ sessionId: 'ses_1', cardId: 'turn:1', partId: 'p1', text: 'lo' })
+    hub.broadcastDelta({ sessionId: 'ses_2', cardId: 'turn:2', partId: 'p1', text: 'x' })
+    const deltas = sub.sent.filter((m: any) => m.type === 'sdelta')
+    expect(deltas).toEqual([
+      { type: 'sdelta', sessionId: 'ses_1', cardId: 'turn:1', partId: 'p1', text: 'lo' },
+    ])
+    expect(other.sent.filter((m: any) => m.type === 'sdelta').map((m: any) => m.sessionId)).toEqual(['ses_2'])
+    // Deltas bypass the CardBus — replay never carries them.
+    expect(bus.recent('ses_1')).toHaveLength(0)
+    expect(bus.currentSeq('ses_1')).toBe(0)
+  })
   it('broadcasts cards for subscribed sessionId', async () => {
     const bus = createCardBus()
     const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })

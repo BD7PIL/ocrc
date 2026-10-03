@@ -1,5 +1,5 @@
 import type { CardBus } from './card-bus.js'
-import type { ContentBlock } from './structured-card.js'
+import type { ContentBlock, StreamDeltaFrame } from './structured-card.js'
 import type { IncomingMessage } from './types.js'
 import type { SessionState } from './state.js'
 import { createStreamAccumulator, type PartInput } from './stream-accumulator.js'
@@ -21,6 +21,10 @@ export interface RelayDeps {
   chatTimeoutMs: number
   /** Whether a local TUI is attached (navigate it to the active session). */
   tuiVisible: boolean
+  /** Web-only side channel (0.25.0): raw text deltas forwarded to the WS hub
+   *  as `sdelta` frames so throttled snapshot cards can stay sparse. Not wired
+   *  by Telegram-only hosts — those keep consuming CardBus snapshots. */
+  onStreamDelta?: (frame: StreamDeltaFrame) => void
 }
 
 const SUBMIT_MAX_RETRIES = 5
@@ -388,13 +392,15 @@ const messageRoles = new Map<string, Map<string, string>>()
      * FULL card immediately — WS bytes grew O(n²) with output length and the
      * client re-rendered per delta. Each publish ships the whole accumulated
      * card, so the interval SCALES with streamed volume: 120ms for short
-     * output (snappy), up to 1s once hundreds of KB are in flight (frames
-     * bounded per minute; the idle finalize always lands the final card).
+     * output (snappy), sparse checkpoints (2-3s) once tens of KB are in
+     * flight — `sdelta` frames carry the live increments between checkpoints
+     * (0.25.0), so snapshot bytes no longer dominate the stream. The idle
+     * finalize always lands the final card.
      */
     function streamGap(ctx: PluginSessionCtx): number {
       let chars = 0
       for (const t of ctx.partTextAcc.values()) chars += t.length
-      return chars > 150_000 ? 1000 : chars > 50_000 ? 400 : 120
+      return chars > 150_000 ? 3000 : chars > 50_000 ? 2000 : chars > 5_000 ? 400 : 120
     }
     function publishStreaming(ctx: PluginSessionCtx): void {
       if (ctx.signal.aborted) return
@@ -509,6 +515,12 @@ const messageRoles = new Map<string, Map<string, string>>()
       if (!ctx) return
       if (role === 'assistant') ctx.assistantConfirmed = true
       if (e.messageId && e.partId) ctx.partMsgIds.set(e.partId, e.messageId)
+      // Forward the raw increment BEFORE accumulating: wire order is then
+      // delta-first, so any snapshot frame that follows already contains the
+      // text and wholesale-replaces it client-side (no double-append).
+      if (e.text && !ctx.signal.aborted) {
+        deps.onStreamDelta?.({ sessionId: sid, cardId: ctx.cardId, partId: e.partId, text: e.text })
+      }
       const prev = ctx.partTextAcc.get(e.partId) ?? ''
       const fullText = prev + e.text
       ctx.partTextAcc.set(e.partId, fullText)

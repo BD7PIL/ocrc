@@ -58,6 +58,11 @@ export function upsertCard(card: StructuredCard) {
   if (!('sessionId' in card) || !card.sessionId) return
   const sid = card.sessionId
   const id = cardId(card, 0)
+  // A full card frame is authoritative and newer than any buffered delta: the
+  // server emits sdelta frames BEFORE the snapshot containing them, so dropping
+  // pending deltas here can never lose text — but applying them after would
+  // double-append (see applyStreamDelta below).
+  clearPendingDeltas(id)
   feeds.update((map) => {
     const feed = map[sid] ?? emptyFeed()
     // Already processed up to lastSeq (history snapshot or earlier replay).
@@ -111,6 +116,70 @@ export function removeCard(id: string) {
     }
     return map
   })
+}
+
+// --- sdelta: incremental streaming appends (0.25.0) ---
+// Wire frames carry only the text increment (relay forwards message.part.delta
+// past the CardBus). Full snapshot cards stay authoritative: upsertCard clears
+// pending deltas (wire order is delta-before-snapshot, so the snapshot already
+// includes their text), and a delta that lands on a finalized/unknown card is
+// dropped — the final assistant card carries the complete text.
+
+/** `${sessionId}\0${cardId}` → partId → coalesced text. */
+const pendingDeltas = new Map<string, Map<string, string>>()
+let deltaFlushTimer: ReturnType<typeof setTimeout> | undefined
+
+export function applyStreamDelta(frame: { sessionId: string; cardId: string; partId: string; text: string }) {
+  if (!frame.text || !frame.cardId || !frame.sessionId) return
+  const key = `${frame.sessionId}\u0000${frame.cardId}`
+  let parts = pendingDeltas.get(key)
+  if (!parts) { parts = new Map(); pendingDeltas.set(key, parts) }
+  parts.set(frame.partId, (parts.get(frame.partId) ?? '') + frame.text)
+  // Coalesce token bursts into one store update per markdown parse gap.
+  if (deltaFlushTimer) return
+  deltaFlushTimer = setTimeout(flushStreamDeltas, 45)
+}
+
+function flushStreamDeltas() {
+  deltaFlushTimer = undefined
+  if (pendingDeltas.size === 0) return
+  const batches = [...pendingDeltas.entries()]
+  pendingDeltas.clear()
+  feeds.update((map) => {
+    let next = map
+    for (const [key, parts] of batches) {
+      const sep = key.indexOf('\u0000')
+      const feed = next[key.slice(0, sep)]
+      const cardId = key.slice(sep + 1)
+      const card = feed?.byId[cardId]
+      // Not a live streaming card (turn finalized, feed resynced, unknown):
+      // the snapshot/final card carries this text — dropping is correct.
+      if (!feed || card?.kind !== 'streaming') continue
+      const blocks = [...card.blocks]
+      let changed = false
+      for (const [partId, text] of parts) {
+        const i = blocks.findIndex((b) => b.type !== 'tool' && (b as { partId?: string }).partId === partId)
+        if (i >= 0 && (blocks[i].type === 'text' || blocks[i].type === 'reasoning')) {
+          blocks[i] = { ...blocks[i], text: (blocks[i] as { text: string }).text + text }
+          changed = true
+        } else if (i < 0) {
+          // Block not yet seen in a snapshot (first deltas raced it): a text
+          // block at the feed end; the next checkpoint restores true order.
+          blocks.push({ type: 'text', text, partId })
+          changed = true
+        }
+      }
+      if (!changed) continue
+      next = { ...next, [key.slice(0, sep)]: { ...feed, byId: { ...feed.byId, [cardId]: { ...card, blocks } } } }
+    }
+    return next
+  })
+}
+
+function clearPendingDeltas(cardId: string) {
+  for (const key of pendingDeltas.keys()) {
+    if (key.endsWith(`\u0000${cardId}`)) pendingDeltas.delete(key)
+  }
 }
 
 /** Replace a session's feed with historical cards (REST snapshot). */export function setHistory(sessionId: string, cards: StructuredCard[], lastSeq = 0) {

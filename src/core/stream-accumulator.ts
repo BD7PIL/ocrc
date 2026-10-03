@@ -69,7 +69,7 @@ export function createStreamAccumulator(): StreamAccumulator {
   function toContentBlocks(): ContentBlock[] {
     const result: ContentBlock[] = []
     for (const b of blocks) {
-      if (b.type === 'text') result.push({ type: 'text', text: b.text })
+      if (b.type === 'text') result.push({ type: 'text', text: b.text, partId: b.partId })
       else if (b.type === 'tool') result.push({ type: 'tool', tool: b.tool ?? 'unknown', args: b.args, status: b.status, partId: b.partId })
       // reasoning is excluded from the default public output — finalize() keeps
       // it off the final card; it rides out via snapshotWithReasoning() instead.
@@ -126,9 +126,9 @@ export function createStreamAccumulator(): StreamAccumulator {
     snapshotWithReasoning() {
       const result: ContentBlock[] = []
       for (const b of blocks) {
-        if (b.type === 'text') result.push({ type: 'text', text: b.text })
+        if (b.type === 'text') result.push({ type: 'text', text: b.text, partId: b.partId })
         else if (b.type === 'tool') result.push({ type: 'tool', tool: b.tool ?? 'unknown', args: b.args, status: b.status, partId: b.partId })
-        else if (b.type === 'reasoning') result.push({ type: 'reasoning', text: b.text })
+        else if (b.type === 'reasoning') result.push({ type: 'reasoning', text: b.text, partId: b.partId })
       }
       return result
     },

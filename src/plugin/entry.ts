@@ -141,12 +141,17 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
     // per-session routing has a registry to resolve against.
     const registry = createBackendRegistry({ backends: [{ id: backend.id, backend }], state })
 
+    // sdelta side channel (0.25.0): relay → WS hub. The web transport binds the
+    // sink when it starts; without web enabled, deltas are simply dropped here.
+    const streamDeltaSink: { broadcast?: (frame: import('../core/structured-card.js').StreamDeltaFrame) => void } = {}
+
     const relay = createRelay({
       cardBus,
       registry,
       state,
       chatTimeoutMs: config.chatTimeoutMs,
       tuiVisible: config.tuiVisible,
+      onStreamDelta: (frame) => streamDeltaSink.broadcast?.(frame),
     })
 
     // P2b-M7: cross-channel scheduled prompts. Due schedules dispatch through
@@ -217,6 +222,7 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
         scheduler,
         channels,
         pairing,
+        streamDeltaSink,
         telegramStatus: () => tgTransport?.status?.() ?? { connected: false },
         })
       webTransport.onMessage(relay)

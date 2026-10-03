@@ -5,6 +5,7 @@ import type {
   Button,
   ContentBlock,
   StructuredCard,
+  StreamDeltaFrame,
 } from '$shared/structured-card.js'
 
 export type {
@@ -14,6 +15,7 @@ export type {
   Button,
   ContentBlock,
   StructuredCard,
+  StreamDeltaFrame,
 }
 
 /** The 'tool' / 'text' / 'reasoning' variants of a ContentBlock. */

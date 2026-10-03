@@ -532,6 +532,30 @@ describe('createRelay', () => {
       expect(assistantCard.blocks.some((b: any) => b.type === 'text' && b.text === 'Hello world!')).toBe(true)
     })
 
+    it('forwards raw deltas as sdelta frames, skipping user-role parts', async () => {
+      const cardBus = createCardBus()
+      const deltas: any[] = []
+      const state = fakeState()
+      state.getPinnedSessionId = () => 'ses_plugin'
+      const relay = createRelay({
+        cardBus,
+        backend: fakeBackend(),
+        state,
+        chatTimeoutMs: 5000,
+        tuiVisible: false,
+        onStreamDelta: (f) => deltas.push(f),
+      })
+      await relay({ userId: '1', chatId: '100', text: 'test', messageId: 'p5' })
+      await relay.handleEvent({ kind: 'role', sessionId: 'ses_plugin', messageId: 'u1', role: 'user' })
+      await relay.handleEvent({ kind: 'part', sessionId: 'ses_plugin', part: { id: 'd1', type: 'text', text: 'Hel' } })
+      await relay.handleEvent({ kind: 'delta', sessionId: 'ses_plugin', partId: 'd1', text: 'lo' })
+      // A user part's delta must never reach the channel (relay drops user text).
+      await relay.handleEvent({ kind: 'delta', sessionId: 'ses_plugin', messageId: 'u1', partId: 'u1p', text: 'echo' })
+      expect(deltas).toEqual([
+        { sessionId: 'ses_plugin', cardId: expect.any(String), partId: 'd1', text: 'lo' },
+      ])
+    })
+
     it('deduplicates tools by part.id on repeated tool updates', async () => {
       const cardBus = createCardBus()
       const cards: StructuredCard[] = []

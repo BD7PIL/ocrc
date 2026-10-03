@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { get } from 'svelte/store'
-import { feeds, upsertCard, setHistory, pruneFeeds, cardsOf, isSeqGap, prependHistory } from './sessions.js'
+import { feeds, upsertCard, setHistory, pruneFeeds, cardsOf, isSeqGap, prependHistory, applyStreamDelta } from './sessions.js'
 import type { StructuredCard } from '../api/types.js'
 
 function feed(sid: string) {
@@ -9,6 +9,38 @@ function feed(sid: string) {
 
 describe('session feed store', () => {
   beforeEach(() => { feeds.set({}) })
+
+  it('applies coalesced sdelta increments to the live streaming card', () => {
+    vi.useFakeTimers()
+    try {
+      upsertCard({ kind: 'streaming', sessionId: 's', blocks: [{ type: 'text', text: 'Hel', partId: 'p1' } as any], id: 'turn:1', seq: 1 })
+      applyStreamDelta({ sessionId: 's', cardId: 'turn:1', partId: 'p1', text: 'lo' })
+      applyStreamDelta({ sessionId: 's', cardId: 'turn:1', partId: 'p1', text: ' world' })
+      vi.advanceTimersByTime(50)
+      expect(((cardsOf(feed('s'))[0] as any).blocks[0]).text).toBe('Hello world')
+
+      // A full card frame is authoritative: buffered deltas are dropped, not
+      // applied on top (wire order = delta before the snapshot containing it).
+      applyStreamDelta({ sessionId: 's', cardId: 'turn:1', partId: 'p1', text: ' GHOST' })
+      upsertCard({ kind: 'streaming', sessionId: 's', blocks: [{ type: 'text', text: 'Hello world!', partId: 'p1' } as any], id: 'turn:1', seq: 2 })
+      vi.advanceTimersByTime(50)
+      expect(((cardsOf(feed('s'))[0] as any).blocks[0]).text).toBe('Hello world!')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('drops sdelta for a finalized turn — the final card carries the text', () => {
+    vi.useFakeTimers()
+    try {
+      upsertCard({ kind: 'assistant', sessionId: 's', blocks: [{ type: 'text', text: 'done' }], meta: {}, id: 'turn:2', seq: 1 })
+      applyStreamDelta({ sessionId: 's', cardId: 'turn:2', partId: 'p1', text: 'x' })
+      vi.advanceTimersByTime(50)
+      expect(((cardsOf(feed('s'))[0] as any).blocks[0]).text).toBe('done')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 
   it('appends distinct cards in order', () => {
     upsertCard({ kind: 'user', sessionId: 's', text: 'hi', ts: 1, id: 'u1', seq: 1 })

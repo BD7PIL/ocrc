@@ -8,7 +8,7 @@
   import { createWsClient } from '$lib/ws/client.js'
   import { setWsSend } from '$lib/ws/send.js'
   import { sidePane } from '$lib/stores/sidePane.js'
-  import { sessionList, feeds, upsertCard, setHistory, pruneFeeds, isSeqGap } from '$lib/stores/sessions.js'
+  import { sessionList, feeds, upsertCard, setHistory, pruneFeeds, isSeqGap, applyStreamDelta } from '$lib/stores/sessions.js'
   import { setViewedSession, noteSessionActivity } from '$lib/notify.js'
   import { capabilities, loadCapabilities, backends, loadBackends, viewedSessionId, applyAgentTheme } from '$lib/stores/capabilities.js'
   import { paletteOpen } from '$lib/stores/palette.js'
@@ -198,6 +198,11 @@
             clearTimeout(gapTimer)
             gapTimer = setTimeout(() => { void resyncViaRest(sid) }, 500)
           }
+        }
+        // Incremental streaming frames (0.25.0): append-only, no seq — the next
+        // full card frame is authoritative and clears whatever buffered here.
+        if (msg.type === 'sdelta' && msg.sessionId && msg.cardId) {
+          applyStreamDelta(msg as { sessionId: string; cardId: string; partId: string; text: string })
         }
         // hello (on connect) and sessions (live updates) both carry the list.
         if ((msg.type === 'hello' || msg.type === 'sessions') && msg.sessions) {

@@ -1,6 +1,6 @@
 import type { WebSocket } from 'ws'
 import type { CardBus } from '../../core/card-bus.js'
-import type { StructuredCard } from '../../core/structured-card.js'
+import type { StreamDeltaFrame, StructuredCard } from '../../core/structured-card.js'
 import type { SessionState } from '../../core/state.js'
 import type { BackendRegistry } from '../../core/agent/registry.js'
 import { fetchSessionSummaries } from './session-summary.js'
@@ -18,6 +18,9 @@ export interface WsHub {
   handleClientMessage(ws: WebSocket, msg: any): void
   detach(ws: WebSocket): void
   broadcast(card: StructuredCard): void
+  /** Incremental streaming frames (0.25.0): same subscription filter as
+   *  cards, but never buffered/replayed — the next snapshot card heals. */
+  broadcastDelta(frame: StreamDeltaFrame): void
 }
 
 export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry; state: SessionState }): WsHub {
@@ -90,5 +93,15 @@ export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry;
     },
     detach(ws) { clients.delete(ws) },
     broadcast(card) { /* cards flow via CardBus.publish */ },
+    broadcastDelta(frame) {
+      const targets = [...clients.values()].filter(
+        (state) => state.ws.readyState === 1 && (state.subscribed.size === 0 || state.subscribed.has(frame.sessionId)),
+      )
+      if (targets.length === 0) return
+      const payload = JSON.stringify({ type: 'sdelta', ...frame })
+      for (const state of targets) {
+        try { state.ws.send(payload) } catch {}
+      }
+    },
   }
 }

@@ -128,4 +128,19 @@ describe('StreamAccumulator', () => {
     expect(blockText(r1[0])).toBe('A')
     expect(blockText(r2[0])).toBe('AB')
   })
+
+  it('exposes partId on text/reasoning blocks (sdelta addressing, 0.25.0)', () => {
+    const acc = createStreamAccumulator()
+    acc.update([reasoningPart('r1', 'think'), textPart('t1', 'hello'), toolPart('tool1', 'bash', 'ls', 'running')])
+    expect(acc.snapshotWithReasoning()).toEqual([
+      { type: 'reasoning', text: 'think', partId: 'r1' },
+      { type: 'text', text: 'hello', partId: 't1' },
+      { type: 'tool', tool: 'bash', args: 'ls', status: 'running', partId: 'tool1' },
+    ])
+    // Final card: reasoning rides off, but partId stays for the web transcript.
+    expect(acc.finalize()).toEqual([
+      { type: 'text', text: 'hello', partId: 't1' },
+      { type: 'tool', tool: 'bash', args: 'ls', status: 'running', partId: 'tool1' },
+    ])
+  })
 })

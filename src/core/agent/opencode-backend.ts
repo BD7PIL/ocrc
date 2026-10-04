@@ -240,7 +240,10 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
       body: opts.title ? { title: opts.title } : {},
     } as any)
     const id = (res.data as { id?: string } | undefined)?.id
-    if (!id) throw new Error('create failed')
+    if (!id) {
+      log.error(`session.create no id: status=${res.response?.status} error=${JSON.stringify(res.error ?? null).slice(0, 300)} dataKeys=${res.data ? Object.keys(res.data as object).join(',') : 'null'}`)
+      throw new Error('create failed')
+    }
     return { id }
   }
 

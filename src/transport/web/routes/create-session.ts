@@ -1,5 +1,8 @@
 import type { Hono } from 'hono'
 import type { BackendRegistry } from '../../../core/agent/registry.js'
+import { createLogger } from '../../../utils/logger.js'
+
+const log = createLogger('create-session')
 
 export function registerCreateSession(app: Hono, reg: BackendRegistry) {
   app.post('/api/session', async (c) => {
@@ -15,7 +18,8 @@ export function registerCreateSession(app: Hono, reg: BackendRegistry) {
       const { id } = await backend.createSession({ directory, title: body.title })
       reg.tag(id, backend.id)
       return c.json({ id, backendId: backend.id })
-    } catch {
+    } catch (err) {
+      log.error(`create failed on backend ${backend.id}: ${(err as Error).stack ?? (err as Error).message}`)
       return c.json({ error: 'create failed' }, 500)
     }
   })

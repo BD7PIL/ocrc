@@ -11,9 +11,43 @@ import {
   buildProvisionCommand,
   buildConfigEntries,
   buildConfigApplyScript,
+  buildProxyExports,
   CONFIG_SYNC_ENTRIES,
 } from '../../src/core/remote-host'
 import { createOpencodeBackend } from '../../src/core/agent/opencode-backend'
+
+describe('buildProxyExports (enterprise relay, 0.27)', () => {
+  it('empty when nothing configured', () => {
+    expect(buildProxyExports(undefined)).toBe('')
+    expect(buildProxyExports({})).toBe('')
+  })
+
+  it('injects upper+lower case proxy vars and forces NO_PROXY loopback', () => {
+    const out = buildProxyExports({ httpProxy: 'http://gw.corp:3128' })
+    expect(out).toContain(`HTTP_PROXY='http://gw.corp:3128'`)
+    expect(out).toContain(`http_proxy='http://gw.corp:3128'`)
+    expect(out).toContain(`NO_PROXY='127.0.0.1,localhost'`)
+    expect(out).toContain(`no_proxy='127.0.0.1,localhost'`)
+    expect(out.startsWith('export ')).toBe(true)
+  })
+
+  it('appends loopback to a user NO_PROXY that lacks it; keeps one that has it', () => {
+    const added = buildProxyExports({ httpsProxy: 'https://gw:443', noProxy: '.corp.internal' })
+    expect(added).toContain(`NO_PROXY='.corp.internal,127.0.0.1,localhost'`)
+    const kept = buildProxyExports({ httpsProxy: 'https://gw:443', noProxy: '127.0.0.1,.corp' })
+    expect(kept).toContain(`NO_PROXY='127.0.0.1,.corp'`)
+  })
+
+  it('standalone noProxy passes through untouched; CA maps to NODE_EXTRA_CA_CERTS', () => {
+    expect(buildProxyExports({ noProxy: 'a,b' })).toContain(`NO_PROXY='a,b'`)
+    expect(buildProxyExports({ caPath: '/etc/pki/corp-ca.pem' })).toContain(`NODE_EXTRA_CA_CERTS='/etc/pki/corp-ca.pem'`)
+  })
+
+  it('single-quote escaping keeps hostile values inert', () => {
+    const out = buildProxyExports({ httpProxy: "http://x'; rm -rf ~; '" })
+    expect(out).toContain(`HTTP_PROXY='http://x'\\''; rm -rf ~; '\\'''`)
+  })
+})
 
 describe('config sync helpers (0.26.6)', () => {
   it('buildConfigEntries returns only existing whitelist entries; plugin/ is never synced', () => {

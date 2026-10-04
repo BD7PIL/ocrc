@@ -96,10 +96,46 @@ export function buildSshArgs(
   ]
 }
 
-/** The remote shell line that runs ocrc's own serve instance. */
-export function buildServeCommand(opencodePath: string, remotePort: number, password: string): string {
+/** Proxy env for the remote serve (enterprise relay, 0.27). */
+export interface RemoteProxyEnv {
+  httpProxy?: string
+  httpsProxy?: string
+  noProxy?: string
+  caPath?: string
+}
+
+/**
+ * The `export` prefix injected into the remote serve command — ocrc's version
+ * of ZCode's controlled env re-injection: ONLY explicitly configured variables
+ * are set, and NO_PROXY always gains 127.0.0.1/localhost so the tunnel's own
+ * loopback traffic is never hijacked by the corporate proxy (opencode's
+ * Tauri-era lesson). Empty string when nothing configured.
+ */
+export function buildProxyExports(p: RemoteProxyEnv | undefined): string {
+  if (!p) return ''
   const q = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
-  return `export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"; OPENCODE_SERVER_PASSWORD=${q(password)} ${q(opencodePath)} serve --hostname 127.0.0.1 --port ${remotePort}`
+  const out: string[] = []
+  if (p.httpProxy) out.push(`HTTP_PROXY=${q(p.httpProxy)}`, `http_proxy=${q(p.httpProxy)}`)
+  if (p.httpsProxy) out.push(`HTTPS_PROXY=${q(p.httpsProxy)}`, `https_proxy=${q(p.httpsProxy)}`)
+  if (p.httpProxy || p.httpsProxy) {
+    const extra = p.noProxy?.trim()
+    const list = extra
+      ? extra.includes('127.0.0.1')
+        ? extra
+        : `${extra},127.0.0.1,localhost`
+      : '127.0.0.1,localhost'
+    out.push(`NO_PROXY=${q(list)}`, `no_proxy=${q(list)}`)
+  } else if (p.noProxy) {
+    out.push(`NO_PROXY=${q(p.noProxy)}`, `no_proxy=${q(p.noProxy)}`)
+  }
+  if (p.caPath) out.push(`NODE_EXTRA_CA_CERTS=${q(p.caPath)}`)
+  return out.length ? `export ${out.join(' ')}; ` : ''
+}
+
+/** The remote shell line that runs ocrc's own serve instance. */
+export function buildServeCommand(opencodePath: string, remotePort: number, password: string, proxy?: RemoteProxyEnv): string {
+  const q = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
+  return `export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"; ${buildProxyExports(proxy)}OPENCODE_SERVER_PASSWORD=${q(password)} ${q(opencodePath)} serve --hostname 127.0.0.1 --port ${remotePort}`
 }
 
 /** "ldd (GNU libc) 2.17" → "2.17" */
@@ -467,7 +503,12 @@ export function createRemoteHostManager(opts: { store: RemotesStore }): RemoteHo
         }
         const command = insp.portListening
           ? undefined
-          : buildServeCommand(insp.opencodePath ?? '$HOME/.opencode/bin/opencode', remote.remotePort, remote.serverPassword ?? '')
+          : buildServeCommand(insp.opencodePath ?? '$HOME/.opencode/bin/opencode', remote.remotePort, remote.serverPassword ?? '', {
+              httpProxy: remote.httpProxy,
+              httpsProxy: remote.httpsProxy,
+              noProxy: remote.noProxy,
+              caPath: remote.caPath,
+            })
         const args = buildSshArgs(remote, r.localPort!, command)
         setState(id, 'launching', `ssh → ${remote.host}:${remote.remotePort} (local :${r.localPort})`)
         // args end with the serve command which embeds the generated password —

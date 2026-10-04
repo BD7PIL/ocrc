@@ -15,6 +15,27 @@ UP through the same relay into per-session, serialized turns against an
 in four host shapes (V1 plugin, V2 plugin, standalone, remote-driver) and any
 number of backends.
 
+## 分层原则（2026-10-05 定稿；产品定义见 [PRODUCT.md](PRODUCT.md)）
+
+每个新需求必须先声明落点，不属于任何一层的不做：
+
+| 层 | 内容 | 判据 |
+|---|---|---|
+| **核心** | relay / CardBus / registry / AgentBackend seam | 换掉任何壳它都不变 |
+| **壳** | Telegram ✅ / Web PWA ✅ / ocrc Desktop（规划） | 可替换的表现面 |
+| **宿主** | V1 插件 ✅ / V2 插件（待立项）/ standalone ✅ / SSH remote ✅ / Windows 被控（有界补丁：Node 端口探测、配置路径、e2e） | opencode 在哪跑 |
+| **分发** | npm ✅ / 桌面安装器（随壳）/ 企业离线分发（未来） | 怎么装 |
+
+**兼容基线**：被控端 opencode pin 1.18.x（V2 支持独立立项）；EL7 为遗留下限；
+新部署 x86_64 现代 baseline。
+
+**路线图**（2026-10-05 排定）：① 宪法 + pact 清理 → ② 左栏 v2（三桶/搜索/
+归档/远程标识）+ 远程向导 v2 → ③ 企业中转（代理环境注入 + ProxyJump 文档）
+→ ④ Windows 被控（看需求）→ ⑤ V2 迁移 → ⑥ ocrc Desktop 薄壳（**Electron
+倾向**：opencode 2026-05 Tauri→Electron 迁移 + ZCode desktop 双先例；启动链
+= 拉起守护 → 等端口 → 开窗，参考 opencode desktop 的 health-poll/Basic/kill
+生命周期与 ZCode desktopTray 菜单）。
+
 ## Host shapes (one core, four entrypoints)
 
 All four build the same core (`state + CardBus + relay + transports + push`)

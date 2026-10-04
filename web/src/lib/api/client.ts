@@ -111,7 +111,10 @@ export const api = {
     jsonGet<string[]>(`/api/session/${id}/files?q=${encodeURIComponent(q)}`),
   schedules: () => jsonGet<{ schedules: ScheduleRow[] }>('/api/schedules'),
   remotes: () => jsonGet<{ remotes: RemoteRow[] }>('/api/remotes'),
-  saveRemote: (body: { id?: string; host: string; port?: number; user?: string; remotePort?: number; name?: string; enabled?: boolean }) =>
+  saveRemote: (body: {
+    id?: string; host: string; port?: number; user?: string; remotePort?: number; name?: string; enabled?: boolean
+    httpProxy?: string; httpsProxy?: string; noProxy?: string; caPath?: string
+  }) =>
     jsonPost<{ remote: RemoteRow; error?: string }>('/api/remotes', body),
   setRemoteEnabled: (id: string, enabled: boolean) => jsonPatch<{ remote: RemoteRow }>(`/api/remotes/${id}`, { enabled }),
   deleteRemote: (id: string) => jsonPost<{ ok: boolean }>(`/api/remotes/${id}/delete`, {}),
@@ -183,6 +186,11 @@ export interface RemoteRow {
   remotePort: number
   enabled: boolean
   hasPassword: boolean
+  /** Enterprise relay (0.27) — proxy URLs come back userinfo-redacted. */
+  httpProxy?: string
+  httpsProxy?: string
+  noProxy?: string
+  caPath?: string
   status: {
     state: 'unknown' | 'detecting' | 'provisioning' | 'launching' | 'online' | 'needs-auth' | 'error' | 'offline' | 'disabled'
     detail?: string

@@ -1,6 +1,42 @@
 # Changelog
 
-## Unreleased — source-review fixes, TG experience trio, remote config sync (2026-10-05)
+## Unreleased — PRODUCT constitution, rail v2, remote wizard + enterprise relay (2026-10-05)
+
+### docs: 产品宪法 + 架构分层定稿
+- **docs/PRODUCT.md（新）**：一句话定义（远程驾驶自己/管辖的 opencode，企业
+  内网受控环境延伸）、四层归属判据（核心/壳/宿主/分发）、组件分发模型、
+  壳技术倾向 Electron（opencode 2026-05 Tauri→Electron 迁移 + ZCode desktop
+  双先例）、兼容基线（pin 1.18.x、EL7 下限）、明确不做清单。
+- ARCHITECTURE.md 增分层原则 + 路线图（Windows 被控三处 POSIX 补丁范围、
+  V2 独立立项、薄壳蓝图出处）。
+- **pact 死配置移除**：AGENTS.md 的 pact 协议块与 .mcp.json 的 pactify 条目
+  （工具从未存在于本机，上游遗留）；AGENTS.md 改为指向真实文档的导读。
+
+### feat(web): 左栏 v2（ZCode WorkspaceSidebar register）
+- 三桶模型：置顶 → 常规（项目/时间两种视图，persist）→ 归档区（平铺 +
+  取消归档 + 20 条分页）；归档为 UI 语义（localStorage 集合，opencode v1
+  无 archive API，不动服务端数据）。
+- 项目视图按 workspace 分组：组头 **云朵（remote: backend）/ 文件夹（本地）**
+  图标 + 主机名 + 会话数，可折叠（persist）。
+- 顶部动作区（新建会话 + 搜索）+ 底部快捷区（定时任务 → 配置面板、远程主机
+  → Remotes，带计数）+ 行内搜索（标题/项目/主机/短 id）。
+- 纯函数抽到 nav/railModel.ts（8 测试）；stores/archive.ts 归档集合。
+
+### feat(remote): 四步添加向导 + 企业中转
+- RemotesPanel 内联表单 → **向导弹窗**（选择方式[SSH 可选，WSL/Docker 待接入]
+  → 填写配置 → 连接中[实时日志控制台+阶段文案+失败重试] → 完成），≤820px 全屏。
+- **企业代理**：remotes.json 增 per-remote httpProxy/httpsProxy/noProxy/caPath
+  （0600；含凭据的 URL 面板脱敏）；`buildProxyExports` 注入远端 serve
+  （大小写双份、NO_PROXY 强制含 127.0.0.1,localhost 防隧道劫持、CA 映射
+  NODE_EXTRA_CA_CERTS）——ZCode「消毒+受控回注」的 ocrc 版。
+- OPS.md 增企业内网场景章（A 代理注入 / B ProxyJump 零开发 / C 离线 scp 安装
+  / provider `options.baseURL` 网关模式）。
+
+### test
++14（railModel 8、proxy exports 5、redactProxyUrl 1）；后端 558 绿、web 140
+绿、svelte-check 0 errors。
+
+## source-review fixes, TG experience trio, remote config sync (2026-10-05)
 
 A complete re-read of src/, tests/ and web/ (docs re-synced in the same pass,
 see the docs/ commits) produced a debt list — then this series cleared it:

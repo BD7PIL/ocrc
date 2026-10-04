@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, readFileSync, rmSync, existsSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createRemotesStore, redactRemote, generateServerPassword, type RemoteHost } from '../../src/core/remotes'
+import { createRemotesStore, redactRemote, generateServerPassword, type RemoteHost , redactProxyUrl } from '../../src/core/remotes'
 
 function tmpStore() {
   const dir = mkdtempSync(join(tmpdir(), 'ocrc-remotes-'))
@@ -66,5 +66,19 @@ describe('RemotesStore', () => {
     expect(pw.length).toBeGreaterThan(10)
     expect(pw).toMatch(/^[A-Za-z0-9_-]+$/)
     expect(pw).not.toBe(generateServerPassword())
+  })
+})
+
+
+describe('redactProxyUrl (0.27)', () => {
+  it('scrubs userinfo but keeps the URL usable for display', () => {
+    const out = redactProxyUrl('http://user:sekrit@gw.corp:3128')
+    expect(out).not.toContain('sekrit')
+    expect(out).toContain('***@gw.corp:3128')
+  })
+  it('leaves clean URLs and non-URLs untouched', () => {
+    expect(redactProxyUrl('http://gw.corp:3128')).toBe('http://gw.corp:3128/')
+    expect(redactProxyUrl('gw.corp:3128')).toBe('gw.corp:3128')
+    expect(redactProxyUrl(undefined)).toBeUndefined()
   })
 })

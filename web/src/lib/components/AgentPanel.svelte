@@ -1,8 +1,12 @@
 <!-- src/lib/components/AgentPanel.svelte -->
 <script lang="ts">
+  import { onMount } from 'svelte'
   import SessionList from './SessionList.svelte'
   import Icon from './Icon.svelte'
   import { paletteOpen } from '$lib/stores/palette.js'
+  import { newSessionOpen } from '$lib/stores/ui.js'
+  import { openHome } from '$lib/stores/sidePane.js'
+  import { api } from '$lib/api/client.js'
   import {
     backends,
     setActiveBackend,
@@ -104,6 +108,30 @@
   }
   $: activeTheme = themeFor($accentOverrides, activeBackendId)
   $: agentThemes = Object.fromEntries(agents.map((a) => [a.id, themeFor($accentOverrides, a.id)])) as Record<string, Accent>
+
+  // ── rail v2 quick sections (ZCode bottom-nav register): 定时任务 + 远程主机 ──
+  let scheduleCount = 0
+  let remotesTotal = 0
+  let remotesOnline = 0
+  let quickTimer: ReturnType<typeof setInterval> | undefined
+
+  async function loadQuick() {
+    try {
+      const res = await api.schedules()
+      scheduleCount = (res.schedules ?? []).length
+    } catch { /* keep last */ }
+    try {
+      const res = await api.remotes()
+      const rows = res.remotes ?? []
+      remotesTotal = rows.length
+      remotesOnline = rows.filter((r: any) => r.status?.state === 'online').length
+    } catch { /* keep last */ }
+  }
+  onMount(() => {
+    void loadQuick()
+    quickTimer = setInterval(() => void loadQuick(), 60_000)
+    return () => { if (quickTimer) clearInterval(quickTimer) }
+  })
 </script>
 
 <svelte:window on:keydown={onKey} />
@@ -189,6 +217,18 @@
         {/each}
       </div>
     {/if}
+    <!-- rail v2 action row (ZCode NewTaskButtonGroup register) -->
+    <div class="actions-row">
+      <button class="new-session" on:click={() => newSessionOpen.set(true)}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        <span>新建会话</span>
+      </button>
+      {#if !drawer}
+        <button class="search-btn" title="搜索（⌘K）" aria-label="搜索会话与命令" on:click={() => paletteOpen.set(true)}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        </button>
+      {/if}
+    </div>
     {#if drawer}
       <button class="mobile-search" on:click={() => paletteOpen.set(true)}>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
@@ -197,6 +237,19 @@
     {/if}
     <div class="list">
       <SessionList {activeId} agentId={activeBackendId} agentName={activeAgent?.name ?? activeAgent?.id} />
+    </div>
+    <!-- rail v2 quick sections: schedules + remotes (ZCode bottom-nav register) -->
+    <div class="quick">
+      <button class="quick-row" on:click={() => openHome('config')} title="定时任务">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <span class="q-label">定时任务</span>
+        <span class="q-count mono">{scheduleCount}</span>
+      </button>
+      <button class="quick-row" on:click={() => openHome('remotes')} title="远程主机">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01M6 17.5h.01"/></svg>
+        <span class="q-label">远程主机</span>
+        <span class="q-count mono">{remotesTotal ? `${remotesOnline}/${remotesTotal}` : 0}</span>
+      </button>
     </div>
     <div class="footer mono">
       <span>{activeCount} 活跃</span>
@@ -498,6 +551,78 @@
   }
 
   .list { flex: 1; overflow-y: auto; min-height: 0; }
+
+  /* rail v2: action row + quick sections */
+  .actions-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-2);
+    flex-shrink: 0;
+  }
+  .new-session {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 7px 10px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-2);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color .12s ease, color .12s ease, background .12s ease;
+  }
+  .new-session:hover { border-color: var(--accent); color: var(--text); background: var(--bg-elev2); }
+  .search-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-3);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: border-color .12s ease, color .12s ease;
+  }
+  .search-btn:hover { color: var(--text); border-color: var(--accent); }
+
+  .quick {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 4px 6px 6px;
+    border-top: 1px solid var(--border-2);
+    flex-shrink: 0;
+  }
+  .quick-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 8px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text-3);
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+    text-align: left;
+    transition: color .12s ease, background .12s ease;
+  }
+  .quick-row:hover { color: var(--text); background: var(--bg-elev); }
+  .q-label { flex: 1; }
+  .q-count { font-size: 10px; color: var(--text-4); font-variant-numeric: tabular-nums; }
+
   .footer {
     display: flex;
     align-items: center;

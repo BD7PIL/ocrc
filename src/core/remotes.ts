@@ -30,6 +30,15 @@ export interface RemoteHost {
   /** HTTP Basic password ocrc sets on the remote serve it launches. */
   serverPassword?: string
   enabled: boolean
+  /** Enterprise relay (0.27): proxy env injected into the REMOTE serve process
+   *  so its LLM traffic rides the corporate gateway (ZCode's controlled
+   *  env-re-injection model). NO_PROXY always gains 127.0.0.1/localhost — the
+   *  tunnel traffic must never be hijacked by the proxy. */
+  httpProxy?: string
+  httpsProxy?: string
+  noProxy?: string
+  /** Extra CA the remote needs to trust the corporate gateway (MITM proxies). */
+  caPath?: string
 }
 
 export interface RemotesStore {
@@ -45,11 +54,31 @@ export function generateServerPassword(): string {
   return randomBytes(18).toString('base64url')
 }
 
-/** API-facing redaction — everything the panel may see, minus the secret. */
+/** API-facing redaction — everything the panel may see, minus the secrets.
+ *  Proxy URLs may embed credentials (http://user:pass@gw) — userinfo is
+ *  scrubbed, the rest of the URL stays visible for panel display. */
 export type RedactedRemote = Omit<RemoteHost, 'serverPassword'> & { hasPassword: boolean }
+export function redactProxyUrl(u: string | undefined): string | undefined {
+  if (!u) return u
+  try {
+    const url = new URL(u)
+    if (url.username || url.password) {
+      url.username = '***'
+      url.password = ''
+    }
+    return url.toString()
+  } catch {
+    return u // not a parseable URL — show as-is (likely a bare host:port)
+  }
+}
 export function redactRemote(r: RemoteHost): RedactedRemote {
   const { serverPassword, ...rest } = r
-  return { ...rest, hasPassword: !!serverPassword }
+  return {
+    ...rest,
+    httpProxy: redactProxyUrl(rest.httpProxy),
+    httpsProxy: redactProxyUrl(rest.httpsProxy),
+    hasPassword: !!serverPassword,
+  }
 }
 
 export function createRemotesStore(path: string): RemotesStore {

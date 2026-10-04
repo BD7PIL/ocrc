@@ -60,6 +60,38 @@ Web 面板 Inspector → **Remotes** 卡片（API：`/api/remotes`）：
 `status.logTail`（ssh 输出 200 行环）。远端默认端口 4199（避开用户自己的
 4096 serve）。注册生效需重启实例（channels 同款语义，UI 已标注）。
 
+添加主机走**四步向导**（选择方式 → 填写配置 → 连接中 → 完成）：向导自动
+探测 → 缺装则部署 → 启动隧道 + serve → 等待在线；「连接中」页实时展示
+部署/隧道日志。
+
+## 企业内网场景（air-gapped / 中转）
+
+三件事，两件配置一件免费：
+
+**A. LLM 请求经企业代理出网**（向导「企业代理」字段组，存 remotes.json 0600）：
+- `HTTP_PROXY` / `HTTPS_PROXY`：注入远端 serve 进程（大小写双份）。
+- `NO_PROXY`：留空自动设为 `127.0.0.1,localhost`；自定义时也会**强制追加**
+  这两项——隧道与 ocrc→serve 的回环流量绝不能被企业代理劫持。
+- `CA 证书路径（远端）`：远端信任企业网关的 MITM 证书（`NODE_EXTRA_CA_CERTS`）。
+- 模型网关：opencode provider 支持 `options.baseURL` 覆盖——把被控端
+  `opencode.json` 的 provider 指向企业 LLM 网关，随 **同步配置** 推过去即可。
+
+**B. 控制通道走跳板**：零开发。`~/.ssh/config` 配 ProxyJump，ocrc 用系统 ssh
+自动继承：
+
+```
+Host airgapped-01
+    HostName 10.20.0.11
+    ProxyJump bastion.corp
+```
+
+**C. 离线安装**：远端无外网时 provision 自动回退为 **scp 本地二进制**
+（同一官方 artifact、平台匹配、pin 本机版本；跨架构会被拒绝）。向量导的
+「连接中」日志里看 `falling back to scp` 字样。
+
+凭据同步（`sync-auth`）与配置同步（`sync-config`）都走 ssh 通道，不依赖
+公网；代理 URL 含凭据时面板脱敏显示。
+
 ## 公网访问（手机 PWA 需 HTTPS）
 
 Web 默认 `0.0.0.0:4099`（token 门禁）。PWA 安装需要安全上下文：

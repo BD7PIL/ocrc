@@ -5,6 +5,21 @@ const FG: Record<number, string> = {
   94: '#90c5dd', 95: '#c9a8f8', 96: '#70dcc8', 97: '#ffffff',
 }
 
+/** xterm 256-color palette index → CSS color (standard 16, 6×6×6 cube, grayscale). */
+function xterm256(n: number): string {
+  if (n < 16) {
+    const base = n < 8 ? 30 + n : 90 + (n - 8)
+    return FG[base] ?? '#ccc'
+  }
+  if (n < 232) {
+    const v = n - 16
+    const ch = (x: number) => (x === 0 ? 0 : 55 + 40 * x)
+    return `rgb(${ch(Math.floor(v / 36))},${ch(Math.floor((v % 36) / 6))},${ch(v % 6)})`
+  }
+  const gray = 8 + (n - 232) * 10
+  return `rgb(${gray},${gray},${gray})`
+}
+
 export function ansiToHtml(raw: string): string {
   let s = raw
     .replace(/&/g, '&amp;')
@@ -37,9 +52,12 @@ export function ansiToHtml(raw: string): string {
         // parameter bytes so they aren't misread as standalone SGR codes.
         const mode = codes[i + 1]
         if (mode === 5) {
-          i += 2 // skip mode + palette index (256-color palette not mapped)
+          const color = xterm256(codes[i + 2] ?? 0)
+          css.push(c === 38 ? `color:${color}` : `background-color:${color}`)
+          i += 2 // skip mode + palette index
         } else if (mode === 2) {
-          if (c === 38) css.push(`color:rgb(${codes[i + 2]},${codes[i + 3]},${codes[i + 4]})`)
+          const rgb = `rgb(${codes[i + 2]},${codes[i + 3]},${codes[i + 4]})`
+          css.push(c === 38 ? `color:${rgb}` : `background-color:${rgb}`)
           i += 4 // skip mode + r,g,b
         }
       } else if (c === 1) css.push('font-weight:bold')

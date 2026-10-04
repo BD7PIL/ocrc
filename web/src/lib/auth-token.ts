@@ -56,6 +56,10 @@ export function clearToken(): void {
  * home-screen app to receive it on launch. The fragment is never sent to the
  * server (so it can't leak via logs/proxies); on the user's own device the
  * address-bar exposure is acceptable, and in standalone mode the bar is hidden.
+ *
+ * The ONE exception is auth failure: auth-reload.ts strips the fragment before
+ * its reload, because a token the server just REJECTED must not be re-seeded
+ * from the URL on the next boot (that reproduces the 401 forever).
  */
 export function captureToken(loc: Location = window.location): string | null {
   const fromHash = readTokenFromHash(loc.hash)

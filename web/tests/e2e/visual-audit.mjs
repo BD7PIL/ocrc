@@ -13,12 +13,13 @@ const PORT = 14789
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json', '.webmanifest': 'application/manifest+json' }
 
 const server = createServer(async (req, res) => {
-  let p = decodeURIComponent(new URL(req.url, 'http://x').pathname)
+  let p = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)
   let file = join(DIST, p)
   if (!existsSync(file) || p === '/') file = join(DIST, 'index.html')
   try {
     const body = await readFile(file)
-    res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' })
+    const type = MIME[/** @type {keyof typeof MIME} */ (extname(file))]
+    res.writeHead(200, { 'content-type': type ?? 'application/octet-stream' })
     res.end(body)
   } catch {
     res.writeHead(404); res.end('nf')
@@ -76,16 +77,19 @@ const api = {
   '/api/session/ses_aaa111/controls': { mode: { current: 'build', options: [{ id: 'build', name: 'build' }, { id: 'plan', name: 'plan' }] }, model: { current: 'kimi-for-coding', options: [{ id: 'kimi-for-coding', name: 'kimi-for-coding' }] } },
 }
 
-await new Promise((r) => server.listen(PORT, r))
+await new Promise((resolve) => {
+  server.listen(PORT, () => resolve(undefined))
+})
 const browser = await chromium.launch()
 
+/** @param {string} name @param {{ width?: number, height?: number, path?: string, mobile?: boolean, expandHud?: boolean, hudMenu?: boolean }} [opts] */
 async function shot(name, { width = 1440, height = 900, path = '/ses_aaa111/', mobile = false, expandHud = false, hudMenu = false } = {}) {
   const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, isMobile: mobile, hasTouch: mobile })
   const page = await ctx.newPage()
   await page.addInitScript(() => localStorage.setItem('ocrc.token', 'visual-audit'))
   await page.route('**/api/**', (route) => {
     const url = new URL(route.request().url())
-    const body = api[url.pathname]
+    const body = api[/** @type {keyof typeof api} */ (url.pathname)]
     if (body) return route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) })
     return route.fulfill({ contentType: 'application/json', body: '{}' })
   })

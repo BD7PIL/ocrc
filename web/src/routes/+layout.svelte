@@ -51,6 +51,13 @@
   let email = ''
   let wsClient: ReturnType<typeof createWsClient> | null = null
 
+  // Registered ONCE in onMount — the old inline registration sat inside
+  // afterNavigate, stacking one more window listener per navigation.
+  const onResubscribe = (e: Event) => {
+    const d = (e as CustomEvent).detail as { sessionId?: string; sinceSeq?: number } | undefined
+    if (d?.sessionId) wsClient?.send({ type: 'subscribe', sessionId: d.sessionId, sinceSeq: d.sinceSeq ?? 0 })
+  }
+
   // ── Resizable three-pane (desktop): draggable dividers adjust --rail-w /
   // --insp-w; sizes persist in localStorage. Mobile drawers ignore them
   // (the ≤820px media block overrides widths and hides the dividers). ──
@@ -229,6 +236,7 @@
     const unsubAuth = auth.subscribe((s) => { if (s === 'ready') bootConnection() })
 
     const onBeforeInstall = (e: Event) => { e.preventDefault(); installEvent = e }
+    window.addEventListener('ocrc:resubscribe', onResubscribe)
     window.addEventListener('beforeinstallprompt', onBeforeInstall)
 
     // Track the mobile breakpoint so AgentPanel can render in drawer mode
@@ -286,6 +294,7 @@
     return () => {
       unsubAuth()
       window.removeEventListener('beforeinstallprompt', onBeforeInstall)
+      window.removeEventListener('ocrc:resubscribe', onResubscribe)
       mq.removeEventListener('change', onMq)
       vv?.removeEventListener('resize', setKb)
       vv?.removeEventListener('scroll', setKb)
@@ -312,10 +321,6 @@
   // (which used to cause an effect-update loop in the previous design).
   afterNavigate((nav) => {
     closeDrawers() // selecting a session in the drawer closes it
-    window.addEventListener('ocrc:resubscribe', (e) => {
-      const d = (e as CustomEvent).detail as { sessionId?: string; sinceSeq?: number } | undefined
-      if (d?.sessionId) wsClient?.send({ type: 'subscribe', sessionId: d.sessionId, sinceSeq: d.sinceSeq ?? 0 })
-    })
     loadSession(nav.to?.params?.sessionId)
   })
 </script>

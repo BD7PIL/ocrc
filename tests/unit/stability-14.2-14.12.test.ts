@@ -65,12 +65,7 @@ describe('14.2 concurrent busy', () => {
   })
 })
 
-describe('14.12 unauthorized user', () => {
-  it('Telegram transport whitelist rejects non-allowed user', async () => {
-    // The whitelist middleware in createTelegramTransport checks ctx.from.id
-    // against cfg.allowedUserId and replies "Unauthorized" then returns.
-    // This is verified by inspection of src/transport/telegram/index.ts
-    // lines 28-34.
-    expect(true).toBe(true)
-  })
-})
+// 14.12 (unauthorized user) is covered for real by
+// tests/unit/telegram/index-gating.test.ts — the whitelist middleware silently
+// drops non-allowed senders (no "Unauthorized" reply; that would confirm the
+// bot exists). The former `expect(true)` placeholder here was removed.

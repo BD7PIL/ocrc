@@ -26,21 +26,28 @@ describe('ansiToHtml', () => {
     expect(html).not.toContain('font-weight')
   })
 
-  it('consumes 256-color (38;5;n) parameters without emitting bogus styles', () => {
-    // 196 must not be treated as a standalone code (nor the 5/2 modes).
-    const html = ansiToHtml('\x1b[38;5;196mtext\x1b[0m')
-    expect(html).toBe('text')
+  it('maps 256-color foreground (38;5;n) through the xterm palette', () => {
+    // 196 = cube red; 4 = standard blue (FG[34]); 244 = grayscale.
+    expect(ansiToHtml('\x1b[38;5;196mtext\x1b[0m')).toBe('<span style="color:rgb(255,0,0)">text</span>')
+    expect(ansiToHtml('\x1b[38;5;4mtext\x1b[0m')).toBe('<span style="color:#7cafc2">text</span>')
+    expect(ansiToHtml('\x1b[38;5;244mtext\x1b[0m')).toBe('<span style="color:rgb(128,128,128)">text</span>')
+  })
+
+  it('does not misread 256-color parameter bytes as SGR codes', () => {
+    // 1 is the palette index (standard red), 32 the following SGR code.
+    const html = ansiToHtml('\x1b[38;5;1;32mgreen\x1b[0m')
+    expect(html).toBe('<span style="color:#e0796b;color:#6cc08b">green</span>')
     expect(html).not.toContain('opacity')
   })
 
-  it('skips background color groups (48;5;n / 48;2;r;g;b)', () => {
-    expect(ansiToHtml('\x1b[48;5;21mtext\x1b[0m')).toBe('text')
-    expect(ansiToHtml('\x1b[48;2;1;2;3mtext\x1b[0m')).toBe('text')
+  it('maps background color groups (48;5;n / 48;2;r;g;b)', () => {
+    expect(ansiToHtml('\x1b[48;5;21mtext\x1b[0m')).toBe('<span style="background-color:rgb(0,0,255)">text</span>')
+    expect(ansiToHtml('\x1b[48;2;1;2;3mtext\x1b[0m')).toBe('<span style="background-color:rgb(1,2,3)">text</span>')
   })
 
-  it('still applies styles after a skipped background group', () => {
+  it('still applies styles after a background group', () => {
     const html = ansiToHtml('\x1b[48;5;21;31mred\x1b[0m')
-    expect(html).toBe('<span style="color:#e0796b">red</span>')
+    expect(html).toBe('<span style="background-color:rgb(0,0,255);color:#e0796b">red</span>')
   })
 
   it('treats a bare \\x1b[m as reset', () => {

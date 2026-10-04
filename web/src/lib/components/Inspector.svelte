@@ -73,9 +73,9 @@
     sideChatBusy = true
     plusOpen = false
     try {
-      const directory = session?.directory
+      const directory = session?.directory ?? ''
       const created = await api.createSession({ directory, title: '辅助对话' })
-      const id = created.id ?? created.session?.id
+      const id = created.id
       if (id) {
         sidePane.openPaneTab({ id: `sidechat:${id}`, kind: 'sidechat', title: '辅助对话', childId: id })
       }

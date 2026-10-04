@@ -168,7 +168,17 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
             host: r.host,
             remote: true,
             baseUrl: base,
-            client: createOpencodeClient({ baseUrl: base, fetch: ((req: Request) => fetch(req, { headers })) as never }),
+            // opencode's embedded runtime is Bun-family: fetch(request, init)
+            // does NOT merge init.headers per spec — build an explicit Request
+            // so the Authorization header always rides along.
+            client: createOpencodeClient({
+              baseUrl: base,
+              fetch: ((req: Request) => {
+                const next = new Request(req)
+                for (const [k, v] of Object.entries(headers)) next.headers.set(k, v)
+                return fetch(next)
+              }) as never,
+            }),
             fetchImpl: (url: string, init?: RequestInit) => fetch(url, { ...init, headers: { ...(init?.headers ?? {}), ...headers } }),
           }),
         })

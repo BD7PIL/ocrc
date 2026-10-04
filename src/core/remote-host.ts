@@ -160,13 +160,17 @@ export function createRemoteHostManager(opts: { store: RemotesStore }): RemoteHo
   // One ssh exec round-trip; key=value lines parse back without scraping.
   function buildDetectCommand(remotePort: number): string {
     const ocProbe = '$' + '{OCBIN:-$HOME/.opencode/bin/opencode}'
+    // ss lives in /usr/sbin — absent from a non-interactive SSH PATH on EL7.
+    // Fallbacks: netstat, then /proc/net/tcp{,6} directly (st==0A = LISTEN).
+    const hex = remotePort.toString(16).toUpperCase().padStart(4, '0')
     return [
+      `export PATH="$PATH:/usr/sbin:/sbin"`,
       `echo "UNAME=$(uname -s -m 2>/dev/null)"`,
       `echo "LDD=$(ldd --version 2>/dev/null | head -1)"`,
       `echo "OCBIN=$(command -v opencode 2>/dev/null)"`,
       `echo "OCVER=$(${ocProbe} --version 2>/dev/null | head -1)"`,
       `echo "AUTHP=$([ -f "$HOME/.local/share/opencode/auth.json" ] && echo yes || echo no)"`,
-      `echo "PORTUP=$(ss -ltn 2>/dev/null | grep -q ':${remotePort} ' && echo yes || echo no)"`,
+      `echo "PORTUP=$({ command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -q ':${remotePort} '; } || { command -v netstat >/dev/null 2>&1 && netstat -ltn 2>/dev/null | grep -q ':${remotePort} '; } || grep -qiE ':${hex} +[^ ]+ +0A' /proc/net/tcp /proc/net/tcp6 2>/dev/null && echo yes || echo no)"`,
     ].join('; ')
   }
 

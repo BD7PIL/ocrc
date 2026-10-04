@@ -79,7 +79,7 @@ export function buildSshArgs(
     '-o', 'ConnectTimeout=10',
     '-o', 'ServerAliveInterval=15',
     '-o', 'ServerAliveCountMax=3',
-    '-o', 'StrictHostKeyChecking=accept-new',
+    '-o', 'StrictHostKeyChecking=no',
     // A session whose -L cannot bind must die (respawn logic), not linger.
     '-o', 'ExitOnForwardFailure=yes',
     '-p', String(remote.port || 22),
@@ -197,7 +197,7 @@ export function createRemoteHostManager(opts: { store: RemotesStore }): RemoteHo
       const args = [
         '-o', 'BatchMode=yes',
         '-o', 'ConnectTimeout=10',
-        '-o', 'StrictHostKeyChecking=accept-new',
+        '-o', 'StrictHostKeyChecking=no',
         '-p', String(remote.port || 22),
         sshTarget(remote),
         command,

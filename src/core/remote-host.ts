@@ -1,5 +1,7 @@
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import net from 'node:net'
 import { createLogger } from '../utils/logger.js'
 import type { RemoteHost, RemotesStore } from './remotes.js'
@@ -55,6 +57,11 @@ export interface RemoteHostManager {
   start(id: string): void
   stop(id: string): void
   syncAuth(id: string): Promise<{ ok: boolean; detail: string }>
+  /** 0.26.6: push the local opencode config whitelist (opencode.json incl.
+   *  its mcp section, AGENTS/CLAUDE.md, command/, agent/, skill/) to the
+   *  remote — the ocrc answer to ZCode's selective skills/MCP export-import.
+   *  Never overwrites silently: remote collisions back up to *.ocrc-bak. */
+  syncConfig(id: string): Promise<{ ok: boolean; detail: string }>
   status(id: string): RemoteStatus | undefined
   statusAll(): RemoteStatus[]
   /** Boot-time: start every enabled remote (tunnels come up in background). */
@@ -110,6 +117,50 @@ export function nextRetryDelay(attempt: number): number {
 export function buildProvisionCommand(version: string): string {
   const pin = version ? ` --version ${version}` : ''
   return `curl -fsSL https://opencode.ai/install | bash -s --${pin}`
+}
+
+// ── config sync (0.26.6, see docs/remote-provisioning-design.md §3) ──────────
+
+/** The ~/.config/opencode whitelist pushed by syncConfig. `plugin/` is
+ *  deliberately absent — the remote opencode must not load ocrc itself. */
+export const CONFIG_SYNC_ENTRIES = ['opencode.json', 'AGENTS.md', 'CLAUDE.md', 'command', 'agent', 'skill'] as const
+
+/** Which whitelist entries exist locally (pure via the injected exists fn). */
+export function buildConfigEntries(
+  configDir: string,
+  exists: (p: string) => boolean = (p) => existsSync(p),
+): string[] {
+  return CONFIG_SYNC_ENTRIES.filter((entry) => exists(join(configDir, entry)))
+}
+
+/**
+ * The remote side of syncConfig, fed a gzipped tar on stdin: untar into a
+ * staging dir, move every file into ~/.config/opencode backing up any
+ * collision to *.ocrc-bak (ZCode's no-silent-overwrite semantics), echo one
+ * `new:`/`backup:` line per file for the panel's log drawer, clean up.
+ */
+export function buildConfigApplyScript(): string {
+  return [
+    'set -e',
+    'D="$HOME/.config/opencode"',
+    'S="$D/.ocrc-sync.$$"',
+    'mkdir -p "$S"',
+    'tar -xzf - -C "$S"',
+    'cd "$S"',
+    'find . -type f | sed \'s#^\\./##\' | while IFS= read -r rel; do',
+    '  tgt="$D/$rel"',
+    '  mkdir -p "$(dirname "$tgt")"',
+    '  if [ -f "$tgt" ]; then',
+    '    cp -p "$tgt" "$tgt.ocrc-bak"',
+    '    echo "backup: $rel"',
+    '  else',
+    '    echo "new: $rel"',
+    '  fi',
+    '  mv "$S/$rel" "$tgt"',
+    'done',
+    'rm -rf "$S"',
+    'echo "sync-config: applied"',
+  ].join('\n')
 }
 
 // ── manager ───────────────────────────────────────────────────────────────────
@@ -500,6 +551,55 @@ export function createRemoteHostManager(opts: { store: RemotesStore }): RemoteHo
       if (r.inspection) r.inspection.authPresent = true
       if (r.state === 'needs-auth') setState(id, 'unknown', 'credentials synced')
       return { ok: true, detail: 'credentials synced' }
+    },
+
+    async syncConfig(id) {
+      const remote = opts.store.get(id)
+      if (!remote) return { ok: false, detail: 'unknown remote' }
+      const configDir = process.env.OPENCODE_CONFIG_DIR ?? join(homedir(), '.config', 'opencode')
+      const entries = buildConfigEntries(configDir)
+      if (entries.length === 0) {
+        return { ok: false, detail: `nothing to sync — no whitelisted entries in ${configDir}` }
+      }
+      pushLog(id, `$ sync-config ${entries.join(' ')}`)
+
+      // Local tar (system tar — same posture as system ssh/scp) piped into ONE
+      // ssh round-trip running the apply script on stdin.
+      const tar = spawn('tar', ['-czf', '-', '-C', configDir, ...entries], { stdio: ['ignore', 'pipe', 'pipe'] })
+      const ssh = spawn('ssh', [
+        '-o', 'BatchMode=yes',
+        '-o', 'ConnectTimeout=10',
+        '-o', 'StrictHostKeyChecking=no',
+        '-p', String(remote.port || 22),
+        sshTarget(remote),
+        buildConfigApplyScript(),
+      ], { stdio: ['pipe', 'pipe', 'pipe'] })
+
+      const result = new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
+        let stdout = ''
+        let stderr = ''
+        ssh.stdout?.on('data', (d: Buffer) => { stdout += d.toString() })
+        ssh.stderr?.on('data', (d: Buffer) => { stderr += d.toString() })
+        ssh.on('error', (err) => resolve({ code: null, stdout, stderr: `${stderr}\n${err.message}` }))
+        ssh.on('close', (code) => resolve({ code, stdout, stderr }))
+        tar.on('error', (err) => {
+          try { ssh.kill() } catch { /* gone */ }
+          resolve({ code: null, stdout, stderr: `tar: ${err.message}` })
+        })
+        tar.stdout?.pipe(ssh.stdin)
+      })
+      const { code, stdout, stderr } = await result
+      for (const line of stdout.split('\n')) if (line.trim()) pushLog(id, line.trim())
+      if (code !== 0) {
+        const detail = `sync-config failed (exit ${code}): ${(stderr || stdout).trim().split('\n')[0] ?? ''}`
+        pushLog(id, detail)
+        return { ok: false, detail }
+      }
+      const applied = stdout.split('\n').filter((l) => l.startsWith('new:') || l.startsWith('backup:')).length
+      const backedUp = stdout.split('\n').filter((l) => l.startsWith('backup:')).length
+      const detail = `synced ${applied} file(s)${backedUp ? `, ${backedUp} backed up to *.ocrc-bak` : ''}`
+      pushLog(id, detail)
+      return { ok: true, detail }
     },
 
     status(id) {

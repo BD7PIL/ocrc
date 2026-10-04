@@ -1,28 +1,63 @@
 # Changelog
 
-## Unreleased — full-source review (2026-10-05)
+## Unreleased — source-review fixes, TG experience trio, remote config sync (2026-10-05)
 
-A complete re-read of src/, tests/ and web/ produced this debt list (fixes
-land on this branch series; docs re-synced to code in the same pass):
+A complete re-read of src/, tests/ and web/ (docs re-synced in the same pass,
+see the docs/ commits) produced a debt list — then this series cleared it:
 
-- **Dead code (ported from grinev, never wired)**: `telegram/streaming/
-  tool-call-streamer.ts`, `streaming/running-tool-tracker.ts`,
-  `streaming/finalize-assistant-response.ts`, `render/markdown-to-telegram-v2.ts`,
-  `managers/question-manager.ts`, `managers/rename-manager.ts`,
-  `managers/external-input-suppression-manager.ts`,
-  `managers/abort-suppression-manager.ts`; web `stores/activeSession.ts`.
-- **Defects found**: TG `deliveredSignature` mismatch defeats the response
-  streamer's unchanged-edit skip (streaming-render.ts sends
-  `fallbackText.slice(0,128)`; the streamer compares rich signatures);
-  the rich-block render output is computed but discarded at send time
-  (`parse_mode: undefined`, plain fallbackText only); dead throttle-reset
-  branch (streaming-render.ts:139); `/workspaces` `/projects` registered
-  twice (handlers.ts); web `+layout.svelte` re-registers the
-  `ocrc:resubscribe` listener on every navigation; `ansi.ts` drops 256-color
-  SGR; `auth-reload.ts` vs `auth-token.ts` disagree on stripping `#token`.
-- **Untested modules**: core/scheduler.ts, core/channels.ts,
-  agent/v2-backend.ts, plugin/control-plane.ts, cli host/install; web routes
-  vcs/m8/schedules/suggestions/subagents/files/logs untouched by tests.
+### fix(tg): the grinev experience trio
+- **Signature dedup actually works now**: `deliveredSignature` returns the
+  signature of what was REALLY delivered (`getTelegramRenderedPartSignature`);
+  the old `fallbackText.slice(0,128)` never matched the streamer's rich
+  signatures, so unchanged flushes re-edited every part.
+- **Rich rendering on-line**: native parts go out via `sendRichMessage
+  ({blocks})` — the ported render pipeline's output was computed and then
+  thrown away at send time (plain `parse_mode: undefined` only). Native
+  failure throws into the streamer's `plainOnly` degradation, which now
+  genuinely engages. Finalize fallback delivers ALL parts (long finals no
+  longer lose everything past the first chunk).
+- **Live tool cards wired**: the orphaned `ToolCallStreamer` +
+  `RunningToolTracker` render streaming-card tool blocks as one progressively
+  edited message with elapsed-time ticks; `standard` granularity hides it.
+- Hygiene: dead throttle-reset branch removed; duplicate `/workspaces`
+  `/projects` registration dropped; permission-flow/question-flow copy moved
+  into i18n (`question.flow.*` / `permission.flow.*` keys added to en+zh —
+  the i18n module is wired for the first time); confirmed-dead orphans
+  deleted (markdown-to-telegram-v2, question-manager, rename-manager,
+  external-input/abort-suppression, finalize-assistant-response).
+
+### fix(web)
+- `+layout.svelte` stacked one `ocrc:resubscribe` window listener per
+  navigation — registered once in onMount now, removed on destroy.
+- `ansi.ts`: 38;5;n maps through the xterm 256-color palette; 48;2/48;5 emit
+  background-color (both were swallowed before).
+- Dead `stores/activeSession.ts` removed; `#token` fragment semantics
+  cross-referenced (boot keeps it for iOS PWAs, auth failure strips it —
+  complementary by design, now documented as such).
+- svelte-check: all 7 pre-existing errors fixed (Inspector side-chat typing,
+  visual-audit.mjs strictness) — 0 errors.
+- stability-14.12 `expect(true)` placeholder replaced by a pointer to the
+  real index-gating coverage.
+
+### feat(remote): sync-config — bring the opencode environment along
+- `RemoteHostManager.syncConfig(id)`: tar the local `~/.config/opencode`
+  whitelist (`opencode.json` incl. its mcp section, `AGENTS.md`, `CLAUDE.md`,
+  `command/`, `agent/`, `skill/` — never `plugin/`) and apply it on the
+  remote in one ssh round-trip; collisions back up to `*.ocrc-bak`
+  (ZCode's no-silent-overwrite semantics). Design + ZCode mechanism
+  comparison: docs/remote-provisioning-design.md.
+- `POST /api/remotes/:id/sync-config` + RemotesPanel「同步配置」button.
+
+### test
+- 34 new tests: streaming-render (5), tool-stream-bridge (5), scheduler (5),
+  channels (4), previously-uncovered web routes (8), v2-backend (5),
+  control-plane (3), config-sync helpers + remotes routes (4+).
+- Backend 544 green; web 132 green; svelte-check 0 errors.
+
+### Still open (recorded deliberately)
+- The i18n dictionary (~620 keys) is wired only for the two flows; the rest
+  of the TG surface (handlers/menus/renderer) still has hardcoded copy.
+- cli/host.ts + cli/install.ts remain untested (interactive entry points).
 
 ## v0.26.0 — v0.26.5 — 2026-10-04
 

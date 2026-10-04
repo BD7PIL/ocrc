@@ -118,6 +118,7 @@ export const api = {
   inspectRemote: (id: string) => jsonPost<{ inspection: Record<string, unknown> }>(`/api/remotes/${id}/inspect`, {}),
   provisionRemote: (id: string) => jsonPost<{ ok: boolean; detail: string }>(`/api/remotes/${id}/provision`, {}),
   syncRemoteAuth: (id: string) => jsonPost<{ ok: boolean; detail: string }>(`/api/remotes/${id}/sync-auth`, {}),
+  syncRemoteConfig: (id: string) => jsonPost<{ ok: boolean; detail: string }>(`/api/remotes/${id}/sync-config`, {}),
   subagents: (id: string) => jsonGet<{ subagents: SubagentRow[] }>(`/api/session/${id}/subagents`),
   /** Raw server message — tool parts carry state.output (tool output pages). */
   messageRaw: (id: string, messageId: string) =>

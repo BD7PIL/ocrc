@@ -1,6 +1,6 @@
 <!-- src/lib/components/inspector/RemotesPanel.svelte — 0.26.0: SSH remote hosts
      (provision official opencode, launch via one ssh process = tunnel + serve).
-     List / add / enable-toggle / inspect / provision / sync-auth / delete.
+     List / add / enable-toggle / inspect / provision / sync-auth / sync-config / delete.
      Backend registration is restart-effective — the panel says so. -->
 <script lang="ts">
   import { api, type RemoteRow } from '$lib/api/client.js'
@@ -78,12 +78,13 @@
     } catch { /* keep row on failure */ }
   }
 
-  async function act(id: string, what: 'inspect' | 'provision' | 'sync-auth') {
+  async function act(id: string, what: 'inspect' | 'provision' | 'sync-auth' | 'sync-config') {
     busy = `${id}:${what}`
     error = ''
     try {
       if (what === 'inspect') await api.inspectRemote(id)
       else if (what === 'provision') await api.provisionRemote(id)
+      else if (what === 'sync-config') await api.syncRemoteConfig(id)
       else await api.syncRemoteAuth(id)
     } catch (e) {
       error = `${what}: ${(e as Error).message}`
@@ -123,6 +124,7 @@
             <button class="op" disabled={busy === `${r.id}:sync-auth`} on:click={() => act(r.id, 'sync-auth')}>同步凭据</button>
           {:else}
             <button class="op" disabled={!!busy} on:click={() => act(r.id, 'inspect')}>探测</button>
+            <button class="op" disabled={!!busy} on:click={() => act(r.id, 'sync-config')} title="推送本机 opencode 配置（skills/MCP/agents 文档），同名文件先备份">同步配置</button>
             {#if !r.status?.inspection?.opencodePath}
               <button class="op accent" disabled={!!busy || st === 'provisioning'} on:click={() => act(r.id, 'provision')}>部署</button>
             {/if}

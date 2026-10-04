@@ -73,4 +73,11 @@ export function registerRemotes(app: Hono, remotes?: RemotesStore, manager?: Rem
     const result = await manager.syncAuth(c.req.param('id'))
     return c.json(result, result.ok ? 200 : 502)
   })
+
+  /** 0.26.6: push the local opencode config whitelist (skills/MCP/agents docs)
+   *  to the remote — collisions back up to *.ocrc-bak, never silently lost. */
+  app.post('/api/remotes/:id/sync-config', async (c) => {
+    const result = await manager.syncConfig(c.req.param('id'))
+    return c.json(result, result.ok ? 200 : 502)
+  })
 }

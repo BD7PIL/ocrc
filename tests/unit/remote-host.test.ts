@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest'
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   sshTarget,
   buildSshArgs,
@@ -6,8 +9,37 @@ import {
   parseGlibcVersion,
   nextRetryDelay,
   buildProvisionCommand,
+  buildConfigEntries,
+  buildConfigApplyScript,
+  CONFIG_SYNC_ENTRIES,
 } from '../../src/core/remote-host'
 import { createOpencodeBackend } from '../../src/core/agent/opencode-backend'
+
+describe('config sync helpers (0.26.6)', () => {
+  it('buildConfigEntries returns only existing whitelist entries; plugin/ is never synced', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ocrc-cfg-'))
+    writeFileSync(join(dir, 'opencode.json'), '{}')
+    writeFileSync(join(dir, 'AGENTS.md'), 'x')
+    mkdirSync(join(dir, 'command'))
+    mkdirSync(join(dir, 'plugin')) // exists but NOT on the whitelist
+    const entries = buildConfigEntries(dir)
+    expect(entries).toEqual(['opencode.json', 'AGENTS.md', 'command'])
+    // all-missing dir → nothing to sync
+    expect(buildConfigEntries(join(dir, 'absent'))).toEqual([])
+    expect(CONFIG_SYNC_ENTRIES).not.toContain('plugin')
+  })
+
+  it('buildConfigApplyScript: staging dir, tar from stdin, *.ocrc-bak backups, cleanup', () => {
+    const script = buildConfigApplyScript()
+    expect(script).toContain('tar -xzf - -C "$S"')
+    expect(script).toContain('.ocrc-bak')
+    expect(script).toContain('rm -rf "$S"')
+    // backup ONLY when the target already exists (no silent overwrite)
+    expect(script).toContain('if [ -f "$tgt" ]; then')
+    expect(script).toContain('echo "backup: $rel"')
+    expect(script).toContain('echo "new: $rel"')
+  })
+})
 
 describe('remote-host pure helpers', () => {
   it('sshTarget renders user@host or bare host', () => {

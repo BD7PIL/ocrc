@@ -193,7 +193,7 @@
         wizFailed = true
       }
     } catch (e) {
-      wizError = (e as Error).message
+      wizError = `连接流程出错：${(e as Error).message}`
       wizFailed = true
     }
   }

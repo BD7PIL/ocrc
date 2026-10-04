@@ -23,7 +23,7 @@
   } from '$lib/stores/capabilities.js'
   import { sessionList } from '$lib/stores/sessions.js'
   import { connection } from '$lib/stores/connection.js'
-  import { leftPanelOpen } from '$lib/stores/ui.js'
+  import { leftPanelOpen, inspectorOpen } from '$lib/stores/ui.js'
   import RailFoot from './RailFoot.svelte'
 
   export let activeId: string | undefined = undefined
@@ -240,12 +240,12 @@
     </div>
     <!-- rail v2 quick sections: schedules + remotes (ZCode bottom-nav register) -->
     <div class="quick">
-      <button class="quick-row" on:click={() => openHome('config')} title="定时任务">
+      <button class="quick-row" on:click={() => { inspectorOpen.set(true); openHome('config') }} title="定时任务">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
         <span class="q-label">定时任务</span>
         <span class="q-count mono">{scheduleCount}</span>
       </button>
-      <button class="quick-row" on:click={() => openHome('remotes')} title="远程主机">
+      <button class="quick-row" on:click={() => { inspectorOpen.set(true); openHome('remotes') }} title="远程主机">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01M6 17.5h.01"/></svg>
         <span class="q-label">远程主机</span>
         <span class="q-count mono">{remotesTotal ? `${remotesOnline}/${remotesTotal}` : 0}</span>

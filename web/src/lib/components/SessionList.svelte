@@ -201,7 +201,10 @@
 
   // The session list shows only the selected agent's sessions (fallback for
   // legacy sessions with no backendId), then: query filter → archived split.
-  $: byAgent = agentId
+  // EXCEPTION — project mode is HUB semantics: it spans every backend so the
+  // remote workspaces appear alongside local ones (the cloud/folder groups
+  // ARE the local-vs-remote distinction); time mode keeps per-agent scoping.
+  $: byAgent = agentId && mode === 'time'
     ? $sessionList.filter((s) => s.backendId === agentId || (!s.backendId && agentId === 'opencode'))
     : $sessionList
   $: workspaceScoped = filterByWorkspace(byAgent, $activeWorkspace)
@@ -674,10 +677,13 @@
      form-swap lesson). */
   .act.mmore, .rowmenu { display: none; }
 
-  @media (hover: none), (max-width: 820px) {
+  @media (hover: none) and (pointer: coarse), (max-width: 820px) {
     /* Touch screens: the hover buttons collapse into ONE "⋯" that opens a
        row menu — three 40px buttons ate a third of a 390px row (user
-       report). ≥40px touch target preserved on the single control. */
+       report). ≥40px touch target preserved on the single control.
+       hover:none alone is NOT enough: a desktop headless browser without
+       hover capabilities reports hover:none at pointer:fine and would get
+       the mobile row UI (CDP visual-audit lesson). */
     .act { opacity: .6; padding: 8px; min-width: 40px; min-height: 40px; align-items: center; justify-content: center; }
     .act.rename, .act.pin, .act.arch, .act.trash { display: none; }
     .act.mmore { display: inline-flex; opacity: .7; }

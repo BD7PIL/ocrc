@@ -14,25 +14,14 @@ import { InlineKeyboard } from 'grammy'
 import type { Context } from 'grammy'
 import { createHash } from 'node:crypto'
 import { createLogger } from '../../utils/logger.js'
+import { t } from './i18n/index.js'
 import { InteractionManager } from './managers/interaction-manager.js'
 import type { QuestionInfo } from '../../core/agent/backend.js'
 
 const log = createLogger('question-flow')
 
-const T = {
-  header: (idx: number, total: number, header?: string) =>
-    `❓ ${header || '问题'}（${idx}/${total}）`,
-  option: (label: string, selected: boolean) => `${selected ? '✅' : '▫️'} ${label}`,
-  submit: '✅ 提交',
-  reject: '❌ 取消',
-  submitted: '✅ 已提交回答',
-  rejected: '❌ 已取消',
-  fromElsewhere: '（已在其他界面回答）',
-  stale: '该问题已在其他界面回答',
-  failed: '提交失败，请重试',
-  slotBusy: '⚠️ 有进行中的交互，请在 Web 端回答该问题',
-  webOnly: '该问题需要文字回答，请在 Web 端回复',
-}
+// Locale-neutral option marker; all surrounding text comes from i18n.
+const option = (label: string, selected: boolean) => `${selected ? '✅' : '▫️'} ${label}`
 
 interface PendingQuestion {
   requestId: string
@@ -87,7 +76,7 @@ export class QuestionFlow {
   async present(bot: Context['api'], request: { requestId: string; sessionId: string; questions: QuestionInfo[] }): Promise<void> {
     const answerable = request.questions.filter((q) => q.options.length > 0)
     if (answerable.length === 0) {
-      await bot.sendMessage(this.chatId, T.webOnly).catch(() => {})
+      await bot.sendMessage(this.chatId, t('question.flow.web_only')).catch(() => {})
       return
     }
 
@@ -102,7 +91,7 @@ export class QuestionFlow {
     if (snap?.kind === 'permission') {
       // v1: no queueing — permissions first, questions answered on web.
       log.info('permission holds the slot; question left to web', { requestId: request.requestId })
-      await bot.sendMessage(this.chatId, T.slotBusy).catch(() => {})
+      await bot.sendMessage(this.chatId, t('question.flow.slot_busy')).catch(() => {})
       return
     }
 
@@ -152,11 +141,18 @@ export class QuestionFlow {
     const selected = entry.selected[entry.index]
     for (let i = 0; i < q.options.length; i++) {
       const opt = q.options[i]
-      kb.text(T.option(opt.label, selected.has(i)), `q:${tokenOf(entry.requestId)}:o:${i}`).row()
+      kb.text(option(opt.label, selected.has(i)), `q:${tokenOf(entry.requestId)}:o:${i}`).row()
     }
-    if (q.multiple) kb.text(T.submit, `q:${tokenOf(entry.requestId)}:ok`).row()
-    kb.text(T.reject, `q:${tokenOf(entry.requestId)}:rej`)
-    return { text: T.header(entry.index + 1, total, q.header), keyboard: kb }
+    if (q.multiple) kb.text(t('question.flow.button.submit'), `q:${tokenOf(entry.requestId)}:ok`).row()
+    kb.text(t('question.flow.button.reject'), `q:${tokenOf(entry.requestId)}:rej`)
+    return {
+      text: t('question.flow.header', {
+        header: q.header || t('question.flow.default_header'),
+        idx: entry.index + 1,
+        total,
+      }),
+      keyboard: kb,
+    }
   }
 
   /** Option tap: single-choice advances immediately; multiple toggles until 提交. */
@@ -164,7 +160,7 @@ export class QuestionFlow {
     const entry = this.pending.get(tok)
     const q = entry?.questions[entry.index]
     if (!entry || !q || optionIndex >= q.options.length) {
-      await ctx.answerCallbackQuery(T.stale).catch(() => {})
+      await ctx.answerCallbackQuery(t('question.flow.stale')).catch(() => {})
       return
     }
     const selected = entry.selected[entry.index]
@@ -189,7 +185,7 @@ export class QuestionFlow {
   async onSubmit(ctx: Context, tok: string): Promise<void> {
     const entry = this.pending.get(tok)
     if (!entry) {
-      await ctx.answerCallbackQuery(T.stale).catch(() => {})
+      await ctx.answerCallbackQuery(t('question.flow.stale')).catch(() => {})
       return
     }
     await this.advanceOrSubmit(ctx, tok, entry)
@@ -211,21 +207,21 @@ export class QuestionFlow {
       log.error('answerQuestion failed', err as Error)
       return undefined
     })
-    await this.finish(ctx, tok, entry, result, T.submitted)
+    await this.finish(ctx, tok, entry, result, t('question.flow.submitted'))
   }
 
   /** 取消. */
   async onReject(ctx: Context, tok: string): Promise<void> {
     const entry = this.pending.get(tok)
     if (!entry) {
-      await ctx.answerCallbackQuery(T.stale).catch(() => {})
+      await ctx.answerCallbackQuery(t('question.flow.stale')).catch(() => {})
       return
     }
     const result = await this.deps.reject(entry.sessionId, entry.requestId).catch((err) => {
       log.error('rejectQuestion failed', err as Error)
       return undefined
     })
-    await this.finish(ctx, tok, entry, result, T.rejected)
+    await this.finish(ctx, tok, entry, result, t('question.flow.rejected'))
   }
 
   private async finish(
@@ -236,10 +232,12 @@ export class QuestionFlow {
     okLabel: string,
   ): Promise<void> {
     if (result === undefined || (!result.ok && !result.stale)) {
-      await ctx.answerCallbackQuery(T.failed).catch(() => {})
+      await ctx.answerCallbackQuery(t('question.flow.failed')).catch(() => {})
       return
     }
-    const label = result.stale ? `${T.stale} ${T.fromElsewhere}` : okLabel
+    const label = result.stale
+      ? `${t('question.flow.stale')} ${t('question.flow.from_elsewhere')}`
+      : okLabel
     this.pending.delete(tok)
     this.releaseSlot(entry)
     await ctx.editMessageText(label).catch((err) => log.warn('finish edit failed', (err as Error).message))
@@ -253,7 +251,9 @@ export class QuestionFlow {
     if (!entry) return
     this.pending.delete(tok)
     this.releaseSlot(entry)
-    const label = outcome === 'replied' ? `${T.submitted} ${T.fromElsewhere}` : `${T.rejected} ${T.fromElsewhere}`
+    const label = outcome === 'replied'
+      ? `${t('question.flow.submitted')} ${t('question.flow.from_elsewhere')}`
+      : `${t('question.flow.rejected')} ${t('question.flow.from_elsewhere')}`
     if (entry.messageId) {
       await bot.editMessageText(this.chatId, entry.messageId, label).catch(() => {})
     }

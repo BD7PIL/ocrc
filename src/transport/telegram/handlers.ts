@@ -542,10 +542,6 @@ export function registerHandlers(deps: HandlersDeps): void {
     try { await ctx.editMessageText(`📍 <b>Active workspace</b>\n\n<code>${dir}</code>\n\nUse /new to start a session here.`, { parse_mode: 'HTML' }) } catch { /* ignore */ }
   })
 
-  deps.bot.command('workspaces', workspacesHandler)
-  // grinev 命令名对齐：/projects = /workspaces
-  deps.bot.command('projects', workspacesHandler)
-
   // grinev 对齐：/detach = 取消跟随当前会话（等价 unpin）
   deps.bot.command('detach', async (ctx: Context) => {
     const pinned = deps.state.getPinnedSessionId()

@@ -13,6 +13,7 @@ import type { SessionState } from '../../core/state.js'
 import type { CardBus } from '../../core/card-bus.js'
 import { TelegramSessionRenderer } from './renderer.js'
 import { StreamingRenderer } from './streaming-render.js'
+import { ToolStreamBridge } from './tool-stream-bridge.js'
 import { PermissionFlow } from './permission-flow.js'
 import { QuestionFlow } from './question-flow.js'
 import { renderSessionsMenu, renderAgentsMenu, renderModelsMenu, editMenu } from './menus.js'
@@ -486,6 +487,7 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
   // progressive throttling); the legacy renderer stays for user/info echoes.
   const renderers = new Map<string, TelegramSessionRenderer>()
   let streamingRenderer: StreamingRenderer | undefined
+  let toolBridge: ToolStreamBridge | undefined
 
   function getRenderer(sessionId: string, chatId: string): TelegramSessionRenderer {
     let r = renderers.get(sessionId)
@@ -515,6 +517,10 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
       cardBusRef = cardBus
       const chatId = String(cfg.allowedUserIds[0])
       streamingRenderer = new StreamingRenderer({ api: bot.api, chatId, granularity: () => cfg.channels?.()?.replyGranularity ?? 'detailed' })
+      // Live tool card (0.26.6): the ported grinev modules finally on-line —
+      // tool blocks from streaming cards render as one progressively-edited
+      // message; `standard` granularity keeps them hidden entirely.
+      toolBridge = new ToolStreamBridge({ api: bot.api, chatId, granularity: () => cfg.channels?.()?.replyGranularity ?? 'detailed' })
       permissionFlow = new PermissionFlow(
         {
           interactionManager,
@@ -584,9 +590,11 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
               if (card.kind === 'streaming') {
                 const text = card.blocks.filter((b) => b.type === 'text').map((b) => (b as any).text ?? '').join('')
                 sr.onStreaming(card.sessionId, (card as any).messageId, text)
+                toolBridge?.onStreamingCard(card)
                 return
               }
               if (card.kind === 'assistant') {
+                await toolBridge?.onTurnEnd(card.sessionId).catch((err) => log.warn('tool bridge turn end failed', err as Error))
                 // P2c parity: regenerate action bar on the final message…
                 const actions = isEphemeralSession(card.sessionId)
                   ? undefined
@@ -597,7 +605,11 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
                 if (!isEphemeralSession(card.sessionId)) scheduleSuggestions(card.sessionId)
                 return
               }
-              if (card.kind === 'error') { await sr.onError(card.sessionId, (card as any).message ?? 'error'); return }
+              if (card.kind === 'error') {
+                await toolBridge?.onTurnEnd(card.sessionId).catch((err) => log.warn('tool bridge turn end failed', err as Error))
+                await sr.onError(card.sessionId, (card as any).message ?? 'error')
+                return
+              }
             } catch (err) {
               log.error(`[telegram] streaming onCard failed for ${card.kind}`, err as Error)
             }
@@ -674,6 +686,7 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
     },
     async stop() {
       pollingLive = false
+      toolBridge?.dispose()
       await bot.stop()
       clearInterval(approvalSweep)
     },

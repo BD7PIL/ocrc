@@ -46,6 +46,18 @@ export const en = {
   "question.blocked.command_not_allowed":
     "⚠️ This command is not available until current question flow is completed.",
 
+  "question.flow.header": "❓ {header} ({idx}/{total})",
+  "question.flow.default_header": "Question",
+  "question.flow.button.submit": "✅ Submit",
+  "question.flow.button.reject": "❌ Cancel",
+  "question.flow.submitted": "✅ Answer submitted",
+  "question.flow.rejected": "❌ Cancelled",
+  "question.flow.from_elsewhere": "(answered elsewhere)",
+  "question.flow.stale": "This question was already answered elsewhere",
+  "question.flow.failed": "Submit failed, please retry",
+  "question.flow.slot_busy": "⚠️ Another interaction is active — answer this question in the web panel",
+  "question.flow.web_only": "This question needs a typed answer — reply in the web panel",
+
   "inline.button.cancel": "❌ Cancel",
   "inline.button.close": "❌ Close",
   "inline.inactive_callback": "This menu is inactive",
@@ -379,6 +391,14 @@ export const en = {
   "permission.name.task": "Task",
   "permission.name.lsp": "LSP",
   "permission.name.external_directory": "External Directory",
+
+  "permission.flow.header": "🔐 Permission request: {emoji} {name}",
+  "permission.flow.grouped_count": "\n({count} more identical request(s) will be resolved together)",
+  "permission.flow.resolved_default": "Handled",
+  "permission.flow.from_tui": "(handled elsewhere)",
+  "permission.flow.already_handled": "This request has already been handled",
+  "permission.flow.processing_failed": "Processing failed, please retry",
+  "permission.flow.multi_count": "({count} requests)",
 
   "question.inactive_callback": "Poll is inactive",
   "question.processing_error_callback": "Processing error",

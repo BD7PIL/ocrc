@@ -15,28 +15,25 @@
 import type { Context } from 'grammy'
 import { InlineKeyboard } from 'grammy'
 import { createLogger } from '../../utils/logger.js'
+import { t } from './i18n/index.js'
 import { InteractionManager } from './managers/interaction-manager.js'
 import { PermissionManager } from './managers/permission-manager.js'
 import type { PermissionRequest } from './types/permission.js'
 
 const log = createLogger('perm-flow')
 
-// zh strings (M5 will move these into the i18n dictionary)
-const T = {
-  header: (emoji: string, name: string) => `🔐 权限请求：${emoji} ${name}`,
-  groupedCount: (count: number) => `\n（另有 ${count - 1} 个相同请求将一并处理）`,
-  allowedCommands: {
-    bash: '⚡', edit: '✏️', write: '📝', read: '📖', webfetch: '🌐',
-    websearch: '🔍', glob: '📁', grep: '🔎', list: '📂', task: '⚙️',
-    lsp: '🔧', external_directory: '📁',
-  } as Record<string, string>,
-  buttons: { once: '✅ 允许一次', always: '🔓 永远允许', reject: '❌ 拒绝' },
-  resolved: {
-    once: '✅ 已允许（一次）',
-    always: '🔓 已永远允许',
-    reject: '❌ 已拒绝',
-  } as Record<string, string>,
-  fromTui: '（由其他界面处理）',
+// Locale-independent tool emoji; the surrounding text comes from i18n.
+const ALLOWED_COMMAND_EMOJI: Record<string, string> = {
+  bash: '⚡', edit: '✏️', write: '📝', read: '📖', webfetch: '🌐',
+  websearch: '🔍', glob: '📁', grep: '🔎', list: '📂', task: '⚙️',
+  lsp: '🔧', external_directory: '📁',
+}
+
+function resolvedLabel(decision?: string): string {
+  if (decision === 'once') return t('permission.reply.once')
+  if (decision === 'always') return t('permission.reply.always')
+  if (decision === 'reject') return t('permission.reply.reject')
+  return t('permission.flow.resolved_default')
 }
 
 export interface PermissionFlowDeps {
@@ -49,22 +46,22 @@ export interface PermissionFlowDeps {
 }
 
 function formatPermissionText(request: PermissionRequest, groupedCount = 1): string {
-  const emoji = T.allowedCommands[request.permission] ?? '🔐'
-  let text = T.header(emoji, request.permission)
+  const emoji = ALLOWED_COMMAND_EMOJI[request.permission] ?? '🔐'
+  let text = t('permission.flow.header', { emoji, name: request.permission })
   for (const pattern of request.patterns) {
     text += `\n• ${pattern}`
   }
   if (groupedCount > 1) {
-    text += T.groupedCount(groupedCount)
+    text += t('permission.flow.grouped_count', { count: groupedCount - 1 })
   }
   return text
 }
 
 function buildPermissionKeyboard(): InlineKeyboard {
   const kb = new InlineKeyboard()
-  kb.text(T.buttons.once, 'permission:once').row()
-  kb.text(T.buttons.always, 'permission:always').row()
-  kb.text(T.buttons.reject, 'permission:reject')
+  kb.text(t('permission.button.allow'), 'permission:once').row()
+  kb.text(t('permission.button.always'), 'permission:always').row()
+  kb.text(t('permission.button.reject'), 'permission:reject')
   return kb
 }
 
@@ -126,7 +123,7 @@ export class PermissionFlow {
     const messageId = msg?.message_id ?? null
     const requestIds = permissionManager.getRequestIDs(messageId)
     if (requestIds.length === 0) {
-      await ctx.answerCallbackQuery('该请求已被处理')
+      await ctx.answerCallbackQuery(t('permission.flow.already_handled'))
       return
     }
 
@@ -134,15 +131,15 @@ export class PermissionFlow {
       await resolve(requestIds, decision)
     } catch (err) {
       log.error('resolvePermission fan-out failed', err as Error)
-      await ctx.answerCallbackQuery('处理失败，请重试').catch(() => {})
+      await ctx.answerCallbackQuery(t('permission.flow.processing_failed')).catch(() => {})
       return
     }
 
     // Mark every grouped request resolved (drops waiting-room entries + state).
     for (const id of requestIds) permissionManager.resolveRequest(id)
 
-    const label = T.resolved[decision]
-    const extra = requestIds.length > 1 ? `（${requestIds.length} 个请求）` : ''
+    const label = resolvedLabel(decision)
+    const extra = requestIds.length > 1 ? t('permission.flow.multi_count', { count: requestIds.length }) : ''
     await ctx.editMessageText(`${label}${extra}`).catch((err) => log.warn('decision edit failed', (err as Error).message))
     await ctx.answerCallbackQuery(label)
 
@@ -157,9 +154,9 @@ export class PermissionFlow {
     // the removed message ids (grinev 外部已答清理).
     const removed = permissionManager.resolveRequest(permissionId)
     if (removed.length === 0) return
-    const label = T.resolved[response ?? ''] ?? '已处理'
+    const label = resolvedLabel(response)
     for (const messageId of removed) {
-      await bot.editMessageText(this.chatId, messageId, `${label} ${T.fromTui}`).catch(() => {})
+      await bot.editMessageText(this.chatId, messageId, `${label} ${t('permission.flow.from_tui')}`).catch(() => {})
     }
     this.syncInteractionState({ externalReply: permissionId })
   }

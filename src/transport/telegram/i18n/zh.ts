@@ -42,6 +42,18 @@ export const zh: I18nDictionary = {
   "question.blocked.expected_answer": "⚠️ 请使用按钮、自定义回答或取消来回答当前问题。",
   "question.blocked.command_not_allowed": "⚠️ 在当前问答流程完成之前不可用此命令。",
 
+  "question.flow.header": "❓ {header}（{idx}/{total}）",
+  "question.flow.default_header": "问题",
+  "question.flow.button.submit": "✅ 提交",
+  "question.flow.button.reject": "❌ 取消",
+  "question.flow.submitted": "✅ 已提交回答",
+  "question.flow.rejected": "❌ 已取消",
+  "question.flow.from_elsewhere": "（已在其他界面回答）",
+  "question.flow.stale": "该问题已在其他界面回答",
+  "question.flow.failed": "提交失败，请重试",
+  "question.flow.slot_busy": "⚠️ 有进行中的交互，请在 Web 端回答该问题",
+  "question.flow.web_only": "该问题需要文字回答，请在 Web 端回复",
+
   "inline.button.cancel": "❌ 取消",
   "inline.button.close": "❌ 关闭",
   "inline.inactive_callback": "此菜单已失效",
@@ -347,6 +359,14 @@ export const zh: I18nDictionary = {
   "permission.name.task": "任务",
   "permission.name.lsp": "LSP",
   "permission.name.external_directory": "外部目录",
+
+  "permission.flow.header": "🔐 权限请求：{emoji} {name}",
+  "permission.flow.grouped_count": "\n（另有 {count} 个相同请求将一并处理）",
+  "permission.flow.resolved_default": "已处理",
+  "permission.flow.from_tui": "（由其他界面处理）",
+  "permission.flow.already_handled": "该请求已被处理",
+  "permission.flow.processing_failed": "处理失败，请重试",
+  "permission.flow.multi_count": "（{count} 个请求）",
 
   "question.inactive_callback": "投票已失效",
   "question.processing_error_callback": "处理错误",

@@ -15,9 +15,10 @@
 import type { Api } from 'grammy'
 import { createLogger } from '../../utils/logger.js'
 import { renderTelegramParts } from './render/pipeline.js'
+import { getTelegramRenderedPartSignature } from './render/part-signature.js'
 import type { TelegramRenderedPart } from './render/types.js'
 import { ResponseStreamer, type StreamingMessagePayload } from './streaming/response-streamer.js'
-import { getSessionStreamThrottleMs, resetStreamThrottle, STREAM_THROTTLE_BASE_MS } from './streaming/stream-throttle.js'
+import { getSessionStreamThrottleMs, resetStreamThrottle } from './streaming/stream-throttle.js'
 import type { ContentBlock, AssistantMeta } from '../../core/structured-card.js'
 
 const log = createLogger('tg-stream')
@@ -83,38 +84,81 @@ export class StreamingRenderer {
       // Progressive: 1s for the first minute, then 2s/5s/10s — protects the
       // edit budget on long generations (ported as-is from grinev).
       throttleMs: (sessionId) => getSessionStreamThrottleMs(sessionId),
-      sendPart: async (part, options, sessionId) => {
-        const res = await withTimeout(
-          this.api.sendMessage(this.chatId, part.fallbackText, { ...(options ?? {}), parse_mode: undefined }),
-          15000,
-          'sendMessage',
-        )
-        log.info(`[${sessionId}] stream part sent: msg=${res.message_id}`)
-        return { messageId: res.message_id, deliveredSignature: part.fallbackText.slice(0, 128) }
+      sendPart: async (part, _options, sessionId) => {
+        const messageId = await this.deliverPart(part)
+        log.info(`[${sessionId}] stream part sent: msg=${messageId} source=${part.source}`)
+        // The signature MUST describe what was actually delivered — a native
+        // part delivers its blocks, a plain part its fallbackText. Returning
+        // anything else makes the streamer's unchanged-edit skip dead.
+        return { messageId, deliveredSignature: getTelegramRenderedPartSignature(part) }
       },
-      editPart: async (messageId, part, options, sessionId) => {
+      editPart: async (messageId, part, _options, sessionId) => {
         try {
-          await withTimeout(
-            this.api.editMessageText(this.chatId, messageId, part.fallbackText, {
-              ...(options ?? {}),
-              parse_mode: undefined,
-              link_preview_options: { is_disabled: true },
-            } as any),
-            15000,
-            'editMessageText',
-          )
+          await this.redeliverPart(messageId, part)
         } catch (err) {
           // "message is not modified" = identical content — a success by
           // definition, NOT a broken stream (grinev treats it the same).
-          if (isNotModified(err)) return { deliveredSignature: part.fallbackText.slice(0, 128) }
+          if (isNotModified(err)) return { deliveredSignature: getTelegramRenderedPartSignature(part) }
           throw err
         }
-        return { deliveredSignature: part.fallbackText.slice(0, 128) }
+        return { deliveredSignature: getTelegramRenderedPartSignature(part) }
       },
       deleteText: async (messageId) => {
         await this.api.deleteMessage(this.chatId, messageId).catch(() => {})
       },
     })
+  }
+
+  /**
+   * Send one rendered part: native rich blocks via sendRichMessage when the
+   * part carries them (the ported pipeline's primary output), else plain text
+   * with optional entities. A native failure THROWS — the streamer's
+   * plainOnly degradation then re-chunks the whole payload as plain text and
+   * continues (single failure degrades one message, not the transport).
+   */
+  private async deliverPart(part: TelegramRenderedPart): Promise<number> {
+    if (part.blocks.length > 0) {
+      const res = await withTimeout(
+        this.api.sendRichMessage(this.chatId, { blocks: part.blocks } as any),
+        15000,
+        'sendRichMessage',
+      )
+      return res.message_id
+    }
+    const plainOptions: Record<string, unknown> = {
+      parse_mode: undefined,
+      link_preview_options: { is_disabled: true },
+    }
+    if (part.entities?.length) plainOptions.entities = part.entities
+    const sent = await withTimeout(
+      this.api.sendMessage(this.chatId, part.fallbackText, plainOptions as any),
+      15000,
+      'sendMessage',
+    )
+    return sent.message_id
+  }
+
+  private async redeliverPart(messageId: number, part: TelegramRenderedPart): Promise<void> {
+    if (part.blocks.length > 0) {
+      await withTimeout(
+        this.api.editMessageText(this.chatId, messageId, { blocks: part.blocks } as any, {
+          link_preview_options: { is_disabled: true },
+        } as any),
+        15000,
+        'editMessageRich',
+      )
+      return
+    }
+    const plainOptions: Record<string, unknown> = {
+      parse_mode: undefined,
+      link_preview_options: { is_disabled: true },
+    }
+    if (part.entities?.length) plainOptions.entities = part.entities
+    await withTimeout(
+      this.api.editMessageText(this.chatId, messageId, part.fallbackText, plainOptions as any),
+      15000,
+      'editMessageText',
+    )
   }
 
   /** Build a StreamingMessagePayload from accumulated assistant text. */
@@ -136,7 +180,6 @@ export class StreamingRenderer {
     // NOTE: do NOT reset the throttle per card — cards arrive continuously;
     // resetting here would pin the interval at 1s forever. The stream starts
     // at 1s and progresses via getSessionStreamThrottleMs.
-    if (!this.turns.has(sessionId)) resetStreamThrottle(sessionId)
     const parts = this.payloadFor(text).parts
     log.info(`[stream] enqueue sid=${sessionId.slice(-8)} key=${key} textLen=${text.length} parts=${parts.length} part0len=${parts[0]?.fallbackText.length ?? 0}`)
     this.streamer.enqueue(sessionId, key, { parts })
@@ -172,11 +215,13 @@ export class StreamingRenderer {
     }
 
     // No visible partials (short answer, or stream broken) → send the final
-    // text directly with the classic chunking path.
+    // text directly with the classic chunking path — ALL parts, or long
+    // finals would lose everything past the first chunk.
     if (streamedIds.length === 0 && text.trim()) {
       const parts = renderTelegramParts(text)
-      const sent = await this.api.sendMessage(this.chatId, parts[0]?.fallbackText ?? text, { link_preview_options: { is_disabled: true } } as any)
-      streamedIds = [sent.message_id]
+      for (const part of parts) {
+        streamedIds.push(await this.deliverPart(part))
+      }
     }
 
     // Tools + meta footer as a separate small message (grinev uses a footer line).

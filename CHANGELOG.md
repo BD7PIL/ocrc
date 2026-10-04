@@ -1,5 +1,138 @@
 # Changelog
 
+## Unreleased — full-source review (2026-10-05)
+
+A complete re-read of src/, tests/ and web/ produced this debt list (fixes
+land on this branch series; docs re-synced to code in the same pass):
+
+- **Dead code (ported from grinev, never wired)**: `telegram/streaming/
+  tool-call-streamer.ts`, `streaming/running-tool-tracker.ts`,
+  `streaming/finalize-assistant-response.ts`, `render/markdown-to-telegram-v2.ts`,
+  `managers/question-manager.ts`, `managers/rename-manager.ts`,
+  `managers/external-input-suppression-manager.ts`,
+  `managers/abort-suppression-manager.ts`; web `stores/activeSession.ts`.
+- **Defects found**: TG `deliveredSignature` mismatch defeats the response
+  streamer's unchanged-edit skip (streaming-render.ts sends
+  `fallbackText.slice(0,128)`; the streamer compares rich signatures);
+  the rich-block render output is computed but discarded at send time
+  (`parse_mode: undefined`, plain fallbackText only); dead throttle-reset
+  branch (streaming-render.ts:139); `/workspaces` `/projects` registered
+  twice (handlers.ts); web `+layout.svelte` re-registers the
+  `ocrc:resubscribe` listener on every navigation; `ansi.ts` drops 256-color
+  SGR; `auth-reload.ts` vs `auth-token.ts` disagree on stripping `#token`.
+- **Untested modules**: core/scheduler.ts, core/channels.ts,
+  agent/v2-backend.ts, plugin/control-plane.ts, cli host/install; web routes
+  vcs/m8/schedules/suggestions/subagents/files/logs untouched by tests.
+
+## v0.26.0 — v0.26.5 — 2026-10-04
+
+Headline: **SSH remote hosts** — drive opencode on other machines from the
+same panel (deploy-on-connect adapted from ZCode, system ssh only):
+
+- `~/.ocrc/remotes.json` store (0600, secrets generated per host, redacted in
+  API responses); state machine unknown→detecting→provisioning→launching→
+  online (+needs-auth/error/offline/disabled).
+- Provision = official installer pinned to the LOCAL opencode version; no-
+  internet fallback scp's the local binary. Never a musl/compat build.
+- One ssh process does tunnel + remote serve — ssh death kills everything it
+  started; respawn 2s→60s backoff with fresh detect each cycle.
+- Per-remote `/global/event` SSE into the same dispatchEvent — remote turns
+  mirror exactly like local ones; `sync-auth` copies auth.json (0600).
+- Remote backends derate honestly: no liveMirror/tuiSelect/local-git.
+- Web: /api/remotes CRUD + inspect/provision/sync-auth; RemotesPanel.
+- Patch train: EL7 OpenSSH 7.4 compat (no accept-new), port-detect without
+  `ss` on non-interactive PATH, SDK fetch wrapper → explicit Request →
+  client-level headers (the custom-fetch Authorization header was silently
+  dropped inside opencode's embedded runtime).
+
+## v0.25.0 — v0.25.2 — 2026-10-03
+
+Headline: **sdelta incremental streaming** — WS bytes off the O(n²) path:
+
+- `sdelta` frames carry raw text increments to the WS hub (bypassing CardBus);
+  snapshots become sparse checkpoints: 1s floor, 2s past 50k chars, 3s past
+  150k (relay streamGap).
+- 0.25.1: deltas coalesce per part on a 250ms timer; 0.25.2: flush only where
+  a snapshot actually publishes. Wire order "deltas, then the snapshot
+  containing them" keeps client replace append-safe.
+
+## v0.22.0 — v0.24.4 — 2026-10-03
+
+- **Session revert/unrevert** (POST /session/:id/revert with {messageID});
+  history cards carry the opencode message id; post-cutoff cards hidden.
+- Web: side chat pane (SelectionSideChatPane), ZCode pane summon, busy = any
+  live thinking/streaming card, right pane as a separated surface, perf audit
+  (hot-read caches, single WS serialization, hidden-tab gating), mobile
+  popover/textarea fixes, context ring semantics + wheel fix.
+
+## v0.18.0 — v0.21.0 — 2026-10-01/02
+
+- Web: right pane becomes a dynamic tab system (workspaceSidePane register);
+  zero pinned tabs; ZCode three-pane register with multi-subscribe WS (live
+  subagent tabs); bottom-left identity rail + context category breakdown;
+  composer send⇄STOP; mobile ⋯ menus; theme auto tier.
+- VCS: the server's /vcs is unusable on big worktrees (279s) — spawn
+  read-only git locally instead (16ms), 120s server-side cache, per-file lazy
+  patches with a 400k cap (whole-tree diff hit 47MB here).
+
+## v0.16.0 — v0.16.3 — 2026-09-30
+
+Tabbed inspector (opencode-web pattern); plan HUD recoverable dismiss + ghost
+chip + storage-key resets; tool-arg summarizer hardening (never String()
+inputs — edit batches render as 'N edits').
+
+## v0.15.0 — v0.15.2 — 2026-09-30
+
+Desktop pass: two-tone canvas, ZCode plan window, resizable panes, foldable
+inspector; surface unification; visual repair after the two-tone pass.
+
+## v0.14.0 — v0.14.3 — 2026-09-29/30
+
+Headline: **octg-simple lifecycle** — supervision always on (adopt-or-spawn,
+crash auto-restart incl. SIGKILL/OOM, stop-file graceful stop, `ocrc restore`
+for @reboot); `--watch` accepted and ignored. Streaming stops echoing user
+messages; plan HUD overlap + tool-arg fixes; mobile/desktop overflow; desktop
+goes neutral (ZCode register), orange stays accent-only.
+
+## v0.13.0 — v0.13.6 — 2026-09-29
+
+First-run onboarding landing (unauthenticated, ZCode-style; pending QR +
+channel status only); real channel logos + ink-ring mark; supervisor/
+restore/restart argv fixes; SIGKILL/SIGSEGV treated as crashes (OOM heals);
+paired-state transition; onboarding lock hints.
+
+## v0.12.0 — v0.12.4 — 2026-09-29
+
+`ocrc start --watch` supervisor + `restore` (run-N.sh semantics); service
+argv contract fix; README rewrite.
+
+## v0.11.0 — 2026-09-29
+
+HTTP Basic support for password-protected opencode servers
+(`OPENCODE_SERVER_PASSWORD`) — octg cutover prerequisite.
+
+## v0.10.0 — 2026-09-29
+
+**Pending-token pairing (M11)**: /pair surfaces issue 1-minute single-use
+tokens (`#pair=`); devices exchange at POST /api/pair/exchange; the permanent
+token never travels in a URL again. ZCode-style QR block.
+
+## v0.9.0 — v0.9.1 — 2026-09-28
+
+Headline: parity + surfaces batch over the grinev UX port (P2b/P2c):
+
+- **M8**: skills/files/worktree surfaces (backend + web panels + TG /skills
+  /ls /open /worktree). **M9**: bot-channels management (channels store, web
+  机器人 panel, TG consumption). **M10**: interactive question tool on
+  Telegram + web — incl. the discovery that `question.*` never rides the V1
+  event hook (dedicated SSE filter).
+- Parity batch: TG subs/mode/cleanup/regenerate/suggestion chips, background
+  notify, web zh UI, motion layer (seven-rule spec), plan orb (enso mark) +
+  subagent jumps, windowed long-session rendering + offset pagination,
+  replay completeness flag + REST resync (heals torn feeds).
+- npm/GitHub publish (CI Trusted Publisher), grammY migration leftovers
+  removed, photo intake + prompt-queue ack, reply keyboard 2x2.
+
 ## ocrc fork — 0.8.1-ocrc.1 (2026-09-25)
 
 Forked from agentjoey/opencode-remote-control at `9b89b79` (v0.8.1).

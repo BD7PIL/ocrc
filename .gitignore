@@ -33,3 +33,4 @@ tsconfig.tsbuildinfo
 .env.acp
 
 .pact/orchestrate/
+.zcode/

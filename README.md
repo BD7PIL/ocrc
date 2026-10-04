@@ -7,7 +7,7 @@
 [![Release](https://img.shields.io/github/v/release/BD7PIL/ocrc?color=10b981)](https://github.com/BD7PIL/ocrc/releases)
 [![License: MIT](https://img.shields.io/github/license/BD7PIL/ocrc?color=10b981)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/BD7PIL/ocrc/ci.yml?branch=main&label=CI)](https://github.com/BD7PIL/ocrc/actions)
-[![tests](https://img.shields.io/badge/tests-479%20backend%20%2B%20120%20web-10b981)](CHANGELOG.md)
+[![tests](https://img.shields.io/badge/tests-505%20backend%20%2B%20131%20web-10b981)](CHANGELOG.md)
 
 A fork of [agentjoey/opencode-remote-control](https://github.com/agentjoey/opencode-remote-control)
 (MIT); the Telegram interaction model is inspired by
@@ -93,20 +93,24 @@ opt-in:
 
 ## Telegram
 
-~34 commands, grouped: sessions (`/sessions /session /new /rename /workspaces
+35 commands, grouped: sessions (`/sessions /session /new /rename /workspaces
 /projects /cleanup`), running work (`/skills /ls /open /worktree /diff /todo
-/context /subs`), controls (`/agent /model /mode /task /tasks /tasklist
+/context /subs /current`), controls (`/agent /model /mode /task /tasks /tasklist
 /taskdel /mcps /commands /messages /detach`), ops (`/start /status /version
 /pair /channels /help`), plus `/abort` and plain text relay. Send any text to
 drive the agent; approvals and interactive questions arrive as buttons.
 
 ## Web panel
 
-PWA (installable), token-gated, with a live inspector per session: todos,
-MCP servers, schedules, usage/cost, context, working-dir diff, skills, file
-browser, worktrees — plus a floating plan HUD for subagent jumps. The bot
-channels panel configures reply granularity, workspace scope, and shows the
-pairing QR.
+PWA (installable), token-gated. Desktop uses a three-pane register (sessions
+rail · live chat · tabbed inspector); ≤820px it collapses into a drawer +
+bottom sheet tuned for phones. The right pane opens dynamic tabs: git
+(branch + lazy per-file patches), file browser/viewer, live subagent
+transcripts, full tool-output pages, and a side chat. Per session: todos,
+MCP servers, schedules, usage/cost, context ring, working-dir diff, skills,
+worktrees, remotes — plus a floating plan HUD for subagent jumps and session
+revert/unrevert. The bot channels panel configures reply granularity,
+workspace scope, and shows the pairing QR.
 
 ## Remote access
 
@@ -119,12 +123,33 @@ need a secure context:
 | **Tailscale** | `tailscale serve 4099` | Stable `https://<host>.ts.net`, device auth |
 | **cloudflared** | `cloudflared tunnel --url http://localhost:4099` | Free, URL rotates; set `OCRC_WEB_PUBLIC_URL` |
 
+### SSH remote hosts (0.26+)
+
+Drive opencode on **other machines** from the same panel. Register a host in
+the Inspector → Remotes panel (`/api/remotes`); ocrc then:
+
+1. **detects** it over one ssh round-trip (platform, glibc, opencode path +
+   version, credentials, port),
+2. **provisions** the official opencode if missing — pinned to THIS machine's
+   version (no internet on the remote? ocrc scp's its own binary),
+3. **launches** `opencode serve` bound to the remote loopback and reaches it
+   through an SSH local forward — one ssh process does tunnel + serve, so
+   when it dies everything it started dies with it (respawn 2s→60s backoff),
+4. **syncs credentials** (`sync-auth`: your `~/.local/share/opencode/auth.json`)
+   so remote turns run with your LLM logins,
+5. mirrors remote turns into Telegram/Web exactly like local ones (per-remote
+   event SSE into the same pipeline).
+
+The generated Basic password never leaves `~/.ocrc/remotes.json` (0600) and
+is redacted in every API response. Requires only system ssh + reachable host
+(`~/.ssh/config`, ProxyJump work as-is).
+
 ## Security model
 
 - One allowlisted Telegram user; web devices hold a token generated at first
   start (persisted `0600` at `~/.ocrc/token`), verified with constant-time
   compare on HTTP and WS.
-- Pairing QR links carry a pending token (5 min, single use) — never the
+- Pairing QR links carry a pending token (1 min, single use) — never the
   permanent credential.
 - If the opencode server itself runs with `OPENCODE_SERVER_PASSWORD`, ocrc
   authenticates its server calls with HTTP Basic (same env, no extra config).
@@ -145,7 +170,7 @@ Settings live in `~/.ocrc/config.env` (`0600`; `KEY=VALUE`). Highlights:
 | `OCRC_SERVER_BIN` | `~/.local/bin/opencode` | binary used by `ocrc start` |
 | `OCRC_WATCH_DELAY` | `5` | supervisor restart delay (s) |
 | `OPENCODE_SERVER_PASSWORD` | — | enables HTTP Basic for server calls |
-| `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
+| `LOG_LEVEL` | `warn` | `debug` / `info` / `warn` / `error` |
 
 Legacy `WEB_*` names are honored as fallbacks. Full list:
 [`docs/OPS.md`](docs/OPS.md).

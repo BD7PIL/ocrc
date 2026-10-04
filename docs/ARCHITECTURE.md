@@ -1,341 +1,251 @@
 # Architecture
 
-> Plain-language explanation of how `opencode-remote-control` is structured,
-> what it talks to, and how to extend it.
->
-> Updated for v0.7.1 (multi-agent: plugin mode + standalone multi-backend host).
+> How ocrc is actually structured, as of **v0.26.5**. Everything here is
+> grounded in the current source; file references are clickable anchors into
+> `src/`. For runbooks see [OPS.md](OPS.md); for the SSH-remote design see
+> [remote-provisioning-design.md](remote-provisioning-design.md).
 
-## Deployment models
+## The one-paragraph version
 
-### Plugin mode (v0.6.0+, single-backend opencode)
+ocrc is a long-lived **relay** sitting between your coding agent(s) and your
+surfaces (Telegram + Web PWA). Agent events flow DOWN through a normalization
+layer into per-session `StructuredCard`s on a **CardBus**; user messages flow
+UP through the same relay into per-session, serialized turns against an
+**AgentBackend**. The core speaks only these two seams, so the same core runs
+in four host shapes (V1 plugin, V2 plugin, standalone, remote-driver) and any
+number of backends.
+
+## Host shapes (one core, four entrypoints)
+
+All four build the same core (`state + CardBus + relay + transports + push`)
+— only the **ControlPlane** adapter differs (src/plugin/control-plane.ts):
+
+| Shape | Entrypoint | Backend | Event source |
+|---|---|---|---|
+| **V1 plugin** (production) | `remoteControlPlugin` — default export called as `server(ctx)` | OpencodeBackend over `ctx.client` | the plugin `event` hook + a dedicated SSE for `question.*` only |
+| **V2 plugin** | `dualEntry.setup(ctx)` — `setup` member | V2Backend over ctx domains | `ctx.event.subscribe` mapped to V1 shapes (plugin/v2/event-map.ts) |
+| **Standalone host** | `ocrc host` (src/cli/host.ts) | registry from `OCRC_BACKENDS` | ACP backends own their stream; opencode backends get a spawned server + global SSE |
+| **Remote driver** | folded into V1 entry (src/plugin/entry.ts:148) | one `remote:<id>` OpencodeBackend per enabled host in `remotes.json` | per-remote `/global/event` SSE (core/remote-events.ts) |
+
+Key facts per shape:
+
+- **Election**: opencode loads the plugin per workspace; `tryBecomePrimary()`
+  (core/primary-election.ts) elects exactly one PRIMARY per machine via an
+  `O_EXCL` lock file (`~/.ocrc/primary.lock`, stale-pid reclaim). PASSIVE
+  instances return inert hooks and never bind ports or poll Telegram.
+- **V2 transient gate**: `opencode run` one-shot processes stand down
+  (entry.ts:86) — no TG poller flapping against the resident service.
+- **Single event source (V1)**: on 1.18.32 the plugin event hook carries ALL
+  workspaces' events; wiring the global SSE too produced duplicate finalize
+  cards (verified live — see control-plane.ts:67 comment). Sole exception:
+  `question.*` never rides the hook, so a dedicated SSE forwards only those
+  three types.
+
+## The seams
+
+### AgentBackend (command path) — src/core/agent/backend.ts
+
+Every operation the transports need, normalized: `prompt/abort`, session CRUD,
+reads (`getHistory/getDiff/getTodos/getContext/...`), catalog, questions,
+permissions, plus optional capability-gated extras (`getSkills`, `getVcs`,
+`getControls`, `suggestFollowUps`, ...). `BackendCapabilities` drives honest
+UI degradation per backend. Implementations:
+
+- **OpencodeBackend** (opencode-backend.ts): SDK client for typed routes, raw
+  `ocFetch` (HTTP Basic from `OPENCODE_SERVER_PASSWORD`) for the many
+  endpoints the SDK doesn't type (skills/files/worktrees/questions/revert/
+  tui-select). Reads the LOCAL filesystem only for `getVcs/getVcsDiff` (spawned
+  read-only git — the server's /vcs takes minutes on huge worktrees) — omitted
+  on remote backends. 0.26: per-backend `fetchImpl` + SDK client-level Basic
+  headers for remotes.
+- **AcpBackend** (acp-backend.ts): drives a spawned ACP agent over stdio
+  (acp-connect.ts). OWNS its event source (`onEvent`); persists sessions +
+  history itself (acp-store.ts — ACP agents expose neither); tombstones
+  instead of deletes (kimi has no session/delete); recovers from session
+  takeover by re-issuing `session/load` (resyncIfStolen).
+- **V2Backend** (v2-backend.ts): ctx-domain calls; capabilities mostly off —
+  honest empties where V2 ctx has no slice yet.
+
+### AgentEvent (event path) — src/core/agent/event.ts
+
+Six normalized kinds: `part` / `delta` / `idle` / `error` / `notice` / `role`.
+Both opencode events (opencode-normalizer.ts) and ACP `session/update`
+(acp-normalizer.ts — stateful: synthesizes part ids for ACP's id-less text
+chunks) reduce to these, so relay logic is backend-agnostic.
+
+### BackendRegistry — src/core/agent/registry.ts
+
+`forSession(sid)` resolves the owning backend from state's persisted
+`sessionBackends` map (tagged at creation and on every listing); untagged →
+primary. New sessions route to `active()` (UI selection).
+
+## Downflow: agent → user
 
 ```
-┌──────────────────────────────────────────────────────┐
-│  opencode (single process)                            │
-│                                                       │
-│  ┌──────────────────┐  ┌───────────────────────────┐ │
-│  │ AI Engine :4096  │  │ Plugin: remote-control     │ │
-│  │                  │  │  ├─ Telegraf (Telegram)    │ │
-│  │                  │  │  ├─ Hono + WS (Web PWA)    │ │
-│  │                  │  │  └─ relay + CardBus        │ │
-│  └──────────────────┘  └──────────┬────────────────┘ │
-│                                   ▼                   │
-│                          Telegram / Web PWA            │
-└──────────────────────────────────────────────────────┘
+opencode event hook / global SSE / remote SSE / ACP callbacks
+        │  normalize
+        ▼
+   AgentEvent ──► relay.handleEvent (core/relay.ts)
+        │  per-session PluginSessionCtx:
+        │  StreamAccumulator + partTextAcc + pendingDelta
+        ▼
+   StructuredCard ──► CardBus (core/card-bus.ts)
+        │               per-session monotonic seq + 256-card ring buffer
+        ├─► Telegram transport (streaming pipeline, below)
+        ├─► WsHub (transport/web/ws-hub.ts) — 'card' frames + sdelta side channel
+        ├─► push engine (core/push.ts)
+        └─► acp-store recording (standalone host)
 ```
 
-Install once: `npm install && npm run build && node dist/cli/install.js`
-(or `ocrc install` once linked). Then: `opencode` — the plugin auto-starts, no
-extra terminal, no launchd. Multiple instances elect one PRIMARY to own the
-web/Telegram singletons.
+**Streaming protocol (0.25+)**: raw deltas are never broadcast per token.
+`sdelta` frames coalesce per part on a 250ms timer and ALWAYS flush
+immediately before a snapshot card — the wire order "deltas, then the
+snapshot containing them" is what makes the client's wholesale-replace
+append-safe (relay.ts:397-449). Snapshot cards are throttled by accumulated
+volume: 1s floor, 2s past 50k chars, 3s past 150k. `idle` finalizes the
+assistant card (upserts the streaming card in place via shared card id) and
+stamps `markAssistantDelivered` so push doesn't double-notify.
 
-> **v0.6.0:** the standalone sidecar / `EventStream` SSE path was removed. The
-> plugin runs in-process and consumes the opencode plugin **event hook**
-> directly (`relay.handleEvent`). There is no `RC_MODE=legacy` anymore.
+**Correctness load-bearing details** (each pinned by tests in
+tests/unit/relay.test.ts): user parts never enter the accumulator (`role`
+events + race retraction); aborts stay mapped under BOTH provisional and
+resolved session keys until turn end; `hasSession` treats only 404 as "gone" —
+transport errors must not misroute; externally-initiated (TUI) turns are
+adopted with a real timeout so they can't leak; ephemeral sessions (Tier2
+suggestion side-calls) never surface to feeds.
 
-### Standalone multi-backend host (v0.7.0+)
+## Upflow: user → agent
 
-```
-┌──────────────────────────────────────────────────────────┐
-│  ocrc host (own process, NOT an opencode plugin)          │
-│                                                            │
-│  BackendRegistry ── forSession(sid) ──┐                    │
-│   ├─ OpencodeBackend ── spawns its own opencode server     │
-│   │                     (sidecar) + global SSE events      │
-│   └─ AcpBackend ─────── spawns `kimi acp` (stdio) +        │
-│                         onEvent stream                     │
-│  relay + CardBus ── Telegram / Web PWA (backend switcher)  │
-└──────────────────────────────────────────────────────────┘
-```
+`IncomingMessage` (core/types.ts) from Telegram text/photo, web POST
+/api/message, or the scheduler → `relay(msg)`:
 
-One instance serves multiple backends (`OCRC_BACKENDS="opencode, kimi=kimi acp"`)
-with an in-UI switcher; each session routes to its owning backend. Two seams keep
-it pluggable: **`AgentBackend`** (command path — prompt/sessions/reads) and
-**`AgentEvent`** (event path — opencode SSE and ACP `onEvent` both normalize into
-it). ACP sessions are OCRC-persisted (`acp-store.ts`: list + history + per-session
-directory). This host serves the production domain today. See
-`docs/ACP_BACKEND_DESIGN.md` and `docs/PHASE3_MULTI_BACKEND.md`.
+1. **Queue**: per-session turn queue — a second message for a busy session
+   waits; different sessions run concurrently; failures never wedge the gate
+   (relay.ts:177-200). Telegram acks with「已排队」via the shared abort
+   registry, not a local flag.
+2. **Resolve target**: `msg.sessionId` (web pins the viewed session) → pinned
+   → TUI-selected (if visible) → last → newest root session. Short suffixes
+   normalize via `normalizeSessionId` (≥6 chars, unambiguous endsWith match,
+   state.ts:90). Target validated with `hasSession` before submit.
+3. **Submit** with per-message agent/model overrides;
+   `submitWithRetry` — network-class errors only, 5 tries, 2s exponential
+   (relay.ts:57).
+4. Publish `thinking` + `user` cards (user card id = incoming message id so
+   the web's optimistic card reconciles in place); install the response ctx;
+   return. Finalization happens on `idle`.
 
----
+## Telegram surface (src/transport/telegram/)
 
-## File tree (Phase 5 / v0.5.5+)
+- **index.ts** — transport factory: allowlist middleware (silent drop), photo
+  intake (largest PhotoSize → base64), reply-keyboard hears-routers, callback
+  routing (`permission:*`, `q:*`, `menu:*`, `retry:*`, `sug:*`, `wt:*`,
+  `ls:*`, `sk:*`, `tmode:*`, legacy `approve:*:*` with sha1 short tokens for
+  the 64-byte callback_data limit), grammY polling with 409/401 fatal handling.
+- **streaming-render.ts + streaming/response-streamer.ts** — the turn
+  pipeline: streaming cards → per-part progressive throttle
+  (1s→2s→5s→10s by session runtime, stream-throttle.ts) → editMessageText;
+  429 honors retry_after; first native failure degrades the message to plain
+  text; finalize flushes in place + appends a tools/meta footer (hidden at
+  `standard` granularity) + regenerate action bar.
+- **render/** — markdown → TelegramBlock (remark) → oversize splitting →
+  chunker (32k char / 480 block budgets; plain fallback 3800) → parts.
+- **managers/ + flows** — InteractionManager (single mutex slot + generation),
+  PermissionManager (merges equal permission requests; one click fans out all
+  requestIds), PermissionFlow, QuestionFlow (multi-select wizard, 30min TTL).
+- **handlers.ts** — 35 commands; **i18n/** — zh/en (`OCRC_LOCALE`), flat
+  namespaced keys, fallback zh→en→key.
+- Historical note: the grinev pipeline was ported wholesale in P2b-M2; where a
+  ported module is not yet wired into index.ts it is dead code — see the
+  orphans list in CHANGELOG (Unreleased) before "cleaning up" render/streaming
+  files.
 
-```
-src/
-  core/                          ← channel-agnostic
-    structured-card.ts           10-variant discriminated union (thinking/think-stream/streaming/assistant/…)
-                                 streaming + assistant use blocks: ContentBlock[] (text | tool in order)
-    stream-accumulator.ts        SDK part.id dedup → ordered ContentBlock[] (v0.5.5+)
-                                 v0.5.7: skips empty text="" upserts to prevent content erasure
-    card-bus.ts                  per-session + wildcard subscribers, ring buffer
-    relay.ts                     SDK submit → SSE iterate → accumulator → CardBus.publish
-                                 v0.5.7: partTextAcc map for delta accumulation; thinking card
-                                 published after sessionId resolved; early abort restored
-    history.ts                   messageToCards, reconstructHistory (produces blocks)
-    state.ts                     SessionState + AgentContext (persistent)
-    push.ts                      Push notifications (60s+ sessions, test failures)
-                                 v0.5.7: 3s retry on fetchSummary empty (opencode persistence race)
+## Web surface (src/transport/web/)
 
-  opencode/                      ← opencode-facing
-    submit.ts                    client.session.promptAsync wrapper
+- **Auth**: pluggable `AuthStrategy` (connectivity/auth/) — `token`
+  (constant-time compare; Bearer header, cookie, or `?token=` on the /ws
+  upgrade ONLY) or `cf-access` (JWT via jose). devBypass requires a real
+  loopback *socket peer* — a loopback bind alone is not a bypass signal
+  (tunnels connect from 127.0.0.1).
+- **Pairing (M11)**: surfaces issue 1-minute single-use PENDING tokens
+  (`#pair=` fragment); the device exchanges at POST /api/pair/exchange for the
+  permanent token. The onboarding landing page (pre-auth) shows a live QR +
+  channel status only.
+- **REST**: ~40 endpoints under /api (see web/src/lib/api/client.ts for the
+  client-side list; server.ts registers the routes).
+- **WS protocol** (ws-hub.ts): client sends `{type:'subscribe',sessionId,sinceSeq}`,
+  `unsubscribe`, `ping`. Server replies `hello{sessions}`, `card`,
+  `sdelta`, `replayEnd{lastSeq,complete}` — `complete:false` (client snapshot
+  predates the ring buffer) tells the client to REST-resync. Cards carry
+  monotonic per-session `seq` for dedupe/ordering. Proactive push cards are
+  Telegram-only (the web already shows the turn live). maxPayload 64KB.
+- **Static**: adapter-static SvelteKit output; immutable hashed assets cache
+  forever, index.html always revalidates; SPA fallback serves index.html for
+  navigation paths only.
 
-  transport/                     ← user-facing
-    interface.ts                 Transport contract (revised: start({cardBus,state}))
-    telegram/
-      index.ts                   createTelegramTransport()
-      handlers.ts                slash commands + button callbacks
-      renderer.ts                TelegramSessionRenderer: send-only (no edit/streaming v0.5.7)
-                                 sendTimed() wraps all sendMessage with 10s TCP hang timeout
-    web/
-      index.ts                   createWebTransport()
-      server.ts                  Hono HTTP + static
-      ws-hub.ts                  per-client WS subscription + broadcast
-      middleware/cf-access.ts    Cloudflare Access JWT verification
-      routes/*.ts                /api/* REST endpoints
+## Remote hosts (0.26) — src/core/remote-host.ts
 
-  utils/
-  plugin/
-    entry.ts                     plugin entrypoint — wires transports, relay, push, event hook
-    config.ts                    plugin config (env + opencode.json plugin options)
-  index.ts                       re-exports the plugin
+State machine `unknown→detecting→provisioning→launching→online` (+`needs-auth`
+/`error`/`offline`/`disabled`). One ssh process does tunnel + remote serve
+(`ssh -N -L local:127.0.0.1:remotePort host 'opencode serve …'`), so ssh death
+kills everything it started; respawn 2s→60s backoff with fresh detect each
+time (a stale "port listening" inspection would respawn-loop). Provisioning
+pins the LOCAL opencode version (official installer; fallback: scp the local
+binary — never a musl/compat build). Per-remote SSE feeds the same
+dispatchEvent, so remote turns mirror exactly like local ones. Design detail
+and the ZCode comparison live in
+[remote-provisioning-design.md](remote-provisioning-design.md).
 
-web/                             ← SvelteKit PWA + Chrome Extension
-  src/
-    routes/                      SvelteKit pages (+layout, +page, [sessionId])
-    lib/
-      ws/client.ts               auto-reconnect WebSocket client
-      api/client.ts              fetch wrapper
-      stores/                    sessions, activeSession, connection
-      components/                Card, Composer, SessionList, …
-  extension/                     Chrome MV3 manifest + background + sidepanel
-  static/                        manifest.webmanifest, icons, service-worker
-```
+## State & persistence — `~/.ocrc/` (override: `OCRC_HOME`)
 
----
+| File | Owner | Notes |
+|---|---|---|
+| `state.json` | core/state.ts | last/pinned/tui session, next agent/model, active workspace, session→backend map; 100ms debounced atomic write |
+| `token` | connectivity/auth/token.ts | web access token, 0600 |
+| `primary.lock` | core/primary-election.ts | PRIMARY election |
+| `channels.json` | core/channels.ts | per-channel bot settings (0600) |
+| `schedules.json` | core/scheduler.ts | scheduled prompts |
+| `remotes.json` | core/remotes.ts | SSH remote hosts incl. generated server passwords (0600) |
+| `acp-sessions.json` | agent/acp-store.ts | ACP sessions + history (standalone host) |
+| `config.env` | installer/CLI | KEY=VALUE, 0600 |
+| `ocrc.log` (+`.old`) | utils/logger.ts | 10MB rotate; 500-line ring buffer also served at /api/logs |
+| `run/` | cli/service.ts | pid files, last.json (restore), paired-count |
 
-## How a message flows
-
-You send "implement F1 streaming" from Telegram (or Web).
-
-1. **Transport** receives the text update:
-   - Telegram: Telegraf dispatches to `onMessage` handler.
-   - Web: Hono `/api/message` route receives POST.
-2. The handler builds an `IncomingMessage` and calls `core/relay.ts`'s
-   `onIncoming`.
-3. The relay:
-   - Publishes `kind: 'thinking'` to `CardBus`.
-   - Picks the session from `state.getLastSessionId()` or newest from
-     `client.session.list()`.
-   - Reads `agentContext.consume()` and `consumeModel()` for overrides.
-   - If `TUI_VISIBLE=true`, mirrors prompt into TUI via
-     `client.tui.appendPrompt({ body: { text } })`.
-   - Calls `client.session.prompt({ path, body: { parts, agent, model } })`.
- 4. The relay enters its SSE loop: iterates events from
-    `eventStream.session(sessionId, signal)`.
-    - On `message.part.updated` → feeds SDK Part into `StreamAccumulator` (dedup by `part.id`).
-      Reasoning parts are internal-only (think-stream publishing disabled).
-      Text/Tool parts accumulate into ordered `ContentBlock[]` and publish `kind:'streaming'`.
-    - On `message.part.delta` → raw text delta is **incremental** (not full text).
-      Relay tracks a `partTextAcc` Map per partId, appends deltas to baseline text
-      recorded from the preceding `part.updated`, and routes the *full* accumulated
-      text through accumulator. (v0.5.6 fix)
-    - The accumulator guards against empty `text=""` overwrites — SDK sends empty
-      text on some `part.updated` events, which would erase content for that partId.
-    - On `session.idle` → publishes final `kind:'assistant'` with `blocks` and `meta`.
-    - On `session.error` → publishes `kind:'error'`.
- 5. **CardBus** broadcasts each `StructuredCard` to all subscribed transports.
-    - Telegram (v0.5.7+ — no longer streams): `streaming` and `think-stream` cards
-      are silently ignored. Only `assistant` (final result), `error`, and `info` cards
-      trigger `sendMessage()`. The renderer uses `sendTimed()` — every `sendMessage`
-      call has a 10s timeout via `withTimeout()` to prevent TCP hangs. Has no
-      `retryEdit()` or any edit-based logic. Paginates long text into multiple messages.
-    - Web: `WsHub` sends JSON frame to all subscribed WebSocket clients;
-      SvelteKit frontend updates stores and re-renders components with full streaming.
- 6. **Push notifications** (`src/core/push.ts`) independently monitors
-    `session.idle` events from the EventStream (not relay). When a session
-    finishes with >60s duration:
-    - Fetches the last assistant message via `client.session.messages()`.
-    - If first fetch returns empty (race with opencode persistence), waits 3s
-      and retries once.
-    - Extracts text parts for a summary (first 300 chars).
-    - Publishes `kind:'info'` to CardBus → Telegram renderer sends a new message.
-    - Rate limited: max 10/hour, 5-min cooldown per session.
-
-When you send `/agent build` instead:
-- Handler updates `agentContext.setNextAgent('build')`.
-- Confirmation card sent via CardBus.
-- Next text message uses `agent: 'build'` in `session.prompt`.
-
----
-
-## State and persistence
-
-The bot keeps minimal state, persisted across restarts in `data/state.json`:
-
-```json
-{
-  "lastSessionId": "ses_…",
-  "nextAgent": "build",
-  "nextModel": { "providerID": "kimi-for-coding", "modelID": "k2p6" }
-}
-```
-
-- **lastSessionId** — most recently used session; relay's default target.
-- **nextAgent / nextModel** — sticky overrides; persist until cleared.
-- File is written atomically (`*.tmp` + rename); corruption → treat as empty.
-
----
+All stores share the same pattern: in-memory cache → 100-200ms debounced
+`*.tmp`+`rename` atomic write; corrupt file → warn + start empty.
 
 ## Configuration
 
-`src/plugin/config.ts` resolves config from opencode.json plugin options and
-env vars (`.env` is auto-loaded):
+Resolved in src/plugin/config.ts; FIRST dotenv file wins (`~/.ocrc/config.env`
+→ plugin dir `.env` → cwd), fork names beat legacy upstream names
+(`OCRC_*` > `WEB_*`). Highlights (full table in README):
 
-| Var | Default | Purpose |
+| Var | Default | Note |
 |---|---|---|
-| `TELEGRAM_BOT_TOKEN` | — (required) | Telegram bot token from @BotFather |
-| `ALLOWED_USER_IDS` | — (required) | Comma-separated allowed Telegram user ids |
-| `WEB_ENABLED` | `false` | Enable the Web/PWA transport |
-| `WEB_HOST` | `127.0.0.1` | Web bind address |
-| `WEB_PORT` | `17081` | Web port (opencode 1.17 occupies `7081`) |
-| `WEB_AUTH` | `token` | Auth strategy: `token` (default, device pairing) or `cf-access` |
-| `WEB_TOKEN` | auto | App token; auto-generated + persisted `0600` at `~/.ocrc/token` |
-| `WEB_PUBLIC_URL` | — | Public URL for pairing links; auto-detects cloudflared, else LAN/loopback |
-| `WEB_CF_ACCESS_TEAM` / `_AUD` | — | Cloudflare Access team + audience (when `WEB_AUTH=cf-access`) |
-| `WEB_CF_ACCESS_DEV_BYPASS` | `false` | Bypass auth **only for a loopback socket peer**. Off by default — a loopback bind is not safe behind a tunnel |
-| `CHAT_TIMEOUT_MS` | `600000` | Per-message timeout |
-| `TUI_VISIBLE` | `true` | Navigate the TUI to the target session via `/tui/select-session` |
-| `STATE_PATH` | `./data/state.json` | Persistent state location |
-| `TG_CHUNK_SOFT_LIMIT` | `3500` | Telegram message pagination soft limit |
+| `OCRC_WEB_HOST` / `_PORT` | `0.0.0.0` / `4099` | LAN-first fork decision; token gate non-optional |
+| `OCRC_WEB_ENABLED` | `true` (env) | |
+| `OCRC_STATE_PATH` | `~/.ocrc/state.json` | |
+| `CHAT_TIMEOUT_MS` | `600000` | per-turn abort timer |
+| `TG_CHUNK_SOFT_LIMIT` | `3500` | TG pagination |
+| `OCRC_BACKENDS` / `OCRC_ACP_CMD` | — / `kimi acp` | standalone host only |
+| `LOG_LEVEL` | **`warn`** | file-only logging (never stdout — it would pollute the TUI) |
+| `OPENCODE_SERVER_PASSWORD` | — | enables HTTP Basic on ALL raw server calls |
+| `OCRC_LOCALE` | `zh` | TG i18n |
 
----
+## Extending
 
-## Transport contract
+- **New backend**: implement `AgentBackend` (+ honest capabilities), register
+  in the host's backend list, normalize its events into `AgentEvent`. Relay,
+  transports, web UI gate off capabilities — nothing else changes.
+- **New transport**: docs/transports/CONTRIBUTING-NEW-TRANSPORT.md.
 
-Every transport satisfies:
+## Intentional decisions (do not "fix" without reading the rationale)
 
-```typescript
-interface Transport {
-  readonly name: string
-  readonly capabilities: ChannelCapabilities
-  start(deps: { cardBus: CardBus; state: SessionState }): Promise<void>
-  stop(): Promise<void>
-  send(chatId: string, card: StructuredCard): Promise<{ messageId: string }>
-  onMessage(handler): void
-  onCommand(name, handler): void
-  onButtonClick(handler): void
-}
-
-interface ChannelCapabilities {
-  readonly edit: boolean
-  readonly maxMessageLength: number
-  readonly buttons: boolean
-  readonly richText: boolean
-  readonly streaming: boolean   // true: push every delta; false: throttle+paginate
-}
-```
-
-The relay emits `StructuredCard` to a shared `CardBus`. Each transport
-subscribes to the bus and renders independently:
-
-```typescript
-type StructuredCard =
-  | { kind: 'thinking';  sessionId: string; showStop: boolean }
-  | { kind: 'think-stream'; sessionId: string; thinkingText: string }
-  | { kind: 'streaming'; sessionId: string; blocks: ContentBlock[] }
-  | { kind: 'assistant'; sessionId: string; blocks: ContentBlock[]; meta: AssistantMeta }
-  | { kind: 'user';      sessionId: string; text: string; ts: number }
-  | { kind: 'error';     sessionId: string; message: string }
-  | { kind: 'status';    sessionId: string; fields: Record<string, string>; buttons?: Button[][] }
-  | { kind: 'info';      title: string; sections: InfoSection[]; sessionId?: string }
-  | { kind: 'approval';  sessionId: string; title: string; args: unknown; requestId: string }
-
-type ContentBlock =
-  | { type: 'text'; text: string }
-  | { type: 'tool'; tool: string; args: string; status: 'running' | 'done' | 'error' }
-```
-
-> **v0.5.7 note:** `think-stream` publishing is currently disabled (commented out
-> in relay.ts). `streaming` cards are silently ignored by Telegram renderer —
-> only `assistant`, `error`, and `info` trigger sends. The `showStop` field on
-> `thinking` cards is ignored — Stop button was removed entirely in v0.5.6.
-> Part N headers („·done“/„·streaming…“) also removed.
-
-Transports translate `StructuredCard` to their native dialect:
-- **Telegram**: `TelegramSessionRenderer` handles per-session pagination,
-  progressive tool-call collapse, and adaptive throttling.
-- **Web**: `WsHub` broadcasts JSON frames; SvelteKit frontend renders
-  components for each card kind.
-
----
-
-## Why we use `session.prompt()` instead of TUI inject
-
-The opencode SDK's recommended submission path is:
-
-```typescript
-await client.session.prompt({
-  path: { id: sessionId },
-  body: {
-    parts: [{ type: 'text', text }],
-    agent: 'build',                                            // per-message override
-    model: { providerID: 'kimi-for-coding', modelID: 'k2p6' }, // per-message override
-  }
-})
-```
-
-Phase 1/2 used `tui.appendPrompt + tui.submitPrompt` ("TUI inject") because we
-wanted the user's TUI window to display the message exactly as if they typed
-it. That path doesn't support per-message agent/model override — which is why
-our `/agent` and `/model` commands needed cycle/picker workarounds in Phase 2.
-
-Phase 3 switches to `session.prompt()` as the default. If you want TUI
-mirroring, set `TUI_VISIBLE=true` and we call `tui.appendPrompt()` (display
-only) in parallel with the SDK submission.
-
----
-
-## Adding a new transport
-
-See `docs/transports/CONTRIBUTING-NEW-TRANSPORT.md` for the recipe. In short:
-
-1. Create `src/transport/<name>/index.ts` exporting `create<Name>Transport(config): Transport`.
-2. Declare `capabilities` honestly — don't claim `edit: true` if your channel
-   has no message-edit primitive.
-3. Implement `send/edit/delete` for messages and inline buttons.
-4. Wire incoming messages → `onMessage` / `onCommand` / `onButtonClick` handlers.
-5. Add `<name>` to `TRANSPORT` env parsing in `src/index.ts`.
-6. Add `tests/unit/transport-<name>.test.ts`.
-7. Add `docs/transports/<name>.md`.
-
-The relay code in `src/core/relay.ts` doesn't change.
-
----
-
-## Comparison with related projects
-
-| Project | Pattern | Submission | Multi-channel | Web UI |
-|---|---|---|---|---|
-| **us** (v0.5.0) | external SDK consumer | `session.prompt()` | ✅ Telegram + Web | ✅ PWA + Chrome Ext |
-| @grinev/opencode-telegram-bot | **P2b 已移植其 UX 层**（grammY + managers/menus/i18n，MIT 双署名）——ocrc 以进程内插件承载同一交互深度，事件源为进程内 relay 而非外置 HTTP |
-| cc-connect | external bridge | varies | yes (11+ platforms) | no |
-| opencode-chat-bridge | external bridge | SDK | yes (Matrix/Slack/WhatsApp/…) | no |
-| OpenChamber | external standalone | SDK | no | yes (multi-surface) |
-| vibe-coding-slack-notifier | plugin + external CLI | hooks only | Slack only | no |
-
-Our differentiation: **SDK-native + Telegram + Web from one codebase**.
-
----
-
-## History — Phase 1/2 architecture (deprecated)
-
-For reference, Phase 1/2 used:
-- `src/bot/` instead of `src/transport/telegram/`
-- `tui-bridge.ts` with TUI inject as primary submission
-- No `core/` directory; relay logic was in `src/bot/handlers/chat.ts`
-- `/agent` and `/model` used `tui.executeCommand('agent.cycle')` and
-  `tui.openModels()` because TUI inject doesn't support per-message
-  agent/model overrides
-
-Phase 3 migrates away from this. The TUI inject path is preserved as the
-`TUI_VISIBLE=true` opt-in for users who want visual continuity.
+- **busy 语义分叉**: the web Composer judges busy from the LAST card while
+  +page/SessionList judge from ANY live card — deliberate (0.23 fixes,
+  commit 9bc5317), not drift.
+- **WS token in the query string**: browsers cannot set headers on a
+  WebSocket; accepted on the /ws upgrade path only (token.ts:95).
+- **`StrictHostKeyChecking=no` (not accept-new)**: EL7 ships OpenSSH 7.4 and
+  the `accept-new` option needs 7.6+ (remote-host.ts:82).
+- **No process.exit in the plugin**: an exiting plugin takes the opencode host
+  down (entry.ts:49 guards absorb rejections instead).

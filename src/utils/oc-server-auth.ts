@@ -14,11 +14,15 @@ const log = createLogger('oc-auth')
  * OPENCODE_SERVER_USERNAME (default "opencode").
  */
 export function ocServerHeaders(): Record<string, string> {
-  const password = process.env.OPENCODE_SERVER_PASSWORD
+  return buildBasicHeaders(process.env.OPENCODE_SERVER_USERNAME || 'opencode', process.env.OPENCODE_SERVER_PASSWORD)
+}
+
+/** HTTP Basic headers from explicit credentials — the env-backed ocServerHeaders()
+ *  for the LOCAL server, plus per-remote variants (0.26.0) whose passwords live
+ *  in remotes.json rather than the environment. */
+export function buildBasicHeaders(user: string, password: string | undefined): Record<string, string> {
   if (!password) return {}
-  const user = process.env.OPENCODE_SERVER_USERNAME || 'opencode'
   const b64 = Buffer.from(`${user}:${password}`).toString('base64')
-  log.debug('attaching Basic auth to raw opencode fetch')
   return { Authorization: `Basic ${b64}` }
 }
 

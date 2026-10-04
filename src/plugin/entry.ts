@@ -6,7 +6,8 @@ import { createWebTransport } from '../transport/web/index.js'
 import { selectAuthStrategy } from '../connectivity/auth/select.js'
 import { createFileBackedState } from '../core/state.js'
 import { createRelay } from '../core/relay.js'
-import { createBackendRegistry } from '../core/agent/registry.js'
+import { createBackendRegistry, type RegisteredBackend } from '../core/agent/registry.js'
+import { createOpencodeClient } from '@opencode-ai/sdk'
 import { normalizeOpencodeEvent } from '../core/agent/opencode-normalizer.js'
 import { createCardBus } from '../core/card-bus.js'
 import { startPushNotifications } from '../core/push.js'
@@ -14,6 +15,10 @@ import { tryBecomePrimary, type PrimaryLock } from '../core/primary-election.js'
 import { createScheduler } from '../core/scheduler.js'
 import { createChannelsStore } from '../core/channels.js'
 import { createPairingStore } from '../connectivity/pairing.js'
+import { createRemotesStore } from '../core/remotes.js'
+import { createRemoteHostManager } from '../core/remote-host.js'
+import { startRemoteEvents, type RemoteEventsHandle } from '../core/remote-events.js'
+import { buildBasicHeaders } from '../utils/oc-server-auth.js'
 import { loadOrCreateToken } from '../connectivity/auth/token.js'
 import type { OcEvent } from '../core/opencode-events.js'
 import type { Transport } from '../transport/interface.js'
@@ -22,6 +27,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { createV1ControlPlane, createV2ControlPlane, type ControlPlane } from './control-plane.js'
+import { createOpencodeBackend } from '../core/agent/opencode-backend.js'
 import type { V2Context } from './v2/types.js'
 
 // Read from package.json at runtime (tsc emits unbundled JS, so ../../package.json
@@ -139,7 +145,39 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
     const backend = plane.backend
     // The opencode plugin serves a single backend; wrap it so the relay's
     // per-session routing has a registry to resolve against.
-    const registry = createBackendRegistry({ backends: [{ id: backend.id, backend }], state })
+    // 0.26.0 SSH remote hosts: one `remote:<id>` backend per enabled host.
+    // Local ports are RESERVED at boot so the SDK clients can be built before
+    // any tunnel exists — backends ping false (offline in the panel) until the
+    // manager's ssh process comes up and the serve answers through it.
+    const ocrcDir = config.statePath.replace(/[^/]+$/, '')
+    const remotesStore = createRemotesStore(`${ocrcDir}remotes.json`)
+    const remoteManager = createRemoteHostManager({ store: remotesStore })
+    const remotePorts = new Map<string, number>()
+    const remoteBackends: RegisteredBackend[] = []
+    for (const r of remotesStore.list()) {
+      if (!r.enabled) continue
+      try {
+        const localPort = await remoteManager.assignPort(r.id)
+        remotePorts.set(r.id, localPort)
+        const headers = buildBasicHeaders('opencode', r.serverPassword)
+        const base = `http://127.0.0.1:${localPort}`
+        remoteBackends.push({
+          id: `remote:${r.id}`,
+          backend: createOpencodeBackend({
+            id: `remote:${r.id}`,
+            host: r.host,
+            remote: true,
+            baseUrl: base,
+            client: createOpencodeClient({ baseUrl: base, fetch: ((req: Request) => fetch(req, { headers })) as never }),
+            fetchImpl: (url: string, init?: RequestInit) => fetch(url, { ...init, headers: { ...(init?.headers ?? {}), ...headers } }),
+          }),
+        })
+      } catch (err) {
+        log.warn(`remote ${r.id} backend setup failed: ${(err as Error).message}`)
+      }
+    }
+
+    const registry = createBackendRegistry({ backends: [{ id: backend.id, backend }, ...remoteBackends], state })
 
     // sdelta side channel (0.25.0): relay → WS hub. The web transport binds the
     // sink when it starts; without web enabled, deltas are simply dropped here.
@@ -223,6 +261,8 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
         channels,
         pairing,
         streamDeltaSink,
+        remotes: remotesStore,
+        remoteManager,
         telegramStatus: () => tgTransport?.status?.() ?? { connected: false },
         })
       webTransport.onMessage(relay)
@@ -397,6 +437,21 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
     // V2: the mapped ctx.event.subscribe iterator for ALL workspaces.
     const stopEvents = plane.wireEvents(dispatchEvent)
 
+    // Per-remote event sources feed the same dispatchEvent (streaming, sdelta,
+    // push, permissions) — remote turns mirror exactly like locally-adopted ones.
+    const remoteEventHandles: RemoteEventsHandle[] = []
+    for (const r of remotesStore.list()) {
+      const port = remotePorts.get(r.id)
+      if (!r.enabled || !port) continue
+      remoteEventHandles.push(startRemoteEvents({
+        name: r.id,
+        url: `http://127.0.0.1:${port}/global/event`,
+        headers: buildBasicHeaders('opencode', r.serverPassword),
+        dispatch: (payload) => dispatchEvent(payload as OcEvent),
+      }))
+    }
+    remoteManager.ensureAll()
+
     const v1EventHook = plane.eventHook?.(dispatchEvent)
 
     return {
@@ -437,6 +492,8 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
         shuttingDown = true
         scheduler.stop()
         stopEvents()
+        for (const h of remoteEventHandles) h.stop()
+        remoteManager.dispose()
         if (pollTimer) clearInterval(pollTimer)
         push.stop()
         await Promise.allSettled(transports.map((t) => t.stop()))

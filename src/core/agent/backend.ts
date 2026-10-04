@@ -164,9 +164,12 @@ export interface BackendCapabilities {
 }
 
 export interface AgentBackend {
-  /** Stable backend id, e.g. 'opencode' | 'acp:kimi'. */
+  /** Stable backend id, e.g. 'opencode' | 'acp:kimi' | 'remote:<id>'. */
   readonly id: string
   readonly capabilities: BackendCapabilities
+  /** Display host for /api/backends — remote instances return the remote
+   *  hostname; absent = this machine. */
+  readonly host?: string
 
   // ── turn ──────────────────────────────────────────────────────────────────
   /** Submit a prompt turn; resolves on accept (response arrives via events). */

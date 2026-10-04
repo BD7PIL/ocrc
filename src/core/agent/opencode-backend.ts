@@ -43,14 +43,26 @@ export interface OpencodeBackendDeps {
   client: OpencodeClient
   /** opencode server base URL — used to navigate the TUI (`tui/select-session`). */
   baseUrl?: string
+  /** 0.26.0 remote instances: per-backend auth transport (Basic from
+   *  remotes.json) replacing the env-backed ocFetch default. */
+  fetchImpl?: typeof ocFetch
+  /** Display host for /api/backends (remote hostname instead of local). */
+  host?: string
+  /** Backend id override ('remote:<id>'); default 'opencode'. */
+  id?: string
+  /** 0.26.0 remote derates: no local-TUI navigation, no live local-session
+   *  mirroring, and no local-git VCS (the only methods that read the LOCAL
+   *  filesystem — everything else here speaks HTTP and works remote as-is). */
+  remote?: boolean
 }
 
 export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
   const { client, baseUrl } = deps
+  const xfetch = deps.fetchImpl ?? ocFetch
 
   const capabilities: BackendCapabilities = {
-    liveMirror: true, // opencode mirrors the user's live local session
-    tuiSelect: !!baseUrl,
+    liveMirror: !deps.remote, // opencode mirrors the user's live local session
+    tuiSelect: !!baseUrl && !deps.remote,
     workspaces: true,
     freeformWorkspace: false, // opencode enumerates projects; the UI uses a picker
     diff: true,
@@ -97,7 +109,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     if (process.env.OCRC_SUGGESTIONS === 'off') return []
     let tmpId: string | undefined
     try {
-      const created = await ocFetch(`${baseUrl}/session`, {
+      const created = await xfetch(`${baseUrl}/session`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ title: 'ocrc-suggestions' }),
@@ -123,7 +135,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
       // The raw message POST runs the turn synchronously — the response IS the
       // assistant message (info + parts). 45s cap: a stuck/permission-blocked
       // turn must not hold this fire-and-forget forever.
-      const res = await ocFetch(`${baseUrl}/session/${encodeURIComponent(tmpId)}/message`, {
+      const res = await xfetch(`${baseUrl}/session/${encodeURIComponent(tmpId)}/message`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ parts: [{ type: 'text', text: instruction }] }),
@@ -154,7 +166,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
       log.warn(`suggestFollowUps failed: ${(err as Error).message}`)
       return []
     } finally {
-      if (tmpId) { try { await ocFetch(`${baseUrl}/session/${encodeURIComponent(tmpId)}`, { method: 'DELETE' }) } catch { /* best effort */ } }
+      if (tmpId) { try { await xfetch(`${baseUrl}/session/${encodeURIComponent(tmpId)}`, { method: 'DELETE' }) } catch { /* best effort */ } }
     }
   }
 
@@ -453,7 +465,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     try {
       const q = new URLSearchParams()
       if (directory) q.set('directory', directory)
-      const res = await ocFetch(`${baseUrl}/skill?${q.toString()}`)
+      const res = await xfetch(`${baseUrl}/skill?${q.toString()}`)
       if (!res.ok) return []
       const raw = (await res.json()) as Array<{ name?: string; description?: string }>
       return (raw ?? []).map((s) => ({ name: String(s?.name ?? ''), description: s?.description }))
@@ -464,7 +476,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     try {
       const q = new URLSearchParams({ path })
       if (directory) q.set('directory', directory)
-      const res = await ocFetch(`${baseUrl}/file?${q.toString()}`)
+      const res = await xfetch(`${baseUrl}/file?${q.toString()}`)
       if (!res.ok) return []
       const raw = (await res.json()) as Array<{ name?: string; path?: string; type?: string }>
       return (raw ?? []).map((f) => ({
@@ -478,7 +490,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
   async function readFile(directory: string | undefined, path: string): Promise<{ type: string; content: string }> {
     const q = new URLSearchParams({ path })
     if (directory) q.set('directory', directory)
-    const res = await ocFetch(`${baseUrl}/file/content?${q.toString()}`)
+    const res = await xfetch(`${baseUrl}/file/content?${q.toString()}`)
     if (!res.ok) throw new Error(`file/content ${res.status}`)
     const body = (await res.json()) as { type?: string; content?: string }
     return { type: body?.type ?? 'text', content: body?.content ?? '' }
@@ -488,7 +500,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     try {
       const q = new URLSearchParams()
       if (directory) q.set('directory', directory)
-      const res = await ocFetch(`${baseUrl}/experimental/worktree?${q.toString()}`)
+      const res = await xfetch(`${baseUrl}/experimental/worktree?${q.toString()}`)
       if (!res.ok) return []
       const raw = (await res.json()) as Array<{ name?: string; directory?: string }> | string[]
       return (Array.isArray(raw) ? raw : []).map((w) =>
@@ -500,7 +512,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
   async function createWorktreeSandboxes(directory: string | undefined, name: string): Promise<WorktreeInfo | null> {
     const q = new URLSearchParams()
     if (directory) q.set('directory', directory)
-    const res = await ocFetch(`${baseUrl}/experimental/worktree?${q.toString()}`, {
+    const res = await xfetch(`${baseUrl}/experimental/worktree?${q.toString()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
@@ -513,7 +525,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
   async function removeWorktreeSandboxes(directory: string | undefined, name: string): Promise<boolean> {
     const q = new URLSearchParams()
     if (directory) q.set('directory', directory)
-    const res = await ocFetch(`${baseUrl}/experimental/worktree?${q.toString()}`, { method: 'DELETE' })
+    const res = await xfetch(`${baseUrl}/experimental/worktree?${q.toString()}`, { method: 'DELETE' })
     return res.ok
   }
 
@@ -524,7 +536,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
 
   async function sessionDirectory(sessionId: string): Promise<string | undefined> {
     try {
-      const res = await ocFetch(`${baseUrl}/session/${encodeURIComponent(sessionId)}`)
+      const res = await xfetch(`${baseUrl}/session/${encodeURIComponent(sessionId)}`)
       if (!res.ok) return undefined
       const body = (await res.json()) as { directory?: string }
       return typeof body?.directory === 'string' ? body.directory : undefined
@@ -535,7 +547,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     try {
       const q = new URLSearchParams()
       if (directory) q.set('directory', directory)
-      const res = await ocFetch(`${baseUrl}/question?${q.toString()}`)
+      const res = await xfetch(`${baseUrl}/question?${q.toString()}`)
       if (!res.ok) return []
       const raw = (await res.json()) as Array<any>
       return (raw ?? []).map((r) => ({
@@ -551,7 +563,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     const directory = await sessionDirectory(sessionId)
     if (directory === undefined) return { ok: false }
     const q = new URLSearchParams({ directory })
-    const res = await ocFetch(`${baseUrl}/question/${encodeURIComponent(requestId)}/reply?${q.toString()}`, {
+    const res = await xfetch(`${baseUrl}/question/${encodeURIComponent(requestId)}/reply?${q.toString()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ answers }),
@@ -564,7 +576,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     const directory = await sessionDirectory(sessionId)
     if (directory === undefined) return { ok: false }
     const q = new URLSearchParams({ directory })
-    const res = await ocFetch(`${baseUrl}/question/${encodeURIComponent(requestId)}/reject?${q.toString()}`, { method: 'POST' })
+    const res = await xfetch(`${baseUrl}/question/${encodeURIComponent(requestId)}/reject?${q.toString()}`, { method: 'POST' })
     if (res.status === 404) return { ok: false, stale: true }
     return { ok: res.ok }
   }
@@ -592,7 +604,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
       const normalized = baseUrl.replace(/\/+$/, '')
       const timeoutSignal = AbortSignal.timeout(2000)
       const combined = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
-      const res = await ocFetch(`${normalized}/tui/select-session`, {
+      const res = await xfetch(`${normalized}/tui/select-session`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionID: id }), signal: combined,
       })
@@ -607,7 +619,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
 
   async function getMessageRaw(sessionId: string, messageId: string): Promise<{ info: unknown; parts: unknown[] } | undefined> {
     try {
-      const res = await ocFetch(`${baseUrl}/session/${encodeURIComponent(sessionId)}/message/${encodeURIComponent(messageId)}`)
+      const res = await xfetch(`${baseUrl}/session/${encodeURIComponent(sessionId)}/message/${encodeURIComponent(messageId)}`)
       if (!res.ok) return undefined
       return (await res.json()) as { info: unknown; parts: unknown[] }
     } catch { return undefined }
@@ -672,7 +684,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     try {
       // revert REQUIRES {messageID} (revert up to and including that message);
       // unrevert takes no body (restores the last revert).
-      const res = await ocFetch(`${baseUrl}/session/${encodeURIComponent(sessionId)}/${action}`, {
+      const res = await xfetch(`${baseUrl}/session/${encodeURIComponent(sessionId)}/${action}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(action === 'revert' ? { messageID: messageId } : {}),
@@ -687,7 +699,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
 
   async function getSessionRevert(sessionId: string): Promise<{ reverted: boolean; messageID?: string } | undefined> {
     try {
-      const res = await ocFetch(`${baseUrl}/session/${encodeURIComponent(sessionId)}`)
+      const res = await xfetch(`${baseUrl}/session/${encodeURIComponent(sessionId)}`)
       if (!res.ok) return undefined
       const body = (await res.json()) as any
       return body?.revert?.messageID
@@ -697,14 +709,17 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
   }
 
   return {
-    id: 'opencode',
+    id: deps.id ?? 'opencode',
+    host: deps.host,
     capabilities,
     prompt, abort,
     hasSession, listSessions, listSessionSummaries, createSession, deleteSession, renameSession,
     getSessionMeta, getContext, getHistory, getMessageBlocks, getDiff, getTodos, getSessionsStatus, ping,
     getAgents, getModels, getMcp, getSubagents, getSkills, listFiles, readFile,
     listWorktreeSandboxes, createWorktreeSandboxes, removeWorktreeSandboxes,
-    getMessageRaw, getVcs, getVcsDiff, revertSession, unrevertSession, getSessionRevert,
+    getMessageRaw,
+    ...(deps.remote ? {} : { getVcs, getVcsDiff }),
+    revertSession, unrevertSession, getSessionRevert,
     listQuestions, answerQuestion, rejectQuestion,
     listWorkspaces, listCommands, runCommand,
     resolvePermission,

@@ -38,6 +38,7 @@ import type { Scheduler } from '../../core/scheduler.js'
 import { registerSuggestions } from './routes/suggestions.js'
 import { registerSchedules } from './routes/schedules.js'
 import { registerChannels } from './routes/channels.js'
+import { registerRemotes } from './routes/remotes.js'
 import { registerSubagents } from './routes/subagents.js'
 import { registerM8 } from './routes/m8.js'
 import { registerPairExchange, registerPairQr, registerPairOnboarding } from './routes/pairing.js'
@@ -56,6 +57,9 @@ export interface BuildServerOpts {
   telegramStatus?: () => { connected: boolean; username?: string } | null
   /** M11 pending-token pairing store (optional; QR falls back to legacy URL). */
   pairing?: PairingStore
+  /** 0.26.0 SSH remote hosts: store + lifecycle manager (optional). */
+  remotes?: import('../../core/remotes.js').RemotesStore
+  remoteManager?: import('../../core/remote-host.js').RemoteHostManager
 }
 
 export function buildServer(opts: BuildServerOpts): Hono {
@@ -100,7 +104,7 @@ export function buildServer(opts: BuildServerOpts): Hono {
       return {
         id,
         name: id.startsWith('acp:') ? id.slice(4) : id,
-        host: hostname(),
+        host: backend.host ?? hostname(),
         status: online ? 'online' : 'offline',
         capabilities: backend.capabilities,
       }
@@ -137,6 +141,7 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerSuggestions(app, opts.state)
   registerSchedules(app, opts.scheduler)
   registerChannels(app, opts.channels, opts.telegramStatus)
+  registerRemotes(app, opts.remotes, opts.remoteManager)
   registerSubagents(app, reg, opts.state)
   registerM8(app, reg, opts.state)
   registerPairQr(app, opts.pairing)

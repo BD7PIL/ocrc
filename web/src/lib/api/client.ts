@@ -110,6 +110,14 @@ export const api = {
   files: (id: string, q: string) =>
     jsonGet<string[]>(`/api/session/${id}/files?q=${encodeURIComponent(q)}`),
   schedules: () => jsonGet<{ schedules: ScheduleRow[] }>('/api/schedules'),
+  remotes: () => jsonGet<{ remotes: RemoteRow[] }>('/api/remotes'),
+  saveRemote: (body: { id?: string; host: string; port?: number; user?: string; remotePort?: number; name?: string; enabled?: boolean }) =>
+    jsonPost<{ remote: RemoteRow; error?: string }>('/api/remotes', body),
+  setRemoteEnabled: (id: string, enabled: boolean) => jsonPatch<{ remote: RemoteRow }>(`/api/remotes/${id}`, { enabled }),
+  deleteRemote: (id: string) => jsonPost<{ ok: boolean }>(`/api/remotes/${id}/delete`, {}),
+  inspectRemote: (id: string) => jsonPost<{ inspection: Record<string, unknown> }>(`/api/remotes/${id}/inspect`, {}),
+  provisionRemote: (id: string) => jsonPost<{ ok: boolean; detail: string }>(`/api/remotes/${id}/provision`, {}),
+  syncRemoteAuth: (id: string) => jsonPost<{ ok: boolean; detail: string }>(`/api/remotes/${id}/sync-auth`, {}),
   subagents: (id: string) => jsonGet<{ subagents: SubagentRow[] }>(`/api/session/${id}/subagents`),
   /** Raw server message — tool parts carry state.output (tool output pages). */
   messageRaw: (id: string, messageId: string) =>
@@ -165,6 +173,34 @@ export interface ScheduleRow {
   lastRunAt?: number
 }
 export interface SubagentRow { id: string; title: string; updatedAt?: number; done: number; total: number; busy?: boolean }
+export interface RemoteRow {
+  id: string
+  name?: string
+  host: string
+  port: number
+  user?: string
+  remotePort: number
+  enabled: boolean
+  hasPassword: boolean
+  status: {
+    state: 'unknown' | 'detecting' | 'provisioning' | 'launching' | 'online' | 'needs-auth' | 'error' | 'offline' | 'disabled'
+    detail?: string
+    localPort?: number
+    pid?: number
+    since?: number
+    inspection?: {
+      platform?: string
+      arch?: string
+      glibc?: string
+      opencodePath?: string
+      version?: string
+      authPresent?: boolean
+      portListening?: boolean
+    }
+    logTail: string[]
+  } | null
+}
+
 export interface SkillRow { name: string; description?: string }
 export interface FileEntryRow { name: string; path: string; type: 'file' | 'directory' }
 export interface WorktreeRow { name: string; directory?: string }

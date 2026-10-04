@@ -32,6 +32,9 @@ export interface WebTransportConfig {
    *  the WS hub so relay deltas reach subscribed clients. Mutable slot because
    *  the transport (and its hub) boots after the relay is constructed. */
   streamDeltaSink?: { broadcast?: (frame: StreamDeltaFrame) => void }
+  /** 0.26.0 remote host management routes. */
+  remotes?: import('../../core/remotes.js').RemotesStore
+  remoteManager?: import('../../core/remote-host.js').RemoteHostManager
 }
 
 const CAPS: ChannelCapabilities = {
@@ -63,6 +66,8 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         channels: cfg.channels,
         telegramStatus: cfg.telegramStatus,
         pairing: cfg.pairing,
+        remotes: cfg.remotes,
+        remoteManager: cfg.remoteManager,
       })
 
       // Immutable hashed assets cache forever; everything else (above all

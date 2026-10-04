@@ -10,7 +10,7 @@
 
 import { writable, get } from 'svelte/store'
 
-export type HomeId = 'tasks' | 'files' | 'subs' | 'skills' | 'config'
+export type HomeId = 'tasks' | 'files' | 'subs' | 'skills' | 'config' | 'remotes'
 
 export type PaneTab =
   | { id: string; kind: 'home'; title: string; homeId: HomeId }
@@ -34,6 +34,7 @@ export const HOMES: Array<{ homeId: HomeId; title: string }> = [
   { homeId: 'subs', title: '子代理' },
   { homeId: 'skills', title: 'Skills' },
   { homeId: 'config', title: '配置' },
+  { homeId: 'remotes', title: '远程主机' },
 ]
 const HOME_IDS = new Set(HOMES.map((h) => h.homeId))
 

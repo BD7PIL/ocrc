@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { PairingStore, PairContext } from '../../../connectivity/pairing.js'
 import { buildPairContext, buildPairUrlPending } from '../../../connectivity/pairing.js'
+import type { AuthStrategy } from '../../../connectivity/auth/index.js'
 import type { ChannelsStore } from '../../../core/channels.js'
 
 const OCRC_RUN_DIR = process.env.OCRC_HOME
@@ -39,6 +40,9 @@ function bumpPairedCount(): number {
     writeFileSync(counterFile(), String(n))
   } catch { /* best effort */ }
   return n
+}
+function resetPairedCount(): void {
+  try { writeFileSync(counterFile(), '0') } catch { /* best effort */ }
 }
 
 /**
@@ -123,5 +127,26 @@ export function registerPairQr(app: Hono, pairing?: PairingStore) {
     } catch (err) {
       return c.json({ error: (err as Error).message }, 500)
     }
+  })
+}
+
+/**
+ * POST /api/pair/reset — revoke ALL paired devices. Devices share the single
+ * web token, so revocation = rotate that token (every existing device 401s on
+ * its next request and lands back on the pairing page) + zero the paired
+ * counter. Per-device revocation would need per-device credentials — a
+ * different trust model, deliberately not built. Auth-gated like /api/pair/qr.
+ * 409 when the active strategy holds no app-side credential (CF Access).
+ */
+export function registerPairReset(app: Hono, deps: { auth?: AuthStrategy } = {}) {
+  app.post('/api/pair/reset', (c) => {
+    if (!deps.auth?.rotate) return c.json({ error: '当前认证方式没有可轮换的令牌' }, 409)
+    try {
+      deps.auth.rotate()
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 409)
+    }
+    resetPairedCount()
+    return c.json({ ok: true, paired: 0 })
   })
 }

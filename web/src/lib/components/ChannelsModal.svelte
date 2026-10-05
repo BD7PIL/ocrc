@@ -26,6 +26,10 @@
   let now = Date.now()
   let stopped = false
   let countdownTimer: ReturnType<typeof setInterval> | undefined
+  // Pairing management: completed-pairing count + revoke-all (token rotation).
+  let pairedCount: number | null = null
+  let revokeArmed = false
+  let revokeNote = ''
 
   $: selected = channels.find((c) => c.id === selectedId) ?? channels[0]
   $: remaining = pair?.expiresAt ? Math.max(0, pair.expiresAt - now) : null
@@ -44,12 +48,36 @@
     stopped = false
     try { pair = await api.pairQr() } catch { pair = null }
   }
+  async function loadPairedCount() {
+    try { pairedCount = (await api.pairOnboarding()).paired ?? null } catch { /* keep */ }
+  }
+  /** Revoke ALL paired devices: rotate the web token + zero the counter.
+   *  Includes THIS device — after the call the next 401 drops us back on the
+   *  pairing page (auth-reload handles the token clear + reload). */
+  async function revokeAll() {
+    if (!revokeArmed) {
+      revokeArmed = true
+      revokeNote = '再点一次确认：将注销全部已配对设备（包括当前这台），之后需要重新配对。'
+      return
+    }
+    revokeArmed = false
+    try {
+      const res = await api.pairReset()
+      if (res.error) { revokeNote = res.error; return }
+      // Next request will 401; go straight to the clean re-pair path.
+      const { handleAuthFailure } = await import('$lib/auth-reload.js')
+      handleAuthFailure()
+    } catch {
+      revokeNote = '撤销失败（服务不可达）'
+    }
+  }
   function stopPairing() {
     stopped = true
   }
   onMount(() => {
     void load()
     void loadPair()
+    void loadPairedCount()
     countdownTimer = setInterval(() => (now = Date.now()), 1000)
   })
   onDestroy(() => { if (countdownTimer) clearInterval(countdownTimer) })
@@ -346,6 +374,14 @@
         {:else}
           <p class="hint">配对信息加载中…</p>
         {/if}
+        <div class="pair-mgmt">
+          <span class="hint">已配对 {pairedCount ?? '…'} 台设备</span>
+          <span class="spacer"></span>
+          <button class="revoke" class:armed={revokeArmed} on:click={revokeAll}>
+            {revokeArmed ? '确认撤销全部' : '撤销所有配对设备'}
+          </button>
+        </div>
+        {#if revokeNote}<p class="revoke-note">{revokeNote}</p>{/if}
       </div>
     </div>
   </div>
@@ -498,6 +534,14 @@
     cursor: pointer;
   }
   .pair { border-top: 1px solid var(--border-2); padding: 12px 18px 16px; }
+  .pair-mgmt { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border-2); }
+  .revoke {
+    border: 1px solid var(--border-2); background: none; color: var(--text-2);
+    border-radius: 7px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  }
+  .revoke:hover { color: var(--danger, #c0392b); border-color: var(--danger, #c0392b); }
+  .revoke.armed { color: #fff; background: var(--danger, #c0392b); border-color: var(--danger, #c0392b); }
+  .revoke-note { margin: 6px 0 0; font-size: 12px; color: var(--danger, #c0392b); }
   /* ZCode 手机扫码连接 block: status header (等待手机连接 · countdown + 停止),
      big centered QR on a white card, actions row. */
   .pair-head { display: flex; align-items: flex-start; gap: 10px; justify-content: space-between; }

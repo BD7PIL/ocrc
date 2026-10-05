@@ -23,7 +23,7 @@
     svg: string
     expiresAt: number
     paired?: number
-    channels: Array<{ channel: 'telegram' | 'wechat' | 'lark'; enabled: boolean; live: { connected: boolean; username?: string } | null }>
+    channels: Array<{ channel: 'telegram' | 'wechat' | 'lark' | 'dingtalk'; enabled: boolean; live: { connected: boolean; username?: string } | null }>
     host: { hostname: string; platform: string; arch: string }
   }
   let onb: Onboarding | null = null
@@ -50,6 +50,7 @@
     telegram: { name: 'Telegram', note: '从 Telegram 打开这台机器' },
     wechat: { name: '微信', note: '待接入（配置面板已预埋）' },
     lark: { name: '飞书 / Lark', note: '待接入（配置面板已预埋）' },
+    dingtalk: { name: '钉钉 / DingTalk', note: '待接入（配置面板已预埋）' },
   }
 
   onMount(() => {

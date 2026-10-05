@@ -35,6 +35,9 @@ import { createLogger } from '../utils/logger.js'
 const log = createLogger('acp-host')
 
 export async function main(): Promise<void> {
+  // Identity of this process, reported via /api/version and `ocrc status`:
+  // the standalone host owns web/TG itself; the plugin entry sets 'plugin'.
+  process.env.OCRC_MODE = 'host'
   // Keep the long-lived services alive through stray rejections (mirrors entry.ts).
   process.on('unhandledRejection', (r) => log.warn(`unhandledRejection absorbed: ${(r as Error)?.stack ?? String(r)}`))
   process.on('uncaughtException', (e) => log.warn(`uncaughtException absorbed: ${e?.stack ?? String(e)}`))

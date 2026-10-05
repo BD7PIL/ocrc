@@ -41,7 +41,7 @@ import { registerChannels } from './routes/channels.js'
 import { registerRemotes } from './routes/remotes.js'
 import { registerSubagents } from './routes/subagents.js'
 import { registerM8 } from './routes/m8.js'
-import { registerPairExchange, registerPairQr, registerPairOnboarding } from './routes/pairing.js'
+import { registerPairExchange, registerPairQr, registerPairOnboarding, registerPairReset } from './routes/pairing.js'
 import type { PairingStore } from '../../connectivity/pairing.js'
 
 export interface BuildServerOpts {
@@ -148,5 +148,6 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerSubagents(app, reg, opts.state)
   registerM8(app, reg, opts.state)
   registerPairQr(app, opts.pairing)
+  registerPairReset(app, { auth: opts.auth })
   return app
 }

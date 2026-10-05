@@ -131,7 +131,7 @@ export const api = {
   /** Git pane: one file's working-tree patch (lazy per file). */
   vcsDiff: (sessionId: string | undefined, file: string) =>
     jsonGet<{ file: string; patch: string }>(`/api/vcs/diff?file=${encodeURIComponent(file)}${sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : ''}`),
-  version: () => jsonGet<{ version: string; commit?: string; uptime: string; node?: string }>('/api/version'),
+  version: () => jsonGet<{ version: string; commit?: string; mode?: 'plugin' | 'host'; uptime: string; node?: string }>('/api/version'),
   skills: (directory?: string) =>
     jsonGet<{ skills: SkillRow[] }>(`/api/skills${directory ? `?directory=${encodeURIComponent(directory)}` : ''}`),
   browse: (directory: string, path: string) =>
@@ -151,11 +151,13 @@ export const api = {
   resetChannel: (id: string) =>
     jsonPost<{ channel?: ChannelRow; error?: string }>(`/api/channels/${id}/reset`, {}),
   pairQr: () => jsonGet<{ url: string; svg: string; expiresAt?: number }>('/api/pair/qr'),
+  pairReset: () => jsonPost<{ ok?: boolean; paired?: number; error?: string }>('/api/pair/reset', {}),
   pairOnboarding: () => jsonGet<{
     url: string
     svg: string
     expiresAt: number
-    channels: Array<{ channel: 'telegram' | 'wechat' | 'lark'; enabled: boolean; live: { connected: boolean; username?: string } | null }>
+    paired?: number
+    channels: Array<{ channel: 'telegram' | 'wechat' | 'lark' | 'dingtalk'; enabled: boolean; live: { connected: boolean; username?: string } | null }>
     host: { hostname: string; platform: string; arch: string }
   }>('/api/pair/onboarding'),
   exchangePair: (pending: string) => jsonPost<{ token?: string; error?: string }>('/api/pair/exchange', { pending }),

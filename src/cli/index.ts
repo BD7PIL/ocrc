@@ -63,7 +63,7 @@ async function main() {
   }
 
   if (cmd === 'pair') {
-    await import('./pair.js').then((m) => m.main())
+    await import('./pair.js').then((m) => m.main(process.argv.slice(3)))
     return
   }
 

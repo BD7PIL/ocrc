@@ -72,6 +72,7 @@ export const PLUGIN_ID = 'ocrc'
  */
 const v2Setup = async (ctx: V2Context, options?: Record<string, unknown>) => {
   installProcessGuards()
+  process.env.OCRC_MODE = 'plugin'
   log.info(`v${VERSION} starting (V2 setup)`)
 
   // Transient-process gate (V2): `opencode run` is a one-shot client that also
@@ -103,6 +104,9 @@ const v2Setup = async (ctx: V2Context, options?: Record<string, unknown>) => {
 
 export const remoteControlPlugin: Plugin = (async (ctx, options) => {
   installProcessGuards()
+  // Identity of this process, reported via /api/version and `ocrc status`
+  // (the standalone host entry sets 'host' the same way).
+  process.env.OCRC_MODE = 'plugin'
   // Dual-load guard: hosts that support both entry styles may invoke `server`
   // with a V2-shaped context (no SDK client, event.subscribe iterator). Such a
   // call can only mean a V2 host — delegate to the V2 path instead of crashing
@@ -561,19 +565,17 @@ export { v2Setup as ocrcV2Setup }
 
 /**
  * Dual export:
- *  - V1 hosts call the default export as a function (classic plugin contract,
- *    works through the install bridge) — `remoteControlPlugin` IS that function.
- *  - V2 hosts read the default export's `setup` member.
- * A function with attached members satisfies both: callable for V1, member-
- * addressable for V2. (The upstream migration doc also accepts a plain object
- * `{id, server, setup}` on V1 ≥1.18.29; the callable form additionally keeps
- * pre-1.18.29 V1 hosts and the install bridge working.)
+ *  - The default export is an OBJECT `{id, server, setup}` — that is the shape
+ *    opencode's V1 loader accepts (verified against 1.18.34 source,
+ *    readV1Plugin: a bare function default throws "must default export an
+ *    object with server()", which is exactly how the npm-plugin path failed).
+ *  - V2 hosts read `.setup`; V1 hosts call `.server(ctx, options)`.
+ *  - The install bridge keeps its own callable wrapper for pre-1.18.29 hosts
+ *    and handles the object shape too (it prefers `.server`).
  * See docs/v2-api-notes.md §1 for the official dual-host statement.
  */
-const dualEntry = remoteControlPlugin as unknown as typeof remoteControlPlugin & {
-  id: string
-  setup: typeof v2Setup
+export default {
+  id: PLUGIN_ID,
+  server: remoteControlPlugin,
+  setup: v2Setup,
 }
-dualEntry.id = PLUGIN_ID
-dualEntry.setup = v2Setup
-export default dualEntry

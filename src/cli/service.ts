@@ -19,6 +19,7 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
+import { ocrcHome } from '../utils/paths.js'
 
 const OCRC_HOME = process.env.OCRC_HOME ?? join(homedir(), '.ocrc')
 const RUN_DIR = join(OCRC_HOME, 'run')
@@ -362,7 +363,18 @@ export async function main(argv: string[]): Promise<void> {
     console.log(`server    : port ${cfg.port} ${portOwnerRes !== null ? `UP (pid ${portOwnerRes.pid ?? 'unknown'})` : 'DOWN'}`)
     console.log(`supervisor: ${supPid !== null && alive(supPid) ? `active (pid ${supPid})` : 'none'}`)
     const web = httpGetStatus(`http://127.0.0.1:${webPort}/`)
-    console.log(`web panel : port ${webPort} ${web !== null ? `HTTP ${web}` : 'unreachable'}`)
+    let detail = ''
+    if (web === 200) {
+      // Same machine, same owner: read the token file to ask the panel what
+      // it is — the answer tells plugin mode from host mode at a glance.
+      try {
+        const tok = readFileSync(join(ocrcHome(), 'token'), 'utf-8').trim()
+        const body = spawnSync('curl', ['-s', '--max-time', '3', '-H', `Authorization: Bearer ${tok}`, `http://127.0.0.1:${webPort}/api/version`], { encoding: 'utf-8' }).stdout
+        const info = JSON.parse(body || '{}') as { mode?: string; version?: string; commit?: string }
+        if (info.mode) detail = ` — ocrc ${info.version} (${info.mode} mode${info.commit ? `, ${info.commit}` : ''})`
+      } catch { /* not an ocrc panel, or auth mismatch */ }
+    }
+    console.log(`web panel : port ${webPort} ${web !== null ? `HTTP ${web}` : 'unreachable'}${detail}`)
     const workDir = lastWorkDir()
     if (workDir) console.log(`workdir   : ${workDir}`)
     return

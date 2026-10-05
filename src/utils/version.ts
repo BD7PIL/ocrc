@@ -40,6 +40,9 @@ export interface VersionInfo {
   uptimeMs: number
   node: string
   startedAt: string
+  /** Which entry owns this process: 'host' = standalone `ocrc host`,
+   *  'plugin' = loaded inside opencode. See README "Two ways to run". */
+  mode: 'plugin' | 'host'
 }
 
 export function getVersionInfo(): VersionInfo {
@@ -50,5 +53,6 @@ export function getVersionInfo(): VersionInfo {
     uptimeMs: Date.now() - START_TIME,
     node: process.version,
     startedAt: new Date(START_TIME).toISOString(),
+    mode: process.env.OCRC_MODE === 'host' ? 'host' : 'plugin',
   }
 }

@@ -1,6 +1,6 @@
 import type { MiddlewareHandler } from 'hono'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import type { AuthStrategy, AuthUser } from './index.js'
@@ -114,9 +114,40 @@ function extractToken(
   return undefined
 }
 
+function persistToken(path: string, token: string): void {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, token, { mode: 0o600 })
+  try {
+    chmodSync(path, 0o600)
+  } catch {
+    /* best effort */
+  }
+}
+
+function mtimeOf(path: string): number | undefined {
+  try { return statSync(path).mtimeMs } catch { return undefined }
+}
+
 export function createTokenAuth(opts: TokenAuthOptions): AuthStrategy {
-  const expected = loadOrCreateToken(opts)
+  const tokenPath = opts.tokenPath ?? defaultTokenPath()
+  let expected = loadOrCreateToken(opts)
+  // The token file is shared state: `ocrc pair --reset` (another process) may
+  // rotate it underneath us. Cache by mtime — one cheap stat per request buys
+  // cross-process revocation without a read per request.
+  let cachedMtime = mtimeOf(tokenPath)
   const user: AuthUser = { email: opts.devEmail ?? 'you@local', sub: 'token' }
+
+  /** Pick up an out-of-band rotation (token file changed under us). */
+  const refreshExpected = (): void => {
+    if (opts.token?.trim()) return // explicit config token — file is not the source
+    const m = mtimeOf(tokenPath)
+    if (m === undefined || m === cachedMtime) return
+    cachedMtime = m
+    try {
+      const t = readFileSync(tokenPath, 'utf-8').trim()
+      if (t) expected = t
+    } catch { /* keep the old token */ }
+  }
   if (opts.devBypass) {
     log.warn(
       '⚠ token-auth devBypass is ON — requests from a loopback peer skip the token check entirely. ' +
@@ -142,6 +173,7 @@ export function createTokenAuth(opts: TokenAuthOptions): AuthStrategy {
           }
         })()
         if (bypass(peer)) { c.set('user', user); return next() }
+        refreshExpected()
         const raw = (c.req as any).raw as Request | undefined
         const rawHeaders: Record<string, string | undefined> = {}
         try {
@@ -153,9 +185,20 @@ export function createTokenAuth(opts: TokenAuthOptions): AuthStrategy {
       }
     },
     async verifyUpgrade(req) {
+      refreshExpected()
       if (bypass(req.socket?.remoteAddress)) return user
       const candidate = extractToken(req.headers, req.url)
       return tokenMatches(candidate, expected) ? user : null
+    },
+    rotate() {
+      if (opts.token?.trim()) {
+        throw new Error('令牌来自配置（WEB_TOKEN）——请在配置中轮换，文件轮换不生效')
+      }
+      const t = randomBytes(32).toString('base64url')
+      persistToken(tokenPath, t)
+      expected = t
+      cachedMtime = mtimeOf(tokenPath)
+      log.info('web token rotated — all previously paired devices are logged out')
     },
   }
 }

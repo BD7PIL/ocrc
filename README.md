@@ -63,6 +63,20 @@ OCRC_BACKENDS=opencode OCRC_WEB_ENABLED=true ocrc host
 Both modes elect a single PRIMARY when several instances are alive; the
 losers stand by (one web bind, one Telegram poller, always).
 
+**Which mode am I in?** Three ways to tell:
+
+```bash
+ocrc status          # web panel line says: ocrc 0.26.x (plugin|host mode, <commit>)
+curl -s localhost:4099/api/version -H "Authorization: Bearer $(cat ~/.ocrc/token)" | grep mode
+```
+
+or by process: the mode is whichever entry owns the web panel — `node …
+ocrc host` / `ocrc host` in the process list = **host mode**; the panel
+served from inside an `opencode` process = **plugin mode**. Rule of thumb:
+if you started it with `ocrc start` or `ocrc host`, it's host mode; if
+opencode itself was started (TUI/serve) with the plugin configured, it's
+plugin mode.
+
 ## Quick start
 
 Requires **opencode 1.17+** (verified on 1.18.x) and **Node 20+**.

@@ -88,3 +88,42 @@ describe('createTokenAuth.httpMiddleware', () => {
     expect(res.status).toBe(401)
   })
 })
+
+describe('createTokenAuth.rotate (revoke all paired devices)', () => {
+  it('rotates the file token; old token 401s, new token passes — across processes', async () => {
+    const path = join(tmp, 'tok-rotate')
+    const auth = createTokenAuth({ tokenPath: path })
+    const old = readFileSync(path, 'utf-8').trim()
+
+    const app = new Hono()
+    app.use('*', auth.httpMiddleware!())
+    app.get('/x', (c) => c.json({ ok: true }))
+
+    // sanity: old token accepted
+    expect((await app.request('/x', { headers: { authorization: `Bearer ${old}` } })).status).toBe(200)
+
+    // Another process (ocrc pair --reset) rewrites the file underneath us.
+    writeFileSync(path, 'brand-new-token')
+    const res = await app.request('/x', { headers: { authorization: `Bearer ${old}` } })
+    expect(res.status).toBe(401) // mtime-stale → re-read → old revoked
+    expect((await app.request('/x', { headers: { authorization: 'Bearer brand-new-token' } })).status).toBe(200)
+  })
+
+  it('in-process auth.rotate() persists and immediately invalidates the old token', async () => {
+    const path = join(tmp, 'tok-rotate2')
+    const auth = createTokenAuth({ tokenPath: path })
+    const old = readFileSync(path, 'utf-8').trim()
+    auth.rotate!()
+
+    expect(readFileSync(path, 'utf-8').trim()).not.toBe(old)
+    const app = new Hono()
+    app.use('*', auth.httpMiddleware())
+    app.get('/x', (c) => c.json({ ok: true }))
+    expect((await app.request('/x', { headers: { authorization: `Bearer ${old}` } })).status).toBe(401)
+  })
+
+  it('refuses to rotate when the token comes from explicit config', () => {
+    const auth = createTokenAuth({ token: 'from-config' })
+    expect(() => auth.rotate!()).toThrow(/WEB_TOKEN/)
+  })
+})

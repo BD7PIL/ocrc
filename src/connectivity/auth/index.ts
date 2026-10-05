@@ -16,4 +16,8 @@ export interface AuthStrategy {
     url?: string
     socket?: { remoteAddress?: string }
   }): Promise<AuthUser | null>
+  /** Generate a fresh credential, persist it, and accept ONLY it from now on —
+   * every previously paired device is logged out. Optional: strategies with no
+   * app-side credential (e.g. CF Access) can't rotate. */
+  rotate?(): void
 }

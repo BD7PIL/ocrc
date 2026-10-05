@@ -19,6 +19,10 @@ export function registerSession(app: Hono, reg: BackendRegistry, cardBus: CardBu
     // extra empty page — the client hides the button when a page comes back
     // short, never loses history.
     const hasMore = cards.length >= effectiveLimit
-    return c.json({ cards, lastSeq: cardBus.currentSeq(id), hasMore })
+    // Server-side busy flag: the REST snapshot never contains live transient
+    // cards (thinking/streaming), so a refresh mid-turn would derive
+    // busy=false and show 空闲 while the engine is still running.
+    const busy = state.hasActiveGeneration(id)
+    return c.json({ cards, lastSeq: cardBus.currentSeq(id), hasMore, busy })
   })
 }

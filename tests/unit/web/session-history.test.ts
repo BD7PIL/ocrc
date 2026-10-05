@@ -24,6 +24,7 @@ function fakeState() {
     getActiveBackend: () => undefined,
     flush: async () => {},
     normalizeSessionId: (id: string) => id,
+    hasActiveGeneration: () => false,
   } as any
 }
 

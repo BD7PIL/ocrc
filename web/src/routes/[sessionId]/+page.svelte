@@ -2,7 +2,7 @@
   import { page } from '$app/stores'
   import { goto } from '$app/navigation'
   import { tick, onMount, onDestroy } from 'svelte'
-  import { feeds, cardsOf, sessionList, prependHistory } from '$lib/stores/sessions.js'
+  import { feeds, cardsOf, sessionList, prependHistory, serverBusy } from '$lib/stores/sessions.js'
   import { leftPanelOpen, inspectorOpen, composerDraft, composerEmpty, feedResyncing, sessionBooting } from '$lib/stores/ui.js'
   import { sidePane } from '$lib/stores/sidePane.js'
   import Suggestions from '$lib/components/Suggestions.svelte'
@@ -104,9 +104,12 @@
   $: session = $sessionList.find((s) => s.id === sessionId)
   $: branch = session?.directory ? session.directory.replace(/\/+$/, '').split('/').pop() || '' : ''
   $: busy = (() => {
-    // "Any live card" — NOT "last card is live": a user message queued while
-    // a turn runs lands AFTER the streaming card, and last-card logic then
-    // showed 空闲 while the bash was still streaming (user report).
+    // Server flag OR "any live card". The REST snapshot never carries live
+    // transient cards, so a refresh mid-turn used to show 空闲 while the
+    // engine was still running (regression report). Server busy is the
+    // authority; live cards are the fast path.
+    const server = $serverBusy[sessionId] ?? false
+    if (server) return true
     if (!feed || feed.order.length === 0) return false
     return feed.order.some((id) => {
       const k = feed.byId[id]?.kind

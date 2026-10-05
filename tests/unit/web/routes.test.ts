@@ -27,6 +27,7 @@ function fakeState() {
     setActiveBackend: vi.fn(),
     flush: async () => {},
     normalizeSessionId: (id: string) => id,
+    hasActiveGeneration: () => false,
     _costs: costs,
   } as any
 }

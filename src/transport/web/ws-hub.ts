@@ -79,16 +79,26 @@ export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry;
         // session), the replay below cannot bridge the gap — say so explicitly
         // (OC Manager's "sse-lagged" lesson) instead of leaving a torn feed
         // that looks complete. complete=false makes the client resync via REST.
+        //
+        // EPOCH: a host restart mints a fresh CardBus whose seq restarts at 1,
+        // while the tab still holds (oldEpoch, hugeLastSeq) — replay never
+        // fires and the client's seq-dedupe drops every new card (feed frozen
+        // on a stale snapshot). An epoch mismatch therefore forces a resync
+        // regardless of seq.
+        const epochMismatch = typeof msg.epoch === 'string' && msg.epoch !== opts.cardBus.epoch()
         const oldest = opts.cardBus.oldestSeq(sid)
         const current = opts.cardBus.currentSeq(sid)
-        const complete = since === 0 || (oldest === undefined ? since >= current : since >= oldest)
+        const inverted = current !== undefined && current > 0 && since > current
+        const complete = since === 0 || epochMismatch || inverted
+          ? false
+          : oldest === undefined ? since >= current : since >= oldest
         for (const card of opts.cardBus.recent(sid)) {
           if (isProactive(card)) continue
           if ((card.seq ?? 0) > since && state.ws.readyState === 1) {
             try { state.ws.send(JSON.stringify({ type: 'card', card })) } catch {}
           }
         }
-        try { state.ws.send(JSON.stringify({ type: 'replayEnd', sessionId: sid, lastSeq: current, complete })) } catch {}
+        try { state.ws.send(JSON.stringify({ type: 'replayEnd', sessionId: sid, lastSeq: current, complete, epoch: opts.cardBus.epoch() })) } catch {}
       }
     },
     detach(ws) { clients.delete(ws) },

@@ -9,7 +9,8 @@
   import { createWsClient } from '$lib/ws/client.js'
   import { setWsSend } from '$lib/ws/send.js'
   import { sidePane } from '$lib/stores/sidePane.js'
-  import { sessionList, feeds, upsertCard, setHistory, pruneFeeds, isSeqGap, applyStreamDelta } from '$lib/stores/sessions.js'
+  import { sessionList, feeds, upsertCard, setHistory, pruneFeeds, isSeqGap, applyStreamDelta, setFeedEpoch } from '$lib/stores/sessions.js'
+  import { serverBusy } from '$lib/stores/sessions.js'
   import { setViewedSession, noteSessionActivity } from '$lib/notify.js'
   import { capabilities, loadCapabilities, backends, loadBackends, viewedSessionId, applyAgentTheme } from '$lib/stores/capabilities.js'
   import { paletteOpen } from '$lib/stores/palette.js'
@@ -58,7 +59,7 @@
   // afterNavigate, stacking one more window listener per navigation.
   const onResubscribe = (e: Event) => {
     const d = (e as CustomEvent).detail as { sessionId?: string; sinceSeq?: number } | undefined
-    if (d?.sessionId) wsClient?.send({ type: 'subscribe', sessionId: d.sessionId, sinceSeq: d.sinceSeq ?? 0 })
+    if (d?.sessionId) wsClient?.send({ type: 'subscribe', sessionId: d.sessionId, sinceSeq: d.sinceSeq ?? 0, epoch: get(feeds)[d.sessionId]?.epoch })
   }
 
   // ── Resizable three-pane (desktop): draggable dividers adjust --rail-w /
@@ -116,13 +117,14 @@
     resyncInFlight = true
     lastResyncAt = Date.now()
     try {
-      const { cards, lastSeq } = await api.history(id)
+      const { cards, lastSeq, busy } = await api.history(id)
       // The replacement re-keys history cards — suppress the stream's
       // :last-child entrance for one beat (a resync IS history, rule 1).
       feedResyncing.set(true)
       setHistory(id, cards, lastSeq)
+      serverBusy.setKey(id, !!busy)
       setTimeout(() => feedResyncing.set(false), 350)
-      wsClient?.send({ type: 'subscribe', sessionId: id, sinceSeq: lastSeq })
+      wsClient?.send({ type: 'subscribe', sessionId: id, sinceSeq: lastSeq, epoch: get(feeds)[id]?.epoch })
     } catch (err) {
       console.warn('[layout] resync failed', err)
     } finally {
@@ -159,7 +161,7 @@
         sessionBooting.set(false)
         // Subscribe with sinceSeq so the WS replays only cards published after
         // this snapshot — no gap, no duplicate.
-        wsClient?.send({ type: 'subscribe', sessionId: id, sinceSeq: lastSeq })
+        wsClient?.send({ type: 'subscribe', sessionId: id, sinceSeq: lastSeq, epoch: get(feeds)[id]?.epoch })
       })
       .catch((err) => {
         console.warn('[layout] history failed', err)
@@ -199,7 +201,7 @@
       onReconnect: () => {
         if (lastLoaded) {
           const sinceSeq = get(feeds)[lastLoaded]?.lastSeq ?? 0
-          wsClient?.send({ type: 'subscribe', sessionId: lastLoaded, sinceSeq })
+          wsClient?.send({ type: 'subscribe', sessionId: lastLoaded, sinceSeq, epoch: get(feeds)[lastLoaded]?.epoch })
         }
       },
       onMessage: (msg) => {
@@ -229,6 +231,11 @@
         }
         // replayEnd with complete=false: the server's ring buffer no longer
         // reaches back to our snapshot — replay cannot heal this feed.
+        if (msg.type === 'replayEnd' && typeof msg.sessionId === 'string' && typeof msg.epoch === 'string') {
+          // Remember which bus issued our seq — a mismatch on the next
+          // subscribe is the host-restart resync signal.
+          setFeedEpoch(msg.sessionId, msg.epoch)
+        }
         if (msg.type === 'replayEnd' && msg.complete === false && typeof msg.sessionId === 'string') {
           void resyncViaRest(msg.sessionId)
         }
@@ -260,6 +267,19 @@
     const IDLE_EVENTS = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const
     for (const ev of IDLE_EVENTS) window.addEventListener(ev, armIdleExpand, { passive: true })
     armIdleExpand()
+
+    // SW auto-reload: when a NEW service worker takes over a tab that was
+    // running under an older one, reload once — hashed assets of the new SW
+    // are already cached, so the reload is instant and the tab can never sit
+    // on a stale bundle "for days" again. First-ever activation (no previous
+    // controller) does NOT reload — that's just the initial install.
+    if ('serviceWorker' in navigator) {
+      let hadController = !!navigator.serviceWorker.controller
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (hadController) location.reload()
+        else hadController = true
+      })
+    }
 
     const onBeforeInstall = (e: Event) => { e.preventDefault(); installEvent = e }
     window.addEventListener('ocrc:resubscribe', onResubscribe)

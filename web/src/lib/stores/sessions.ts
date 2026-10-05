@@ -14,9 +14,35 @@ export interface SessionFeed {
   order: string[]
   byId: Record<string, StructuredCard>
   lastSeq: number
+  /** Identity of the CardBus that issued lastSeq — a mismatch on subscribe
+   *  tells the server the client's seq belongs to a dead bus (host restart). */
+  epoch?: string
 }
 
 const emptyFeed = (): SessionFeed => ({ order: [], byId: {}, lastSeq: 0 })
+
+/** Record which CardBus epoch issued the feed's lastSeq (from replayEnd).
+ *  A mismatch on the next subscribe tells the server to force a REST resync
+ *  (host restart rewound the seq counter). */
+export function setFeedEpoch(id: string, epoch: string): void {
+  feeds.update((m) => {
+    const f = m[id]
+    if (!f || f.epoch === epoch) return m
+    m[id] = { ...f, epoch }
+    return m
+  })
+}
+
+/** Server-reported busy per session (REST snapshot flag) — survives refresh
+ *  where live transient cards don't. The busy derivation ORs this in. */
+export const serverBusy = (() => {
+  const map = writable<Record<string, boolean>>({})
+  return {
+    subscribe: map.subscribe,
+    setKey(id: string, v: boolean) { map.update((m) => ({ ...m, [id]: v })) },
+    clearKey(id: string) { map.update((m) => { const n = { ...m }; delete n[id]; return n }) },
+  }
+})()
 
 export const feeds = writable<Record<string, SessionFeed>>({})
 

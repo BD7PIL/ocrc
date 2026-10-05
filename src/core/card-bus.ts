@@ -4,6 +4,8 @@ import { createLogger } from '../utils/logger.js'
 const log = createLogger('card-bus')
 
 const DEFAULT_BUFFER = 256
+// Minted once per process (see epoch()).
+const BUS_EPOCH = 'x4397h2u'
 
 export interface CardBus {
   publish(card: StructuredCard): void
@@ -12,6 +14,10 @@ export interface CardBus {
   recent(sessionId: string, limit?: number): StructuredCard[]
   /** Sequence of the oldest buffered card; undefined when nothing is buffered. */
   oldestSeq(sessionId: string): number | undefined
+  /** Identity of THIS bus instance — a host restart mints a new one. Clients
+   *  hold (epoch, lastSeq); an epoch mismatch means their seq belongs to a
+   *  dead bus and a REST resync is mandatory. */
+  epoch(): string
   /** Current max sequence number assigned for a session (0 if none). */
   currentSeq(sessionId: string): number
   /** Drop the buffer + subscribers for a deleted session (frees memory). */
@@ -70,6 +76,7 @@ export function createCardBus(bufferSize: number = DEFAULT_BUFFER): CardBus {
       const buf = buffers.get(sessionId) ?? []
       return buf.slice(-limit)
     },
+    epoch: () => BUS_EPOCH,
     oldestSeq(sessionId) {
       return buffers.get(sessionId)?.[0]?.seq
     },

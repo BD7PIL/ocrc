@@ -7,7 +7,6 @@
   import { paletteOpen } from '../stores/palette.js'
   import { composerDraft, composerEmpty } from '../stores/ui.js'
 
-  let schedOpen = false
   // Reasoning-effort chip (ZCode/opencode-web parity): an override stored with
   // agent/model in session state, riding every message body as `variant`.
   // '' (未选) = provider default. Options come from the model's variants
@@ -38,7 +37,6 @@
   import ModelChip from './ModelChip.svelte'
   import SessionControls from './SessionControls.svelte'
   import ContextRing from './ContextRing.svelte'
-  import SchedQuick from './SchedQuick.svelte'
   import { api as apiClient } from '../api/client.js'
 
   export let sessionId: string
@@ -226,7 +224,6 @@
 </script>
 
 <div class="composer">
-  {#if schedOpen}<SchedQuick on:close={() => (schedOpen = false)} />{/if}
   <div class="dock">
     {#if error}
       <div class="error" role="alert">{error}</div>
@@ -282,7 +279,6 @@
         {#if $can('sessionControls')}<SessionControls {sessionId} />{/if}
         <ContextRing {sessionId} />
         <button class="hint command" on:click={() => paletteOpen.set(true)}>「/」命令</button>
-        <button class="hint command" class:on={schedOpen} on:click={() => (schedOpen = !schedOpen)} title="新建定时任务">⏰ 定时</button>
         {#if effortOptions.length > 0}
           <span class="effort-wrap">
             <button class="hint command effort" on:click={() => { effortOpen = !effortOpen; refreshEffort() }} title="推理强度">🧠 {effortLabel(effortValue)}</button>
@@ -418,7 +414,6 @@
     transition: color .15s ease;
   }
   .hint.command:hover { color: var(--text-2); }
-  .hint.command.on { color: var(--accent); }
   .effort-wrap { position: relative; display: inline-flex; }
   .effort-menu {
     position: absolute;

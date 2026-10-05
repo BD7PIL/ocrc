@@ -78,7 +78,7 @@ export const api = {
     if (opts?.limit != null) q.set('limit', String(opts.limit))
     if (opts?.offset != null) q.set('offset', String(opts.offset))
     const qs = q.toString()
-    return jsonGet<{ cards: StructuredCard[]; lastSeq: number; hasMore?: boolean }>(`/api/session/${id}${qs ? `?${qs}` : ''}`)
+    return jsonGet<{ cards: StructuredCard[]; lastSeq: number; hasMore?: boolean; busy?: boolean }>(`/api/session/${id}${qs ? `?${qs}` : ''}`)
   },
   todo: (id: string) => jsonGet<any[]>(`/api/session/${id}/todo`),
   context: (id: string) => jsonGet<{ sessionId: string; agent?: string; model?: string; tokens?: any; cost?: number; directory?: string; nextAgent?: string; nextModel?: any }>(`/api/session/${id}/context`),

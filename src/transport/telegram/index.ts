@@ -691,7 +691,13 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
       clearInterval(approvalSweep)
     },
     status() {
-      return { connected: pollingLive, username: bot.botInfo?.username }
+      // grammy's botInfo getter THROWS before a successful init (e.g. the API
+      // is unreachable behind a firewall). status() feeds unauthenticated web
+      // routes (pair onboarding, channel panel) — degrade to connected:false,
+      // never take the endpoint down with it.
+      let username: string | undefined
+      try { username = bot.botInfo?.username } catch { username = undefined }
+      return { connected: pollingLive, username }
     },
     async send(_chatId, _card) {
       throw new Error('Transport.send not implemented for Telegram in v0.5.0')

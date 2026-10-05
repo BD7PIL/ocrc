@@ -133,6 +133,20 @@ describe('per-session generation gate', () => {
   })
 })
 
+describe('status() before init', () => {
+  it('degrades to connected:false when the botInfo getter throws (TG unreachable)', () => {
+    // grammy: reading botInfo before a successful init() THROWS. status()
+    // feeds unauthenticated web routes — it must never propagate that throw
+    // (regression: TG blackhole took down /api/pair/onboarding → no QR code).
+    const { transport, fakeBot } = makeTransport(makeState())
+    Object.defineProperty(fakeBot, 'botInfo', {
+      get() { throw new Error('Bot information unavailable!') },
+    })
+    expect(() => transport.status()).not.toThrow()
+    expect(transport.status()).toEqual({ connected: false, username: undefined })
+  })
+})
+
 describe('photo intake + caption routing', () => {
   function photoCtx(over: Record<string, unknown> = {}) {
     return {

@@ -197,6 +197,7 @@ export async function main(): Promise<void> {
       pairing,
       remotes: remotesStore,
       remoteManager,
+      telegramStatus: () => tgTransport?.status?.() ?? null,
       telegramMeta: { hasEnvToken: !!config.telegramBotToken, allowUsers: config.allowedUserIds.length },
     })
     webTransport.onMessage(relay)

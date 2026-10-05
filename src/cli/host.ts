@@ -13,6 +13,12 @@ import { createFileBackedState } from '../core/state.js'
 import { createCardBus } from '../core/card-bus.js'
 import { createRelay } from '../core/relay.js'
 import { startPushNotifications } from '../core/push.js'
+import { createScheduler } from '../core/scheduler.js'
+import { createChannelsStore } from '../core/channels.js'
+import { createRemotesStore } from '../core/remotes.js'
+import { createRemoteHostManager } from '../core/remote-host.js'
+import { createPairingStore } from '../connectivity/pairing.js'
+import { loadOrCreateToken } from '../connectivity/auth/token.js'
 import type { AcpPermissionRequest } from '../core/agent/acp-backend.js'
 import { createBackendRegistry } from '../core/agent/registry.js'
 import { createAcpStore } from '../core/agent/acp-store.js'
@@ -120,6 +126,20 @@ export async function main(): Promise<void> {
   // summary, which the caller tolerates).
   const push = startPushNotifications({ cardBus, backend: registry.get(registry.primaryId())!, state })
 
+  // Feature parity with plugin mode (2026-10-05): schedules, channel settings,
+  // pairing and remote hosts are wired into the web surface exactly like the
+  // plugin mode's entry does.
+  const dataDir = dirname(config.statePath)
+  const scheduler = createScheduler({
+    path: join(dataDir, 'schedules.json'),
+    dispatch: async (msg) => { await relay(msg) },
+  })
+  scheduler.start()
+  const channels = createChannelsStore(join(dataDir, 'channels.json'))
+  const pairing = createPairingStore(() => loadOrCreateToken({ token: config.webToken }))
+  const remotesStore = createRemotesStore(join(dataDir, 'remotes.json'))
+  const remoteManager = createRemoteHostManager({ store: remotesStore })
+
   // opencode permission events arrive on the SSE stream → forward to the same
   // approval UX (Telegram buttons + Web card). Web-only: publish the card directly.
   const onOpencodePermission = (ev: OcEvent) => {
@@ -172,6 +192,12 @@ export async function main(): Promise<void> {
       registry,
       auth,
       staticRoot: config.webStaticRoot,
+      scheduler,
+      channels,
+      pairing,
+      remotes: remotesStore,
+      remoteManager,
+      telegramMeta: { hasEnvToken: !!config.telegramBotToken, allowUsers: config.allowedUserIds.length },
     })
     webTransport.onMessage(relay)
     transports.push(webTransport)
@@ -182,6 +208,8 @@ export async function main(): Promise<void> {
 
   const dispose = async () => {
     log.info('shutting down…')
+    scheduler.stop()
+    remoteManager.dispose()
     push.stop()
     await disposeBackends()
     await Promise.allSettled(transports.map((t) => t.stop()))

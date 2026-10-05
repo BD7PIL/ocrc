@@ -538,9 +538,11 @@
     gap: 6px;
     padding: 3px 9px;
     border-radius: var(--radius-pill);
-    background: var(--bg-elev);
-    border: 1px solid var(--border);
-    color: var(--text-2);
+    /* Running = LOUD: accent-tinted fill + accent text, readable on both
+       themes (user report: neutral bg + text-2 was illegible in both). */
+    background: var(--accent-2);
+    border: 1px solid var(--accent-line, var(--accent));
+    color: var(--accent);
     font-size: 11px;
     /* Narrow screens: the header row must never overflow — the status pill
        shrinks/truncates before the 停止 button gets clipped by the menu. */
@@ -554,7 +556,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--text-3);
+    background: var(--accent);
     animation: ocrc-pulse 1.2s ease-in-out infinite;
   }
 

@@ -18,6 +18,32 @@
   let creating = false
   let error: string | null = null
   let showRecents = false
+  // Directory autocomplete: list sibling dirs of the typed path via /api/browse
+  // (graphical suggestions, ZCode/opencode register — no blind typing).
+  let dirSug: Array<{ name: string; path: string }> = []
+  let dirSugSeq = 0
+  async function fetchDirSug() {
+    const seq = ++dirSugSeq
+    const typed = directory.trim()
+    if (!typed.startsWith('/') || typed.endsWith('/')) { dirSug = []; return }
+    const parent = typed.slice(0, typed.lastIndexOf('/')) || '/'
+    try {
+      const res = await api.browse(parent, parent)
+      if (seq !== dirSugSeq) return
+      dirSug = (res.files ?? [])
+        .filter((f) => f.type === 'directory')
+        .map((f) => {
+          const name = f.path.split('/').filter(Boolean).pop() ?? ''
+          return { name, path: `${parent === '/' ? '' : parent}/${name}` }
+        })
+        .filter((e) => e.name)
+        .slice(0, 6)
+    } catch { if (seq === dirSugSeq) dirSug = [] }
+  }
+  function pickSug(path: string) {
+    directory = path.endsWith('/') ? path : path + '/'
+    dirSug = []
+  }
 
   function glyphFrom(text: string): string {
     const words = text.split(/[\s\-_:./]+/).filter(Boolean)
@@ -71,10 +97,9 @@
     creating = true
     error = null
     try {
-      await setActiveBackend(selectedAgentId)
-      // Branch is collected in the UI per the redesign; wiring it to the backend
-      // is out of scope for this frontend-only chunk.
-      const res = await api.createSession({ directory: dir })
+      // backendId rides the create call directly — no setActiveBackend race
+      // window where a failed create leaves the active backend switched.
+      const res = await api.createSession({ directory: dir, backendId: selectedAgentId })
       sessionList.set(await api.sessions())
       workspaces.set(await api.workspaces())
       close()
@@ -170,17 +195,27 @@
         <div class="field">
           <label class="label" for="new-session-dir">Working directory</label>
           <div class="dir-input">
-            <span class="host-prefix mono">host:</span>
             <input
               id="new-session-dir"
               class="path mono"
               type="text"
               placeholder="/path/to/project"
               bind:value={directory}
+              on:input={fetchDirSug}
               on:focus={() => { showRecents = true }}
             />
             <button class="browse" type="button" on:click={() => (showRecents = !showRecents)} title="该 agent 最近使用的目录">最近</button>
           </div>
+          {#if dirSug.length > 0}
+            <div class="dir-sug" role="listbox">
+              {#each dirSug as sug (sug.path)}
+                <button class="dir-sug-item" type="button" role="option" on:click={() => pickSug(sug.path)} title={sug.path}>
+                  <span class="recent-name">{sug.name}</span>
+                  <span class="recent-dir mono">{sug.path}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
           {#if agentRecents.length > 0}
             <div class="recents" class:open={showRecents}>
               <span class="recents-label mono">recent · {selectedAgentName}</span>
@@ -387,6 +422,26 @@
     transition: border-color .15s ease;
   }
   .dir-input:focus-within { border-color: var(--accent); }
+  .backend-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .backend-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border-2); background: var(--bg-input);
+    color: var(--text-2); font: inherit; font-size: 12.5px; cursor: pointer;
+  }
+  .backend-chip.sel { border-color: var(--accent); color: var(--text); }
+  .backend-chip.sel .recent-name { color: var(--text); }
+  .dir-sug {
+    margin-top: 6px; border: 1px solid var(--border-2); border-radius: var(--radius-sm);
+    overflow: hidden; max-height: 180px; overflow-y: auto;
+  }
+  .dir-sug-item {
+    display: flex; justify-content: space-between; gap: 10px; width: 100%;
+    padding: 6px 10px; background: var(--bg-input); border: none;
+    border-bottom: 1px solid var(--border-2); color: var(--text-2);
+    font: inherit; font-size: 12px; cursor: pointer; text-align: left;
+  }
+  .dir-sug-item:hover { background: var(--bg-elev); color: var(--text); }
   .host-prefix {
     padding: 8px 0 8px 10px;
     font-size: 12.5px;

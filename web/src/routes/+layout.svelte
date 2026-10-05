@@ -414,7 +414,7 @@
       </button>
     {/if}
     <div class="rail-wrap" class:collapsed={!$leftPanelOpen && !isMobile} class:open={drawerLeft || (isMobile && !hasSession)}>
-      <AgentPanel activeId={$page.params.sessionId} drawer={isMobile} {email} {build} />
+      <AgentPanel activeId={$page.params.sessionId} drawer={isMobile} {email} build={uiBuild} />
     </div>
     <div
       class="divider"

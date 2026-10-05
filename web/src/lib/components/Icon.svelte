@@ -19,6 +19,18 @@
     cpu: '<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="10" y="10" width="4" height="4"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     'arrow-down': '<path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/>',
+    // side-pane tab kinds (ZCode SidePaneTabIcon register)
+    tasks: '<path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>',
+    files: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
+    bot: '<rect x="4" y="8" width="16" height="12" rx="2"/><circle cx="12" cy="4" r="2"/><path d="M9 14h.01M15 14h.01"/><path d="M9 17h6"/>',
+    skill: '<path d="M12 2l2.4 6.2L21 9l-5 4.4L17.5 21 12 17.6 6.5 21 8 13.4 3 9l6.6-.8z"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>',
+    plug: '<path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0z"/><path d="M12 18v4"/>',
+    cloud: '<path d="M17.5 19a4.5 4.5 0 0 0 .9-8.9A7 7 0 0 0 5 12.5 4 4 0 0 0 6.5 19z"/>',
+    git: '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.5 6H14a4 4 0 0 1 4 4v0"/>',
+    chat: '<path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+    terminal: '<path d="M4 17l6-6-6-6"/><path d="M12 19h8"/>',
+    tool: '<path d="M14.7 6.3a4.5 4.5 0 0 0-6 6L3 18l3 3 5.7-5.7a4.5 4.5 0 0 0 6-6l-2.8 2.8-2.2-2.2z"/>',
   }
 
   export let name = ''

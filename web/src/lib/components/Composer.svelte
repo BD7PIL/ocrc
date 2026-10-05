@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick, onDestroy } from 'svelte'
+  import { tick, onDestroy, onMount } from 'svelte'
   import { api } from '../api/client.js'
   import { connection } from '../stores/connection.js'
   import { feeds, cardsOf, upsertCard, removeCard } from '../stores/sessions.js'
@@ -33,6 +33,7 @@
     await refreshEffort()
   }
   const effortLabel = (v: string) => (v ? v.toUpperCase() : '默认')
+  onMount(() => { void refreshEffort() })
   import AgentChip from './AgentChip.svelte'
   import ModelChip from './ModelChip.svelte'
   import SessionControls from './SessionControls.svelte'
@@ -279,24 +280,23 @@
         {#if $can('sessionControls')}<SessionControls {sessionId} />{/if}
         <ContextRing {sessionId} />
         <button class="hint command" on:click={() => paletteOpen.set(true)}>「/」命令</button>
-        {#if effortOptions.length > 0}
-          <span class="effort-wrap">
-            <button class="hint command effort" on:click={() => { effortOpen = !effortOpen; refreshEffort() }} title="推理强度">🧠 {effortLabel(effortValue)}</button>
-            {#if effortOpen}
-              <span class="effort-menu" role="menu">
-                <button role="menuitem" class:sel={effortValue === ''} on:click={() => { api.setOverrides({ variant: null }).then(refreshEffort); effortOpen = false }}>默认</button>
-                {#each effortOptions as o (o)}
-                  <button role="menuitem" class:sel={effortValue === o} on:click={() => { api.setOverrides({ variant: o }).then(refreshEffort); effortOpen = false }}>{o.toUpperCase()}</button>
-                {/each}
-              </span>
-            {/if}
-          </span>
-        {/if}
+        <span class="effort-wrap">
+          <button class="hint command effort" on:click={() => { effortOpen = !effortOpen; refreshEffort() }} title="推理强度（当前模型不支持时隐藏选项）">🧠 {effortLabel(effortValue)}</button>
+          {#if effortOpen}
+            <span class="effort-menu" role="menu">
+              {#if effortOptions.length === 0}<span class="effort-empty">当前模型无推理档位</span>{/if}
+              <button role="menuitem" class:sel={effortValue === ''} on:click={() => { api.setOverrides({ variant: null }).then(refreshEffort); effortOpen = false }}>默认</button>
+              {#each effortOptions as o (o)}
+                <button role="menuitem" class:sel={effortValue === o} on:click={() => { api.setOverrides({ variant: o }).then(refreshEffort); effortOpen = false }}>{o.toUpperCase()}</button>
+              {/each}
+            </span>
+          {/if}
+        </span>
         <span class="spacer"></span>
         <span class="hint send-hint">↵ 发送 · ⇧↵ 换行</span>
         {#if showStop}
           <button class="send stop" on:click={stopRun} aria-label="停止" title="停止生成">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
           </button>
         {:else}
           <button class="send" on:click={send} aria-label="发送"
@@ -457,7 +457,7 @@
     flex-shrink: 0;
   }
   .send:not(:disabled):hover { transform: scale(1.06); }
-  .send.stop:disabled { background: var(--accent); color: var(--accent-ink); cursor: pointer; }
+  .send.stop:disabled { background: var(--accent); color: var(--accent-ink); cursor: pointer; width: 30px; height: 30px; }
   .send.stop:not(:disabled):active { transform: scale(.9); }
   .send:disabled {
     background: var(--border);

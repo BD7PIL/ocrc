@@ -14,6 +14,7 @@
   } from '$lib/stores/sidePane.js'
   import TaskPanel from './inspector/TaskPanel.svelte'
   import McpPanel from './inspector/McpPanel.svelte'
+  import Icon from './Icon.svelte'
   import SchedulesPanel from './inspector/SchedulesPanel.svelte'
   import RemotesPanel from './inspector/RemotesPanel.svelte'
   import SkillsPanel from './inspector/SkillsPanel.svelte'
@@ -66,6 +67,8 @@
   function onWindowClick(e: MouseEvent) { if (plusOpen && plusEl && !plusEl.contains(e.target as Node)) plusOpen = false }
   function onWindowKey(e: KeyboardEvent) { if (e.key === 'Escape') { plusOpen = false; tabsMenu = false } }
   let tabsMenu = false
+  let tabMenuFor: string | undefined
+  let tabMenuXY = { x: 0, y: 0 }
   let sideChatBusy = false
   async function openSideChat() {
     if (sideChatBusy) return
@@ -79,6 +82,28 @@
         sidePane.openPaneTab({ id: `sidechat:${id}`, kind: 'sidechat', title: '辅助对话', childId: id })
       }
     } catch { /* best effort */ } finally { sideChatBusy = false }
+  }
+  const TAB_ICONS: Record<string, string> = {
+    home: 'gear', // overridden per homeId below
+  }
+  function tabIcon(t: { kind: string; homeId?: string }): string {
+    if (t.kind === 'home') {
+      switch (t.homeId) {
+        case 'tasks': return 'tasks'
+        case 'files': return 'files'
+        case 'subs': return 'bot'
+        case 'skills': return 'skill'
+        case 'schedules': return 'clock'
+        case 'mcp': return 'plug'
+        case 'remotes': return 'cloud'
+      }
+      return 'gear'
+    }
+    if (t.kind === 'git') return 'git'
+    if (t.kind === 'sidechat') return 'chat'
+    if (t.kind === 'tool') return 'terminal'
+    if (t.kind === 'file') return 'files'
+    return 'cpu'
   }
   function closeOthers() {
     const keep = $sidePane.activeId
@@ -124,7 +149,9 @@
         on:dragover|preventDefault={() => {}}
         on:drop={() => onDrop(i)}
         on:auxclick|preventDefault={(e) => { if (e.button === 1) closePaneTab(t.id) }}
+        on:contextmenu|preventDefault={(e) => { tabMenuFor = t.id; tabMenuXY = { x: e.clientX, y: e.clientY } }}
       >
+        <span class="tico" aria-hidden="true"><Icon name={tabIcon(t)} size={12} /></span>
         <span class="dlabel">{t.title}</span>
         {#if t.kind === 'home' && t.homeId === 'tasks' && sum.total > 0}<span class="tbadge mono">{sum.done}/{sum.total}</span>{/if}
         <span
@@ -137,6 +164,13 @@
         >✕</span>
       </button>
     {/each}
+    {#if tabMenuFor}
+      <div class="tab-ctx" role="menu" style="left:{tabMenuXY.x - 40}px; top:{tabMenuXY.y + 8}px">
+        <button role="menuitem" on:click={() => { const id = tabMenuFor; tabMenuFor = undefined; if (id) closePaneTab(id) }}>关闭标签</button>
+        <button role="menuitem" on:click={() => { tabMenuFor = undefined; closeOthers() }}>关闭其他标签</button>
+        <button role="menuitem" on:click={() => { tabMenuFor = undefined; closeAll() }}>关闭所有标签</button>
+      </div>
+    {/if}
     {#if $sidePane.tabs.length > 1}
       <button class="tabs-more" title="页签操作" aria-label="页签操作" on:click={() => (tabsMenu = !tabsMenu)}>⋯</button>
       {#if tabsMenu}
@@ -320,6 +354,9 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    /* ZCode register: uniform tab width, shrink to fit, never below 60px. */
+    flex: 0 1 156px;
+    min-width: 60px;
     padding: 9px 6px 8px;
     background: transparent;
     border: none;
@@ -340,6 +377,32 @@
     background: var(--accent);
     border-radius: var(--radius-pill);
   }
+  .tico { display: inline-flex; flex-shrink: 0; color: var(--text-3); }
+  .tab.active .tico { color: var(--text); }
+  .tab-ctx {
+    position: fixed;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    min-width: 130px;
+    padding: 4px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 6px 20px rgb(0 0 0 / .18);
+  }
+  .tab-ctx button {
+    background: transparent;
+    border: none;
+    text-align: left;
+    padding: 6px 10px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--text-2);
+    border-radius: var(--radius-xs, 4px);
+    cursor: pointer;
+  }
+  .tab-ctx button:hover { background: var(--bg-input); color: var(--text); }
   .dlabel { max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
   .tbadge { font-size: 9.5px; color: var(--text-3); }
   .tab.active .tbadge { color: var(--text-2); }

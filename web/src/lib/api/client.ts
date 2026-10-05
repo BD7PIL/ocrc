@@ -83,7 +83,7 @@ export const api = {
   todo: (id: string) => jsonGet<any[]>(`/api/session/${id}/todo`),
   context: (id: string) => jsonGet<{ sessionId: string; agent?: string; model?: string; tokens?: any; cost?: number; directory?: string; nextAgent?: string; nextModel?: any }>(`/api/session/${id}/context`),
   workspaces: () => jsonGet<Array<{ directory: string; name: string; sessionCount: number; lastActiveAt: number }>>('/api/workspaces'),
-  createSession: (body: { directory: string; title?: string }) => jsonPost<{ id: string }>('/api/session', body),
+  createSession: (body: { directory: string; title?: string; backendId?: string }) => jsonPost<{ id: string }>('/api/session', body),
   mcp: () => jsonGet<Array<{ name: string; type?: string; status: 'configured' | 'disabled' }>>('/api/mcp'),
   commands: (backendId?: string) => jsonGet<Array<{ name: string; description: string }>>(`/api/commands${backendId ? `?backend=${encodeURIComponent(backendId)}` : ''}`),
   runCommand: (body: { sessionId: string; command: string; arguments?: string }) => jsonPost<{ ok: boolean }>('/api/command', body),

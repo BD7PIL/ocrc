@@ -509,6 +509,9 @@
     font-size: 11px;
   }
   .cred:focus { outline: 1px solid var(--accent); }
+  /* stacked credential fields (token above proxy) need breathing room —
+     block inputs default to zero gap and read as one glued blob. */
+  .cred + .cred { margin-top: 6px; }
   .sec-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
   .save {
     padding: 4px 12px;

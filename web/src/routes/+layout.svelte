@@ -4,6 +4,7 @@
   import { get } from 'svelte/store'
   import { page } from '$app/stores'
   import { afterNavigate } from '$app/navigation'
+  import { updated } from '$app/state'
   import { api } from '$lib/api/client.js'
   import { createWsClient } from '$lib/ws/client.js'
   import { setWsSend } from '$lib/ws/send.js'
@@ -344,6 +345,12 @@
     />
   {/if}
   <OfflineBanner />
+  {#if updated.current}
+    <div class="sw-update" role="status">
+      <span>ocrc 已更新到新版本</span>
+      <button on:click={() => location.reload()}>刷新页面</button>
+    </div>
+  {/if}
   <div class="body">
     {#if drawerLeft || $inspectorOpen}
       <button class="backdrop" aria-label="Close" on:click={closeDrawers}></button>
@@ -398,6 +405,30 @@
 {#if $auth !== 'ready'}<PairGate status={$auth === 'rejected' ? 'rejected' : 'pairing'} />{/if}
 
 <style>
+  /* New-version notice: the service worker finds an update while old tabs
+     keep running the old bundle for days — surface it, don't stay silent. */
+  .sw-update {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 6px 12px;
+    background: var(--accent-2, rgba(251, 139, 60, .12));
+    color: var(--text-2);
+    font-size: 12px;
+    border-bottom: 1px solid var(--border-2);
+    z-index: 5;
+  }
+  .sw-update button {
+    background: var(--accent);
+    color: var(--accent-ink, #fff);
+    border: none;
+    border-radius: var(--radius-sm, 6px);
+    padding: 3px 10px;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
   /* position:fixed + JS visualViewport sizing pins the app to the visible area,
      keeping the composer above the iOS keyboard. Inline height/transform from JS
      win; the 100dvh here is the no-visualViewport fallback. */

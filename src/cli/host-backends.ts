@@ -11,6 +11,7 @@
  *    events to the approval bridge. opencode events feed push natively.
  */
 import { createOpencodeServer, createOpencodeClient } from '@opencode-ai/sdk'
+import { ocServerHeaders } from '../utils/oc-server-auth.js'
 import type { AgentEvent } from '../core/agent/event.js'
 import type { RegisteredBackend } from '../core/agent/registry.js'
 import { createAcpBackend, type AcpPermissionRequest } from '../core/agent/acp-backend.js'
@@ -153,7 +154,14 @@ export async function buildHostBackends(specs: BackendSpec[], deps: BuildHostBac
       try {
         const { server, port } = await spawnOpencodeServer(nextPort)
         nextPort = port + 1
-        const client = createOpencodeClient({ baseUrl: server.url })
+        // The spawned server may require Basic auth (OPENCODE_SERVER_PASSWORD
+        // inherited from our own env) — the client must authenticate the same
+        // way the plugin's raw fetches do, or every call 401s and the backend
+        // shows offline (OCR-review-adjacent finding, 2026-10-05).
+        const client = createOpencodeClient({
+          baseUrl: server.url,
+          headers: ocServerHeaders(),
+        })
         const backend = createOpencodeBackend({ client, baseUrl: server.url })
         backends.push({ id: spec.id, backend })
         opencodeServers.push({ id: spec.id, client, close: async () => { try { await server.close() } catch { /* noop */ } } })

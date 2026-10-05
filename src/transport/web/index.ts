@@ -122,11 +122,13 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         })
         s.once('error', rejectBind)
       })
-      // Post-bind late errors are re-thrown async: fatal to this transport but
-      // absorbed by the process guards so the worker stays alive.
+      // Post-bind late errors: log loudly and keep the transport up. The old
+      // `setImmediate(() => { throw err })` was absorbed by the process
+      // guards — the web silently died and NOTHING restarted it (production
+      // incident 2026-10-05: web served for minutes then 000 with the serve
+      // process alive).
       ;(server as any).on('error', (err: Error) => {
-        log.error(`web transport error after bind: ${err.message}`)
-        setImmediate(() => { throw err })
+        log.error(`web transport error after bind (kept alive): ${err.message}`)
       })
 
       // Clients only ever send ping/subscribe — cap frames well below the 100MiB

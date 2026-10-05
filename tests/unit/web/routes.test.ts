@@ -12,6 +12,7 @@ function fakeState() {
     getActiveAbort: (id: string) => id === 'ses_a' ? { abort: vi.fn() } as any : undefined,
     setActiveAbort: vi.fn(),
     getNextAgent: () => undefined,
+    getNextVariant: () => undefined,
     getNextModel: () => undefined,
     setNextAgent: vi.fn(),
     setNextModel: vi.fn(),
@@ -232,9 +233,10 @@ describe('web routes', () => {
     const state = fakeState()
     state.getNextAgent = () => 'build'
     state.getNextModel = () => ({ providerID: 'kimi', modelID: 'k2p6' })
+    state.getNextVariant = () => 'high'
     const app = buildServer(baseOpts(state, fakeBackend()))
     const res = await app.request('/api/overrides', undefined, LOOPBACK)
-    expect(await res.json()).toEqual({ agent: 'build', model: { providerID: 'kimi', modelID: 'k2p6' } })
+    expect(await res.json()).toEqual({ agent: 'build', model: { providerID: 'kimi', modelID: 'k2p6' }, variant: 'high' })
   })
 
   it('POST /api/overrides sets agent + model on state', async () => {

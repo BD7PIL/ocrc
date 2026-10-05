@@ -12,6 +12,7 @@ interface PersistedState {
   pinnedSessionId?: string
   nextAgent?: string
   nextModel?: { providerID: string; modelID: string }
+  nextVariant?: string
   tuiSelectedSession?: string
   currentAgent?: string
   activeWorkspace?: string
@@ -28,6 +29,8 @@ export interface SessionState {
   setPinnedSessionId(id: string | undefined): void
   getNextAgent(): string | undefined
   setNextAgent(name: string | undefined): void
+  getNextVariant(): string | undefined
+  setNextVariant(v: string | undefined): void
   getNextModel(): { providerID: string; modelID: string } | undefined
   setNextModel(m: { providerID: string; modelID: string } | undefined): void
   getTuiSelectedSession(): string | undefined
@@ -153,6 +156,12 @@ export function createFileBackedState(path: string): SessionState {
     setNextAgent: (name) => {
       if (name === undefined) delete cache.nextAgent
       else cache.nextAgent = name
+      void persist()
+    },
+    getNextVariant: () => cache.nextVariant,
+    setNextVariant: (v) => {
+      if (v === undefined) delete cache.nextVariant
+      else cache.nextVariant = v
       void persist()
     },
     getNextModel: () => cache.nextModel,

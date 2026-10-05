@@ -32,6 +32,9 @@ export interface SubmitOptions {
   sessionId: string
   agent?: string
   model?: { providerID: string; modelID: string }
+  /** Reasoning-effort variant id (low/high/max...) — opencode v1.18 model
+   *  variants; unsupported values are ignored server-side (safe). */
+  variant?: string
   images?: SubmitImage[]
   signal?: AbortSignal
 }
@@ -41,6 +44,7 @@ export function buildPromptBody(opts: {
   text: string
   agent?: string
   model?: { providerID: string; modelID: string }
+  variant?: string
   images?: SubmitImage[]
 }): PromptBody {
   const parts: Array<Record<string, unknown>> = [{ type: 'text', text: opts.text }]
@@ -59,6 +63,9 @@ export function buildPromptBody(opts: {
     parts,
     ...(opts.agent ? { agent: opts.agent } : {}),
     ...(opts.model ? { model: opts.model } : {}),
+    // opencode v1.18.34 accepts `variant` on the prompt body even though the
+    // generated SDK types lag — the official TUI/app send it (source-verified).
+    ...(opts.variant ? { variant: opts.variant } : {}),
   } as PromptBody
 }
 

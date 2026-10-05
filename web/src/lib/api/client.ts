@@ -88,11 +88,11 @@ export const api = {
   commands: (backendId?: string) => jsonGet<Array<{ name: string; description: string }>>(`/api/commands${backendId ? `?backend=${encodeURIComponent(backendId)}` : ''}`),
   runCommand: (body: { sessionId: string; command: string; arguments?: string }) => jsonPost<{ ok: boolean }>('/api/command', body),
   agents: () => jsonGet<Array<{ name: string; model: string; description: string }>>('/api/agents'),
-  models: () => jsonGet<Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }>>('/api/models'),
-  getOverrides: () => jsonGet<{ agent: string | null; model: { providerID: string; modelID: string } | null }>('/api/overrides'),
-  setOverrides: (body: { agent?: string | null; model?: { providerID: string; modelID: string } | null }) =>
+  models: () => jsonGet<Array<{ id: string; name: string; models: Array<{ id: string; name: string; variants?: string[] }> }>>('/api/models'),
+  getOverrides: () => jsonGet<{ agent: string | null; model: { providerID: string; modelID: string } | null; variant?: string | null }>('/api/overrides'),
+  setOverrides: (body: { agent?: string | null; model?: { providerID: string; modelID: string } | null; variant?: string | null }) =>
     jsonPost<{ ok: boolean }>('/api/overrides', body),
-  sendMessage: (body: { sessionId?: string; text: string; clientId?: string; images?: Array<{ data: string; mimeType: string }> }) => jsonPost<{ messageId: string }>('/api/message', body),
+  sendMessage: (body: { sessionId?: string; text: string; clientId?: string; variant?: string; images?: Array<{ data: string; mimeType: string }> }) => jsonPost<{ messageId: string }>('/api/message', body),
   abort: (sessionId: string) => jsonPost<{ ok: boolean }>('/api/abort', { sessionId }),
   suggestions: (sessionId: string) => jsonGet<{ suggestions: string[] }>(`/api/session/${sessionId}/suggestions`),
   approve: (sessionId: string, requestId: string, decision: 'once' | 'always' | 'reject') =>

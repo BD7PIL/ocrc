@@ -8,11 +8,38 @@
   import { composerDraft, composerEmpty } from '../stores/ui.js'
 
   let schedOpen = false
+  // Reasoning-effort chip (ZCode/opencode-web parity): an override stored with
+  // agent/model in session state, riding every message body as `variant`.
+  // '' (未选) = provider default. Options come from the model's variants
+  // (e.g. glm-5.3-flash: low/high/max); unsupported models hide the chip.
+  let effortOpen = false
+  let effortOptions: string[] = []
+  let effortValue = ''
+  async function refreshEffort() {
+    try {
+      const [ov, provs] = await Promise.all([api.getOverrides(), apiClient.models()])
+      effortValue = (ov as any)?.variant ?? ''
+      const modelId = (ov as any)?.model?.modelID ?? ''
+      effortOptions = []
+      for (const prov of provs) {
+        const hit = (prov.models ?? []).find((m) => m.id === modelId)
+        if (hit) { effortOptions = hit.variants ?? []; break }
+      }
+    } catch { effortOptions = [] }
+  }
+  async function cycleEffort() {
+    const options = ['', ...effortOptions]
+    const idx = options.indexOf(effortValue)
+    await api.setOverrides({ variant: options[(idx + 1) % options.length] || null })
+    await refreshEffort()
+  }
+  const effortLabel = (v: string) => (v ? v.toUpperCase() : '默认')
   import AgentChip from './AgentChip.svelte'
   import ModelChip from './ModelChip.svelte'
   import SessionControls from './SessionControls.svelte'
   import ContextRing from './ContextRing.svelte'
   import SchedQuick from './SchedQuick.svelte'
+  import { api as apiClient } from '../api/client.js'
 
   export let sessionId: string
 
@@ -162,7 +189,7 @@
     pendingImages = []
     autoGrow()
     try {
-      await api.sendMessage({ sessionId, text: body, clientId, ...(images.length ? { images } : {}) })
+      await api.sendMessage({ sessionId, text: body, clientId, ...(effortValue ? { variant: effortValue } : {}), ...(images.length ? { images } : {}) })
     } catch (e) {
       error = `Send failed: ${(e as Error).message}`
       // The server never saw this message — drop the optimistic bubble too.
@@ -256,6 +283,19 @@
         <ContextRing {sessionId} />
         <button class="hint command" on:click={() => paletteOpen.set(true)}>「/」命令</button>
         <button class="hint command" class:on={schedOpen} on:click={() => (schedOpen = !schedOpen)} title="新建定时任务">⏰ 定时</button>
+        {#if effortOptions.length > 0}
+          <span class="effort-wrap">
+            <button class="hint command effort" on:click={() => { effortOpen = !effortOpen; refreshEffort() }} title="推理强度">🧠 {effortLabel(effortValue)}</button>
+            {#if effortOpen}
+              <span class="effort-menu" role="menu">
+                <button role="menuitem" class:sel={effortValue === ''} on:click={() => { api.setOverrides({ variant: null }).then(refreshEffort); effortOpen = false }}>默认</button>
+                {#each effortOptions as o (o)}
+                  <button role="menuitem" class:sel={effortValue === o} on:click={() => { api.setOverrides({ variant: o }).then(refreshEffort); effortOpen = false }}>{o.toUpperCase()}</button>
+                {/each}
+              </span>
+            {/if}
+          </span>
+        {/if}
         <span class="spacer"></span>
         <span class="hint send-hint">↵ 发送 · ⇧↵ 换行</span>
         {#if showStop}
@@ -379,6 +419,34 @@
   }
   .hint.command:hover { color: var(--text-2); }
   .hint.command.on { color: var(--accent); }
+  .effort-wrap { position: relative; display: inline-flex; }
+  .effort-menu {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    min-width: 110px;
+    padding: 4px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-sm, 6px);
+    box-shadow: 0 6px 20px rgb(0 0 0 / .18);
+    z-index: 30;
+  }
+  .effort-menu button {
+    background: transparent;
+    border: none;
+    text-align: left;
+    padding: 5px 8px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--text-2);
+    border-radius: var(--radius-xs, 4px);
+    cursor: pointer;
+  }
+  .effort-menu button:hover { background: var(--bg-input); color: var(--text); }
+  .effort-menu button.sel { color: var(--accent); font-weight: 600; }
   .send {
     display: inline-flex;
     align-items: center;

@@ -57,7 +57,7 @@ function isNetworkError(err: Error): boolean {
 async function submitWithRetry(
   backend: AgentBackend,
   sessionId: string,
-  opts: { text: string; agent?: string; model?: { providerID: string; modelID: string }; images?: Array<{ data: string; mimeType: string }>; signal?: AbortSignal },
+  opts: { text: string; agent?: string; model?: { providerID: string; modelID: string }; variant?: string; images?: Array<{ data: string; mimeType: string }>; signal?: AbortSignal },
 ): Promise<void> {
   for (let i = 0; i < SUBMIT_MAX_RETRIES; i++) {
     try {
@@ -215,6 +215,7 @@ const messageRoles = new Map<string, Map<string, string>>()
     try {
       const nextAgent = deps.state.getNextAgent()
       const nextModel = deps.state.getNextModel()
+      const nextVariant = deps.state.getNextVariant()
 
       const pinnedSession = deps.state.getPinnedSessionId()
       const tuiSession = deps.tuiVisible ? deps.state.getTuiSelectedSession() : undefined
@@ -259,6 +260,7 @@ const messageRoles = new Map<string, Map<string, string>>()
         text: msg.text,
         agent: nextAgent,
         model: nextModel,
+        variant: msg.variant ?? nextVariant,
         images: msg.images,
         signal: ac.signal,
       })

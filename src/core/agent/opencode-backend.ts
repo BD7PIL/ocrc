@@ -85,6 +85,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
       sessionId,
       agent: input.agent,
       model: input.model,
+      variant: (input as { variant?: string }).variant,
       images: input.images,
       signal: input.signal,
     })
@@ -423,7 +424,12 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     } catch { /* config unavailable — fall back to the unfiltered connected set */ }
     return providers.map((p) => ({
       id: p.id, name: p.name,
-      models: Object.entries(p.models ?? {}).map(([id, m]) => ({ id, name: m?.name ?? id })),
+      models: Object.entries(p.models ?? {}).map(([id, m]) => ({
+        id, name: m?.name ?? id,
+        // reasoning-effort variants (v1.18 model.variants) — e.g. glm-5.3-flash
+        // exposes low/high/max. Absent = model has no variants.
+        variants: (m as any)?.variants ? Object.keys((m as any).variants) : undefined,
+      })),
     }))
   }
 

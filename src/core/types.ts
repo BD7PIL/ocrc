@@ -23,6 +23,9 @@ export interface IncomingMessage {
    * back to the (global) pinned/last session. The relay validates it exists.
    */
   sessionId?: string
+  /** Reasoning-effort variant id (e.g. low/high/max) for this turn — panel
+   *  sets it per message; undefined = provider default. */
+  variant?: string
   /**
    * Which transport the message came from. Used so a transport can avoid
    * echoing the user's own message back to them (e.g. Telegram already shows it).

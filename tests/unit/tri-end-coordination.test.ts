@@ -245,6 +245,7 @@ describe('Plugin-mode Relay (no eventStream)', () => {
         getPinnedSessionId: () => undefined,
         getLastSessionId: () => undefined,
         getNextAgent: () => undefined,
+        getNextVariant: () => undefined,
         getNextModel: () => undefined,
         setLastSessionId: vi.fn(),
         setActiveAbort: vi.fn(),

@@ -29,6 +29,8 @@ function fakeBackend() {
 function fakeState() {
   let sid: string | undefined = 'ses_test'
   let agent: string | undefined
+
+    let variant: string | undefined
   let model: any
   const aborts = new Map<string, AbortController>()
   const sessionBackends = new Map<string, string>()
@@ -40,6 +42,8 @@ function fakeState() {
     setPinnedSessionId: vi.fn(),
     getNextAgent: () => agent,
     setNextAgent: (n: string | undefined) => { agent = n },
+    getNextVariant: () => variant,
+    setNextVariant: (v: string | undefined) => { variant = v },
     getNextModel: () => model,
     setNextModel: (m: any) => { model = m },
     getTuiSelectedSession: () => undefined,

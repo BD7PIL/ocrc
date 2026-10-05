@@ -24,6 +24,7 @@ function fakeState() {
     getPinnedSessionId: () => undefined,
     setPinnedSessionId: vi.fn(),
     getNextAgent: () => undefined,
+    getNextVariant: () => undefined,
     setNextAgent: vi.fn(),
     getNextModel: () => undefined,
     setNextModel: vi.fn(),

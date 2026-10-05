@@ -130,6 +130,43 @@ export function upsertCard(card: StructuredCard) {
   })
 }
 
+/** Batch upsert: N cards land in ONE store write. Replay bursts (WS reconnect
+ *  replays up to 256 cards) used to issue 256 independent immutable copies —
+ *  each one re-cloning the whole byId map and re-triggering every derivation. */
+export function upsertCards(cards: StructuredCard[]) {
+  if (cards.length === 0) return
+  feeds.update((map) => {
+    let next = map
+    for (const card of cards) {
+      if (!('sessionId' in card) || !card.sessionId) continue
+      const sid = card.sessionId
+      const feed = next[sid] ?? emptyFeed()
+      const id = cardId(card, 0)
+      if (card.seq != null) feed.lastSeq = Math.max(feed.lastSeq, card.seq)
+      const stamped = card.id ? card : { ...card, id } as StructuredCard
+      if (id in feed.byId) {
+        feed.byId = { ...feed.byId, [id]: stamped }
+      } else {
+        let order = feed.order
+        let byId = feed.byId
+        if (card.kind === 'streaming' || card.kind === 'assistant' || card.kind === 'error') {
+          byId = { ...byId }
+          order = order.filter((x) => {
+            const k = byId[x]?.kind
+            if (isTransient(k)) { delete byId[x]; return false }
+            if (card.kind === 'error' && k === 'streaming' && x !== id) { delete byId[x]; return false }
+            return true
+          })
+        }
+        feed.order = [...order, id]
+        feed.byId = { ...byId, [id]: stamped }
+      }
+      next = { ...next, [sid]: feed }
+    }
+    return next
+  })
+}
+
 /** Remove a card by id — e.g. an optimistic user card whose send failed. */
 export function removeCard(id: string) {
   feeds.update((map) => {

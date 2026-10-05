@@ -90,7 +90,7 @@ describe('WsHub', () => {
     const ws = fakeWs()
     await hub.attach(ws as any, { email: 'u@x' } as any)
     hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_1', sinceSeq: 0 })
-    const kinds = ws.sent.filter((m: any) => m.type === 'card').map((m: any) => m.card.kind)
+    const kinds = ws.sent.filter((m: any) => m.type === 'cards').flatMap((m: any) => m.cards.map((c: any) => c.kind))
     expect(kinds).toEqual(['assistant']) // proactive info not replayed
   })
 
@@ -113,7 +113,7 @@ describe('WsHub', () => {
     await hub.attach(ws as any, { email: 'u@x' } as any)
     hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_1', sinceSeq: 1 })
 
-    const replayed = ws.sent.filter((m: any) => m.type === 'card').map((m: any) => m.card.seq)
+    const replayed = ws.sent.filter((m: any) => m.type === 'cards').flatMap((m: any) => m.cards.map((c: any) => c.seq))
     expect(replayed).toEqual([2, 3]) // seq 1 already in the client's snapshot
     expect(ws.sent.at(-1)).toMatchObject({ type: 'replayEnd', sessionId: 'ses_1', lastSeq: 3 })
   })
@@ -148,7 +148,7 @@ describe('WsHub', () => {
     await hub.attach(ws as any, { email: 'u@x' } as any)
     hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_1', sinceSeq: 1 })
     expect(ws.sent.at(-1)).toMatchObject({ type: 'replayEnd', lastSeq: 5, complete: false })
-    const replayed = ws.sent.filter((m: any) => m.type === 'card').map((m: any) => m.card.seq)
+    const replayed = ws.sent.filter((m: any) => m.type === 'cards').flatMap((m: any) => m.cards.map((c: any) => c.seq))
     expect(replayed).toEqual([4, 5]) // replay bridges only part of the gap
   })
 
@@ -240,7 +240,7 @@ describe('WsHub multi-subscribe (right-pane live tabs)', () => {
     bus.publish({ kind: 'thinking', sessionId: 'ses_child', showStop: true })
     ws.sent.length = 0
     hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_child' })
-    const replayed = ws.sent.filter((m: any) => m.type === 'card').map((m: any) => m.card.sessionId)
+    const replayed = ws.sent.filter((m: any) => m.type === 'cards').flatMap((m: any) => m.cards.map((c: any) => c.sessionId))
     expect(replayed).toEqual(['ses_child'])
   })
 })

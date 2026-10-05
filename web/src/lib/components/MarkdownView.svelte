@@ -8,6 +8,8 @@
   /** Show a blinking caret at the end of the final paragraph. */
   export let streaming = false
 
+  let mdEl: HTMLElement
+  /** SSR fallback only — the live path mounts DOM directly. */
   let html = ''
   let lastApplied: string | undefined
   let raf = 0
@@ -18,15 +20,17 @@
     return cls ? cls.slice(9) : ''
   }
 
-  function transformCodeBlocks(markup: string): string {
-    if (typeof document === 'undefined') return markup
-    const wrap = document.createElement('div')
-    wrap.innerHTML = markup
+  /** In-place code-block chrome — operates on the live fragment, no
+   *  serialize→re-parse round trip (the old version did THREE full parses
+   *  per delta: marked, innerHTML#1, innerHTML#2 — the top streaming-jank
+   *  cause at 20KB+ messages). */
+  function decorateCodeBlocks(wrap: HTMLElement): void {
     const blocks = Array.from(wrap.querySelectorAll('pre > code')) as HTMLElement[]
     blocks.forEach((code) => {
       const pre = code.parentElement
-      if (!pre) return
-      const lang = langOf(code)
+      if (!pre || pre.parentElement?.classList.contains('code-block')) return
+      const cls = Array.from(code.classList).find((c) => c.startsWith('language-'))
+      const lang = cls ? cls.slice(9) : ''
       const block = document.createElement('div')
       block.className = 'code-block'
       const header = document.createElement('div')
@@ -39,8 +43,6 @@
       tag.textContent = lang
       header.appendChild(square)
       header.appendChild(tag)
-      // Copy affordance lives in the header; the click is handled by delegation
-      // on the .md wrapper (the markup is injected via {@html}).
       const copy = document.createElement('button')
       copy.type = 'button'
       copy.className = 'code-copy mono'
@@ -50,7 +52,6 @@
       pre.parentNode?.insertBefore(block, pre)
       block.appendChild(pre)
     })
-    return wrap.innerHTML
   }
 
   let copiedTimer: ReturnType<typeof setTimeout> | undefined
@@ -63,7 +64,6 @@
     navigator.clipboard
       ?.writeText((code as HTMLElement).innerText)
       .then(() => {
-        // Inline confirmation state (baseline: copy without feedback is invisible)
         btn.classList.add('copied')
         btn.textContent = '✓ Copied'
         if (copiedTimer) clearTimeout(copiedTimer)
@@ -75,34 +75,22 @@
       .catch(() => {})
   }
 
-  function insertStreamingCaret(wrap: HTMLElement) {
-    const caret = document.createElement('span')
-    caret.className = 'stream-caret'
-    caret.setAttribute('aria-hidden', 'true')
-    const paragraphs = Array.from(wrap.querySelectorAll('p'))
-    if (paragraphs.length > 0) {
-      const last = paragraphs[paragraphs.length - 1]
-      last.appendChild(caret)
-    } else {
-      wrap.appendChild(caret)
-    }
-  }
-
   function apply(text: string) {
     if (text === lastApplied) return // memoize — skip re-parse of unchanged text
     lastApplied = text
     // Streaming renders skip auto-highlight (the per-tick CPU sink); the final
     // non-streaming pass always renders with full highlighting.
     setStreamHighlight(streaming)
-    let rendered = renderMarkdown(text)
-    rendered = transformCodeBlocks(rendered)
-    if (streaming && typeof document !== 'undefined') {
-      const wrap = document.createElement('div')
-      wrap.innerHTML = rendered
-      insertStreamingCaret(wrap)
-      rendered = wrap.innerHTML
+    const wrap = document.createElement('div')
+    wrap.innerHTML = renderMarkdown(text)
+    decorateCodeBlocks(wrap)
+    // SINGLE DOM mount: move the built children into the container. The old
+    // path serialized back to a string and let {@html} parse it a second time.
+    if (mdEl && typeof document !== 'undefined') {
+      mdEl.replaceChildren(...Array.from(wrap.childNodes))
+    } else {
+      html = wrap.innerHTML // SSR fallback
     }
-    html = rendered
   }
 
   // Streaming parses are throttled to one per gap ms (a time window, not
@@ -139,13 +127,21 @@
   onDestroy(() => {
     if (raf) cancelAnimationFrame(raf)
     if (copiedTimer) clearTimeout(copiedTimer)
+    // P2-5: a pending gap timer must not fire after teardown.
+    if (gapTimer) { clearTimeout(gapTimer); gapTimer = undefined }
+  })
+  $: schedule(src)
+
+  onDestroy(() => {
+    if (raf) cancelAnimationFrame(raf)
+    if (copiedTimer) clearTimeout(copiedTimer)
   })
 </script>
 
 <!-- presentation: the click is pure event delegation for the injected Copy
      buttons (real <button>s below — natively keyboard-operable); the wrapper
      itself carries no semantics. -->
-<div class="md" class:streaming role="presentation" on:click={onMdClick}>{@html html}</div>
+<div class="md" class:streaming role="presentation" on:click={onMdClick} bind:this={mdEl}>{@html html}</div>
 
 <style>
   .md {
@@ -245,7 +241,10 @@
   }
   .md :global(.raw) { color: var(--text-2); }
 
-  .md :global(.stream-caret) {
+  /* Streaming caret as a pure CSS pseudo-element on the last top-level block —
+     no DOM insertion per frame (the old span was re-inserted every apply). */
+  .md.streaming > :global(*:last-child)::after {
+    content: '';
     display: inline-block;
     width: 2px;
     height: 1em;

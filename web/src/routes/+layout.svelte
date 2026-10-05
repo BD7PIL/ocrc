@@ -9,7 +9,7 @@
   import { createWsClient } from '$lib/ws/client.js'
   import { setWsSend } from '$lib/ws/send.js'
   import { sidePane } from '$lib/stores/sidePane.js'
-  import { sessionList, feeds, upsertCard, setHistory, pruneFeeds, isSeqGap, applyStreamDelta, setFeedEpoch } from '$lib/stores/sessions.js'
+  import { sessionList, feeds, upsertCard, upsertCards, setHistory, pruneFeeds, isSeqGap, applyStreamDelta, setFeedEpoch } from '$lib/stores/sessions.js'
   import { serverBusy } from '$lib/stores/sessions.js'
   import { setViewedSession, noteSessionActivity } from '$lib/notify.js'
   import { capabilities, loadCapabilities, backends, loadBackends, viewedSessionId, applyAgentTheme } from '$lib/stores/capabilities.js'
@@ -208,7 +208,8 @@
         if (msg.type === 'card' && msg.card) {
           const sid = (msg.card as { sessionId?: string }).sessionId
           const lastSeq = sid ? get(feeds)[sid]?.lastSeq ?? 0 : 0
-          upsertCard(msg.card)
+          if (Array.isArray((msg as any).cards)) upsertCards((msg as any).cards)
+          else upsertCard(msg.card)
           // Gap safety net: a skipped seq on a live socket means missed frames.
           // Debounced — a burst of gapless cards after the gapped one must not
           // stack multiple resyncs.

@@ -66,10 +66,20 @@
   function onWindowKey(e: KeyboardEvent) { if (e.key === 'Escape') open = false }
   function onWindowClick(e: MouseEvent) { if (open && wrap && !wrap.contains(e.target as Node)) open = false }
 
-  // Category breakdown (opencode-web register: client-side estimation over
-  // the feed; residual = system prompt / tool schemas / outputs as 其他).
-  $: feedCards = cardsOf(feed)
-  $: breakdown = contextBreakdown(feedCards, used)
+  // Category breakdown — LAZY: the O(all-text) token estimation used to run
+  // eagerly on every feed flush (45ms cadence during streaming) whether or not
+  // the popover was open. Now: ring/pct use the server-provided used only;
+  // the heavy breakdown computes once per open, keyed by feed length so it
+  // refreshes while the popover stays open on a live session.
+  let breakdown: ReturnType<typeof contextBreakdown> | undefined
+  let breakdownKey = ''
+  $: if (open) {
+    const key = `${sessionId}:${(feed?.order?.length ?? 0)}:${used}`
+    if (key !== breakdownKey) {
+      breakdownKey = key
+      breakdown = contextBreakdown(cardsOf(feed), used)
+    }
+  }
 </script>
 
 <svelte:window on:keydown={onWindowKey} on:click={onWindowClick} />
@@ -97,7 +107,7 @@
         <span class="label">上下文</span>
         <span class="mono dim">{fmtK(used)} / {fmtK(max)}</span>
       </div>
-      {#if breakdown.segments.length > 0}
+      {#if breakdown && breakdown.segments.length > 0}
         <!-- THE capacity bar: full scale = model context limit (the ring's
              semantics), segments = category estimates of the used part. The
              old cumulative 缓存读/输入/输出 bar measured session totals —

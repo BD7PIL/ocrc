@@ -92,11 +92,12 @@ export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry;
         const complete = since === 0 || epochMismatch || inverted
           ? false
           : oldest === undefined ? since >= current : since >= oldest
-        for (const card of opts.cardBus.recent(sid)) {
-          if (isProactive(card)) continue
-          if ((card.seq ?? 0) > since && state.ws.readyState === 1) {
-            try { state.ws.send(JSON.stringify({ type: 'card', card })) } catch {}
-          }
+        const batch = opts.cardBus.recent(sid).filter((card) => !isProactive(card) && (card.seq ?? 0) > since)
+        if (batch.length > 0 && state.ws.readyState === 1) {
+          // ONE frame for the whole replay — the client upserts as a batch
+          // (256 per-card immutable map clones during reconnect replay were a
+          // measurable main-thread stall).
+          try { state.ws.send(JSON.stringify({ type: 'cards', cards: batch })) } catch {}
         }
         try { state.ws.send(JSON.stringify({ type: 'replayEnd', sessionId: sid, lastSeq: current, complete, epoch: opts.cardBus.epoch() })) } catch {}
       }

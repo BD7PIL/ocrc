@@ -55,6 +55,13 @@ export function registerChannels(
         tokenSource: tg?.credentials?.token ? 'panel' : telegramMeta?.hasEnvToken ? 'env' : 'none',
         allowSource: panelAllow ? 'panel' : 'env',
         allowUsers: (panelAllow?.length ?? telegramMeta?.allowUsers) ?? 0,
+        // Proxy egress source, same precedence the transport applies at boot:
+        // panel credential > TELEGRAM_PROXY > HTTPS_PROXY > https_proxy.
+        proxySource: tg?.credentials?.proxy
+          ? 'panel'
+          : (process.env.TELEGRAM_PROXY || process.env.HTTPS_PROXY || process.env.https_proxy)
+            ? 'env'
+            : 'none',
       },
     })
   })

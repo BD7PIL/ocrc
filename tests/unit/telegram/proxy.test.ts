@@ -39,6 +39,19 @@ describe('buildTelegramFetchConfig', () => {
     expect(ctorCalls).toEqual(['http://tg-specific:3128'])
   })
 
+  it('prefers the panel credential over every env var', () => {
+    process.env.TELEGRAM_PROXY = 'http://env:1'
+    process.env.HTTPS_PROXY = 'http://env-fallback:2'
+    buildTelegramFetchConfig('http://panel:9')
+    expect(ctorCalls).toEqual(['http://panel:9'])
+  })
+
+  it('falls back to env when the panel credential is blank', () => {
+    process.env.TELEGRAM_PROXY = 'http://env:1'
+    buildTelegramFetchConfig('   ')
+    expect(ctorCalls).toEqual(['http://env:1'])
+  })
+
   it('falls back to HTTPS_PROXY / https_proxy', () => {
     process.env.HTTPS_PROXY = 'http://fallback-a:1'
     buildTelegramFetchConfig()

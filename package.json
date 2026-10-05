@@ -1,6 +1,6 @@
 {
   "name": "@bd7pil/ocrc",
-  "version": "0.26.9",
+  "version": "0.26.10",
   "description": "Remote-control opencode from Telegram and a web PWA — live sessions, tool streams, approvals, SSH remote hosts, schedules. Plugin mode or standalone host.",
   "type": "module",
   "main": "dist/plugin/entry.js",

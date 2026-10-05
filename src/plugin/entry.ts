@@ -225,6 +225,9 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
     // stays down instead.
     const panelToken = tgChannelCfg?.credentials?.token || undefined
     const tgToken = panelToken ?? config.telegramBotToken
+    // Proxy follows the same panel-wins-at-boot precedence as the token: a
+    // `proxy` credential saved in the 机器人管理 panel overrides config.env.
+    const panelProxy = tgChannelCfg?.credentials?.proxy || undefined
     const panelAllowUsers = tgChannelCfg?.allowUsers?.length ? tgChannelCfg.allowUsers : undefined
     const allowedUserIds = panelAllowUsers ?? config.allowedUserIds
     // M12: web-only is a first-class shape — an empty token means the Telegram
@@ -241,6 +244,7 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
       tgTransport = createTelegramTransport({
         token: tgToken,
         allowedUserIds,
+        proxy: panelProxy,
         backend,
         state,
         baseUrl: plane.serverUrl,

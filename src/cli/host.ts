@@ -160,9 +160,13 @@ export async function main(): Promise<void> {
 
   const transports: Transport[] = []
   if (telegramEnabled) {
+    // Panel credential wins at boot (parity with the plugin entry): a `proxy`
+    // saved in the 机器人管理 panel overrides the env fallback.
+    const panelProxy = channels.get('tg-default')?.credentials?.proxy || undefined
     tgTransport = createTelegramTransport({
       token: config.telegramBotToken,
       allowedUserIds: config.allowedUserIds,
+      proxy: panelProxy,
       // Telegram is single-backend for now (piece 6 migrates it to the registry):
       // it drives the primary backend / pinned session.
       backend: registry.get(registry.primaryId())!,

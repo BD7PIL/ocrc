@@ -33,7 +33,7 @@ describe('channels route — credential redaction + validation (0.27)', () => {
     expect(tg.tokenHint).toBe('••••cret')
     expect(JSON.stringify(body)).not.toContain('ABCDEF-secret')
     expect(tg.live).toEqual({ connected: true, username: 'my_ocrc_bot' })
-    expect(body.telegram).toEqual({ tokenSource: 'panel', allowSource: 'env', allowUsers: 2 })
+    expect(body.telegram).toEqual({ tokenSource: 'panel', allowSource: 'env', allowUsers: 2, proxySource: 'none' })
   })
 
   it('tokenSource reflects env when no panel credential is set', async () => {

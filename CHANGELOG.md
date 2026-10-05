@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.26.10 — proxy goes UI, repo diet (2026-10-05)
+
+### feat(channels): Bot API 代理进面板
+- 机器人管理面板的 Telegram 凭证区新增「Bot API 代理」输入框：与 token 同框
+  保存（留空 = 不改），凭证来源行实时显示代理来源（面板凭证 / 环境变量 /
+  直连）。生效优先级与 token 一致：**面板凭证 > TELEGRAM_PROXY >
+  HTTPS_PROXY/https_proxy > 直连**，重启实例生效。
+- 面板/插件两种形态同权：host 与 plugin 入口都从 channels.json 读取
+  `credentials.proxy`。
+
+### chore(repo): 结构瘦身
+- 删除 pact 协议残留：`CLAUDE.md`（seat claude）、空壳 `.mcp.json`、仓库
+  `opencode.json`（仅剩指向不存在二进制的 pact MCP——serve 每次启动的
+  死配置噪音）。
+- 7 份历史调研/审计报告归档至 `docs/research/`；6 个 ACP 探针/回滚脚本归档
+  至 `scripts/spikes/`。正式文档（PRODUCT/ARCHITECTURE/OPS）与活跃脚本
+  （spike-restart/v2-smoke/v2-restart）留在原位。
+
 ## 0.26.9 — every loose end closed: TG proxy egress, full i18n, zero warnings (2026-10-05)
 
 ### feat(telegram): proxy egress for blocked/corporate networks

@@ -45,6 +45,8 @@ export interface TelegramConfig {
   allowedUserIds: number[]
   backend: AgentBackend
   state: SessionState
+  /** Bot API proxy URL (panel credential `proxy`, wins over TELEGRAM_PROXY env). */
+  proxy?: string
   /** opencode server base URL (in-process plugin server). */
   baseUrl?: string
   /** Project directory where opencode.json lives. */
@@ -78,9 +80,10 @@ export interface TelegramTransport extends Transport {
 export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: Bot }): TelegramTransport {
   // DI seam for tests: a recording bot object can be injected instead of a
   // real Bot (whose Api has no spy-able prototype in grammY 1.46+).
-  // buildTelegramFetchConfig routes Bot API traffic through TELEGRAM_PROXY /
-  // HTTPS_PROXY when set (blocked/corporate networks); undefined = direct.
-  const bot = injected?.bot ?? new Bot(cfg.token, { client: { baseFetchConfig: buildTelegramFetchConfig() } })
+  // buildTelegramFetchConfig routes Bot API traffic through the panel's
+  // `proxy` credential or TELEGRAM_PROXY / HTTPS_PROXY when set (blocked /
+  // corporate networks); undefined = direct.
+  const bot = injected?.bot ?? new Bot(cfg.token, { client: { baseFetchConfig: buildTelegramFetchConfig(cfg.proxy) } })
 
   // Whitelist middleware — silently drop strangers. Replying "Unauthorized"
   // would confirm to anyone that this bot exists and is access-controlled.

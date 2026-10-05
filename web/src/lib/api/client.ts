@@ -237,4 +237,6 @@ export interface ChannelsInfo {
   /** Effective allowlist (panel value wins over env) + its source. */
   allowSource: 'panel' | 'env'
   allowUsers: number
+  /** Bot API proxy egress source (panel credential / env / none). */
+  proxySource?: 'panel' | 'env' | 'none'
 }

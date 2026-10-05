@@ -14,6 +14,7 @@
   let selectedId: string | undefined
   let pair: { url: string; svg: string; expiresAt?: number } | null = null
   let tokenDraft = ''
+  let proxyDraft = ''
   let credNote = ''
   let credError = ''
   let allowDraft = ''
@@ -93,7 +94,11 @@
   // 0.27: per-platform credential surfaces — the fields each future transport
   // will actually consume. Saved write-only into channels.json (GET redacts).
   const CREDENTIAL_FIELDS: Record<string, Array<{ key: string; label: string; placeholder?: string }>> = {
-    telegram: [{ key: 'token', label: 'BotFather token', placeholder: 'BotFather token（留空保持不变）' }],
+    // telegram is rendered by its own dedicated block (token + Bot API proxy)
+    // — not via this loop.
+    telegram: [
+      { key: 'token', label: 'BotFather token', placeholder: 'BotFather token（留空保持不变）' },
+    ],
     wechat: [
       { key: 'corp_id', label: '企业 ID（corp_id）' },
       { key: 'corp_secret', label: '应用 Secret（corp_secret）' },
@@ -142,7 +147,7 @@
   function close() { channelsOpen.set(false) }
   function select(id: string) {
     selectedId = id
-    tokenDraft = ''; credNote = ''; credError = ''
+    tokenDraft = ''; proxyDraft = ''; credNote = ''; credError = ''
     allowDraft = ''; allowNote = ''; allowError = ''
     resetCredDraft(id)
   }
@@ -155,13 +160,19 @@
     try { await api.updateChannel(c.id, { replyGranularity: g }) } catch { /* ignore */ }
   }
   async function saveCred(c: ChannelRow) {
-    if (!tokenDraft.trim()) { credError = '请输入凭证内容'; return }
+    const token = tokenDraft.trim()
+    const proxy = proxyDraft.trim()
+    if (!token && !proxy) { credError = '请至少填写一项（token 或代理）'; return }
+    const credentials: Record<string, string> = {}
+    if (token) credentials.token = token
+    if (proxy) credentials.proxy = proxy
     credError = ''
     try {
-      const res = await api.updateChannel(c.id, { credentials: { token: tokenDraft.trim() } })
+      const res = await api.updateChannel(c.id, { credentials })
       if (res.error) { credError = res.error; return }
       credNote = res.warning ?? '已保存——重启实例后生效（面板凭证优先于 config.env）'
       tokenDraft = ''
+      proxyDraft = ''
       await load()
     } catch (e) {
       credError = `保存失败：${(e as Error).message}`
@@ -252,6 +263,7 @@
                 停用/启用在重启实例后生效。<br />
                 凭证来源：{tgMeta?.tokenSource === 'panel' ? '面板凭证' : tgMeta?.tokenSource === 'env' ? 'config.env（TELEGRAM_BOT_TOKEN）' : '未配置'}
                 {#if selected.hasToken && selected.tokenHint}（面板：{selected.tokenHint}）{/if}
+                · Bot API 代理：{tgMeta?.proxySource === 'panel' ? '面板凭证' : tgMeta?.proxySource === 'env' ? '环境变量' : '直连'}
                 · 允许用户（生效）：{tgMeta?.allowUsers ?? 0} 个（来源：{tgMeta?.allowSource === 'panel' ? '面板' : 'config.env'}）
                 {#if (tgMeta?.allowUsers ?? 0) === 0}——bot 不会回复任何人{/if}
               {:else}
@@ -264,6 +276,8 @@
               {#if selected.channel === 'telegram'}
                 <input class="cred mono" placeholder="BotFather token（留空保持不变）"
                   bind:value={tokenDraft} />
+                <input class="cred mono" placeholder="Bot API 代理 http://proxy:8080（留空 = TELEGRAM_PROXY env / 直连）"
+                  bind:value={proxyDraft} />
                 <div class="sec-acts">
                   <button class="save" on:click={() => saveCred(selected)}>保存</button>
                   {#if credNote}<span class="note">{credNote}</span>{/if}

@@ -13,7 +13,7 @@
   import { setViewedSession, noteSessionActivity } from '$lib/notify.js'
   import { capabilities, loadCapabilities, backends, loadBackends, viewedSessionId, applyAgentTheme } from '$lib/stores/capabilities.js'
   import { paletteOpen } from '$lib/stores/palette.js'
-  import { leftPanelOpen, plusMenuOpen, newSessionOpen, inspectorOpen, feedResyncing, sessionBooting } from '$lib/stores/ui.js'
+  import { leftPanelOpen, plusMenuOpen, newSessionOpen, inspectorOpen, inspectorClosedAt, feedResyncing, sessionBooting } from '$lib/stores/ui.js'
   import { auth } from '$lib/auth.js'
   import Titlebar from '$lib/components/Titlebar.svelte'
   import OfflineBanner from '$lib/components/OfflineBanner.svelte'
@@ -243,6 +243,23 @@
     // Boot the connection once auth is ready — immediately on load with a
     // token, or later, reactively, after an in-app pairing (no reload).
     const unsubAuth = auth.subscribe((s) => { if (s === 'ready') bootConnection() })
+
+    // Idle auto-expand (user's design): with the inspector CLOSED, 60s of no
+    // input on desktop re-opens it — the panel is where tasks/todos/remotes
+    // live, and a closed pane quietly hides them. Fires at most once per
+    // idle period; any input resets the timer; mobile never auto-opens.
+    let idleTimer: ReturnType<typeof setTimeout> | undefined
+    const armIdleExpand = () => {
+      clearTimeout(idleTimer)
+      if (isMobile) return
+      idleTimer = setTimeout(() => {
+        const manual = get(inspectorClosedAt)
+        if (!get(inspectorOpen) && Date.now() - manual > 10 * 60_000) inspectorOpen.set(true)
+      }, 60_000)
+    }
+    const IDLE_EVENTS = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const
+    for (const ev of IDLE_EVENTS) window.addEventListener(ev, armIdleExpand, { passive: true })
+    armIdleExpand()
 
     const onBeforeInstall = (e: Event) => { e.preventDefault(); installEvent = e }
     window.addEventListener('ocrc:resubscribe', onResubscribe)

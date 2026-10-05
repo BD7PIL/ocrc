@@ -26,6 +26,10 @@ export const channelsOpen = writable(false)
 
 /** Mobile inspector bottom-sheet open state (toggled from the chat header). */
 export const inspectorOpen = writable(false)
+/** When the pane was last closed BY THE USER (manual collapse). The idle
+ *  auto-expand in +layout respects this — a deliberate close must not be
+ *  undone 60s later. */
+export const inspectorClosedAt = writable(0)
 
 /**
  * True for one beat after a torn-feed REST resync replaced the whole feed:

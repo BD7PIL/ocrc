@@ -162,7 +162,7 @@
         </div>
       {/if}
     </div>
-    <button class="collapse-btn" title="收起面板" aria-label="收起面板" on:click={() => inspectorOpen.set(false)}>
+    <button class="collapse-btn" title="收起面板" aria-label="收起面板" on:click={() => { inspectorClosedAt.set(Date.now()); inspectorOpen.set(false) }}>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/><path d="M9 9l3 3-3 3"/></svg>
     </button>
   </div>

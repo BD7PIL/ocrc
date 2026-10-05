@@ -267,7 +267,6 @@
     border: 1px dashed var(--border-2);
   }
   .qr-wrap :global(svg) { width: 100%; height: auto; display: block; }
-  .qr-wrap.dim :global(svg) { opacity: .15; }
   .qr-re {
     position: absolute; inset: 0;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;

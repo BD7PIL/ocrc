@@ -631,4 +631,136 @@ export const zh: I18nDictionary = {
   "local_command.empty_output": "The command produced no output.",
   "local_command.failed": "Command failed with exit code {exitCode}: {stderr}",
   "local_command.timeout": "The command timed out.",
+
+  // ── ocrc fork: compact command outputs (handlers.ts) ──
+  "common.no_active_session": "没有活动会话。",
+  "common.cancel": "取消",
+  "common.confirm_delete": "🗑 确认删除",
+  "common.deleted": "🗑 已删除",
+  "common.delete_failed": "删除失败",
+  "common.delete_failed_with_reason": "删除失败：{message}",
+  "common.create_failed": "创建失败",
+
+  "callback.expired": "已过期",
+  "callback.expired_rerun": "已过期 — 重新 {command}",
+  "callback.not_ready": "尚未就绪",
+  "callback.failed": "处理失败",
+
+  "workspaces.scope_empty": "当前工作区范围设置下没有可用的工作区（M9 工作区访问范围）。",
+  "workspaces.out_of_scope": "当前工作区不在机器人的访问范围内（M9 工作区访问范围）。",
+
+  "detach.unfollowed": "🔓 已取消跟随 …{id}",
+  "detach.no_followed_session": "ℹ️ 当前没有跟随的会话",
+
+  "quick.commands.empty": "没有已配置的自定义命令。",
+  "quick.commands.header": "<b>⌘ 自定义命令</b>",
+  "quick.commands.total_line": "… 共 {count} 条",
+
+  "quick.mcps.empty": "未配置 MCP 服务器。",
+  "quick.mcps.status_configured": "✅ 已配置",
+  "quick.mcps.status_not_enabled": "⚪ 未启用",
+
+  "quick.messages.header": "<b>🕘 最近消息</b>",
+
+  "quick.subs.unsupported": "当前后端不支持子代理查询。",
+  "quick.subs.empty": "该会话没有子代理。",
+  "quick.subs.header": "<b>🧩 子代理 · {count}</b>",
+  "quick.subs.open_button": "📤 打开 {title}",
+
+  "quick.mode.unavailable": "当前后端没有可切换的 mode。",
+  "quick.mode.header": "<b>🎚 会话模式</b>",
+  "quick.mode.switched_callback": "已切换 → {modeId}",
+  "quick.mode.switched": "🎚 已切换 → <b>{modeId}</b>",
+  "quick.mode.switch_failed": "切换失败：{message}",
+
+  "quick.cleanup.done": "🧹 已清理 {count} 个子代理会话。",
+
+  "quick.channels.header": "<b>🤖 机器人 / 通道</b>",
+  "quick.channels.telegram_on": "• Telegram — ✅ 已启用（web 端「机器人」面板可配置）",
+  "quick.channels.telegram_off": "• Telegram — ⛔ 已停用（channels.json）",
+  "quick.channels.wecom_pending": "• 微信 — ⏳ 待接入（凭证到位后启用）",
+  "quick.channels.lark_pending": "• Lark — ⏳ 待接入",
+
+  "quick.skills.empty": "没有可用的技能。",
+  "quick.skills.header": "<b>🧩 Skills</b> · {page}/{pages} 页 · 共 {count}",
+
+  "quick.ls.unsupported": "当前后端不支持文件浏览。",
+  "quick.ls.empty_dir": "📂 {path}：空目录。",
+  "quick.ls.header": "<b>📂 {path}</b> · 共 {count}",
+  "quick.ls.more_hidden": "… 其余 {count} 项未显示",
+  "quick.ls.read_failed": "读取失败。",
+  "quick.ls.binary": "🔒 {path}：二进制文件，不预览。",
+
+  "quick.open.usage": "用法：/open <文件路径>（相对当前工作区，如 src/index.ts）",
+
+  "quick.worktree.usage_create": "用法：/worktree = <名称>",
+  "quick.worktree.create_failed": "❌ 创建失败（experimental 接口）。",
+  "quick.worktree.created": "🌿 已创建 worktree：<b>{name}</b>",
+  "quick.worktree.usage_rm": "用法：/worktree rm <名称>",
+  "quick.worktree.confirm_delete": "⚠️ 删除 worktree <b>{name}</b>？",
+  "quick.worktree.unsupported": "当前后端不支持 worktree 查询。",
+  "quick.worktree.empty": "🌿 暂无 worktree。新建：/worktree = <名称>（beta）",
+  "quick.worktree.hint": "新建：/worktree = <名称> · 删除：/worktree rm <名称>",
+  "quick.worktree.expired_rm": "已过期 — 重新执行 /worktree rm",
+  "quick.worktree.deleted": "🗑 worktree <b>{name}</b> 已删除。",
+  "quick.worktree.delete_failed": "删除失败。",
+
+  "quick.tasks.disabled": "⏰ 定时任务未启用",
+  "quick.tasks.empty": "⏰ 没有定时任务。用 /task 创建：\n/task every 30m <提示词>\n/task daily 09:00 <提示词>",
+  "quick.tasks.header": "<b>⏰ 定时任务</b>",
+  "quick.tasks.spec_every": "每 {minutes} 分钟",
+  "quick.tasks.spec_daily": "每天 {time}",
+  "quick.tasks.enabled_callback": "▶ 已启用",
+  "quick.tasks.disabled_callback": "⏸ 已停用",
+
+  "quick.task.created_every": "⏰ 已创建：每 {minutes} 分钟\n<code>{prompt}</code>\nID: {id}",
+  "quick.task.created_daily": "⏰ 已创建：每天 {time}\n<code>{prompt}</code>\nID: {id}",
+  "quick.task.usage": "用法：/task every 30m <提示词>\n      /task daily 09:00 <提示词>",
+  "quick.task.deleted": "🗑 已删除 {id}",
+  "quick.task.not_found": "未找到 {id}",
+  "quick.taskdel.usage": "用法：/taskdel <ID>",
+
+  // ── ocrc fork: context reply-keyboard button output (index.ts) ──
+  "context.no_session": "📊 没有活动会话",
+  "context.usage_line": "📊 上下文用量：{used} / {max} tokens（{pct}%）",
+  "context.cache_line": "\n💾 缓存命中 {hit}% · {read} read / {write} write",
+  "context.usage_unavailable": "📊 上下文用量暂不可用",
+
+  "queue.ack_generating": "⏳ 已排队——当前回复生成中，完成后自动执行",
+
+  "bot.photo_relay_failed": "❌ 图片接收失败，请稍后重试",
+
+  // ── ocrc fork: inline menus (menus.ts / index.ts) ──
+  "menu.sessions_header": "<b>📋 会话</b> · 第 {page}/{pages} 页 · 共 {count}",
+  "menu.untitled": "未命名",
+  "menu.agents_header": "<b>🤖 Agent 选择</b>",
+  "menu.models_header": "<b>🧠 模型选择</b>",
+  "menu.clear_override_button": "✕ 清除覆盖",
+  "menu.session_switched_callback": "已切换：…{id}",
+  "menu.session_switched": "📍 已切换会话 <code>…{id}</code>",
+  "menu.agent_override_set": "🤖 Agent 覆盖：<b>{name}</b>",
+  "menu.model_switched_callback": "模型 → {provider}/{model}",
+  "menu.model_override_set": "🧠 模型覆盖：<b>{provider}/{model}</b>",
+  "menu.agent_override_cleared_callback": "已清除 agent 覆盖",
+  "menu.agent_override_cleared": "Agent 覆盖已清除",
+  "menu.session_delete_confirm": "⚠️ 删除会话 …{id}？其全部消息将不可恢复。",
+  "menu.session_deleted": "🗑 会话已删除。",
+  "menu.open_session_button": "📥 打开该会话",
+
+  // ── ocrc fork: regenerate / suggestions / action bar (index.ts) ──
+  "retry.nothing_to_resend": "没有可重发的内容",
+  "retry.resent_callback": "↻ 已重发上一条",
+  "retry.failed_callback": "重发失败：{message}",
+  "retry.button": "↻ 重发上一条",
+  "suggestions.header": "💡 建议下一步（点按直接发送）",
+  "suggestions.expired_callback": "该建议已过期",
+  "suggestions.sent_callback": "已发送",
+  "actions.bar_title": "⌨️ 操作",
+
+  "background.turn_finished": "ℹ️ 后台会话已完成：…{id}",
+  "boot.ready": "ocrc 已就绪",
+
+  // ── ocrc fork: main reply keyboard (main-keyboard.ts) ──
+  "keyboard.sessions_button": "📋 会话",
+  "keyboard.reply_updated": "键盘已更新",
 };

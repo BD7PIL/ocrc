@@ -11,6 +11,7 @@ import { createLogger } from '../../utils/logger.js'
 import { getVersionInfo } from '../../utils/version.js'
 import { registerInfoCommands } from './handlers/info-commands.js'
 import { esc } from './esc.js'
+import { t } from './i18n/index.js'
 
 const log = createLogger('handlers')
 
@@ -515,7 +516,7 @@ export function registerHandlers(deps: HandlersDeps): void {
   const workspacesHandler = async (ctx: Context) => {
     try {
       const ws = scopeWorkspaces(deps, await deps.backend.listWorkspaces())
-      if (ws.length === 0) { await ctx.reply('当前工作区范围设置下没有可用的工作区（M9 工作区访问范围）。', { parse_mode: 'HTML' }); return }
+      if (ws.length === 0) { await ctx.reply(t('workspaces.scope_empty'), { parse_mode: 'HTML' }); return }
       const active = deps.state.getActiveWorkspace()
       const lines = ['<b>🗂 Workspaces</b>', '']
       for (const w of ws.slice(0, 20)) {
@@ -546,17 +547,17 @@ export function registerHandlers(deps: HandlersDeps): void {
   deps.bot.command('detach', async (ctx: Context) => {
     const pinned = deps.state.getPinnedSessionId()
     deps.state.setPinnedSessionId(undefined)
-    await ctx.reply(pinned ? `🔓 已取消跟随 …${pinned.slice(-8)}` : 'ℹ️ 当前没有跟随的会话')
+    await ctx.reply(pinned ? t('detach.unfollowed', { id: pinned.slice(-8) }) : t('detach.no_followed_session'))
   })
 
   // grinev 对齐：/commands = 列出 opencode 自定义命令
   deps.bot.command('commands', async (ctx: Context) => {
     try {
       const cmds = await deps.backend.listCommands()
-      if (cmds.length === 0) { await ctx.reply('没有已配置的自定义命令。'); return }
-      const lines = ['<b>⌘ 自定义命令</b>']
+      if (cmds.length === 0) { await ctx.reply(t('quick.commands.empty')); return }
+      const lines = [t('quick.commands.header')]
       for (const c of cmds.slice(0, 20)) lines.push(`• <b>/${esc(c.name)}</b> — ${esc(c.description ?? '')}`)
-      if (cmds.length > 20) lines.push(`… 共 ${cmds.length} 条`)
+      if (cmds.length > 20) lines.push(t('quick.commands.total_line', { count: cmds.length }))
       await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' })
     } catch (err) {
       await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
@@ -567,9 +568,9 @@ export function registerHandlers(deps: HandlersDeps): void {
   deps.bot.command('mcps', async (ctx: Context) => {
     try {
       const mcps = await deps.backend.getMcp(deps.opencodeProject)
-      if (mcps.length === 0) { await ctx.reply('未配置 MCP 服务器。'); return }
+      if (mcps.length === 0) { await ctx.reply(t('quick.mcps.empty')); return }
       const lines = ['<b>🔌 MCP</b>']
-      for (const m of mcps) lines.push(`• <b>${esc(m.name)}</b> — ${m.status === 'configured' ? '✅ 已配置' : '⚪ 未启用'}`)
+      for (const m of mcps) lines.push(`• <b>${esc(m.name)}</b> — ${m.status === 'configured' ? t('quick.mcps.status_configured') : t('quick.mcps.status_not_enabled')}`)
       await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' })
     } catch (err) {
       await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
@@ -579,9 +580,9 @@ export function registerHandlers(deps: HandlersDeps): void {
   // grinev 对齐：/messages = 当前会话最近消息
   deps.bot.command('messages', async (ctx: Context) => {    try {
       const sid = deps.state.getPinnedSessionId() ?? deps.state.getLastSessionId()
-      if (!sid) { await ctx.reply('没有活动会话。'); return }
+      if (!sid) { await ctx.reply(t('common.no_active_session')); return }
       const cards = await deps.backend.getHistory(sid, 6)
-      const lines: string[] = ['<b>🕘 最近消息</b>']
+      const lines: string[] = [t('quick.messages.header')]
       for (const c of cards) {
         if (c.kind === 'user') {
           lines.push(`🧑 ${esc((c as any).text?.slice(0, 80) ?? '')}`)
@@ -601,11 +602,11 @@ export function registerHandlers(deps: HandlersDeps): void {
   deps.bot.command('subs', async (ctx: Context) => {
     try {
       const sid = deps.state.getPinnedSessionId() ?? deps.state.getLastSessionId()
-      if (!sid) { await ctx.reply('没有活动会话。'); return }
+      if (!sid) { await ctx.reply(t('common.no_active_session')); return }
       const subs = await deps.backend.getSubagents?.(sid)
-      if (!subs) { await ctx.reply('当前后端不支持子代理查询。'); return }
-      if (subs.length === 0) { await ctx.reply('该会话没有子代理。'); return }
-      const lines = [`<b>🧩 子代理 · ${subs.length}</b>`]
+      if (!subs) { await ctx.reply(t('quick.subs.unsupported')); return }
+      if (subs.length === 0) { await ctx.reply(t('quick.subs.empty')); return }
+      const lines = [t('quick.subs.header', { count: subs.length })]
       const kb = new InlineKeyboard()
       for (const s of subs.slice(0, 8)) {
         const prog = s.total > 0 ? ` · ${s.done}/${s.total}` : ''
@@ -613,7 +614,7 @@ export function registerHandlers(deps: HandlersDeps): void {
         try {
           const { buildPairContext, buildPairUrl } = await import('../../connectivity/pairing.js')
           const { token, url } = await buildPairContext()
-          kb.url(`📤 打开 ${s.title.slice(0, 16) || '…' + s.id.slice(-6)}`, buildPairUrl(url, token).replace(/#.*$/, '') + `/${s.id}`).row()
+          kb.url(t('quick.subs.open_button', { title: s.title.slice(0, 16) || '…' + s.id.slice(-6) }), buildPairUrl(url, token).replace(/#.*$/, '') + `/${s.id}`).row()
         } catch { /* link build is best-effort */ }
       }
       await ctx.reply(lines.join('\n'), { parse_mode: 'HTML', reply_markup: kb })
@@ -628,30 +629,30 @@ export function registerHandlers(deps: HandlersDeps): void {
   deps.bot.command('mode', async (ctx: Context) => {
     try {
       const sid = deps.state.getPinnedSessionId() ?? deps.state.getLastSessionId()
-      if (!sid) { await ctx.reply('没有活动会话。'); return }
+      if (!sid) { await ctx.reply(t('common.no_active_session')); return }
       const controls = await deps.backend.getControls?.(sid)
       const options = controls?.mode?.options ?? []
-      if (options.length === 0) { await ctx.reply('当前后端没有可切换的 mode。'); return }
+      if (options.length === 0) { await ctx.reply(t('quick.mode.unavailable')); return }
       const kb = new InlineKeyboard()
       for (const o of options) {
         const tok = ++modeSeq
         modeTokens.set(tok, { sid, modeId: o.id })
         kb.text(`${o.id === controls?.mode?.current ? '📍 ' : ''}${o.name || o.id}`, `tmode:${tok}`).row()
       }
-      await ctx.reply('<b>🎚 会话模式</b>', { parse_mode: 'HTML', reply_markup: kb })
+      await ctx.reply(t('quick.mode.header'), { parse_mode: 'HTML', reply_markup: kb })
     } catch (err) {
       await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }
   })
   deps.bot.callbackQuery(/^tmode:(\d+)$/, async (ctx) => {
-    const t = modeTokens.get(Number(ctx.match[1]))
-    if (!t) { await ctx.answerCallbackQuery('已过期 — 重新 /mode'); return }
+    const entry = modeTokens.get(Number(ctx.match[1]))
+    if (!entry) { await ctx.answerCallbackQuery(t('callback.expired_rerun', { command: '/mode' })); return }
     try {
-      await deps.backend.setMode?.(t.sid, t.modeId)
-      await ctx.answerCallbackQuery(`已切换 → ${t.modeId}`)
-      try { await ctx.editMessageText(`🎚 已切换 → <b>${esc(t.modeId)}</b>`, { parse_mode: 'HTML' }) } catch { }
+      await deps.backend.setMode?.(entry.sid, entry.modeId)
+      await ctx.answerCallbackQuery(t('quick.mode.switched_callback', { modeId: entry.modeId }))
+      try { await ctx.editMessageText(t('quick.mode.switched', { modeId: esc(entry.modeId) }), { parse_mode: 'HTML' }) } catch { }
     } catch (err) {
-      await ctx.answerCallbackQuery(`切换失败：${(err as Error).message.slice(0, 60)}`)
+      await ctx.answerCallbackQuery(t('quick.mode.switch_failed', { message: (err as Error).message.slice(0, 60) }))
     }
   })
 
@@ -664,7 +665,7 @@ export function registerHandlers(deps: HandlersDeps): void {
       for (const c of children) {
         try { await deps.backend.deleteSession(c.id); deleted += 1 } catch { /* skip */ }
       }
-      await ctx.reply(`🧹 已清理 ${deleted} 个子代理会话。`)
+      await ctx.reply(t('quick.cleanup.done', { count: deleted }))
     } catch (err) {
       await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
     }
@@ -676,12 +677,12 @@ export function registerHandlers(deps: HandlersDeps): void {
       const ch = deps.channels?.()?.enabled
       const tgOn = ch === undefined ? true : ch
       const lines = [
-        '<b>🤖 机器人 / 通道</b>',
+        t('quick.channels.header'),
         tgOn
-          ? '• Telegram — ✅ 已启用（web 端「机器人」面板可配置）'
-          : '• Telegram — ⛔ 已停用（channels.json）',
-        '• 微信 — ⏳ 待接入（凭证到位后启用）',
-        '• Lark — ⏳ 待接入',
+          ? t('quick.channels.telegram_on')
+          : t('quick.channels.telegram_off'),
+        t('quick.channels.wecom_pending'),
+        t('quick.channels.lark_pending'),
       ]
       await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' })
     } catch (err) {
@@ -700,13 +701,13 @@ export function registerHandlers(deps: HandlersDeps): void {
   deps.bot.command('skills', async (ctx: Context) => {
     try {
       const list = await deps.backend.getSkills?.(deps.opencodeProject)
-      if (!list || list.length === 0) { await ctx.reply('没有可用的技能。'); return }
+      if (!list || list.length === 0) { await ctx.reply(t('quick.skills.empty')); return }
       skillsCache.length = 0
       skillsCache.push(...list)
       const PAGE = 6
       const pages = Math.max(1, Math.ceil(skillsCache.length / PAGE))
       const p = 0
-      const lines = [`<b>🧩 Skills</b> · ${p + 1}/${pages} 页 · 共 ${skillsCache.length}`]
+      const lines = [t('quick.skills.header', { page: p + 1, pages, count: skillsCache.length })]
       const kb = new InlineKeyboard()
       for (const s of skillsCache.slice(p * PAGE, p * PAGE + PAGE)) {
         lines.push(`• <b>${esc(s.name)}</b> — ${esc((s.description ?? '').slice(0, 90))}`)
@@ -726,7 +727,7 @@ export function registerHandlers(deps: HandlersDeps): void {
     const PAGE = 6
     const pages = Math.max(1, Math.ceil(skillsCache.length / PAGE))
     const pp = Math.min(p, pages - 1)
-    const lines = [`<b>🧩 Skills</b> · ${pp + 1}/${pages} 页 · 共 ${skillsCache.length}`]
+    const lines = [t('quick.skills.header', { page: pp + 1, pages, count: skillsCache.length })]
     const kb = new InlineKeyboard()
     for (const s of skillsCache.slice(pp * PAGE, pp * PAGE + PAGE)) {
       lines.push(`• <b>${esc(s.name)}</b> — ${esc((s.description ?? '').slice(0, 90))}`)
@@ -745,9 +746,9 @@ export function registerHandlers(deps: HandlersDeps): void {
       const arg = (ctx.message?.text ?? '').replace(/^\/ls\s*/, '').trim()
       const path = arg || '.'
       const files = await deps.backend.listFiles?.(deps.opencodeProject, path)
-      if (!files) { await ctx.reply('当前后端不支持文件浏览。'); return }
-      if (files.length === 0) { await ctx.reply(`📂 ${path}：空目录。`); return }
-      const lines = [`<b>📂 ${esc(path)}</b> · 共 ${files.length}`]
+      if (!files) { await ctx.reply(t('quick.ls.unsupported')); return }
+      if (files.length === 0) { await ctx.reply(t('quick.ls.empty_dir', { path })); return }
+      const lines = [t('quick.ls.header', { path: esc(path), count: files.length })]
       const kb = new InlineKeyboard()
       if (path !== '.') {
         const upTok = ++lsSeq
@@ -765,7 +766,7 @@ export function registerHandlers(deps: HandlersDeps): void {
           kb.text(`📄 ${f.name}`, `ls:cat:${tok}`)
         }
       }
-      if (files.length > 20) lines.push(`… 其余 ${files.length - 20} 项未显示`)
+      if (files.length > 20) lines.push(t('quick.ls.more_hidden', { count: files.length - 20 }))
       await ctx.reply(lines.join('\n'), { parse_mode: 'HTML', reply_markup: kb })
     } catch (err) {
       await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
@@ -773,11 +774,11 @@ export function registerHandlers(deps: HandlersDeps): void {
   })
   deps.bot.callbackQuery(/^ls:dir:(\d+)$/, async (ctx) => {
     const path = lsDirs.get(Number(ctx.match[1]))
-    if (!path) { await ctx.answerCallbackQuery('已过期 — 重新 /ls'); return }
+    if (!path) { await ctx.answerCallbackQuery(t('callback.expired_rerun', { command: '/ls' })); return }
     await ctx.answerCallbackQuery()
     try {
       const files = (await deps.backend.listFiles?.(deps.opencodeProject, path)) ?? []
-      const lines = [`<b>📂 ${esc(path)}</b> · 共 ${files.length}`]
+      const lines = [t('quick.ls.header', { path: esc(path), count: files.length })]
       const kb = new InlineKeyboard()
       if (path !== '.') {
         const upTok = ++lsSeq
@@ -804,12 +805,12 @@ export function registerHandlers(deps: HandlersDeps): void {
   // simplest correct path: synthesize the message through the same handler.
   deps.bot.callbackQuery(/^ls:cat:(\d+)$/, async (ctx) => {
     const path = lsFiles.get(Number(ctx.match[1]))
-    if (!path) { await ctx.answerCallbackQuery('已过期 — 重新 /ls'); return }
+    if (!path) { await ctx.answerCallbackQuery(t('callback.expired_rerun', { command: '/ls' })); return }
     await ctx.answerCallbackQuery()
     try {
       const f = await deps.backend.readFile?.(deps.opencodeProject, path)
-      if (!f) { await ctx.reply('读取失败。'); return }
-      if (f.type !== 'text') { await ctx.reply(`🔒 ${esc(path)}：二进制文件，不预览。`); return }
+      if (!f) { await ctx.reply(t('quick.ls.read_failed')); return }
+      if (f.type !== 'text') { await ctx.reply(t('quick.ls.binary', { path: esc(path) })); return }
       const body = f.content.length > 800 ? f.content.slice(0, 800) + '\n…' : f.content
       await ctx.reply(`<b>📄 ${esc(path)}</b>\n<pre>${esc(body)}</pre>`, { parse_mode: 'HTML' })
     } catch (err) {
@@ -818,12 +819,12 @@ export function registerHandlers(deps: HandlersDeps): void {
   })
   deps.bot.callbackQuery(/^ls:up:(\d+)$/, async (ctx) => {
     const cur = lsDirs.get(Number(ctx.match[1]))
-    if (!cur) { await ctx.answerCallbackQuery('已过期'); return }
+    if (!cur) { await ctx.answerCallbackQuery(t('callback.expired')); return }
     const parent = cur.includes('/') ? cur.replace(/\/[^/]+\/?$/, '') || '.' : '.'
     await ctx.answerCallbackQuery()
     try {
       const files = (await deps.backend.listFiles?.(deps.opencodeProject, parent)) ?? []
-      const lines = [`<b>📂 ${esc(parent)}</b> · 共 ${files.length}`]
+      const lines = [t('quick.ls.header', { path: esc(parent), count: files.length })]
       const kb = new InlineKeyboard()
       if (parent !== '.') {
         const upTok = ++lsSeq
@@ -849,11 +850,11 @@ export function registerHandlers(deps: HandlersDeps): void {
 
   deps.bot.command('open', async (ctx: Context) => {
     const arg = (ctx.message?.text ?? '').replace(/^\/open\s*/, '').trim()
-    if (!arg) { await ctx.reply('用法：/open <文件路径>（相对当前工作区，如 src/index.ts）'); return }
+    if (!arg) { await ctx.reply(t('quick.open.usage')); return }
     try {
       const f = await deps.backend.readFile?.(deps.opencodeProject, arg)
-      if (!f) { await ctx.reply('读取失败。'); return }
-      if (f.type !== 'text') { await ctx.reply(`🔒 ${esc(arg)}：二进制文件，不预览。`); return }
+      if (!f) { await ctx.reply(t('quick.ls.read_failed')); return }
+      if (f.type !== 'text') { await ctx.reply(t('quick.ls.binary', { path: esc(arg) })); return }
       const body = f.content.length > 800 ? f.content.slice(0, 800) + '\n…' : f.content
       await ctx.reply(`<b>📄 ${esc(arg)}</b>\n<pre>${esc(body)}</pre>`, { parse_mode: 'HTML' })
     } catch (err) {
@@ -866,30 +867,30 @@ export function registerHandlers(deps: HandlersDeps): void {
       const arg = (ctx.message?.text ?? '').replace(/^\/worktree\s*/, '').trim()
       if (arg.startsWith('=')) {
         const name = arg.slice(1).trim()
-        if (!name) { await ctx.reply('用法：/worktree = <名称>'); return }
+        if (!name) { await ctx.reply(t('quick.worktree.usage_create')); return }
         const dir = deps.state.getActiveWorkspace() || deps.opencodeProject || ''
         const created = await deps.backend.createWorktreeSandboxes?.(dir, name)
-        if (!created) { await ctx.reply('❌ 创建失败（experimental 接口）。'); return }
-        await ctx.reply(`🌿 已创建 worktree：<b>${esc(created.name)}</b>`)
+        if (!created) { await ctx.reply(t('quick.worktree.create_failed')); return }
+        await ctx.reply(t('quick.worktree.created', { name: esc(created.name) }))
         return
       }
       if (arg.startsWith('rm ')) {
         const name = arg.slice(3).trim()
-        if (!name) { await ctx.reply('用法：/worktree rm <名称>'); return }
+        if (!name) { await ctx.reply(t('quick.worktree.usage_rm')); return }
         const tok = ++wtSeq
         wtTokens.set(tok, name)
         const kb = new InlineKeyboard()
-          .text('🗑 确认删除', `wt:rm:${tok}`)
-          .text('取消', 'menu:noop')
-        await ctx.reply(`⚠️ 删除 worktree <b>${esc(name)}</b>？`, { parse_mode: 'HTML', reply_markup: kb })
+          .text(t('common.confirm_delete'), `wt:rm:${tok}`)
+          .text(t('common.cancel'), 'menu:noop')
+        await ctx.reply(t('quick.worktree.confirm_delete', { name: esc(name) }), { parse_mode: 'HTML', reply_markup: kb })
         return
       }
       const list = await deps.backend.listWorktreeSandboxes?.(deps.opencodeProject)
-      if (!list) { await ctx.reply('当前后端不支持 worktree 查询。'); return }
-      if (list.length === 0) { await ctx.reply('🌿 暂无 worktree。新建：/worktree = <名称>（beta）'); return }
+      if (!list) { await ctx.reply(t('quick.worktree.unsupported')); return }
+      if (list.length === 0) { await ctx.reply(t('quick.worktree.empty')); return }
       const lines = ['<b>🌿 Worktrees</b> · beta']
       for (const w of list) lines.push(`• ${esc(w.name)}${w.directory ? ` — <code>${esc(w.directory)}</code>` : ''}`)
-      lines.push('新建：/worktree = <名称> · 删除：/worktree rm <名称>')
+      lines.push(t('quick.worktree.hint'))
       await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' })
     } catch (err) {
       await ctx.reply(`❌ ${esc((err as Error).message)}`, { parse_mode: 'HTML' })
@@ -897,16 +898,16 @@ export function registerHandlers(deps: HandlersDeps): void {
   })
   deps.bot.callbackQuery(/^wt:rm:(\d+)$/, async (ctx) => {
     const name = wtTokens.get(Number(ctx.match[1]))
-    if (!name) { await ctx.answerCallbackQuery('已过期 — 重新执行 /worktree rm'); return }
+    if (!name) { await ctx.answerCallbackQuery(t('quick.worktree.expired_rm')); return }
     const ok = (await deps.backend.removeWorktreeSandboxes?.(deps.state.getActiveWorkspace() || deps.opencodeProject || '', name)) ?? false
-    await ctx.answerCallbackQuery(ok ? '🗑 已删除' : '删除失败')
-    try { await ctx.editMessageText(ok ? `🗑 worktree <b>${esc(name)}</b> 已删除。` : '删除失败。', { parse_mode: 'HTML' }) } catch { }
+    await ctx.answerCallbackQuery(ok ? t('common.deleted') : t('common.delete_failed'))
+    try { await ctx.editMessageText(ok ? t('quick.worktree.deleted', { name: esc(name) }) : t('quick.worktree.delete_failed'), { parse_mode: 'HTML' }) } catch { }
   })
 
   deps.bot.command('new', async (ctx) => {
     const dir = deps.state.getActiveWorkspace()
     if (!dir) { await ctx.reply('No active workspace. Use /workspaces first.', { parse_mode: 'HTML' }); return }
-    if (!workspaceAllowed(deps, dir)) { await ctx.reply('当前工作区不在机器人的访问范围内（M9 工作区访问范围）。', { parse_mode: 'HTML' }); return }
+    if (!workspaceAllowed(deps, dir)) { await ctx.reply(t('workspaces.out_of_scope'), { parse_mode: 'HTML' }); return }
     try {
       const text = ctx.message && 'text' in ctx.message ? ctx.message.text.split(' ').slice(1).join(' ').trim() : ''
       const { id } = await deps.backend.createSession({ directory: dir, ...(text ? { title: text.slice(0, 60) } : {}) })
@@ -932,14 +933,14 @@ export function registerHandlers(deps: HandlersDeps): void {
 
   // ── P2b-M7: scheduled tasks (cross-channel; engine lives in core) ──
   deps.bot.command('tasks', async (ctx: Context) => {
-    if (!deps.scheduler) { await ctx.reply('⏰ 定时任务未启用'); return }
+    if (!deps.scheduler) { await ctx.reply(t('quick.tasks.disabled')); return }
     await renderTasks(ctx)
   })
   // grinev 命令名对齐：/tasklist = /tasks
   deps.bot.command('tasklist', async (ctx: Context) => { await renderTasks(ctx) })
 
   deps.bot.command('task', async (ctx: Context) => {
-    if (!deps.scheduler) { await ctx.reply('⏰ 定时任务未启用'); return }
+    if (!deps.scheduler) { await ctx.reply(t('quick.tasks.disabled')); return }
     const sched = deps.scheduler
     const msgText = (ctx.message && 'text' in ctx.message ? ctx.message.text : '') ?? ''
     const body = msgText.trim().replace(/^\/task\s*/, '')
@@ -948,34 +949,34 @@ export function registerHandlers(deps: HandlersDeps): void {
     const daily = body.match(/^daily\s+([01]\d|2[0-3]):[0-5]\d\s+([\s\S]+)$/i)
     if (every) {
       const s = sched.add({ prompt: every[2], spec: { kind: 'every', minutes: Number(every[1]) }, name: every[2].slice(0, 24) })
-      await ctx.reply(s ? `⏰ 已创建：每 ${every[1]} 分钟\n<code>${esc(s.prompt.slice(0, 80))}</code>\nID: ${s.id}` : '创建失败', { parse_mode: 'HTML' })
+      await ctx.reply(s ? t('quick.task.created_every', { minutes: every[1], prompt: esc(s.prompt.slice(0, 80)), id: s.id }) : t('common.create_failed'), { parse_mode: 'HTML' })
       return
     }
     if (daily) {
       const time = body.match(/daily\s+([01]\d|2[0-3]):[0-5]\d/i)![1]
       const s = sched.add({ prompt: daily[2], spec: { kind: 'daily', time }, name: daily[2].slice(0, 24) })
-      await ctx.reply(s ? `⏰ 已创建：每天 ${time}\n<code>${esc(s.prompt.slice(0, 80))}</code>\nID: ${s.id}` : '创建失败', { parse_mode: 'HTML' })
+      await ctx.reply(s ? t('quick.task.created_daily', { time, prompt: esc(s.prompt.slice(0, 80)), id: s.id }) : t('common.create_failed'), { parse_mode: 'HTML' })
       return
     }
-    await ctx.reply('用法：/task every 30m <提示词>\n      /task daily 09:00 <提示词>')
+    await ctx.reply(t('quick.task.usage'))
   })
 
   deps.bot.command('taskdel', async (ctx: Context) => {
     const sched = deps.scheduler
-    if (!sched) { await ctx.reply('⏰ 定时任务未启用'); return }
+    if (!sched) { await ctx.reply(t('quick.tasks.disabled')); return }
     const id = (ctx.message && 'text' in ctx.message ? ctx.message.text ?? '' : '').replace(/^\/taskdel\s*/, '').trim()
-    if (!id) { await ctx.reply('用法：/taskdel <ID>'); return }
+    if (!id) { await ctx.reply(t('quick.taskdel.usage')); return }
     const ok = sched.remove(id)
-    await ctx.reply(ok ? `🗑 已删除 ${id}` : `未找到 ${id}`)
+    await ctx.reply(ok ? t('quick.task.deleted', { id }) : t('quick.task.not_found', { id }))
   })
 
   const renderTasks = async (ctx: Context) => {
     const list = deps.scheduler!.list()
-    if (list.length === 0) { await ctx.reply('⏰ 没有定时任务。用 /task 创建：\n/task every 30m <提示词>\n/task daily 09:00 <提示词>'); return }
-    const lines = ['<b>⏰ 定时任务</b>']
+    if (list.length === 0) { await ctx.reply(t('quick.tasks.empty')); return }
+    const lines = [t('quick.tasks.header')]
     const rows: TgBtn[][] = []
     for (const s of list) {
-      const spec = s.spec.kind === 'every' ? `每 ${s.spec.minutes} 分钟` : `每天 ${s.spec.time}`
+      const spec = s.spec.kind === 'every' ? t('quick.tasks.spec_every', { minutes: s.spec.minutes }) : t('quick.tasks.spec_daily', { time: s.spec.time })
       const on = s.enabled ? '🟢' : '⏸'
       lines.push(`${on} <b>${esc(s.name)}</b>\n   ${spec} · ${s.id}`)
       rows.push([
@@ -991,7 +992,7 @@ export function registerHandlers(deps: HandlersDeps): void {
     const id = ctx.match![1]
     const s = deps.scheduler.list().find((x) => x.id === id)
     if (s) deps.scheduler.setEnabled(id, !s.enabled)
-    await ctx.answerCallbackQuery(s?.enabled === false ? '▶ 已启用' : '⏸ 已停用')
+    await ctx.answerCallbackQuery(s?.enabled === false ? t('quick.tasks.enabled_callback') : t('quick.tasks.disabled_callback'))
     await renderTasks(ctx)
   })
 
@@ -999,7 +1000,7 @@ export function registerHandlers(deps: HandlersDeps): void {
     if (!deps.scheduler) return
     const id = ctx.match![1]
     deps.scheduler.remove(id)
-    await ctx.answerCallbackQuery('已删除')
+    await ctx.answerCallbackQuery(t('tasklist.deleted_callback'))
     await renderTasks(ctx)
   })
 

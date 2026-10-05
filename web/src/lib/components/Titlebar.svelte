@@ -124,7 +124,6 @@
     gap: 5px;
   }
   .wordmark b { font-weight: 700; color: var(--text); }
-  .wordmark .linx { font-weight: 500; color: var(--text-3); }
 
   .new-session {
     display: inline-flex;

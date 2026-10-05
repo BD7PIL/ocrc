@@ -7,6 +7,7 @@ import type { Api } from 'grammy'
 import { InlineKeyboard } from 'grammy'
 import { createLogger } from '../../utils/logger.js'
 import { esc } from './esc.js'
+import { t } from './i18n/index.js'
 
 const log = createLogger('menus')
 
@@ -34,12 +35,12 @@ export function renderSessionsMenu(
   const p = Math.min(Math.max(0, page), pages - 1)
   const slice = sessions.slice(p * PAGE, p * PAGE + PAGE)
 
-  const lines: string[] = [`<b>📋 会话</b> · 第 ${p + 1}/${pages} 页 · 共 ${sessions.length}`]
+  const lines: string[] = [t('menu.sessions_header', { page: p + 1, pages, count: sessions.length })]
   const kb = new InlineKeyboard()
   for (const s of slice) {
     const mark = s.id === activeId ? '📍 ' : ''
     const when = s.lastActiveAt ? ` · ${fmtWhen(s.lastActiveAt)}` : ''
-    const label = `${mark}${(s.title ?? '未命名').slice(0, 28)}${when}`
+    const label = `${mark}${(s.title ?? t('menu.untitled')).slice(0, 28)}${when}`
     // Web C4 parity: per-session delete — the 🗑 arms a confirm step before
     // the actual delete (handled next to the other menu: callbacks).
     kb.text(label, `menu:session:${s.id}`).text('🗑', `menu:sdel:${s.id}`).row()
@@ -63,13 +64,13 @@ export function renderAgentsMenu(
   agents: AgentRow[],
   currentAgent?: string,
 ): { text: string; keyboard: InlineKeyboard } {
-  const lines = ['<b>🤖 Agent 选择</b>']
+  const lines = [t('menu.agents_header')]
   const kb = new InlineKeyboard()
   for (const a of agents) {
     const mark = a.name === currentAgent ? '📍 ' : ''
     kb.text(`${mark}${a.name}`, `menu:agent:${a.name}`).row()
   }
-  kb.text('✕ 清除覆盖', 'menu:agentclear')
+  kb.text(t('menu.clear_override_button'), 'menu:agentclear')
   return { text: lines.join('\n'), keyboard: kb }
 }
 
@@ -84,7 +85,7 @@ export function renderModelsMenu(
   providers: Array<{ id: string; models: Array<{ id: string; name?: string }> }>,
   current?: string,
 ): { text: string; keyboard: InlineKeyboard } {
-  const lines = ['<b>🧠 模型选择</b>']
+  const lines = [t('menu.models_header')]
   const kb = new InlineKeyboard()
   for (const p of providers) {
     kb.text(`📂 ${p.id}`, 'menu:noop').row()

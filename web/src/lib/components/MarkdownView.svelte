@@ -142,7 +142,10 @@
   })
 </script>
 
-<div class="md" class:streaming on:click={onMdClick}>{@html html}</div>
+<!-- presentation: the click is pure event delegation for the injected Copy
+     buttons (real <button>s below — natively keyboard-operable); the wrapper
+     itself carries no semantics. -->
+<div class="md" class:streaming role="presentation" on:click={onMdClick}>{@html html}</div>
 
 <style>
   .md {

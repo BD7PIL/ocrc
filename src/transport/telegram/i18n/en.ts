@@ -679,6 +679,142 @@ export const en = {
   "local_command.empty_output": "The command produced no output.",
   "local_command.failed": "Command failed with exit code {exitCode}: {stderr}",
   "local_command.timeout": "The command timed out.",
+
+  // ── ocrc fork: compact command outputs (handlers.ts) ──
+  "common.no_active_session": "No active session.",
+  "common.cancel": "Cancel",
+  "common.confirm_delete": "🗑 Confirm delete",
+  "common.deleted": "🗑 Deleted",
+  "common.delete_failed": "Delete failed",
+  "common.delete_failed_with_reason": "Delete failed: {message}",
+  "common.create_failed": "Creation failed",
+
+  "callback.expired": "Expired",
+  "callback.expired_rerun": "Expired — re-run {command}",
+  "callback.not_ready": "Not ready yet",
+  "callback.failed": "Processing failed",
+
+  "workspaces.scope_empty":
+    "No workspaces available under the current workspace scope (M9 workspace scope).",
+  "workspaces.out_of_scope":
+    "The current workspace is outside the bot's allowed workspace scope (M9 workspace scope).",
+
+  "detach.unfollowed": "🔓 Unfollowed …{id}",
+  "detach.no_followed_session": "ℹ️ No followed session",
+
+  "quick.commands.empty": "No custom commands configured.",
+  "quick.commands.header": "<b>⌘ Custom commands</b>",
+  "quick.commands.total_line": "… {count} in total",
+
+  "quick.mcps.empty": "No MCP servers configured.",
+  "quick.mcps.status_configured": "✅ Configured",
+  "quick.mcps.status_not_enabled": "⚪ Not enabled",
+
+  "quick.messages.header": "<b>🕘 Recent messages</b>",
+
+  "quick.subs.unsupported": "The current backend does not support subagent queries.",
+  "quick.subs.empty": "No subagents in this session.",
+  "quick.subs.header": "<b>🧩 Subagents · {count}</b>",
+  "quick.subs.open_button": "📤 Open {title}",
+
+  "quick.mode.unavailable": "The current backend has no switchable modes.",
+  "quick.mode.header": "<b>🎚 Session modes</b>",
+  "quick.mode.switched_callback": "Switched → {modeId}",
+  "quick.mode.switched": "🎚 Switched → <b>{modeId}</b>",
+  "quick.mode.switch_failed": "Switch failed: {message}",
+
+  "quick.cleanup.done": "🧹 Cleaned up {count} subagent sessions.",
+
+  "quick.channels.header": "<b>🤖 Bots / channels</b>",
+  "quick.channels.telegram_on": '• Telegram — ✅ enabled (configure in the web "Bots" panel)',
+  "quick.channels.telegram_off": "• Telegram — ⛔ disabled (channels.json)",
+  "quick.channels.wecom_pending": "• WeCom — ⏳ coming soon (enabled once credentials are in place)",
+  "quick.channels.lark_pending": "• Lark — ⏳ coming soon",
+
+  "quick.skills.empty": "No skills available.",
+  "quick.skills.header": "<b>🧩 Skills</b> · page {page}/{pages} · {count} total",
+
+  "quick.ls.unsupported": "The current backend does not support file browsing.",
+  "quick.ls.empty_dir": "📂 {path}: empty directory.",
+  "quick.ls.header": "<b>📂 {path}</b> · {count} items",
+  "quick.ls.more_hidden": "… {count} more items not shown",
+  "quick.ls.read_failed": "Failed to read file.",
+  "quick.ls.binary": "🔒 {path}: binary file, preview skipped.",
+
+  "quick.open.usage": "Usage: /open <path> (relative to the active workspace, e.g. src/index.ts)",
+
+  "quick.worktree.usage_create": "Usage: /worktree = <name>",
+  "quick.worktree.create_failed": "❌ Creation failed (experimental API).",
+  "quick.worktree.created": "🌿 Created worktree: <b>{name}</b>",
+  "quick.worktree.usage_rm": "Usage: /worktree rm <name>",
+  "quick.worktree.confirm_delete": "⚠️ Delete worktree <b>{name}</b>?",
+  "quick.worktree.unsupported": "The current backend does not support worktree queries.",
+  "quick.worktree.empty": "🌿 No worktrees yet. Create one: /worktree = <name> (beta)",
+  "quick.worktree.hint": "Create: /worktree = <name> · Delete: /worktree rm <name>",
+  "quick.worktree.expired_rm": "Expired — run /worktree rm again",
+  "quick.worktree.deleted": "🗑 worktree <b>{name}</b> deleted.",
+  "quick.worktree.delete_failed": "Delete failed.",
+
+  "quick.tasks.disabled": "⏰ Scheduled tasks not enabled",
+  "quick.tasks.empty":
+    "⏰ No scheduled tasks. Create one with /task:\n/task every 30m <prompt>\n/task daily 09:00 <prompt>",
+  "quick.tasks.header": "<b>⏰ Scheduled tasks</b>",
+  "quick.tasks.spec_every": "every {minutes} min",
+  "quick.tasks.spec_daily": "daily at {time}",
+  "quick.tasks.enabled_callback": "▶ Enabled",
+  "quick.tasks.disabled_callback": "⏸ Disabled",
+
+  "quick.task.created_every": "⏰ Created: every {minutes} min\n<code>{prompt}</code>\nID: {id}",
+  "quick.task.created_daily": "⏰ Created: daily at {time}\n<code>{prompt}</code>\nID: {id}",
+  "quick.task.usage": "Usage: /task every 30m <prompt>\n      /task daily 09:00 <prompt>",
+  "quick.task.deleted": "🗑 Deleted {id}",
+  "quick.task.not_found": "{id} not found",
+  "quick.taskdel.usage": "Usage: /taskdel <ID>",
+
+  // ── ocrc fork: context reply-keyboard button output (index.ts) ──
+  "context.no_session": "📊 No active session",
+  "context.usage_line": "📊 Context usage: {used} / {max} tokens ({pct}%)",
+  "context.cache_line": "\n💾 Cache hit {hit}% · {read} read / {write} write",
+  "context.usage_unavailable": "📊 Context usage unavailable",
+
+  "queue.ack_generating":
+    "⏳ Queued — the current reply is still generating; it will run automatically once it finishes.",
+
+  "bot.photo_relay_failed": "❌ Failed to receive the photo, please try again later.",
+
+  // ── ocrc fork: inline menus (menus.ts / index.ts) ──
+  "menu.sessions_header": "<b>📋 Sessions</b> · page {page}/{pages} · {count} total",
+  "menu.untitled": "Untitled",
+  "menu.agents_header": "<b>🤖 Select agent</b>",
+  "menu.models_header": "<b>🧠 Select model</b>",
+  "menu.clear_override_button": "✕ Clear override",
+  "menu.session_switched_callback": "Switched: …{id}",
+  "menu.session_switched": "📍 Switched session <code>…{id}</code>",
+  "menu.agent_override_set": "🤖 Agent override: <b>{name}</b>",
+  "menu.model_switched_callback": "Model → {provider}/{model}",
+  "menu.model_override_set": "🧠 Model override: <b>{provider}/{model}</b>",
+  "menu.agent_override_cleared_callback": "Agent override cleared",
+  "menu.agent_override_cleared": "Agent override cleared",
+  "menu.session_delete_confirm": "⚠️ Delete session …{id}? All of its messages will be unrecoverable.",
+  "menu.session_deleted": "🗑 Session deleted.",
+  "menu.open_session_button": "📥 Open session",
+
+  // ── ocrc fork: regenerate / suggestions / action bar (index.ts) ──
+  "retry.nothing_to_resend": "Nothing to resend",
+  "retry.resent_callback": "↻ Resent the last message",
+  "retry.failed_callback": "Resend failed: {message}",
+  "retry.button": "↻ Resend last",
+  "suggestions.header": "💡 Suggested next steps (tap to send)",
+  "suggestions.expired_callback": "This suggestion has expired",
+  "suggestions.sent_callback": "Sent",
+  "actions.bar_title": "⌨️ Actions",
+
+  "background.turn_finished": "ℹ️ Background session finished: …{id}",
+  "boot.ready": "ocrc is ready",
+
+  // ── ocrc fork: main reply keyboard (main-keyboard.ts) ──
+  "keyboard.sessions_button": "📋 Sessions",
+  "keyboard.reply_updated": "Keyboard updated",
 } as const;
 
 export type I18nKey = keyof typeof en;

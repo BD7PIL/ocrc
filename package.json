@@ -1,6 +1,6 @@
 {
   "name": "@bd7pil/ocrc",
-  "version": "0.26.8",
+  "version": "0.26.9",
   "description": "Remote-control opencode from Telegram and a web PWA — live sessions, tool streams, approvals, SSH remote hosts, schedules. Plugin mode or standalone host.",
   "type": "module",
   "main": "dist/plugin/entry.js",
@@ -42,12 +42,12 @@
     "web/dist"
   ],
   "dependencies": {
-    "@agentclientprotocol/sdk": "^0.26.0",
+    "@agentclientprotocol/sdk": "^1.6.1",
     "@hono/node-server": "^2.0.2",
     "@larksuiteoapi/node-sdk": "^1.74.0",
     "@opencode-ai/plugin": "^1.18.34",
     "@opencode-ai/sdk": "^1.17.13",
-    "diff": "^7.0.0",
+    "diff": "^9.0.0",
     "dingtalk-stream": "^2.1.6-beta.1",
     "dotenv": "^18.0.5",
     "grammy": "^1.46.0",
@@ -57,9 +57,10 @@
     "qrcode": "^1.5.4",
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
+    "undici": "^7.30.0",
     "unified": "^11.0.5",
     "ws": "^8.20.1",
-    "zod": "^3.23.8"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/diff": "^7.0.2",

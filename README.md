@@ -217,6 +217,7 @@ Settings live in `~/.ocrc/config.env` (`0600`; `KEY=VALUE`). Highlights:
 | Key | Default | Notes |
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | — | required for the Telegram surface |
+| `TELEGRAM_PROXY` | — | proxy for Bot API egress (`http://proxy:8080`); falls back to `HTTPS_PROXY`/`https_proxy` — for firewalled/corporate networks |
 | `ALLOWED_USER_IDS` | — | comma-separated Telegram user ids |
 | `OCRC_WEB_ENABLED` | `true` | web panel on/off |
 | `OCRC_WEB_PORT` | `4099` | web panel port |

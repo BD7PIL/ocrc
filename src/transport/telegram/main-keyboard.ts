@@ -4,6 +4,7 @@
 // Context numbers come from SessionState/inspector data refreshed by callers.
 
 import { InlineKeyboard, Keyboard } from 'grammy'
+import { t } from './i18n/index.js'
 
 export interface MainKeyboardData {
   agentName: string
@@ -32,17 +33,24 @@ export function contextButtonLabel(used: number, limit: number): string {
   return `📊 ${fmtK(used)} / ${fmtK(limit)} (${pct}%)`
 }
 
-export const SESSIONS_BUTTON_LABEL = '📋 会话'
+/** i18n label of the sessions reply-keyboard button. Call per use so the
+ *  router's `text === sessionsButtonLabel()` match stays in sync with what
+ *  buildMainKeyboard() renders for the active locale. */
+export function sessionsButtonLabel(): string {
+  return t('keyboard.sessions_button')
+}
 
 export function buildMainKeyboard(data: MainKeyboardData): Keyboard {
   const kb = new Keyboard()
   kb.text(agentButtonLabel(data.agentName)).text(
     data.context ? contextButtonLabel(data.context.used, data.context.limit) : '📊 context',
   ).row()
-  kb.text(modelButtonLabel(data.modelLabel)).text(SESSIONS_BUTTON_LABEL).resized().persistent()
+  kb.text(modelButtonLabel(data.modelLabel)).text(sessionsButtonLabel()).resized().persistent()
   return kb
 }
 
+// zh-label anchor kept for exact-match consumers of the default locale; the
+// live router matches against sessionsButtonLabel() so other locales work too.
 export const SESSIONS_BUTTON_TEXT_PATTERN = /^📋 会话$/
 
 /** Button-press patterns for bot.hears routing (grinev message-patterns). */

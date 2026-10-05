@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { Bot, InlineKeyboard, type Api } from 'grammy'
 import type { PhotoSize } from 'grammy/types'
+import { buildTelegramFetchConfig } from './proxy.js'
 import { errorCodeOf, inlineKeyboard, btn } from './ui.js'
 import { isEphemeralSession } from '../../opencode/submit.js'
 import type { Scheduler } from '../../core/scheduler.js'
@@ -22,6 +23,7 @@ import { PermissionManager } from './managers/permission-manager.js'
 import type { PermissionRequest } from './types/permission.js'
 import {
   buildMainKeyboard,
+  sessionsButtonLabel,
   agentButtonLabel,
   modelButtonLabel,
   contextButtonLabel,
@@ -30,6 +32,7 @@ import {
   MODEL_BUTTON_TEXT_PATTERN,
   CONTEXT_BUTTON_TEXT_PATTERN,
 } from './main-keyboard.js'
+import { t } from './i18n/index.js'
 import { registerHandlers } from './handlers.js'
 import type { PendingApproval, ApprovalResponse } from './handlers.js'
 import { esc } from './esc.js'
@@ -75,7 +78,9 @@ export interface TelegramTransport extends Transport {
 export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: Bot }): TelegramTransport {
   // DI seam for tests: a recording bot object can be injected instead of a
   // real Bot (whose Api has no spy-able prototype in grammY 1.46+).
-  const bot = injected?.bot ?? new Bot(cfg.token)
+  // buildTelegramFetchConfig routes Bot API traffic through TELEGRAM_PROXY /
+  // HTTPS_PROXY when set (blocked/corporate networks); undefined = direct.
+  const bot = injected?.bot ?? new Bot(cfg.token, { client: { baseFetchConfig: buildTelegramFetchConfig() } })
 
   // Whitelist middleware — silently drop strangers. Replying "Unauthorized"
   // would confirm to anyone that this bot exists and is access-controlled.
@@ -148,7 +153,7 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
         images = [await downloadLargestPhoto(ctx.api, photoSizes)]
       } catch (err) {
         log.warn('photo download failed', (err as Error).message)
-        void ctx.reply('❌ 图片接收失败，请稍后重试').catch(() => {})
+        void ctx.reply(t('bot.photo_relay_failed')).catch(() => {})
         return
       }
     }
@@ -167,7 +172,7 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
       await openModelsMenu(String(ctx.chat?.id ?? ctx.from?.id ?? ''))
       return
     }
-    if (text === '📋 会话') {
+    if (text === sessionsButtonLabel()) {
       await openSessionsMenu(String(ctx.chat?.id ?? ctx.from?.id ?? ''), 0)
       return
     }
@@ -176,13 +181,13 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
         // Same data source as the Inspector's CONTEXT panel (backend.getContext):
         // used = last turn's input+output+reasoning+cache; max = model context window.
         const target = targetSessionId()
-        if (!target) { await ctx.reply('📊 没有活动会话'); return }
+        if (!target) { await ctx.reply(t('context.no_session')); return }
         const meta = await cfg.backend.getContext(target)
         const tokens = (meta.tokens ?? {}) as any
         const used = tokens.used ?? 0
         const max = tokens.max ?? 0
         const pct = max > 0 ? Math.round((used / max) * 100) : 0
-        let msg = `📊 上下文用量：${fmtK(used)} / ${fmtK(max)} tokens（${pct}%）`
+        let msg = t('context.usage_line', { used: fmtK(used), max: fmtK(max), pct })
         // Prompt-cache line, same semantics as the web Inspector: hit rate =
         // cache.read / (input + cache.read) for the latest turn.
         const cacheRead = tokens.cache?.read
@@ -190,11 +195,11 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
         const uncached = tokens.input
         if (typeof cacheRead === 'number' && typeof uncached === 'number' && uncached + cacheRead > 0) {
           const hit = Math.round((cacheRead / (uncached + cacheRead)) * 100)
-          msg += `\n💾 缓存命中 ${hit}% · ${fmtK(cacheRead)} read / ${fmtK(cacheWrite ?? 0)} write`
+          msg += t('context.cache_line', { hit, read: fmtK(cacheRead), write: fmtK(cacheWrite ?? 0) })
         }
         await ctx.reply(msg)
       } catch {
-        await ctx.reply('📊 上下文用量暂不可用')
+        await ctx.reply(t('context.usage_unavailable'))
       }
       return
     }
@@ -206,7 +211,7 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
     // turns per session, so a mid-generation prompt is queued, not dropped —
     // ack it so the sender isn't left staring at silence.
     if (isGenerating()) {
-      void ctx.reply('⏳ 已排队——当前回复生成中，完成后自动执行').catch((err) => {
+      void ctx.reply(t('queue.ack_generating')).catch((err) => {
         log.warn('failed to send queue ack', (err as Error).message)
       })
     }
@@ -265,34 +270,34 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
   // P2b-M3: grinev permission:* callbacks — the mutex flow owns these.
   bot.callbackQuery(/^permission:(once|always|reject)$/, async (ctx) => {
     const decision = (ctx.match as RegExpMatchArray)[1] as 'once' | 'always' | 'reject'
-    if (!permissionFlow) { await ctx.answerCallbackQuery('尚未就绪').catch(() => {}); return }
+    if (!permissionFlow) { await ctx.answerCallbackQuery(t('callback.not_ready')).catch(() => {}); return }
     await permissionFlow.onDecision(ctx, decision).catch((err) => {
       log.error('permission decision failed', err as Error)
-      ctx.answerCallbackQuery('处理失败').catch(() => {})
+      ctx.answerCallbackQuery(t('callback.failed')).catch(() => {})
     })
   })
 
   // ── M10: question-tool callbacks (q:<tok>:o:<idx> / :ok / :rej) ──
   bot.callbackQuery(/^q:([0-9a-zA-Z_-]{16}):o:(\d+)$/, async (ctx) => {
     const m = ctx.match as RegExpMatchArray
-    if (!questionFlow) { await ctx.answerCallbackQuery('尚未就绪').catch(() => {}); return }
+    if (!questionFlow) { await ctx.answerCallbackQuery(t('callback.not_ready')).catch(() => {}); return }
     await questionFlow.onOption(ctx, m[1], parseInt(m[2], 10)).catch((err) => {
       log.error('question option failed', err as Error)
-      ctx.answerCallbackQuery('处理失败').catch(() => {})
+      ctx.answerCallbackQuery(t('callback.failed')).catch(() => {})
     })
   })
   bot.callbackQuery(/^q:([0-9a-zA-Z_-]{16}):ok$/, async (ctx) => {
-    if (!questionFlow) { await ctx.answerCallbackQuery('尚未就绪').catch(() => {}); return }
+    if (!questionFlow) { await ctx.answerCallbackQuery(t('callback.not_ready')).catch(() => {}); return }
     await questionFlow.onSubmit(ctx, (ctx.match as RegExpMatchArray)[1]).catch((err) => {
       log.error('question submit failed', err as Error)
-      ctx.answerCallbackQuery('处理失败').catch(() => {})
+      ctx.answerCallbackQuery(t('callback.failed')).catch(() => {})
     })
   })
   bot.callbackQuery(/^q:([0-9a-zA-Z_-]{16}):rej$/, async (ctx) => {
-    if (!questionFlow) { await ctx.answerCallbackQuery('尚未就绪').catch(() => {}); return }
+    if (!questionFlow) { await ctx.answerCallbackQuery(t('callback.not_ready')).catch(() => {}); return }
     await questionFlow.onReject(ctx, (ctx.match as RegExpMatchArray)[1]).catch((err) => {
       log.error('question reject failed', err as Error)
-      ctx.answerCallbackQuery('处理失败').catch(() => {})
+      ctx.answerCallbackQuery(t('callback.failed')).catch(() => {})
     })
   })
 
@@ -310,29 +315,29 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
   bot.callbackQuery(/^menu:session:(.+)$/, async (ctx) => {
     const sid = ctx.match![1]
     cfg.state.setPinnedSessionId(sid)
-    await ctx.answerCallbackQuery(`已切换：…${sid.slice(-8)}`)
-    try { await ctx.editMessageText(`📍 已切换会话 <code>…${sid.slice(-8)}</code>`, { parse_mode: 'HTML' }) } catch { }
+    await ctx.answerCallbackQuery(t('menu.session_switched_callback', { id: sid.slice(-8) }))
+    try { await ctx.editMessageText(t('menu.session_switched', { id: sid.slice(-8) }), { parse_mode: 'HTML' }) } catch { }
   })
 
   bot.callbackQuery(/^menu:agent:(.+)$/, async (ctx) => {
     const name = ctx.match![1]
     cfg.state.setNextAgent(name)
     await ctx.answerCallbackQuery(`Agent → ${name}`)
-    try { await ctx.editMessageText(`🤖 Agent 覆盖：<b>${name}</b>`, { parse_mode: 'HTML' }) } catch { }
+    try { await ctx.editMessageText(t('menu.agent_override_set', { name }), { parse_mode: 'HTML' }) } catch { }
   })
 
   bot.callbackQuery(/^menu:model:([^:]+):(.+)$/, async (ctx) => {
     const providerID = ctx.match![1]
     const modelID = ctx.match![2]
     cfg.state.setNextModel({ providerID, modelID })
-    await ctx.answerCallbackQuery(`模型 → ${providerID}/${modelID}`)
-    try { await ctx.editMessageText(`🧠 模型覆盖：<b>${providerID}/${modelID}</b>`, { parse_mode: 'HTML' }) } catch { }
+    await ctx.answerCallbackQuery(t('menu.model_switched_callback', { provider: providerID, model: modelID }))
+    try { await ctx.editMessageText(t('menu.model_override_set', { provider: providerID, model: modelID }), { parse_mode: 'HTML' }) } catch { }
   })
 
   bot.callbackQuery('menu:agentclear', async (ctx) => {
     cfg.state.setNextAgent(undefined)
-    await ctx.answerCallbackQuery('已清除 agent 覆盖')
-    try { await ctx.editMessageText('Agent 覆盖已清除', { parse_mode: 'HTML' }) } catch { }
+    await ctx.answerCallbackQuery(t('menu.agent_override_cleared_callback'))
+    try { await ctx.editMessageText(t('menu.agent_override_cleared'), { parse_mode: 'HTML' }) } catch { }
   })
 
   bot.callbackQuery('menu:noop', async (ctx) => { await ctx.answerCallbackQuery() })
@@ -341,21 +346,21 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
   bot.callbackQuery(/^menu:sdel:(.+)$/, async (ctx) => {
     const sid = ctx.match[1]
     const kb = new InlineKeyboard()
-      .text('🗑 确认删除', `menu:sdelok:${sid}`)
-      .text('取消', 'menu:spage:0')
+      .text(t('common.confirm_delete'), `menu:sdelok:${sid}`)
+      .text(t('common.cancel'), 'menu:spage:0')
     await ctx.answerCallbackQuery()
-    try { await ctx.editMessageText(`⚠️ 删除会话 …${sid.slice(-8)}？其全部消息将不可恢复。`, { parse_mode: 'HTML', reply_markup: kb }) } catch { }
+    try { await ctx.editMessageText(t('menu.session_delete_confirm', { id: sid.slice(-8) }), { parse_mode: 'HTML', reply_markup: kb }) } catch { }
   })
   bot.callbackQuery(/^menu:sdelok:(.+)$/, async (ctx) => {
     const sid = ctx.match[1]
     try {
       await cfg.backend.deleteSession(sid)
       if (cfg.state.getPinnedSessionId() === sid) cfg.state.setPinnedSessionId(undefined)
-      await ctx.answerCallbackQuery('🗑 已删除')
-      try { await ctx.editMessageText('🗑 会话已删除。') } catch { }
+      await ctx.answerCallbackQuery(t('common.deleted'))
+      try { await ctx.editMessageText(t('menu.session_deleted')) } catch { }
       await openSessionsMenu(String(ctx.chat?.id ?? ctx.from?.id ?? ''), 0)
     } catch (err) {
-      await ctx.answerCallbackQuery(`删除失败：${(err as Error).message.slice(0, 60)}`)
+      await ctx.answerCallbackQuery(t('common.delete_failed_with_reason', { message: (err as Error).message.slice(0, 60) }))
     }
   })
 
@@ -366,7 +371,7 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
       const cards = await cfg.backend.getHistory(sid)
       const lastUser = [...cards].reverse().find((c) => c.kind === 'user') as { text?: string } | undefined
       const text = lastUser?.text ?? ''
-      if (!text.trim()) { await ctx.answerCallbackQuery('没有可重发的内容'); return }
+      if (!text.trim()) { await ctx.answerCallbackQuery(t('retry.nothing_to_resend')); return }
       await messageHandler?.({
         userId: String(ctx.from?.id ?? ''),
         chatId: String(ctx.chat?.id ?? ctx.from?.id ?? ''),
@@ -374,16 +379,16 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
         messageId: `retry_${Date.now()}`,
         origin: 'telegram',
       })
-      await ctx.answerCallbackQuery('↻ 已重发上一条')
+      await ctx.answerCallbackQuery(t('retry.resent_callback'))
     } catch (err) {
-      await ctx.answerCallbackQuery(`重发失败：${(err as Error).message.slice(0, 80)}`)
+      await ctx.answerCallbackQuery(t('retry.failed_callback', { message: (err as Error).message.slice(0, 80) }))
     }
   })
 
   // Suggestion chips (web C2 parity): tap = send directly (no draft box on TG).
   bot.callbackQuery(/^sug:(\d+)$/, async (ctx) => {
     const text = sugTokens.get(Number(ctx.match[1]))
-    if (!text) { await ctx.answerCallbackQuery('该建议已过期'); return }
+    if (!text) { await ctx.answerCallbackQuery(t('suggestions.expired_callback')); return }
     await messageHandler?.({
       userId: String(ctx.from?.id ?? ''),
       chatId: String(ctx.chat?.id ?? ctx.from?.id ?? ''),
@@ -391,7 +396,7 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
       messageId: `sug_${Date.now()}`,
       origin: 'telegram',
     })
-    await ctx.answerCallbackQuery('已发送')
+    await ctx.answerCallbackQuery(t('suggestions.sent_callback'))
   })
 
   /** Open the agents menu as an editable message. */
@@ -438,7 +443,7 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
 
   // ── M4: reply keyboard + hears routers (grinev signature UX) ──
   const sendMainKeyboard = async (ctx: { reply: Function }) => {
-    await ctx.reply('键盘已更新', { reply_markup: buildMainKeyboard(keyboardData) }).catch((err: Error) => {
+    await ctx.reply(t('keyboard.reply_updated'), { reply_markup: buildMainKeyboard(keyboardData) }).catch((err: Error) => {
       log.warn('send keyboard failed', (err as Error).message)
     })
   }
@@ -571,7 +576,7 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
               kb.text(`💡 ${item.slice(0, 64)}`, `sug:${tok}`).row()
             }
             await bot.api
-              .sendMessage(chatId, '💡 建议下一步（点按直接发送）', { reply_markup: kb })
+              .sendMessage(chatId, t('suggestions.header'), { reply_markup: kb })
               .catch((err: Error) => log.warn('suggestions send failed', err.message))
           }, ms),
         )
@@ -598,7 +603,7 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
                 // P2c parity: regenerate action bar on the final message…
                 const actions = isEphemeralSession(card.sessionId)
                   ? undefined
-                  : { text: '⌨️ 操作', keyboard: new InlineKeyboard().text('↻ 重发上一条', `retry:${card.sessionId}`) }
+                  : { text: t('actions.bar_title'), keyboard: new InlineKeyboard().text(t('retry.button'), `retry:${card.sessionId}`) }
                 await sr.onFinalize(card.sessionId, card.blocks, card.meta, actions)
                 // …and Tier2 suggestion chips as a follow-up message (they are
                 // generated fire-and-forget after finalize — poll briefly).
@@ -622,9 +627,9 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
             const target = targetSessionId()
             if (target && card.sessionId !== target && !isEphemeralSession(card.sessionId)) {
               const bsid = card.sessionId
-              const bk = new InlineKeyboard().text('📥 打开该会话', `menu:session:${bsid}`)
+              const bk = new InlineKeyboard().text(t('menu.open_session_button'), `menu:session:${bsid}`)
               void bot.api
-                .sendMessage(chatId, `ℹ️ 后台会话已完成：…${bsid.slice(-8)}`, { reply_markup: bk })
+                .sendMessage(chatId, t('background.turn_finished', { id: bsid.slice(-8) }), { reply_markup: bk })
                 .catch((err: Error) => log.warn('background notice failed', err.message))
             }
           }
@@ -642,7 +647,7 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
       // Deliver the persistent reply keyboard once per boot.
       await refreshKeyboardData().catch(() => {})
       await bot.api
-        .sendMessage(chatId, 'ocrc 已就绪', { reply_markup: buildMainKeyboard(keyboardData) })
+        .sendMessage(chatId, t('boot.ready'), { reply_markup: buildMainKeyboard(keyboardData) })
         .catch((err) => log.warn('boot keyboard send failed', (err as Error).message))
 
       const MAX_CONFLICT = 8

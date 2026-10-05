@@ -12,7 +12,8 @@
   import Card from '../Card.svelte'
 
   export let childId: string
-  export let tick = 0
+  // Inspector fan-out only; this tab refreshes via its own feed subscription.
+  export const tick: number = 0
 
   let text = ''
   let sending = false

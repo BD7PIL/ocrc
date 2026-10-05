@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.26.9 — every loose end closed: TG proxy egress, full i18n, zero warnings (2026-10-05)
+
+### feat(telegram): proxy egress for blocked/corporate networks
+- `TELEGRAM_PROXY`（回退 `HTTPS_PROXY`/`https_proxy`）→ undici ProxyAgent 挂进
+  grammy baseFetchConfig：getMe/轮询/发消息全部走代理。api.telegram.org 不可达
+  的受限网络从此是**配置问题**而不是等天气——config.env 写一行即通。
+- 已知外部条件收口：此前「TG 真机 spike 等网络」由本项关闭。
+
+### feat(i18n): Telegram 用户可见文案全量双语化
+- 新增 103 个 key（en/zh 对齐，类型强制），接线 handlers/index/menus/
+  main-keyboard 共 6 文件；发往用户的消息中文字面量归零（保留 2 处匹配
+  锚点与注释）。主键盘「会话」按钮显示与路由共用同一 key，任意 locale
+  不脱钩。
+
+### fix(web): svelte-check 13 条 warning 清零
+- a11y 三处按编译器豁免规则补语义（role="presentation" / listitem 包裹），
+  死 CSS 8 处经全仓 grep 验证后删除，`tick` 改 `export const`——
+  0 errors / **0 warnings**，140/140 web 测试过，视觉零变化。
+
+### chore(deps): ACP SDK 1.6.1 + zod 4 + diff 9 合入；vitest 5 拒绝
+- 全部经独立 worktree 实验裁决（typecheck + 594/594 + build）；
+  vitest 5 因 mock 语义差异（1 测试需重写时序假设）+ 需手动补 vite peer，
+  收益为零，拒绝并说明。dependabot 配置：去除上游残留 reviewer、
+  minor/patch 分组降噪、覆盖 /web。
+
 ## 0.26.8 — exorcism: every bridge is gone (2026-10-05)
 
 ### removed(install): directory bridges, everywhere, permanently

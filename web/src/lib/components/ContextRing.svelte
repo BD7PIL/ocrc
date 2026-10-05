@@ -74,7 +74,9 @@
 
 <svelte:window on:keydown={onWindowKey} on:click={onWindowClick} />
 
-<div class="wrap" bind:this={wrap} on:mouseenter={enter} on:mouseleave={leave}>
+<!-- presentation: hover-intent wrapper for the popover; the interactive part
+     is the ring <button> inside. -->
+<div class="wrap" role="presentation" bind:this={wrap} on:mouseenter={enter} on:mouseleave={leave}>
   <button class="ring" on:click={() => (open = !open)} aria-label={`上下文占用 ${pct.toFixed(0)}%`} aria-expanded={open} title="上下文占用">
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <circle class="track" cx="12" cy="12" r={R} />
@@ -193,22 +195,6 @@
   .legend { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 6px 0 8px; }
   .lg { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-3); }
   .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-  .bd-label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 10px;
-    color: var(--text-3);
-    margin: 8px 0 4px;
-  }
-  .bd-label .est {
-    font-size: 9px;
-    padding: 0 5px;
-    border: 1px solid var(--border-2);
-    border-radius: var(--radius-pill);
-    color: var(--text-4);
-  }
-  .bar.bd { margin-bottom: 6px; }
   .rows { display: flex; flex-direction: column; }
   .row {
     display: flex;

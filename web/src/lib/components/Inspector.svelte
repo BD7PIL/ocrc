@@ -478,9 +478,6 @@
     padding: 12px 14px 18px;
   }
   .gap { height: 14px; }
-  .empty { padding: 8vh 16px 0; text-align: center; }
-  .empty-title { margin: 0 0 6px; font-family: var(--font-serif); font-size: 14px; color: var(--text-3); }
-  .empty-hint { margin: 0; font-size: 11.5px; line-height: 1.7; color: var(--text-4); }
 
   /* Mobile bottom sheet: same tabs, per-tab scroll. */
   @media (max-width: 820px) {

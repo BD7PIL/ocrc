@@ -15,7 +15,7 @@
   <div class="suggestions" role="list" aria-label="建议的后续操作">
   <!-- each chip rises with a small stagger (CSS below) -->
     {#each suggestions as s, i (s)}
-      <button class="chip" style={`animation-delay: ${Math.min(i, 5) * 45}ms`} role="listitem" on:click={() => onPick(s)}>{s}</button>
+      <span role="listitem"><button class="chip" style={`animation-delay: ${Math.min(i, 5) * 45}ms`} on:click={() => onPick(s)}>{s}</button></span>
     {/each}
     <button class="dismiss" on:click={onDismiss} aria-label="忽略建议"><Icon name="close" size={12} /></button>
   </div>

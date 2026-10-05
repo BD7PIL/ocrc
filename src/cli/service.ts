@@ -80,11 +80,36 @@ export function shouldRestart(exitCode: number | null, signal: string | null, st
   return true
 }
 
-/** Find the pid listening on a port via ss (Linux production tool). */
-export function pidOnPort(port: string): number | null {
-  const res = spawnSync('ss', ['-ltnp', `sport = :${port}`], { encoding: 'utf-8' })
-  const m = (res.stdout ?? '').match(/pid=(\d+)/)
-  return m ? Number(m[1]) : null
+/**
+ * Cross-platform port-ownership probe. The old implementation parsed `ss`
+ * (Linux-only; Windows/other controlled hosts don't ship it). A bind probe
+ * is the portable truth: if we can't LISTEN on 127.0.0.1:port, someone owns
+ * it. The owning pid is a Linux bonus read from `ss` (adopt needs it; null
+ * is fine on other platforms — the supervisor then restarts instead of
+ * adopting).
+ */
+export async function portOwner(port: string): Promise<{ pid: number | null } | null> {
+  const net = await import('node:net')
+  const owned = await new Promise<boolean>((resolve) => {
+    const srv = net.createServer()
+    srv.once('error', (err: NodeJS.ErrnoException) => resolve(err.code === 'EADDRINUSE'))
+    srv.once('listening', () => { srv.close(() => resolve(false)) })
+    srv.listen(Number(port), '127.0.0.1')
+  })
+  if (!owned) return null
+  return { pid: pidFromSsBestEffort(port) }
+}
+
+/** Linux-only bonus: the owning pid via ss (never fatal). */
+function pidFromSsBestEffort(port: string): number | null {
+  if (process.platform !== 'linux') return null
+  try {
+    const res = spawnSync('ss', ['-ltnp', `sport = :${port}`], { encoding: 'utf-8' })
+    const m = (res.stdout ?? '').match(/pid=(\d+)/)
+    return m ? Number(m[1]) : null
+  } catch {
+    return null
+  }
 }
 
 function alive(pid: number): boolean {
@@ -107,10 +132,10 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 async function waitPort(port: string, up: boolean, seconds: number): Promise<boolean> {
   for (let i = 0; i < seconds * 2; i++) {
-    if ((pidOnPort(port) !== null) === up) return true
+    if ((await portOwner(port) !== null) === up) return true
     await sleep(500)
   }
-  return (pidOnPort(port) !== null) === up
+  return (await portOwner(port) !== null) === up
 }
 
 function httpGetStatus(url: string, timeoutSec = 4): number | null {
@@ -155,11 +180,12 @@ async function supervisorLoop(cfg: ServiceConfig, workDir: string): Promise<void
     if (existsSync(stopFile)) { console.log(`[supervisor:${cfg.port}] stop file detected`); cleanupAndExit() }
 
     // Adopt an already-listening instance (octg takeover semantics)…
-    const existing = pidOnPort(cfg.port)
+    const existing = await portOwner(cfg.port)
     if (existing !== null) {
-      console.log(`[supervisor:${cfg.port}] adopted existing opencode (pid ${existing})`)
-      childPid = existing
-      while (alive(childPid) && !existsSync(stopFile) && !stopping) await sleep(1000)
+      const adoptPid = existing.pid
+      console.log(`[supervisor:${cfg.port}] adopted existing opencode${adoptPid !== null ? ` (pid ${adoptPid})` : ''}`)
+      if (adoptPid !== null) childPid = adoptPid
+      while ((childPid === null || alive(childPid)) && !existsSync(stopFile) && !stopping) await sleep(1000)
     } else {
       // …or spawn our own attached child and await its exit.
       if (!existsSync(cfg.bin)) {
@@ -218,7 +244,7 @@ export async function main(argv: string[]): Promise<void> {
       console.error('usage: ocrc start <work_dir>')
       process.exit(1)
     }
-    const existing = pidOnPort(cfg.port)
+    const existing = await portOwner(cfg.port)
     if (existing !== null) {
       console.log(`already running (pid ${existing}, port ${cfg.port}) — nothing to do`)
       return
@@ -258,7 +284,7 @@ export async function main(argv: string[]): Promise<void> {
   if (cmd === 'restore') {
     // Idempotent revive: nothing to do when the instance is already up —
     // this runs every boot from the @reboot cron line.
-    if (pidOnPort(cfg.port) !== null) {
+    if (await portOwner(cfg.port) !== null) {
       console.log(`already running (port ${cfg.port}) — nothing to restore`)
       return
     }
@@ -280,7 +306,7 @@ export async function main(argv: string[]): Promise<void> {
         await sleep(500)
       }
     }
-    const pid = pidOnPort(cfg.port)
+    const pid = (await portOwner(cfg.port))?.pid ?? null
     if (pid === null) {
       console.log(`not running (nothing on port ${cfg.port})`)
       try { unlinkSync(pidFilePath(cfg.port)) } catch { /* already gone */ }
@@ -294,7 +320,7 @@ export async function main(argv: string[]): Promise<void> {
       await waitPort(cfg.port, false, 5)
     }
     try { unlinkSync(pidFilePath(cfg.port)) } catch { /* already gone */ }
-    console.log(pidOnPort(cfg.port) === null ? `stopped (port ${cfg.port} free)` : `port ${cfg.port} still busy — check manually`)
+    console.log((await portOwner(cfg.port)) === null ? `stopped (port ${cfg.port} free)` : `port ${cfg.port} still busy — check manually`)
     return
   }
 
@@ -307,7 +333,7 @@ export async function main(argv: string[]): Promise<void> {
   }
 
   if (cmd === 'status') {
-    const portPid = pidOnPort(cfg.port)
+    const portPid = (await portOwner(cfg.port))?.pid ?? null
     const ver = spawnSync(cfg.bin, ['--version'], { encoding: 'utf-8' }).stdout?.trim()
     const supPid = readPid(cfg.port)
     console.log(`binary    : ${cfg.bin} (${(ver ?? 'n/a').split('\n')[0]})`)

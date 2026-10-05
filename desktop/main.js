@@ -45,7 +45,12 @@ async function ensureDaemon() {
   if (await probePanel()) return true
   if (WORK_DIR) {
     console.log(`[ocrc-shell] panel unhealthy — triggering ${OCRC_BIN} start ${WORK_DIR}`)
-    spawn(OCRC_BIN, ['start', WORK_DIR], { detached: true, stdio: 'ignore' }).unref()
+    const child = spawn(OCRC_BIN, ['start', WORK_DIR], { detached: true, stdio: 'ignore' })
+    // No error listener = an OCRC_BIN misconfiguration crashes the shell
+    // during boot (unhandled 'error' event) instead of flowing to the
+    // health-timeout exit.
+    child.on('error', (err) => console.error(`[ocrc-shell] ${OCRC_BIN} launch failed: ${err.message}`))
+    child.unref()
   }
   const deadline = Date.now() + HEALTH_TIMEOUT_MS
   while (Date.now() < deadline) {

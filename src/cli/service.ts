@@ -185,7 +185,14 @@ async function supervisorLoop(cfg: ServiceConfig, workDir: string): Promise<void
       const adoptPid = existing.pid
       console.log(`[supervisor:${cfg.port}] adopted existing opencode${adoptPid !== null ? ` (pid ${adoptPid})` : ''}`)
       if (adoptPid !== null) childPid = adoptPid
-      while ((childPid === null || alive(childPid)) && !existsSync(stopFile) && !stopping) await sleep(1000)
+      if (adoptPid === null) {
+        // pid unknown (non-Linux / no ss): the adopted instance is gone when
+        // 127.0.0.1:port stops answering — poll the port so the outer loop
+        // can respawn instead of sleeping forever (OCR review finding).
+        while (!existsSync(stopFile) && !stopping && (await portOwner(cfg.port)) !== null) await sleep(1000)
+      } else {
+        while (childPid !== null && alive(childPid) && !existsSync(stopFile) && !stopping) await sleep(1000)
+      }
     } else {
       // …or spawn our own attached child and await its exit.
       if (!existsSync(cfg.bin)) {
@@ -306,17 +313,30 @@ export async function main(argv: string[]): Promise<void> {
         await sleep(500)
       }
     }
-    const pid = (await portOwner(cfg.port))?.pid ?? null
-    if (pid === null) {
+    const owner = await portOwner(cfg.port)
+    if (owner === null) {
       console.log(`not running (nothing on port ${cfg.port})`)
       try { unlinkSync(pidFilePath(cfg.port)) } catch { /* already gone */ }
       return
     }
-    console.log(`stopping instance (pid ${pid})…`)
-    try { process.kill(pid, 'SIGTERM') } catch { /* gone */ }
+    // Owned port with unknown pid (non-Linux): still TERM the port — SIGTERM
+    // to pid null is impossible, so target the supervisor pid file / port by
+    // killing whatever we CAN identify; otherwise report honestly.
+    const pid = owner.pid
+    if (pid !== null) {
+      console.log(`stopping instance (pid ${pid})…`)
+      try { process.kill(pid, 'SIGTERM') } catch { /* gone */ }
+    } else {
+      // pid unknown (non-Linux): TERM the supervisor from the pid file, then
+      // fall through to the port wait — the port is the ground truth.
+      const supPid = readPid(cfg.port)
+      if (supPid !== null) { try { process.kill(supPid, 'SIGTERM') } catch { /* gone */ } }
+      console.log('stopping instance (pid unknown — port watch)…')
+    }
     if (!(await waitPort(cfg.port, false, 15))) {
       console.log('still listening — sending SIGKILL')
-      try { process.kill(pid, 'SIGKILL') } catch { /* gone */ }
+      if (pid !== null) { try { process.kill(pid, 'SIGKILL') } catch { /* gone */ } }
+      else if (pid !== null && pid === null) { /* unreachable */ }
       await waitPort(cfg.port, false, 5)
     }
     try { unlinkSync(pidFilePath(cfg.port)) } catch { /* already gone */ }

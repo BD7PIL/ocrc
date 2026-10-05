@@ -180,7 +180,10 @@ export function createDingTalkTransport(cfg: DingTalkConfig): Transport {
           return
         }
         if (card.kind === 'streaming' || card.kind === 'thinking' || card.kind === 'think-stream') return
-        const userId = senderBySession.get(card.sessionId) ?? lastSender
+        // No bound sender for this session → don't guess: sending to
+        // lastSender would leak one user's session output to another
+        // coworker (OCR review finding).
+        const userId = senderBySession.get(card.sessionId)
         if (!userId) return
         if (card.kind === 'assistant' || card.kind === 'error' || card.kind === 'info' || card.kind === 'status' || card.kind === 'approval' || card.kind === 'question') {
           void rest().then((r) => sendMarkdownWith(r, userId, mdForCard(card)))

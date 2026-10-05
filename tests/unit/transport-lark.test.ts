@@ -117,8 +117,10 @@ describe('lark transport', () => {
   it('streaming card → one create then throttled patches; assistant final patches the same message', async () => {
     const { bus, created, patched, handlers } = await setup()
 
-    // anchor a chat: outbound cards ride the most recent inbound p2p chat
+    // anchor a chat the v0.27 way: inbound p2p message → relay user-card echo
+    // binds session → chat (no lastChat fallback — cross-user leak fix)
     await handlers['im.message.receive_v1'](P2P_TEXT)
+    bus.publish({ kind: 'user', sessionId: 'ses_a', id: 'user:m1', text: 'hello agent', ts: Date.now(), origin: 'lark' })
 
     const stream = (text: string) => bus.publish({ kind: 'streaming', sessionId: 'ses_a', id: 'turn:1', blocks: [{ type: 'text', text }] })
     stream('one')

@@ -27,6 +27,15 @@ export function registerChannels(
 ) {
   if (!channels) return
 
+  /** Every credential value is write-only: the panel sees a last-4 hint. */
+  function redactedCredentials(b: { credentials?: Record<string, string> }): Record<string, string> {
+    const out: Record<string, string> = {}
+    for (const [k, v] of Object.entries(b.credentials ?? {})) {
+      if (v) out[k] = `••••${v.slice(-4)}`
+    }
+    return out
+  }
+
   app.get('/api/channels', (c) => {
     const status = tgStatus?.() ?? null
     const tg = channels.get('tg-default')
@@ -36,7 +45,7 @@ export function registerChannels(
     return c.json({
       channels: channels.list().map((b) => ({
         ...b,
-        credentials: undefined,
+        credentials: redactedCredentials(b),
         hasToken: !!b.credentials?.token,
         tokenHint: b.credentials?.token ? `••••${b.credentials.token.slice(-4)}` : undefined,
         live: b.channel === 'telegram' && status ? { connected: status.connected, username: status.username } : null,
@@ -103,22 +112,31 @@ export function registerChannels(
     if (body.enabled !== undefined) patch.enabled = body.enabled
     if (body.replyGranularity !== undefined) patch.replyGranularity = body.replyGranularity
     if (body.workspaces !== undefined) patch.workspaces = body.workspaces
-    const draftToken = body.credentials?.token
-    if (typeof draftToken === 'string' && draftToken.trim()) {
-      const verdict = await validateBotToken(draftToken.trim())
-      if (!verdict.ok && !verdict.networkError) {
-        return c.json({ error: `Telegram 拒绝了这个 token：${verdict.description ?? '验证失败'}` }, 400)
+    // Credentials: persist ANY object — non-telegram channels carry
+    // app_id/secrets (OCR review: they were silently dropped before). The
+    // TELEGRAM token additionally gets live getMe validation, and only on
+    // the tg-default binding.
+    if (body.credentials !== undefined && typeof body.credentials === 'object') {
+      const cleaned: Record<string, string> = {}
+      for (const [k, v] of Object.entries(body.credentials)) {
+        if (typeof v === 'string' && v.trim()) cleaned[k] = v.trim()
       }
-      if (verdict.networkError) {
-        warning = `无法连通 Telegram 验证 token（${verdict.description}）——已保存，重启后若无效请重试`
+      if (Object.keys(cleaned).length > 0) patch.credentials = cleaned
+      if (typeof cleaned.token === 'string' && c.req.param('id') === 'tg-default') {
+        const verdict = await validateBotToken(cleaned.token)
+        if (!verdict.ok && !verdict.networkError) {
+          return c.json({ error: `Telegram 拒绝了这个 token：${verdict.description ?? '验证失败'}` }, 400)
+        }
+        if (verdict.networkError) {
+          warning = `无法连通 Telegram 验证 token（${verdict.description}）——已保存，重启后若无效请重试`
+        }
       }
-      patch.credentials = { token: draftToken.trim() }
     }
 
     const updated = channels.update(c.req.param('id'), allowUsers !== undefined ? { ...patch, allowUsers } : patch)
     if (!updated) return c.json({ error: 'not found' }, 404)
     return c.json({
-      channel: { ...updated, credentials: undefined, hasToken: !!updated.credentials?.token },
+      channel: { ...updated, credentials: redactedCredentials(updated), hasToken: !!updated.credentials?.token },
       ...(warning ? { warning } : {}),
     })
   })
@@ -126,6 +144,6 @@ export function registerChannels(
   app.post('/api/channels/:id/reset', (c) => {
     const updated = channels.reset(c.req.param('id'))
     if (!updated) return c.json({ error: 'not found' }, 404)
-    return c.json({ channel: { ...updated, credentials: undefined, hasToken: false } })
+    return c.json({ channel: { ...updated, credentials: redactedCredentials(updated), hasToken: !!updated.credentials?.token } })
   })
 }

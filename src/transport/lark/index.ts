@@ -186,7 +186,9 @@ export function createLarkTransport(cfg: LarkConfig): Transport & { handleCardAc
       await sendCard(chatId, card)
       return
     }
-    if (card.kind === 'approval' || card.kind === 'question' || card.kind === 'info' || card.kind === 'status' || card.kind === 'user') {
+    // user cards are never mirrored: Lark already shows the user their own
+    // message, and the echo card's ONLY job is the session→chat binding above
+    if (card.kind === 'approval' || card.kind === 'question' || card.kind === 'info' || card.kind === 'status') {
       await sendCard(chatId, card)
     }
   }
@@ -198,13 +200,15 @@ export function createLarkTransport(cfg: LarkConfig): Transport & { handleCardAc
       const { cardBus } = deps
       client = await getClient()
 
-      // chatId resolution: Lark events carry chat_id, our cards carry
-      // sessionId. Remember the most recent p2p chat (and per-session when a
-      // future SDK event exposes the mapping); pinned sessions route via the
-      // same fallback as Telegram.
-      const sessionChats = new Map<string, string>()
-      let lastChat: string | undefined
-      const chatIdOf = (sid: string): string | undefined => sessionChats.get(sid) ?? lastChat
+      // chatId resolution: cards are keyed by the RESOLVED agent sessionId,
+      // which Lark events don't carry — so bind via the relay's user-card
+      // echo, exactly like the dingtalk transport: the relay publishes the
+      // user card with id `user:${msg.messageId}` (core/relay.ts), and every
+      // inbound Lark message knows its own message_id → chat_id. Without the
+      // echo binding, a second user's chat would steal delivery (cross-user
+      // leakage found by the OCR review).
+      const chatByMessageId = new Map<string, string>()
+      const chatBySession = new Map<string, string>()
 
       const dispatcher: LarkDispatcherLike = cfg.dispatcher ?? (await (async () => {
         const sdk = await import('@larksuiteoapi/node-sdk')
@@ -215,9 +219,8 @@ export function createLarkTransport(cfg: LarkConfig): Transport & { handleCardAc
         'im.message.receive_v1': async (data: any) => {
           const ev = data?.event ?? data
           const chatId = ev?.message?.chat_id
-          if (chatId) {
-            lastChat = chatId
-            if (typeof ev?.message?.session_id === 'string') sessionChats.set(ev.message.session_id, chatId)
+          if (chatId && typeof ev?.message?.message_id === 'string') {
+            chatByMessageId.set(ev.message.message_id, chatId)
           }
           handleIncoming(ev)
         },
@@ -243,7 +246,14 @@ export function createLarkTransport(cfg: LarkConfig): Transport & { handleCardAc
       log.info('lark transport started (WS long connection)')
 
       cardBus.subscribeAll((card) => {
-        void onCard(card, chatIdOf).catch((err) => log.error(`onCard failed: ${(err as Error).message}`))
+        // user-card echo binds session → chat (no fallback: guessing delivers
+        // one user's session output into another user's chat)
+        if (card.kind === 'user' && typeof card.id === 'string' && card.id.startsWith('user:')) {
+          const chat = chatByMessageId.get(card.id.slice('user:'.length))
+          if (chat) chatBySession.set(card.sessionId, chat)
+        }
+        const chat = chatBySession.get((card as { sessionId?: string }).sessionId ?? '')
+        void onCard(card, () => chat).catch((err) => log.error(`onCard failed: ${(err as Error).message}`))
       })
     },
     async stop() {

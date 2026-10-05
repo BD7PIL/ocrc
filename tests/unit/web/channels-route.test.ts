@@ -26,7 +26,9 @@ describe('channels route — credential redaction + validation (0.27)', () => {
     const body = await res.json() as any
 
     const tg = body.channels.find((c: any) => c.id === 'tg-default')
-    expect(tg.credentials).toBeUndefined()
+    // redacted echo: values become last-4 hints, never the raw token
+    expect(tg.credentials).toEqual({ token: '••••cret' })
+    expect(JSON.stringify(body)).not.toContain('ABCDEF-secret')
     expect(tg.hasToken).toBe(true)
     expect(tg.tokenHint).toBe('••••cret')
     expect(JSON.stringify(body)).not.toContain('ABCDEF-secret')
@@ -53,7 +55,7 @@ describe('channels route — credential redaction + validation (0.27)', () => {
     expect(res.status).toBe(200)
     expect(body.warning).toBeUndefined()
     expect(body.channel.hasToken).toBe(true)
-    expect(body.channel.credentials).toBeUndefined()
+    expect(body.channel.credentials).toEqual({ token: '••••alid' })
   })
 
   it('PATCH with a token Telegram REJECTS returns 400 and does not save', async () => {

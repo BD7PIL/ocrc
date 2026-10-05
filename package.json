@@ -47,7 +47,7 @@
     "@larksuiteoapi/node-sdk": "^1.74.0",
     "@opencode-ai/plugin": "^1.18.34",
     "@opencode-ai/sdk": "^1.17.13",
-    "diff": "^7.0.0",
+    "diff": "^9.0.0",
     "dingtalk-stream": "^2.1.6-beta.1",
     "dotenv": "^18.0.5",
     "grammy": "^1.46.0",

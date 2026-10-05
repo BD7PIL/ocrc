@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.26.7 — the npm-plugin path actually works on opencode 1.18.3x; pairing revoke; mode visibility (2026-10-05)
+
+### fix(plugin): default export must be an object (this is the serve-mode unlock)
+- 实验闭环（opencode 1.18.34 源码 + 真机）：V1 加载器（readV1Plugin, strict）
+  要求 default export 为 `{server()}` **对象**；裸函数 default 报
+  "Plugin export is not a function"。此前 npm 数组路径装包成功、加载必败。
+  现为 `{ id, server, setup }`：V1 调 `.server(ctx, options)`、V2 读 `.setup`，
+  桥文件本就优先 `.server`（1.17 兼容不受影响）。
+- 端到端验证：1.18.34 + plugin 数组 → 插件加载、赢得 PRIMARY、双路径启动。
+- 同轮实验确认：**目录扫描（`~/.config/opencode/plugins/` 等任何布局）在
+  1.18.32/1.18.34 serve 下均不生效**——npm 数组是唯一插件路径（README/OPS
+  已同步）；npm 插件由 opencode 在 serve 时自动安装（无需人工装包）。
+
+### feat(pair): 撤销所有配对设备
+- `POST /api/pair/reset`：轮换 web token（auth 中间件按 mtime 每请求感知，
+  跨进程生效）+ 配对计数清零；旧设备下一次请求即 401 回到配对页。
+- CLI：`ocrc pair --reset`；面板：机器人管理弹窗新增配对计数 + 两段确认
+  撤销按钮（含「当前设备也会被登出」的诚实提示）。
+- 设计边界：设备共享单一令牌是刻意的单用户信任模型——按设备撤销需要
+  per-device 凭证体系，v1 不做。
+
+### feat: 运行模式可见
+- `/api/version` 增 `mode: plugin|host`（入口自报）；`ocrc status` 直接显示
+  `ocrc x.y.z (plugin|host mode, <commit>)`；README 写明三种判断方法。
+
+### fix(web): 频道卡片一致性
+- 钉钉换官方品牌矢量（源转录的 Google 蓝修正为官方 #0089FF，替代 16px ico）；
+  微信/飞书/钉钉三张卡的「待接入（配置面板已预埋）」文案统一。
+
+### chore(deps): hono 4.13.12、@opencode-ai/plugin 1.18.34、dotenv 18（全部实验验证后合入，dependabot PR #6/#7/#8/#9/#10 已裁决关闭）
+
 ## 0.26.6 — Telegram blackhole resilience, install writes the npm plugin entry, README as an independent project (2026-10-05)
 
 ### fix(telegram): status() survives a failed bot init

@@ -51,8 +51,9 @@ verified on 1.18.x, the `"plugin"` array is the reliable load path:
 `opencode.json`); for a commented `jsonc` it prints the exact edit. opencode
 installs the package on next start; upgrades ship via `npm i -g
 @bd7pil/ocrc@latest` + restart. Directory-scanned global plugins
-(`~/.config/opencode/plugins/`) work on 1.17 but proved unreliable on 1.18
-serve mode — the array is the supported path.
+(`~/.config/opencode/plugins/` and its 1.18 relocate targets) work on 1.17
+but were verified **not to load at all** on 1.18.32/1.18.34 serve mode
+(experiment: 2026-10-05) — the npm array is the only supported path.
 
 In **host mode** nothing touches opencode's config at all:
 

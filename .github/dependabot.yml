@@ -5,10 +5,30 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
-    reviewers:
-      - "your-org/maintainers"
     labels:
       - "dependencies"
+    groups:
+      # minor/patch bumps ride together in one PR; majors stay separate for
+      # individual experiment-based review (see CHANGELOG 0.26.7/0.26.8 notes).
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
     commit-message:
       prefix: "chore(deps)"
       include: "scope"

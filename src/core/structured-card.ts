@@ -69,7 +69,7 @@ export type StructuredCard = CardMeta & (
   | { kind: 'think-stream'; sessionId: string;  thinkingText: string }
   | { kind: 'streaming';    sessionId: string;  blocks: ContentBlock[] }
   | { kind: 'assistant';    sessionId: string;  blocks: ContentBlock[]; meta: AssistantMeta; thinkingText?: string; /** opencode message id — revert target. */ messageId?: string }
-  | { kind: 'user';         sessionId: string;  text: string;  ts: number;  origin?: 'telegram' | 'web' | 'scheduler' }
+  | { kind: 'user';         sessionId: string;  text: string;  ts: number;  origin?: 'telegram' | 'web' | 'scheduler' | 'lark' | 'dingtalk' | 'wecom' }
   | { kind: 'error';        sessionId: string;  message: string }
   | { kind: 'status';       sessionId: string;  fields: Record<string, string>; buttons?: Button[][] }
   | { kind: 'info';         title: string;      sections: InfoSection[]; sessionId?: string;  proactive?: boolean }

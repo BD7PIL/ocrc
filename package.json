@@ -44,9 +44,11 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.26.0",
     "@hono/node-server": "^2.0.2",
+    "@larksuiteoapi/node-sdk": "^1.74.0",
     "@opencode-ai/plugin": "^1.17.13",
     "@opencode-ai/sdk": "^1.17.13",
     "diff": "^7.0.0",
+    "dingtalk-stream": "^2.1.6-beta.1",
     "dotenv": "^16.4.5",
     "grammy": "^1.46.0",
     "hono": "^4.12.19",

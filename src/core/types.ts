@@ -27,7 +27,7 @@ export interface IncomingMessage {
    * Which transport the message came from. Used so a transport can avoid
    * echoing the user's own message back to them (e.g. Telegram already shows it).
    */
-  origin?: 'telegram' | 'web' | 'scheduler'
+  origin?: 'telegram' | 'web' | 'scheduler' | 'lark' | 'dingtalk' | 'wecom'
   /** Image attachments (base64 `data` + `mimeType`) for backends with imageInput. */
   images?: Array<{ data: string; mimeType: string }>
 }

@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.26.6 — Telegram blackhole resilience, install writes the npm plugin entry, README as an independent project (2026-10-05)
+
+### fix(telegram): status() survives a failed bot init
+- grammy 的 `botInfo` getter 在 `bot.init()` 未成功（api.telegram.org 不可达）
+  时是**抛异常**而非返回 undefined：TG 被墙时 `telegramStatus` 回调把
+  `/api/pair/onboarding`（配对二维码！）与 `GET /api/channels` 一起炸成 500。
+  现在降级为 `connected:false`，面板与二维码永远可用。
+- host 模式接线 `telegramStatus`（此前缺失，面板看不到 bot 在线状态）——
+  与插件入口 parity。
+
+### feat(install): npm plugin array entry (1.18.x verified)
+- 1.18.x 实测：serve 模式下 `plugin` **npm 数组是唯一可靠的插件加载路径**，
+  目录扫描（`~/.config/opencode/plugins/` 等）不可靠——桥单独存在时 serve
+  不加载。`ocrc install` 现在把 `"@bd7pil/ocrc"` upsert 进 opencode 配置
+  （纯 opencode.json 自动写入；jsonc 永不改写，打印精确的手工编辑行）。
+- 目录桥保留（1.17 兼容），但 npm 数组才是受支持的安装路径。
+
+### docs: README 重写 — 独立项目定位
+- ocrc 不再以 fork 自居：双运行形态（plugin / host）对照表、npm 安装与
+  升级路径、EL7 兼容基线（glibc 2.17 / OpenSSH 7.4）、企业代理远程、
+  release 流（tag → CI OIDC publish）全部落在 README。上游来源移入
+  Credits（NOTICE 法律声明不变）。
+
 ## Unreleased — PRODUCT constitution, rail v2, remote wizard + enterprise relay (2026-10-05)
 
 ### docs: 产品宪法 + 架构分层定稿

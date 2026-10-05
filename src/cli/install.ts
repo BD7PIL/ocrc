@@ -127,6 +127,40 @@ function migrateLegacyConfig(): boolean {
   return true
 }
 
+const PKG_NAME = '@bd7pil/ocrc'
+
+/**
+ * Ensure the npm plugin entry (`"@bd7pil/ocrc"`) exists in an opencode config.
+ *
+ * Verified on opencode 1.18.32: the `plugin` array is the ONLY reliable load
+ * path in serve mode — scanning global plugin directories proved unreliable
+ * there, so the bridge alone is not enough for npm installs. Only a plain
+ * opencode.json is auto-edited (safe round-trip); a jsonc (comments allowed,
+ * possibly user-managed on a synced share) is never rewritten — we print the
+ * exact line for the user to add instead.
+ */
+function ensureNpmPluginEntry(): 'written' | 'present' | 'manual' {
+  const candidates = [
+    process.env.OPENCODE_CONFIG_DIR ? join(process.env.OPENCODE_CONFIG_DIR, 'opencode.json') : null,
+    GLOBAL_OPENCODE_JSON,
+    join(homedir(), '.opencode', 'opencode.json'),
+  ].filter((p): p is string => !!p)
+
+  for (const path of candidates) {
+    if (!existsSync(path)) continue
+    let config: Record<string, any>
+    try { config = JSON.parse(readFileSync(path, 'utf-8')) } catch { continue }
+    const plugins: unknown[] = Array.isArray(config.plugin) ? config.plugin : []
+    const present = plugins.some((e) => (Array.isArray(e) ? e[0] : e) === PKG_NAME)
+    if (present) return 'present'
+    config.plugin = [...plugins, PKG_NAME]
+    writeFileSync(path, JSON.stringify(config, null, 2) + '\n')
+    console.log(`  Added "${PKG_NAME}" to the plugin array in ${path}`)
+    return 'written'
+  }
+  return 'manual'
+}
+
 export async function runInstall(options: InstallOptions): Promise<void> {
   console.log(`\nInstalling ocrc for opencode 1.17+...\n`)
   console.log(`   Repo:    ${REPO_ROOT}`)
@@ -172,6 +206,15 @@ export async function runInstall(options: InstallOptions): Promise<void> {
 
   if (migrateLegacyConfig()) {
     console.log(`  Removed legacy directory-path plugin entry from ${GLOBAL_OPENCODE_JSON}`)
+  }
+
+  // npm installs must ALSO appear in the plugin array — verified on 1.18.32,
+  // serve mode only reliably loads plugins listed there.
+  if (ensureNpmPluginEntry() === 'manual') {
+    console.log(`\n  ACTION NEEDED — add the npm package to your opencode config`)
+    console.log(`  (opencode.json / opencode.jsonc "plugin" array):`)
+    console.log(`\n      "plugin": [ "@bd7pil/ocrc" ]\n`)
+    console.log(`  opencode installs it on next start; upgrades ship via npm + restart.`)
   }
 
   console.log(`\nInstallation complete!`)

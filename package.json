@@ -1,7 +1,7 @@
 {
   "name": "@bd7pil/ocrc",
-  "version": "0.26.5",
-  "description": "OpenCode plugin — remote-control your local opencode from Telegram and a mobile web console (channels, schedules, skills, files, worktrees).",
+  "version": "0.26.6",
+  "description": "Remote-control opencode from Telegram and a web PWA — live sessions, tool streams, approvals, SSH remote hosts, schedules. Plugin mode or standalone host.",
   "type": "module",
   "main": "dist/plugin/entry.js",
   "exports": {
@@ -87,6 +87,9 @@
     "plugin",
     "telegram",
     "remote-control",
+    "remote-hosts",
+    "ssh",
+    "pwa",
     "ai-agent",
     "mobile"
   ]

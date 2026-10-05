@@ -10,7 +10,7 @@
 
 import { writable, get } from 'svelte/store'
 
-export type HomeId = 'tasks' | 'files' | 'subs' | 'skills' | 'config' | 'remotes'
+export type HomeId = 'tasks' | 'files' | 'subs' | 'skills' | 'schedules' | 'mcp' | 'remotes'
 
 export type PaneTab =
   | { id: string; kind: 'home'; title: string; homeId: HomeId }
@@ -33,10 +33,14 @@ export const HOMES: Array<{ homeId: HomeId; title: string }> = [
   { homeId: 'files', title: '文件' },
   { homeId: 'subs', title: '子代理' },
   { homeId: 'skills', title: 'Skills' },
-  { homeId: 'config', title: '配置' },
+  { homeId: 'schedules', title: '定时任务' },
+  { homeId: 'mcp', title: 'MCP' },
   { homeId: 'remotes', title: '远程主机' },
 ]
 const HOME_IDS = new Set(HOMES.map((h) => h.homeId))
+
+/** Pre-0.26.11 the schedules panel hid under a 'config' home — migrate. */
+const HOME_MIGRATE: Record<string, HomeId> = { config: 'schedules' }
 
 function validTab(t: unknown): t is PaneTab {
   if (!t || typeof t !== 'object') return false
@@ -53,11 +57,23 @@ function validTab(t: unknown): t is PaneTab {
   }
 }
 
-function load(): PaneState {
+/** Parse + validate + migrate a persisted pane state. Exported for tests
+ *  (migration runs at module init, which a live store can't re-trigger). */
+export function loadState(raw: unknown): PaneState {
   try {
-    const raw = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<PaneState>
-    let tabs = Array.isArray(raw.tabs) ? raw.tabs.filter(validTab) : []
-    let activeId = typeof raw.activeId === 'string' ? raw.activeId : ''
+    const r = raw as Partial<PaneState>
+    let tabs = (Array.isArray(r.tabs) ? r.tabs : [])
+      .map((t) => {
+        // migrate legacy 'config' home tabs to 'schedules'
+        const x = t as Record<string, unknown>
+        if (x?.kind === 'home' && x.homeId === 'config') {
+          return { ...(t as PaneTab), homeId: 'schedules' as HomeId, title: '定时任务', id: 'schedules' }
+        }
+        return t
+      })
+      .filter(validTab)
+    let activeId = typeof r.activeId === 'string' ? r.activeId : ''
+    if (HOME_MIGRATE[activeId]) activeId = HOME_MIGRATE[activeId]
     // Migration from the pinned era: an activeId pointing at a well-known
     // home that has no tab yet reopens that home tab (the user's current
     // view survives the upgrade). Otherwise an unknown activeId → empty.
@@ -69,6 +85,14 @@ function load(): PaneState {
     return { tabs: tabs.slice(-MAX_TABS), activeId }
   } catch {
     return { tabs: [], activeId: '' }
+  }
+}
+
+function load(): PaneState {
+  try {
+    return loadState(JSON.parse(localStorage.getItem(KEY) ?? '{}'))
+  } catch {
+    return loadState({})
   }
 }
 

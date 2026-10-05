@@ -6,10 +6,13 @@
   import { can, backendName } from '../stores/capabilities.js'
   import { paletteOpen } from '../stores/palette.js'
   import { composerDraft, composerEmpty } from '../stores/ui.js'
+
+  let schedOpen = false
   import AgentChip from './AgentChip.svelte'
   import ModelChip from './ModelChip.svelte'
   import SessionControls from './SessionControls.svelte'
   import ContextRing from './ContextRing.svelte'
+  import SchedQuick from './SchedQuick.svelte'
 
   export let sessionId: string
 
@@ -196,6 +199,7 @@
 </script>
 
 <div class="composer">
+  {#if schedOpen}<SchedQuick on:close={() => (schedOpen = false)} />{/if}
   <div class="dock">
     {#if error}
       <div class="error" role="alert">{error}</div>
@@ -251,6 +255,7 @@
         {#if $can('sessionControls')}<SessionControls {sessionId} />{/if}
         <ContextRing {sessionId} />
         <button class="hint command" on:click={() => paletteOpen.set(true)}>「/」命令</button>
+        <button class="hint command" class:on={schedOpen} on:click={() => (schedOpen = !schedOpen)} title="新建定时任务">⏰ 定时</button>
         <span class="spacer"></span>
         <span class="hint send-hint">↵ 发送 · ⇧↵ 换行</span>
         {#if showStop}
@@ -373,6 +378,7 @@
     transition: color .15s ease;
   }
   .hint.command:hover { color: var(--text-2); }
+  .hint.command.on { color: var(--accent); }
   .send {
     display: inline-flex;
     align-items: center;

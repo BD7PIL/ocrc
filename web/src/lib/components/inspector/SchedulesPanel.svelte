@@ -16,6 +16,8 @@
   // Two-step delete: the ✕ turns into a "sure?" arm for a short window.
   let armed: string | undefined
   let armTimer: ReturnType<typeof setTimeout> | undefined
+  let note = ''
+  let noteTimer: ReturnType<typeof setTimeout> | undefined
 
   async function load() {
     try {
@@ -71,6 +73,17 @@
       await load()
     } catch { /* keep row on failure */ }
   }
+  async function runNow(r: ScheduleRow) {
+    if (!r.enabled) return
+    try {
+      const res = await api.runSchedule(r.id)
+      if (res.ok) {
+        note = `已触发一次：${rowLabel(r)}`
+        clearTimeout(noteTimer)
+        noteTimer = setTimeout(() => (note = ''), 4000)
+      }
+    } catch { /* ignore */ }
+  }
 </script>
 
 <div class="schedules">
@@ -88,10 +101,15 @@
           <div class="prompt">{rowLabel(r)}</div>
           <div class="spec mono">{specLabel(r.spec)}</div>
         </div>
+        <button class="run" disabled={!r.enabled} on:click={() => runNow(r)} aria-label="立即运行 {rowLabel(r)}" title="立即运行一次">▶</button>
         <button class="del" class:arm={armed === r.id} on:click={() => remove(r.id)} aria-label="删除 {rowLabel(r)}">{armed === r.id ? '确认?' : '✕'}</button>
       </div>
     {/each}
-    {#if rows.length === 0 && !creating}<div class="label">暂无</div>{/if}
+    {#if rows.length === 0 && !creating}
+      <div class="label">暂无</div>
+      <div class="guide">去会话里说「每天 9 点做 X」或「每 30 分钟检查一次」，agent 会直接创建；也可以点右上 + 手动新建。</div>
+    {/if}
+    {#if note}<div class="note">{note}</div>{/if}
   </div>
 
   {#if creating}
@@ -142,6 +160,24 @@
     line-height: 1;
     cursor: pointer;
   }
+  .guide { margin-top: 8px; font-size: 11px; line-height: 1.6; color: var(--text-3); }
+  .note { margin-top: 6px; font-size: 11px; color: var(--ok); }
+  .run {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text-3);
+    font-size: 10px;
+    cursor: pointer;
+  }
+  .run:hover:not(:disabled) { color: var(--accent); background: var(--bg-input); }
+  .run:disabled { opacity: .3; cursor: default; }
   .add:hover { color: var(--text); border-color: var(--accent); }
 
   .list {

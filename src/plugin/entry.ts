@@ -544,6 +544,55 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
             return 'notification sent'
           },
         }),
+        'schedule_create': tool({
+          description:
+            'Create a scheduled prompt that runs automatically on a repeating schedule (cron-like). ' +
+            'ONLY use when the user EXPLICITLY asks for something to run repeatedly or on a schedule ' +
+            '(e.g. "每天9点巡检失败用例", "every 30 minutes check the queue"). Never use for one-off requests. ' +
+            'The prompt must be self-contained: each fire starts a fresh context with no memory of this conversation.',
+          args: {
+            prompt: tool.schema.string().describe('The complete prompt to execute at every fire — self-contained'),
+            every_minutes: tool.schema.number().optional().describe('Run every N minutes (e.g. 30). Provide this OR daily_time, not both'),
+            daily_time: tool.schema.string().optional().describe('Run daily at HH:MM local time (e.g. "09:00"). Provide this OR every_minutes, not both'),
+            title: tool.schema.string().optional().describe('Short human-readable name; defaults to the trimmed prompt'),
+          },
+          async execute(args: { prompt: string; every_minutes?: number; daily_time?: string; title?: string }) {
+            const prompt = args.prompt?.trim()
+            if (!prompt) return 'schedule_create failed: prompt is required'
+            const every = args.every_minutes, daily = args.daily_time?.trim()
+            if (every != null && daily) return 'schedule_create failed: provide every_minutes OR daily_time, not both'
+            let spec: { kind: 'every'; minutes: number } | { kind: 'daily'; time: string }
+            let human: string
+            if (daily) {
+              if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(daily)) return `schedule_create failed: daily_time must be HH:MM, got "${daily}"`
+              spec = { kind: 'daily', time: daily.padStart(5, '0') }
+              human = `每天 ${spec.time}`
+            } else if (every != null) {
+              const minutes = Math.max(1, Math.round(every))
+              spec = { kind: 'every', minutes }
+              human = `每 ${minutes} 分钟`
+            } else {
+              return 'schedule_create failed: provide every_minutes or daily_time'
+            }
+            const s = scheduler.add({ name: args.title?.trim() || undefined, prompt, spec, enabled: true })
+            if (!s) return 'schedule_create failed: could not persist the schedule'
+            return `定时任务已创建（${s.id}）— ${human}执行：${prompt.slice(0, 80)}${prompt.length > 80 ? '…' : ''}。管理：Web 面板右栏 → 定时任务。`
+          },
+        }),
+        'schedule_list': tool({
+          description: 'List the scheduled prompts (recurring tasks) with id, schedule and enabled state.',
+          args: {},
+          async execute() {
+            const list = scheduler.list()
+            if (list.length === 0) return '（当前没有定时任务）'
+            return list
+              .map((s) => {
+                const sched = s.spec.kind === 'every' ? `每 ${s.spec.minutes} 分钟` : `每天 ${s.spec.time}`
+                return `#${s.id}${s.name ? ` ${s.name}` : ''} — ${sched}${s.enabled ? '' : '（已暂停）'} — ${s.prompt.slice(0, 60)}`
+              })
+              .join('\n')
+          },
+        }),
       },
       dispose: async () => {
         log.info('plugin disposing, stopping transports...')

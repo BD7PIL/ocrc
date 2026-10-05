@@ -29,4 +29,10 @@ export function registerSchedules(app: Hono, scheduler?: Scheduler) {
   app.delete('/api/schedules/:id', (c) => {
     return c.json({ ok: scheduler.remove(c.req.param('id')) })
   })
+
+  /** Fire one schedule immediately (paused schedules refuse). */
+  app.post('/api/schedules/:id/run', (c) => {
+    const ok = scheduler.runNow(c.req.param('id'))
+    return c.json(ok ? { ok: true } : { error: 'not found or paused' }, ok ? 200 : 404)
+  })
 }

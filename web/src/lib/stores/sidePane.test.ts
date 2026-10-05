@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { loadState } from './sidePane.js'
 
 // The store persists via localStorage on every transition — fresh module per
 // test so each starts from a clean (stubbed) storage.
@@ -27,16 +28,25 @@ describe('sidePane store', () => {
     expect(s.tabs[0].title).toBe('renamed')
   })
 
-  it('openHome opens the five well-known singleton tabs, closable like any other', () => {
+  it('openHome opens the well-known singleton tabs, closable like any other', () => {
     sidePane.openHome('tasks')
-    sidePane.openHome('config')
+    sidePane.openHome('schedules')
     let s = sidePane.paneSnapshot()
-    expect(s.tabs.map((t) => t.id)).toEqual(['tasks', 'config'])
-    expect(s.activeId).toBe('config')
-    sidePane.closePaneTab('config')
+    expect(s.tabs.map((t) => t.id)).toEqual(['tasks', 'schedules'])
+    expect(s.activeId).toBe('schedules')
+    sidePane.closePaneTab('schedules')
     s = sidePane.paneSnapshot()
     expect(s.tabs.map((t) => t.id)).toEqual(['tasks'])
     expect(s.activeId).toBe('tasks')
+  })
+
+  it('legacy config home tabs migrate to schedules on load', () => {
+    const s = loadState({
+      tabs: [{ id: 'config', kind: 'home', title: '配置', homeId: 'config' }],
+      activeId: 'config',
+    })
+    expect(s.tabs[0]).toMatchObject({ id: 'schedules', homeId: 'schedules', title: '定时任务' })
+    expect(s.activeId).toBe('schedules')
   })
 
   it('closing the active tab activates the neighbor (prev first)', () => {

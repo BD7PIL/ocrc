@@ -21,7 +21,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
     {:else}
       <!-- auto: half sun / half moon (split circle) — same glyph as the titlebar toggle -->
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18Z" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v2M12 20.5v2M21.2 6.2l-1.7 1M4.5 16.8l-1.7 1M22.5 12h-2M3.5 12h-2M21.2 17.8l-1.7-1M4.5 7.2l-1.7-1"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none"/><path d="M9.6 15.6 12 8.2l2.4 7.4M10.5 13.3h3" stroke="var(--bg-elev, #fff)" stroke-width="1.5"/></svg>
     {/if}
   </button>
   <button class="fbtn" on:click={() => channelsOpen.set(true)} aria-label="机器人与通道" title="机器人与通道">

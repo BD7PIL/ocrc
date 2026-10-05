@@ -243,7 +243,7 @@
     </div>
     <!-- rail v2 quick sections: schedules + remotes (ZCode bottom-nav register) -->
     <div class="quick">
-      <button class="quick-row" on:click={() => { inspectorOpen.set(true); openHome('config') }} title="定时任务">
+      <button class="quick-row" on:click={() => { inspectorOpen.set(true); openHome('schedules') }} title="定时任务">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
         <span class="q-label">定时任务</span>
         <span class="q-count mono">{scheduleCount}</span>

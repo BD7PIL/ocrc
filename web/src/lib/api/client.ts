@@ -166,6 +166,7 @@ export const api = {
   setScheduleEnabled: (id: string, enabled: boolean) =>
     jsonPatch<{ schedule?: ScheduleRow; error?: string }>(`/api/schedules/${id}`, { enabled }),
   deleteSchedule: (id: string) => jsonDelete<{ ok: boolean }>(`/api/schedules/${id}`),
+  runSchedule: (id: string) => jsonPost<{ ok?: boolean; error?: string }>(`/api/schedules/${id}/run`, {}),
 }
 
 export type ScheduleSpec = { kind: 'every'; minutes: number } | { kind: 'daily'; time: string }

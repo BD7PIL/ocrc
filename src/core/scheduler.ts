@@ -88,6 +88,9 @@ export interface Scheduler {
   add(input: ScheduleInput): Schedule | null
   remove(id: string): boolean
   setEnabled(id: string, enabled: boolean): Schedule | undefined
+  /** Fire one schedule immediately (bypasses enabled? No — paused stays paused).
+   *  Updates lastRunAt like a natural tick. Returns false when not found. */
+  runNow(id: string): boolean
 }
 
 export function createScheduler(opts: SchedulerOptions): Scheduler {
@@ -184,6 +187,22 @@ export function createScheduler(opts: SchedulerOptions): Scheduler {
       if (!enabled) delete s.lastRunAt
       persist()
       return s
+    },
+    runNow(id) {
+      const s = store.schedules.find((x) => x.id === id)
+      if (!s || !s.enabled) return false
+      const now = new Date()
+      s.lastRunAt = now.getTime()
+      const msg: IncomingMessage = {
+        userId: 'ocrc-scheduler',
+        chatId: 'ocrc-scheduler',
+        text: s.prompt,
+        messageId: `sched_${s.id}_${now.getTime()}`,
+        origin: 'scheduler',
+      }
+      void opts.dispatch(msg).catch((err) => log.error(`dispatch failed for ${s.id}`, err as Error))
+      persist()
+      return true
     },
   }
 }

@@ -179,12 +179,12 @@
         {#if $can('todos')}<SubagentsPanel {sessionId} {tick} />{/if}
       {:else if activeTab.homeId === 'skills'}
         {#if $can('skills')}<SkillsPanel {tick} />{/if}
-      {:else if activeTab.homeId === 'config'}
+      {:else if activeTab.homeId === 'schedules'}
         <SchedulesPanel {tick} />
+      {:else if activeTab.homeId === 'mcp'}
+        {#if $can('mcp')}<McpPanel {tick} />{/if}
       {:else if activeTab.homeId === 'remotes'}
         <RemotesPanel {tick} />
-        <div class="gap"></div>
-        {#if $can('mcp')}<McpPanel {tick} />{/if}
       {/if}
     {:else if activeTab?.kind === 'subagent'}
       <SubagentSessionTab childId={activeTab.childId} {tick} />

@@ -145,9 +145,9 @@ export const api = {
   removeWorktree: (directory: string, name: string) =>
     jsonDelete<{ ok: boolean }>(`/api/worktrees?directory=${encodeURIComponent(directory)}&name=${encodeURIComponent(name)}`),
   channels: () =>
-    jsonGet<{ channels: ChannelRow[] }>('/api/channels'),
+    jsonGet<{ channels: ChannelRow[]; telegram?: ChannelsInfo }>('/api/channels'),
   updateChannel: (id: string, patch: { enabled?: boolean; replyGranularity?: 'standard' | 'detailed'; workspaces?: { mode: 'all' } | { mode: 'custom'; dirs: string[] }; credentials?: Record<string, string> }) =>
-    jsonPatch<{ channel?: ChannelRow; error?: string }>(`/api/channels/${id}`, patch),
+    jsonPatch<{ channel?: ChannelRow; warning?: string; error?: string }>(`/api/channels/${id}`, patch),
   resetChannel: (id: string) =>
     jsonPost<{ channel?: ChannelRow; error?: string }>(`/api/channels/${id}/reset`, {}),
   pairQr: () => jsonGet<{ url: string; svg: string; expiresAt?: number }>('/api/pair/qr'),
@@ -218,8 +218,16 @@ export interface ChannelRow {
   id: string
   channel: ChannelKind
   enabled: boolean
-  credentials: Record<string, string>
+  /** Write-only since 0.27: GET redacts credentials to hasToken/tokenHint. */
+  credentials?: Record<string, string>
+  hasToken?: boolean
+  tokenHint?: string
   replyGranularity: 'standard' | 'detailed'
   workspaces: { mode: 'all' } | { mode: 'custom'; dirs: string[] }
   live?: { connected: boolean; username?: string } | null
+}
+export interface ChannelsInfo {
+  /** Where the running token comes from: panel credential / config.env / none. */
+  tokenSource: 'panel' | 'env' | 'none'
+  allowUsers: number
 }

@@ -10,10 +10,12 @@
   import ChannelLogo from './ChannelLogo.svelte'
 
   let channels: ChannelRow[] = []
+  let tgMeta: { tokenSource: 'panel' | 'env' | 'none'; allowUsers: number } | null = null
   let selectedId: string | undefined
   let pair: { url: string; svg: string; expiresAt?: number } | null = null
   let tokenDraft = ''
   let credNote = ''
+  let credError = ''
   let workspaceDirs: string[] = []
   let copied = false
   // ZCode-style pairing session: countdown from expiresAt; 停止 parks the block
@@ -29,7 +31,9 @@
 
   async function load() {
     try {
-      channels = (await api.channels()).channels ?? []
+      const res = await api.channels()
+      channels = res.channels ?? []
+      tgMeta = res.telegram ?? null
       if (!selectedId && channels.length > 0) selectedId = channels[0].id
     } catch { /* keep */ }
   }
@@ -51,7 +55,7 @@
     return channel === 'telegram' ? 'Telegram' : channel === 'wechat' ? '微信' : channel === 'lark' ? 'Lark' : channel
   }
   function close() { channelsOpen.set(false) }
-  function select(id: string) { selectedId = id; tokenDraft = ''; credNote = '' }
+  function select(id: string) { selectedId = id; tokenDraft = ''; credNote = ''; credError = '' }
   async function toggleEnabled(c: ChannelRow) {
     channels = channels.map((x) => (x.id === c.id ? { ...x, enabled: !x.enabled } : x))
     try { await api.updateChannel(c.id, { enabled: !c.enabled }) } catch { /* ignore */ }
@@ -61,9 +65,17 @@
     try { await api.updateChannel(c.id, { replyGranularity: g }) } catch { /* ignore */ }
   }
   async function saveCred(c: ChannelRow) {
-    if (!tokenDraft.trim()) { credNote = '请输入凭证内容'; return }
-    try { await api.updateChannel(c.id, { credentials: { token: tokenDraft.trim() } }); credNote = '已保存——重启实例后生效'; tokenDraft = '' }
-    catch { credNote = '保存失败' }
+    if (!tokenDraft.trim()) { credError = '请输入凭证内容'; return }
+    credError = ''
+    try {
+      const res = await api.updateChannel(c.id, { credentials: { token: tokenDraft.trim() } })
+      if (res.error) { credError = res.error; return }
+      credNote = res.warning ?? '已保存——重启实例后生效（面板凭证优先于 config.env）'
+      tokenDraft = ''
+      await load()
+    } catch (e) {
+      credError = `保存失败：${(e as Error).message}`
+    }
   }
   async function resetBot() {
     if (!selected) return
@@ -118,19 +130,24 @@
             <p class="note">
               {#if selected.channel === 'telegram'}
                 {selected.live?.connected ? '轮询运行中' : '未在轮询'}{selected.live?.username ? ` · @${selected.live.username}` : ''}。
-                停用/启用在重启实例后生效。
+                停用/启用在重启实例后生效。<br />
+                凭证来源：{tgMeta?.tokenSource === 'panel' ? '面板凭证' : tgMeta?.tokenSource === 'env' ? 'config.env（TELEGRAM_BOT_TOKEN）' : '未配置'}
+                {#if selected.hasToken && selected.tokenHint}（面板：{selected.tokenHint}）{/if}
+                · 允许用户：{tgMeta?.allowUsers ?? 0} 个
+                {#if (tgMeta?.allowUsers ?? 0) === 0}——未配置 ALLOWED_USER_IDS，bot 不会回复任何人{/if}
               {:else}
                 待接入：凭证保存后，通道本体在后续版本启用。
               {/if}
             </p>
 
             <div class="sec">
-              <div class="sec-label">关联凭证</div>
+              <div class="sec-label">关联凭证{#if selected.channel === 'telegram'}（保存时向 Telegram 验证）{/if}</div>
               <input class="cred mono" placeholder={selected.channel === 'telegram' ? 'BotFather token（留空保持不变）' : '凭证（预留）'}
                 bind:value={tokenDraft} />
               <div class="sec-acts">
                 <button class="save" on:click={() => saveCred(selected)}>保存</button>
                 {#if credNote}<span class="note">{credNote}</span>{/if}
+                {#if credError}<span class="note err">{credError}</span>{/if}
               </div>
             </div>
 
@@ -306,6 +323,7 @@
   .switch.on { border-color: var(--accent); }
   .switch.on .knob { background: var(--accent); transform: translateX(18px); }
   .note { margin: 0; font-size: 11.5px; color: var(--text-3); }
+  .note.err { color: var(--err); }
   .sec { border-top: 1px solid var(--border-2); padding-top: 10px; }
   .danger { border-top-color: var(--err); }
   .sec-label { font-size: 11px; color: var(--text-3); margin-bottom: 6px; }

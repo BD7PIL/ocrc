@@ -213,10 +213,16 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
     // M9: the channels panel can disable a channel (enabled=false) — the
     // transport is then not created at all (takes effect on restart).
     const tgChannelCfg = channels.get('tg-default')
+    // 0.27: the panel's credential field is real — a token saved there wins
+    // over config.env at boot (restart-effective, more recent user action).
+    // The allowlist still gates: with no allowlisted user the bot could only
+    // silently drop every message, so it stays down instead.
+    const panelToken = tgChannelCfg?.credentials?.token || undefined
+    const tgToken = panelToken ?? config.telegramBotToken
     // M12: web-only is a first-class shape — an empty token means the Telegram
     // surface simply doesn't exist (no grammY retry spam); the web panel and
     // its onboarding page carry the product on their own.
-    const tgEnabled = (tgChannelCfg?.enabled ?? true) && !!config.telegramBotToken
+    const tgEnabled = (tgChannelCfg?.enabled ?? true) && !!tgToken && config.allowedUserIds.length > 0
 
     // M11: pending-token pairing — /pair surfaces (TG + web QR) issue a
     // short-lived single-use token instead of the permanent access token.
@@ -225,7 +231,7 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
     const transports: Transport[] = []
     if (tgEnabled) {
       tgTransport = createTelegramTransport({
-        token: config.telegramBotToken,
+        token: tgToken,
         allowedUserIds: config.allowedUserIds,
         backend,
         state,
@@ -269,6 +275,7 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
         remotes: remotesStore,
         remoteManager,
         telegramStatus: () => tgTransport?.status?.() ?? { connected: false },
+        telegramMeta: { hasEnvToken: !!config.telegramBotToken, allowUsers: config.allowedUserIds.length },
         })
       webTransport.onMessage(relay)
       transports.push(webTransport)

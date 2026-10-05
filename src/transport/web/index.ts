@@ -26,6 +26,8 @@ export interface WebTransportConfig {
   /** M9 bot-channel settings store + live TG status (optional). */
   channels?: import('../../core/channels.js').ChannelsStore
   telegramStatus?: () => { connected: boolean; username?: string } | null
+  /** 0.27: boot facts for the channels 绑定信息 line. */
+  telegramMeta?: { hasEnvToken: boolean; allowUsers: number }
   /** M11 pending-token pairing store (optional). */
   pairing?: import('../../connectivity/pairing.js').PairingStore
   /** sdelta wiring (0.25.0): the host passes a sink object; start() binds it to
@@ -65,6 +67,7 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         scheduler: cfg.scheduler,
         channels: cfg.channels,
         telegramStatus: cfg.telegramStatus,
+        telegramMeta: cfg.telegramMeta,
         pairing: cfg.pairing,
         remotes: cfg.remotes,
         remoteManager: cfg.remoteManager,

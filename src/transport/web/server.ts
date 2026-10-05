@@ -55,6 +55,9 @@ export interface BuildServerOpts {
   /** M9 bot-channel settings store + live TG status. */
   channels?: import('../../core/channels.js').ChannelsStore
   telegramStatus?: () => { connected: boolean; username?: string } | null
+  /** Boot facts for the channels panel (0.27): whether an env token exists
+   *  (the panel token overrides it at boot) and the allowlist size. */
+  telegramMeta?: { hasEnvToken: boolean; allowUsers: number }
   /** M11 pending-token pairing store (optional; QR falls back to legacy URL). */
   pairing?: PairingStore
   /** 0.26.0 SSH remote hosts: store + lifecycle manager (optional). */
@@ -140,7 +143,7 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerRename(app, reg, opts.state)
   registerSuggestions(app, opts.state)
   registerSchedules(app, opts.scheduler)
-  registerChannels(app, opts.channels, opts.telegramStatus)
+  registerChannels(app, opts.channels, opts.telegramStatus, opts.telegramMeta)
   registerRemotes(app, opts.remotes, opts.remoteManager)
   registerSubagents(app, reg, opts.state)
   registerM8(app, reg, opts.state)

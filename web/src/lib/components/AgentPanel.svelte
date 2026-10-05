@@ -116,6 +116,9 @@
   let quickTimer: ReturnType<typeof setInterval> | undefined
 
   async function loadQuick() {
+    // Hidden-tab gating (repo perf-pass pattern): counts are cosmetic chrome —
+    // don't spend two requests per 60s while the tab is in the background.
+    if (typeof document !== 'undefined' && document.hidden) return
     try {
       const res = await api.schedules()
       scheduleCount = (res.schedules ?? []).length

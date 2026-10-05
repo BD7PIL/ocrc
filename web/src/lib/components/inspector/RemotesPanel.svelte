@@ -7,6 +7,7 @@
      panel says so. -->
 <script lang="ts">
   import { api, type RemoteRow } from '$lib/api/client.js'
+  import { portal } from '$lib/portal.js'
 
   export let tick = 0
 
@@ -89,6 +90,9 @@
   let wizFailed = false
   let wizError = ''
   let wizEndState: 'online' | 'needs-auth' = 'online'
+  /** Re-entrancy token: a background connect (后台继续) must never mutate the
+   *  state of a wizard session opened later. Monotonic per runConnect. */
+  let wizRun = 0
   // step-2 fields
   let fHost = ''
   let fUser = ''
@@ -126,9 +130,9 @@
 
   const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
-  /** Poll load() while the wizard is on step 3 so the log console stays live. */
-  async function pollLoop() {
-    while (wizardOpen && wizStep === 3) {
+  /** Poll load() while THIS run owns the wizard on step 3 (log console live). */
+  async function pollLoop(run: number) {
+    while (wizardOpen && wizStep === 3 && wizRun === run) {
       await load()
       await sleep(1500)
     }
@@ -143,10 +147,11 @@
   $: wizState = wizardRow()?.status?.state ?? 'unknown'
 
   async function runConnect() {
+    const run = ++wizRun
     wizFailed = false
     wizError = ''
     wizStep = 3
-    void pollLoop()
+    void pollLoop(run)
     try {
       wizPhase = '保存配置'
       const saved = await api.saveRemote({
@@ -186,6 +191,8 @@
         await sleep(1500)
       }
       const st = end?.status?.state
+      // A closed or superseded wizard session no longer owns this flow.
+      if (run !== wizRun) return
       if (st === 'online' || st === 'needs-auth') {
         wizEndState = st
         wizStep = 4
@@ -193,6 +200,7 @@
         wizFailed = true
       }
     } catch (e) {
+      if (run !== wizRun) return
       wizError = `连接流程出错：${(e as Error).message}`
       wizFailed = true
     }
@@ -251,7 +259,7 @@
 
 {#if wizardOpen}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <div class="scrim" on:click={(e) => { if (e.target === e.currentTarget) closeWizard() }}>
+  <div class="scrim" use:portal on:click={(e) => { if (e.target === e.currentTarget) closeWizard() }}>
     <div class="wiz" role="dialog" aria-modal="true" aria-label="添加远程主机">
       <aside class="wiz-steps">
         <div class="ws-title">远程连接</div>
@@ -419,11 +427,18 @@
   .empty code { font-family: var(--font-mono); color: var(--text-2); }
   .err { color: var(--err); font-size: 10.5px; margin-top: 6px; }
 
-  /* ── wizard (ZCode RemoteConnectionDialog register) ── */
+  /* ── wizard (ZCode RemoteConnectionDialog register) ──
+     motion spec rule 4: modal pop entrance 160ms, transform/opacity only,
+     decelerate; scrim fades. reduced-motion kills both globally. */
   .scrim {
     position: fixed; inset: 0; z-index: var(--z-modal, 90);
     background: rgba(0, 0, 0, .55);
     display: grid; place-items: center;
+    animation: ocrc-fade .15s var(--ease-out, ease-out);
+  }
+  @keyframes ocrc-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
   .wiz {
     display: flex;
@@ -434,6 +449,11 @@
     border-radius: var(--radius);
     box-shadow: 0 24px 70px rgba(0, 0, 0, .6);
     overflow: hidden;
+    animation: ocrc-wiz-pop .16s var(--ease-out, cubic-bezier(.22, 1, .36, 1));
+  }
+  @keyframes ocrc-wiz-pop {
+    from { opacity: 0; transform: translateY(8px) scale(.985); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
   }
   .wiz-steps {
     width: 176px; flex-shrink: 0;

@@ -29,6 +29,8 @@
   export let activeId: string | undefined = undefined
   /** Account identity for the bottom-left rail foot (desktop only). */
   export let email = ''
+  /** Build commit — relayed to RailFoot's stale-bundle hover check. */
+  export let build = ''
   // Drawer mode (mobile): panel fills the off-canvas drawer.
   export let drawer = false
 
@@ -260,7 +262,7 @@
       <span>{pushedCount} 已推送</span>
     </div>
     {#if !drawer}
-      <RailFoot {email} />
+      <RailFoot {email} {build} />
     {/if}
   </div>
 </div>

@@ -1,6 +1,23 @@
 # PRODUCT.md — ocrc 产品宪法
 
-> 每个新需求先过这一页。2026-10-05 经架构 grilling 定稿；修订需在此文件留痕。
+> 每个新需求先过这一页。2026-10-05 经架构 grilling 定稿；**2026-10-06 修订（定位落案 + 双拓扑）**。修订需在此文件留痕。
+
+## 第零条：定位（2026-10-06 落案）
+
+**ocrc 是以 opencode 为引擎的远程驾驶控制面（control plane）**——不是 opencode 的插件，也不是 fork opencode 的二次开发。三个推论：
+
+- **opencode 是可替换的算力内核**（AgentBackend seam 的存在意义），ocrc 自己的核心是 relay/CardBus/registry/双面板。我们不改 opencode 一行内核，全部通过官方 API 与官方插件机制。
+- **双拓扑**，同一张功能矩阵的两种宿主：
+  - **独立拓扑（第一公民）**：`ocrc host` 自带进程、spawn 或 **ADOPT**（`OCRC_SERVER_URL` 接入用户已在跑的引擎）自己的 opencode。常驻、开机自启、多机编排、桌面壳都长在这条拓扑上。
+  - **共生拓扑（轻量接入）**：opencode 配置 `plugin` 数组加一行——保留「安装最简、进程归 opencode 管」的初心。生命周期随宿主。
+  - 原则：**两种拓扑 = 同一功能矩阵**（host 曾缺 remote 驱动、已补齐）；功能差异只允许来自宿主物理边界（如共生拓扑无生命周期自主），不允许来自实现偷懒。
+- **引擎关系二元性**：独立拓扑 ocrc 是主（对引擎有看护责任），共生拓扑 opencode 是主。用户选拓扑就是在选谁当主。
+- **Windows 约束**：Windows 的 opencode 是 **desktop 版**——Windows 上的 ocrc 壳/控制面以 **adopt desktop 版引擎**为正解，不重复安装 CLI。
+
+## UI 原则（2026-10-06 裁决）
+
+- **右栏的显示能力 ≥ 中栏**：同一内容在右栏的渲染质量不得低于中栏（tool 输出含 md 切换，subagent 转写走统一 Card 管线）。
+- 发布前必须过 **E2E 门禁**（`scripts/pre-release.sh`：typecheck + 全量测试 + svelte-check 0/0 + 双 build + 部署 + **真实流式断言**的 live smoke）。流式断开这类事故的教训：UI 全绿不等于管线绿。
 
 ## 第一条：ocrc 是什么
 
@@ -18,7 +35,7 @@
 |---|---|---|
 | **核心** | relay / CardBus / registry / 后端 seam | 换掉任何壳它都不变 |
 | **壳** | Telegram ✅ / Web PWA ✅ / ocrc Desktop（规划中） | 可替换的表现面 |
-| **宿主** | V1 插件 ✅ / V2 插件（待立项）/ standalone ✅ / SSH remote ✅ / Windows 被控（范围已界定） | opencode 在哪跑 |
+| **宿主** | 独立拓扑：host（spawn / **adopt `OCRC_SERVER_URL`**）✅ / Windows 壳=adopt desktop（规划中）；共生拓扑：V1 插件 ✅（npm 数组，1.18.x 唯一可靠路径）/ V2 插件（待立项）；SSH remote ✅ | opencode 在哪跑、谁当主 |
 | **分发** | npm 包 ✅ / 桌面安装器（随壳）/ 企业离线分发（未来） | 别人怎么装 |
 
 代码里这个原则已经成立：`ControlPlane` seam 隔离四种宿主入口，核心共用。

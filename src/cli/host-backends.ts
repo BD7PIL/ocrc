@@ -11,6 +11,9 @@
  *    events to the approval bridge. opencode events feed push natively.
  */
 import { createOpencodeServer, createOpencodeClient } from '@opencode-ai/sdk'
+import { buildBasicHeaders } from '../utils/oc-server-auth.js'
+import type { RemotesStore } from '../core/remotes.js'
+import type { RemoteHostManager } from '../core/remote-host.js'
 import { ocServerHeaders } from '../utils/oc-server-auth.js'
 import type { AgentEvent } from '../core/agent/event.js'
 import type { RegisteredBackend } from '../core/agent/registry.js'
@@ -106,6 +109,18 @@ export interface BuildHostBackendsDeps {
   opencodePort?: number
   /** Ports the probe must never claim (the web transport's own, typically). */
   skipPorts?: number[]
+  /** ADOPT an already-running opencode server instead of spawning one — all
+   *  backends/events point at this URL. This is the fix for the two-engine
+   *  split: a user-run opencode (e.g. :4096) shares the session STORE with
+   *  ours but NOT its event stream, so sessions driven there looked dead in
+   *  the panel. Adopting the user's engine restores live streaming. */
+  serverUrl?: string
+  /** SSH remote hosts (0.26): one `remote:<id>` backend per enabled host.
+   *  Ported from the plugin entry so HOST mode drives remotes too — the
+   *  first-class topology was blind to them (panel could configure, engine
+   *  could not drive). */
+  remotesStore?: RemotesStore
+  remoteManager?: RemoteHostManager
 }
 
 export interface BuiltHostBackends {
@@ -155,20 +170,32 @@ export async function buildHostBackends(specs: BackendSpec[], deps: BuildHostBac
   for (const spec of specs) {
     if (spec.kind === 'opencode') {
       try {
-        const { server, port } = await spawnOpencodeServer(nextPort, deps.skipPorts)
-        nextPort = port + 1
-        // The spawned server may require Basic auth (OPENCODE_SERVER_PASSWORD
-        // inherited from our own env) — the client must authenticate the same
-        // way the plugin's raw fetches do, or every call 401s and the backend
-        // shows offline (OCR-review-adjacent finding, 2026-10-05).
+        let url: string
+        let close: () => Promise<void>
+        if (deps.serverUrl) {
+          // ADOPT: drive the user's own engine. No spawn, nothing to close —
+          // its lifecycle belongs to whoever started it.
+          url = deps.serverUrl
+          close = async () => { /* external process — leave it alone */ }
+          log.info(`opencode backend ADOPTS external server @ ${url}`)
+        } else {
+          const { server, port } = await spawnOpencodeServer(nextPort, deps.skipPorts)
+          nextPort = port + 1
+          url = server.url
+          close = async () => { try { await server.close() } catch { /* noop */ } }
+        }
+        // The adopted server may require Basic auth (OPENCODE_SERVER_PASSWORD
+        // shared via config.env) — the client must authenticate the same way
+        // the plugin's raw fetches do, or every call 401s and the backend
+        // shows offline.
         const client = createOpencodeClient({
-          baseUrl: server.url,
+          baseUrl: url,
           headers: ocServerHeaders(),
         })
-        const backend = createOpencodeBackend({ client, baseUrl: server.url })
+        const backend = createOpencodeBackend({ client, baseUrl: url })
         backends.push({ id: spec.id, backend })
-        opencodeServers.push({ id: spec.id, client, close: async () => { try { await server.close() } catch { /* noop */ } } })
-        log.info(`opencode backend ready @ ${server.url}`)
+        opencodeServers.push({ id: spec.id, client, close })
+        log.info(`opencode backend ready @ ${url}`)
       } catch (err) {
         log.error(`failed to start opencode backend (skipping): ${(err as Error).message}`)
       }
@@ -186,6 +213,33 @@ export async function buildHostBackends(specs: BackendSpec[], deps: BuildHostBac
       })
       backends.push({ id: spec.id, backend })
       log.info(`acp backend ready: ${spec.id} (${spec.command})`)
+    }
+  }
+
+  // SSH remote hosts — ported from the plugin entry (parity, 0.26.12): the
+  // first-class topology must drive remotes exactly like the plugin does.
+  if (deps.remotesStore && deps.remoteManager) {
+    for (const r of deps.remotesStore.list()) {
+      if (!r.enabled) continue
+      try {
+        const localPort = await deps.remoteManager.assignPort(r.id)
+        const headers = buildBasicHeaders('opencode', r.serverPassword)
+        const base = `http://127.0.0.1:${localPort}`
+        backends.push({
+          id: `remote:${r.id}`,
+          backend: createOpencodeBackend({
+            id: `remote:${r.id}`,
+            host: r.host,
+            remote: true,
+            baseUrl: base,
+            client: createOpencodeClient({ baseUrl: base, headers }) as never,
+            fetchImpl: (url: string, init?: RequestInit) => fetch(url, { ...init, headers: { ...(init?.headers ?? {}), ...headers } }),
+          }),
+        })
+        log.info(`remote backend ready: remote:${r.id} (${r.host}) via :${localPort}`)
+      } catch (err) {
+        log.warn(`remote ${r.id} backend setup failed: ${(err as Error).message}`)
+      }
     }
   }
 

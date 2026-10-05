@@ -14,6 +14,10 @@ export interface PluginConfig {
   webPort: number
   /** Port for the spawned opencode server (host mode); default 4096. */
   serverPort: number
+  /** ADOPT an already-running opencode server (host mode) — e.g.
+   *  http://127.0.0.1:4096. When set, host spawns nothing and drives this
+   *  engine (events, sessions, approvals all live here). */
+  serverUrl: string
   webPublicUrl: string
   webStaticRoot: string
   webCacheSize: number
@@ -136,6 +140,7 @@ export function loadPluginConfig(
     webHost,
     webPort: num(options?.webPort ?? process.env.OCRC_WEB_PORT ?? process.env.WEB_PORT, 4099, 'OCRC_WEB_PORT'),
     serverPort: num(process.env.OCRC_SERVER_PORT ?? process.env.SERVER_PORT, 4096, 'OCRC_SERVER_PORT'),
+    serverUrl: (process.env.OCRC_SERVER_URL ?? '').trim(),
     webPublicUrl: envFork('OCRC_WEB_PUBLIC_URL', 'WEB_PUBLIC_URL', options?.webPublicUrl as string) ?? '',
     webStaticRoot: envFork('OCRC_WEB_STATIC_ROOT', 'WEB_STATIC_ROOT', options?.webStaticRoot as string) ?? resolve(PLUGIN_ROOT, 'web', 'dist'),
     webCacheSize: num(options?.webCacheSize ?? process.env.OCRC_WEB_SESSION_CACHE_SIZE ?? process.env.WEB_SESSION_CACHE_SIZE, 100, 'OCRC_WEB_SESSION_CACHE_SIZE'),

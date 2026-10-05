@@ -98,6 +98,9 @@ export async function main(): Promise<void> {
   // Persistent ACP session+history store (next to the state file) so kimi
   // sessions survive restarts and reopen with their history, like opencode.
   const acpStore = createAcpStore(join(dirname(config.statePath), 'acp-sessions.json'))
+  const dataDir = dirname(config.statePath)
+  const remotesStore = createRemotesStore(join(dataDir, 'remotes.json'))
+  const remoteManager = createRemoteHostManager({ store: remotesStore })
 
   // Build every backend (spawning opencode server(s) + ACP agents) and wire each
   // one's event source to the relay below. The spawned server's port comes from
@@ -110,6 +113,9 @@ export async function main(): Promise<void> {
     store: acpStore,
     opencodePort: config.serverPort,
     skipPorts: [config.webPort],
+    serverUrl: config.serverUrl || undefined,
+    remotesStore,
+    remoteManager,
   })
   const registry = createBackendRegistry({
     backends: built.backends,
@@ -141,7 +147,6 @@ export async function main(): Promise<void> {
   // Feature parity with plugin mode (2026-10-05): schedules, channel settings,
   // pairing and remote hosts are wired into the web surface exactly like the
   // plugin mode's entry does.
-  const dataDir = dirname(config.statePath)
   const scheduler = createScheduler({
     path: join(dataDir, 'schedules.json'),
     dispatch: async (msg) => { await relay(msg) },
@@ -149,8 +154,6 @@ export async function main(): Promise<void> {
   scheduler.start()
   const channels = createChannelsStore(join(dataDir, 'channels.json'))
   const pairing = createPairingStore(() => loadOrCreateToken({ token: config.webToken }))
-  const remotesStore = createRemotesStore(join(dataDir, 'remotes.json'))
-  const remoteManager = createRemoteHostManager({ store: remotesStore })
 
   // opencode permission events arrive on the SSE stream → forward to the same
   // approval UX (Telegram buttons + Web card). Web-only: publish the card directly.

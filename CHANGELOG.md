@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.26.12 — ADOPT your own engine; the control-plane positioning lands (2026-10-06)
+
+### feat(host): ADOPT an already-running opencode server (`OCRC_SERVER_URL`)
+- **流式断开的真正根因**：用户自跑的 opencode（:4096）与 ocrc spawn 的引擎
+  （:4097）**共享 session 存储（列表可见）但事件流隔离**——用户引擎里跑的
+  会话在面板上永远静默，手动刷新只能靠 REST 拉历史。
+- `OCRC_SERVER_URL=http://127.0.0.1:4096` → host 不 spawn，驾驶用户的引擎
+  （事件 SSE / 会话 / 审批全指向它，Basic 凭证共用 config.env）。已部署生产
+  实测：用户引擎的 streaming 事件恢复流入（TG 卡片与 WS 同步收到）。
+- **PRODUCT.md 第零条**（定位落案）：ocrc = 以 opencode 为引擎的远程驾驶
+  控制面；双拓扑（独立=第一公民 / 共生=轻量接入）= 同一功能矩阵；引擎关系
+  二元性；**Windows 约束**（opencode desktop 版 → 壳走 adopt）；UI 原则
+  「右栏显示能力 ≥ 中栏」+ E2E 门禁强制。
+
+### feat(host): SSH remote 驱动补齐（功能矩阵对齐）
+- remote:`<id>` 后端注册从插件入口**移植进 host**——第一拓扑此前只能配置
+  远程主机却不能驾驶（面板在、引擎盲）。端口预留/Basic 凭证/降级语义与
+  插件版一致。
+
+### fix(web): token 回种死循环（流式/401 反复发作的第二根因）
+- 长开 tab 的 URL 里挂着配对时代的 `#token=<旧>`：`captureToken` 每次 boot
+  回种、401 处理器盲信 hash——撤销配对轮换后，旧凭证被反复复活。现在 hash
+  仅在本地无 token 时采用；hash≠stored 时先向服务器验证再采信；WS 连续
+  4 次升级失败自动探测并引导重新配对。
+
+### feat(web): 对话中创建定时任务（ZCode 机制）+ 管理增强
+- 注册 `schedule_create` / `schedule_list` agent 工具（ZCode 源码实证：
+  创建的正解是模型调工具，不是 UI 按钮）——对话里说「每天 9 点做 X」即建。
+- SchedulesPanel：每行 ▶ 立即运行（后端 `POST /api/schedules/:id/run`，
+  暂停态拒绝）、空态引导文案。
+- 右栏 homeId 正名：`config` 拆为 **定时任务** + **MCP** 两个 tab（含本地
+  迁移）；auto 主题图标 = 半月+A（两处切换入口）。
+
+### chore: E2E 发布门禁 + 运维脚本
+- `scripts/release-smoke.mjs`（对生产跑真实断言：**发 prompt 断言流式
+  到达**、WS live、右栏滚动、凭证间距、配对按钮）+ `scripts/pre-release.sh`
+  （typecheck→全量测试→0/0→双 build→部署→smoke，全绿才允许打 tag）。
+- `~/bin/restart-ocrc.sh`：幂等生产重启（杀净→等端口→起→等 web 200）。
+- web：idle 自动展开右栏（60s 无输入；手动收起 10 分钟豁免）、tool 输出
+  **MD 渲染切换**、凭证双框间距、构建版本悬停自查、SW 更新提示条。
+
+## 0.26.11 — hotfixes: token rotate hardening, UI regression fixes, schedule tools (2026-10-05/06)
+> 条目补记（发版时遗漏）。内容散于 0.26.10→0.26.12 之间的 main 提交：
+> token 回种加固的第一版（mtime+size）、右栏 ZCode register 试验、homeId
+> 正名、schedule 工具与 ⏰ 快速浮层、MD 切换、SW 更新提示、dependabot
+> 实验合入（ACP SDK 1.6.1/zod4/diff9）。最终形态以 0.26.12 条目为准。
+
 ## 0.26.10 — proxy goes UI, repo diet (2026-10-05)
 
 ### feat(channels): Bot API 代理进面板

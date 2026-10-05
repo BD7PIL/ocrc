@@ -57,7 +57,7 @@ export interface BuildServerOpts {
   telegramStatus?: () => { connected: boolean; username?: string } | null
   /** Boot facts for the channels panel (0.27): whether an env token exists
    *  (the panel token overrides it at boot) and the allowlist size. */
-  telegramMeta?: { hasEnvToken: boolean; allowUsers: number }
+  telegramMeta?: { hasEnvToken: boolean; allowUsers: number; envTokenHint?: string }
   /** M11 pending-token pairing store (optional; QR falls back to legacy URL). */
   pairing?: PairingStore
   /** 0.26.0 SSH remote hosts: store + lifecycle manager (optional). */

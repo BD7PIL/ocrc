@@ -439,15 +439,12 @@
        swallows the strip's clicks (found by the click-through test). */
     pointer-events: none;
   }
-  /* Right pane = separated surface (ZCode register): a gap of frame colour
-     between center and pane, the pane on its own rounded card. Collapsed =
-     slide behind the center edge (translate + negative margin, same proven
-     pattern as the rail) — content stays mounted, tabs persist. */
+  /* Inspector pane: flush panel separated from the center by a single
+     hairline (ZCode register — one mechanism, both themes; the old floating
+     card read differently in dark (elevated) and light (gap-only)). */
   .inspector-wrap {
     width: var(--insp-w, 380px);
     flex-shrink: 0;
-    padding-left: 10px;
-    background: var(--bg);
     overflow: hidden;
     position: relative;
     z-index: 1;
@@ -455,14 +452,14 @@
   }
   .inspector-wrap :global(.inspector) {
     width: 100%;
-    border: 1px solid var(--border-2);
-    border-radius: var(--radius);
+    background: var(--bg);
+    border-left: 1px solid var(--border-2);
   }
   .inspector-wrap:not(:has(.inspector)) { background: transparent; }
   /* collapsed: slide right + hand back the flex width */
   .inspector-wrap.collapsed-insp {
-    transform: translateX(calc(100% + 10px));
-    margin-right: calc(-1 * (var(--insp-w, 380px) + 10px));
+    transform: translateX(100%);
+    margin-right: calc(-1 * var(--insp-w, 380px));
     pointer-events: none;
   }
   /* Collapsed-rail strip — the always-present restore handle at the screen's

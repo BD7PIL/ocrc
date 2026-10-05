@@ -259,13 +259,10 @@
             </div>
             <p class="note">
               {#if selected.channel === 'telegram'}
-                {selected.live?.connected ? '轮询运行中' : '未在轮询'}{selected.live?.username ? ` · @${selected.live.username}` : ''}。
-                停用/启用在重启实例后生效。<br />
-                凭证来源：{tgMeta?.tokenSource === 'panel' ? '面板凭证' : tgMeta?.tokenSource === 'env' ? 'config.env（TELEGRAM_BOT_TOKEN）' : '未配置'}
-                {#if selected.hasToken && selected.tokenHint}（面板：{selected.tokenHint}）{/if}
-                · Bot API 代理：{tgMeta?.proxySource === 'panel' ? '面板凭证' : tgMeta?.proxySource === 'env' ? '环境变量' : '直连'}
-                · 允许用户（生效）：{tgMeta?.allowUsers ?? 0} 个（来源：{tgMeta?.allowSource === 'panel' ? '面板' : 'config.env'}）
-                {#if (tgMeta?.allowUsers ?? 0) === 0}——bot 不会回复任何人{/if}
+                <span class="n-line">{selected.live?.connected ? '轮询运行中' : '未在轮询'}{selected.live?.username ? ` · @${selected.live.username}` : ''}；停用/启用在重启实例后生效。</span>
+                <span class="n-line">凭证来源：{tgMeta?.tokenSource === 'panel' ? `面板凭证${selected.hasToken && selected.tokenHint ? `（${selected.tokenHint}）` : ''}` : tgMeta?.tokenSource === 'env' ? `config.env（TELEGRAM_BOT_TOKEN${tgMeta?.envTokenHint ? ` ${tgMeta.envTokenHint}` : ''}）` : '未配置'}</span>
+                <span class="n-line">Bot API 代理：{tgMeta?.proxySource === 'panel' ? '面板凭证' : tgMeta?.proxySource === 'env' ? '环境变量' : '直连'}</span>
+                <span class="n-line">允许用户（生效）：{tgMeta?.allowUsers ?? 0} 个（来源：{tgMeta?.allowSource === 'panel' ? '面板' : 'config.env'}）{#if (tgMeta?.allowUsers ?? 0) === 0}——bot 不会回复任何人{/if}</span>
               {:else}
                 待接入：凭证保存后，通道本体在后续版本启用。
               {/if}
@@ -494,6 +491,7 @@
   .switch.on { border-color: var(--accent); }
   .switch.on .knob { background: var(--accent); transform: translateX(18px); }
   .note { margin: 0; font-size: 11.5px; color: var(--text-3); }
+  .note .n-line { display: block; padding: 1px 0; }
   .note.err { color: var(--err); }
   .cred-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
   .cred-label { flex-shrink: 0; width: 168px; font-size: 11px; color: var(--text-3); }
@@ -511,7 +509,7 @@
     font-size: 11px;
   }
   .cred:focus { outline: 1px solid var(--accent); }
-  .sec-acts { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .sec-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
   .save {
     padding: 4px 12px;
     background: var(--accent);

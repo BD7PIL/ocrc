@@ -27,7 +27,7 @@ export interface WebTransportConfig {
   channels?: import('../../core/channels.js').ChannelsStore
   telegramStatus?: () => { connected: boolean; username?: string } | null
   /** 0.27: boot facts for the channels 绑定信息 line. */
-  telegramMeta?: { hasEnvToken: boolean; allowUsers: number }
+  telegramMeta?: { hasEnvToken: boolean; allowUsers: number; envTokenHint?: string }
   /** M11 pending-token pairing store (optional). */
   pairing?: import('../../connectivity/pairing.js').PairingStore
   /** sdelta wiring (0.25.0): the host passes a sink object; start() binds it to

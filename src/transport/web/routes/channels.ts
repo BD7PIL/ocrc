@@ -23,7 +23,7 @@ export function registerChannels(
   app: Hono,
   channels?: ChannelsStore,
   tgStatus?: () => TelegramLiveStatus | null,
-  telegramMeta?: { hasEnvToken: boolean; allowUsers: number },
+  telegramMeta?: { hasEnvToken: boolean; allowUsers: number; envTokenHint?: string },
 ) {
   if (!channels) return
 
@@ -55,13 +55,16 @@ export function registerChannels(
         tokenSource: tg?.credentials?.token ? 'panel' : telegramMeta?.hasEnvToken ? 'env' : 'none',
         allowSource: panelAllow ? 'panel' : 'env',
         allowUsers: (panelAllow?.length ?? telegramMeta?.allowUsers) ?? 0,
-        // Proxy egress source, same precedence the transport applies at boot:
+        // Bot API proxy egress source, same precedence the transport applies at boot:
         // panel credential > TELEGRAM_PROXY > HTTPS_PROXY > https_proxy.
         proxySource: tg?.credentials?.proxy
           ? 'panel'
           : (process.env.TELEGRAM_PROXY || process.env.HTTPS_PROXY || process.env.https_proxy)
             ? 'env'
             : 'none',
+        // Masked hint for an env-sourced token (the panel credential already
+        // shows its own tokenHint on the row) — write-only, last 4 only.
+        envTokenHint: !tg?.credentials?.token && telegramMeta?.hasEnvToken ? telegramMeta.envTokenHint : undefined,
       },
     })
   })

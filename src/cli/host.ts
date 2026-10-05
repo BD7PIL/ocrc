@@ -205,7 +205,11 @@ export async function main(): Promise<void> {
       remotes: remotesStore,
       remoteManager,
       telegramStatus: () => tgTransport?.status?.() ?? null,
-      telegramMeta: { hasEnvToken: !!config.telegramBotToken, allowUsers: config.allowedUserIds.length },
+      telegramMeta: {
+        hasEnvToken: !!config.telegramBotToken,
+        allowUsers: config.allowedUserIds.length,
+        envTokenHint: config.telegramBotToken ? `••••${config.telegramBotToken.slice(-4)}` : undefined,
+      },
     })
     webTransport.onMessage(relay)
     transports.push(webTransport)

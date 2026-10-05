@@ -317,7 +317,11 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
         remotes: remotesStore,
         remoteManager,
         telegramStatus: () => tgTransport?.status?.() ?? { connected: false },
-        telegramMeta: { hasEnvToken: !!config.telegramBotToken, allowUsers: config.allowedUserIds.length },
+        telegramMeta: {
+          hasEnvToken: !!config.telegramBotToken,
+          allowUsers: config.allowedUserIds.length,
+          envTokenHint: config.telegramBotToken ? `••••${config.telegramBotToken.slice(-4)}` : undefined,
+        },
         })
       webTransport.onMessage(relay)
       transports.push(webTransport)

@@ -123,9 +123,10 @@
         {#if onb}
           <div class="wait-row">
             <span class="wait" class:done={hasPaired}>{hasPaired ? `✓ 已有 ${pairedCount} 台设备完成配对` : '等待手机连接'} {#if remaining !== null}<span class="mono cd" class:expired>{expired ? '二维码已过期' : `· ${countdown}`}</span>{/if}</span>
-            {#if hasPaired}
-              <button class="btn enter" on:click={() => onb && exchangePairLink(onb.url)}>配对此浏览器并进入</button>
-            {/if}
+            <!-- Unconditional: the exchange only needs THIS page's pending
+                 token — works for the very first pairing too (host-side
+                 browser never needs the phone). -->
+            <button class="btn enter" on:click={() => onb && exchangePairLink(onb.url)}>配对此浏览器并进入</button>
           </div>
           <div class="qr-wrap">
             <!-- eslint-disable-next-line svelte/no-at-html-tags — server-generated QR SVG -->

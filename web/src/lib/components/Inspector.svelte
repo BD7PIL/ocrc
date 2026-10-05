@@ -28,7 +28,6 @@
   export let sessionId: string | undefined = undefined
 
   $: session = $sessionList.find((s) => s.id === sessionId)
-  $: title = session?.title
 
   // Debounced "activity tick": bump ~1s after the feed's lastSeq changes so
   // panels refetch when a turn produces output, without hammering per delta.
@@ -111,18 +110,6 @@
 <svelte:window on:click={onWindowClick} on:keydown={onWindowKey} />
 
 <aside class="inspector">
-  <div class="head">
-    <div class="head-main">
-      <div class="section-label">会话</div>
-      <div class="name" title={title ?? sessionId}>
-        <span class="title-text">{title || (sessionId ? '…' + sessionId.slice(-8) : 'No session')}</span>
-      </div>
-    </div>
-    <button class="collapse-btn" title="收起面板" aria-label="收起面板" on:click={() => inspectorOpen.set(false)}>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/><path d="M9 9l3 3-3 3"/></svg>
-    </button>
-  </div>
-
   <div class="tabs" role="tablist">
     {#each $sidePane.tabs as t, i (t.id)}
       <button
@@ -175,6 +162,9 @@
         </div>
       {/if}
     </div>
+    <button class="collapse-btn" title="收起面板" aria-label="收起面板" on:click={() => inspectorOpen.set(false)}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/><path d="M9 9l3 3-3 3"/></svg>
+    </button>
   </div>
 
   <div class="pane">
@@ -252,31 +242,23 @@
     flex-direction: column;
     /* Same surface as the chat canvas: one white workspace between warm
        frame strips (titlebar/rail), not a third tone. */
-    background: var(--bg-elev);
+    background: var(--bg);
     border-left: 1px solid var(--border-2);
   }
-  .head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 14px 12px 12px 16px;
-    border-bottom: 1px solid var(--border-2);
-  }
-  .head-main { flex: 1; min-width: 0; }
   .collapse-btn {
     flex-shrink: 0;
     display: inline-grid;
     place-items: center;
-    width: 26px;
-    height: 26px;
+    width: 20px;
+    height: 20px;
+    margin-left: 6px;
     background: transparent;
-    border: 1px solid var(--border-2);
+    border: none;
     border-radius: var(--radius-xs);
     color: var(--text-3);
     cursor: pointer;
   }
-  .collapse-btn:hover { color: var(--text); border-color: var(--border); }
+  .collapse-btn:hover { color: var(--text); background: var(--bg-input); }
   .collapse-btn svg { width: 14px; height: 14px; }
 
   /* Empty-pane launcher (ZCode openTabLauncher register): centered column of
@@ -321,28 +303,6 @@
   .l-ico svg { width: 16px; height: 16px; }
   .l-text { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .l-sep { height: 1px; background: var(--border-2); margin: 4px 0; }
-  .section-label {
-    text-transform: uppercase;
-    letter-spacing: .16em;
-    color: var(--text-3);
-    font-size: 10px;
-  }
-  .name {
-    margin-top: 4px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 0;
-    font-weight: 600;
-    font-size: 13px;
-    color: var(--text);
-  }
-  .title-text {
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
 
   /* Tabs: all dynamic, all closable, drag-reorderable; "+" menu at the end. */
   .tabs {

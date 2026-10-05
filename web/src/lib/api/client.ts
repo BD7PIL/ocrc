@@ -239,4 +239,6 @@ export interface ChannelsInfo {
   allowUsers: number
   /** Bot API proxy egress source (panel credential / env / none). */
   proxySource?: 'panel' | 'env' | 'none'
+  /** Masked last-4 of an env-sourced token (write-only; undefined when panel wins). */
+  envTokenHint?: string
 }

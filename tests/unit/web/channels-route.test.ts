@@ -10,7 +10,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function app(meta?: { hasEnvToken: boolean; allowUsers: number }) {
+function app(meta?: { hasEnvToken: boolean; allowUsers: number; envTokenHint?: string }) {
   const store = createChannelsStore(join(mkdtempSync(join(tmpdir(), 'ocrc-chtest-')), 'channels.json'))
   const a = new Hono()
   registerChannels(a, store, () => ({ connected: true, username: 'my_ocrc_bot' }), meta)
@@ -40,6 +40,20 @@ describe('channels route — credential redaction + validation (0.27)', () => {
     const { a } = app({ hasEnvToken: true, allowUsers: 1 })
     const body = await (await a.request('/api/channels')).json() as any
     expect(body.telegram.tokenSource).toBe('env')
+  })
+
+  it('envTokenHint is exposed only when the env token wins (no panel credential)', async () => {
+    const { a } = app({ hasEnvToken: true, allowUsers: 1, envTokenHint: '••••Xw42' })
+    const body = await (await a.request('/api/channels')).json() as any
+    expect(body.telegram.tokenSource).toBe('env')
+    expect(body.telegram.envTokenHint).toBe('••••Xw42')
+
+    // A panel credential takes precedence — the env hint must disappear.
+    const { a: a2, store } = app({ hasEnvToken: true, allowUsers: 1, envTokenHint: '••••Xw42' })
+    store.update('tg-default', { credentials: { token: '123456:panel-secret' } })
+    const body2 = await (await a2.request('/api/channels')).json() as any
+    expect(body2.telegram.tokenSource).toBe('panel')
+    expect(body2.telegram.envTokenHint).toBeUndefined()
   })
 
   it('PATCH with a Telegram-VALID token saves it (getMe mocked ok)', async () => {

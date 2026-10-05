@@ -124,25 +124,32 @@ function persistToken(path: string, token: string): void {
   }
 }
 
-function mtimeOf(path: string): number | undefined {
-  try { return statSync(path).mtimeMs } catch { return undefined }
+/** Change-detector stamp for the token file: mtime alone misses two writes
+ *  landing inside the same millisecond — size disambiguates those. */
+function stampOf(path: string): string | undefined {
+  try {
+    const st = statSync(path)
+    return `${st.mtimeMs}:${st.size}`
+  } catch { return undefined }
 }
 
 export function createTokenAuth(opts: TokenAuthOptions): AuthStrategy {
   const tokenPath = opts.tokenPath ?? defaultTokenPath()
   let expected = loadOrCreateToken(opts)
   // The token file is shared state: `ocrc pair --reset` (another process) may
-  // rotate it underneath us. Cache by mtime — one cheap stat per request buys
-  // cross-process revocation without a read per request.
-  let cachedMtime = mtimeOf(tokenPath)
+  // rotate it underneath us. Cache by (mtimeMs, size) — one cheap stat per
+  // request buys cross-process revocation without a read per request. Size
+  // guards against two writes landing in the same millisecond (mtime alone
+  // missed that; test-observed).
+  let cachedStamp = stampOf(tokenPath)
   const user: AuthUser = { email: opts.devEmail ?? 'you@local', sub: 'token' }
 
   /** Pick up an out-of-band rotation (token file changed under us). */
   const refreshExpected = (): void => {
     if (opts.token?.trim()) return // explicit config token — file is not the source
-    const m = mtimeOf(tokenPath)
-    if (m === undefined || m === cachedMtime) return
-    cachedMtime = m
+    const stamp = stampOf(tokenPath)
+    if (stamp === undefined || stamp === cachedStamp) return
+    cachedStamp = stamp
     try {
       const t = readFileSync(tokenPath, 'utf-8').trim()
       if (t) expected = t
@@ -197,7 +204,7 @@ export function createTokenAuth(opts: TokenAuthOptions): AuthStrategy {
       const t = randomBytes(32).toString('base64url')
       persistToken(tokenPath, t)
       expected = t
-      cachedMtime = mtimeOf(tokenPath)
+      cachedStamp = stampOf(tokenPath)
       log.info('web token rotated — all previously paired devices are logged out')
     },
   }

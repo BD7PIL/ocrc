@@ -249,6 +249,36 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
       tgTransport.onMessage(relay)
     }
 
+    // 0.27: enterprise channels — Lark / DingTalk / WeCom. Each starts when
+    // its channel is enabled AND credentials exist (channels.json panel value
+    // wins over the env fallback). See docs/PRODUCT.md enterprise matrix.
+    const larkCfg = channels.get('lark-default')
+    const larkId = larkCfg?.credentials?.app_id ?? process.env.LARK_APP_ID
+    const larkSecret = larkCfg?.credentials?.app_secret ?? process.env.LARK_APP_SECRET
+    if (larkCfg?.enabled && larkId && larkSecret) {
+      const { createLarkTransport } = await import('../transport/lark/index.js')
+      const larkTransport = createLarkTransport({ appId: larkId, appSecret: larkSecret, backend, state })
+      transports.push(larkTransport)
+      larkTransport.onMessage(relay)
+    }
+    const dingCfg = channels.get('dingtalk-default')
+    const dingId = dingCfg?.credentials?.client_id ?? process.env.DINGTALK_CLIENT_ID
+    const dingSecret = dingCfg?.credentials?.client_secret ?? process.env.DINGTALK_CLIENT_SECRET
+    if (dingCfg?.enabled && dingId && dingSecret) {
+      const { createDingTalkTransport } = await import('../transport/dingtalk/index.js')
+      const dingTransport = createDingTalkTransport({ clientId: dingId, clientSecret: dingSecret })
+      transports.push(dingTransport)
+      dingTransport.onMessage(relay)
+    }
+    const wecomCfg = channels.get('wechat-default')
+    const wecomUrl = wecomCfg?.credentials?.webhook_url ?? process.env.WECOM_WEBHOOK_URL
+    if (wecomCfg?.enabled && wecomUrl) {
+      const { createWeComTransport } = await import('../transport/wecom/index.js')
+      const wecomTransport = createWeComTransport({ webhookUrl: wecomUrl })
+      transports.push(wecomTransport)
+      // push-only: no inbound (WeCom app callbacks need a public URL)
+    }
+
     let webTransport: ReturnType<typeof createWebTransport> | undefined
 
     if (config.webEnabled) {

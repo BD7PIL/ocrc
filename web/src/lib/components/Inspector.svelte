@@ -6,7 +6,7 @@
   import { onDestroy } from 'svelte'
   import { sessionList, feeds } from '$lib/stores/sessions.js'
   import { can } from '$lib/stores/capabilities.js'
-  import { inspectorOpen } from '$lib/stores/ui.js'
+  import { inspectorOpen, inspectorClosedAt } from '$lib/stores/ui.js'
   import { api } from '$lib/api/client.js'
   import SideChatTab from './inspector/SideChatTab.svelte'
   import {

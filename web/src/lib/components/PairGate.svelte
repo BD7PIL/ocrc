@@ -229,7 +229,7 @@
     border-radius: var(--radius);
   }
   .hicon svg { width: 34px; height: 34px; display: block; }
-  h1 { margin: 0; font-size: 17px; color: var(--text); font-weight: 700; }
+  h1 { margin: 0; font-size: 16px; color: var(--text); font-weight: 700; }
   .sub { margin: 2px 0 0; font-size: 12.5px; color: var(--text-2); }
 
   .cols { display: grid; grid-template-columns: 1.25fr 1fr; gap: 16px; }

@@ -28,7 +28,7 @@
   /* ── ink: extremes live ONLY in text & small controls ── */
   --text:      #f5f4f0;  /* primary — paper white ink */
   --text-2:    #c9c7c1;  /* secondary */
-  --text-3:    #8c877d;  /* muted / meta */
+  --text-3:    #96918a;  /* muted / meta (lifted a notch — #8c877d read fuzzy at 10-11.5px on dark) */
   --text-4:    #7a766e;  /* faint / disabled — lowest value that still hits 4.5:1 on all surfaces (WCAG AA) */
 
   /* ── chrome accent — persimmon (default); per-agent via [data-accent] ── */

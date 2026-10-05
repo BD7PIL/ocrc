@@ -240,10 +240,10 @@
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    /* Same surface as the chat canvas: one white workspace between warm
-       frame strips (titlebar/rail), not a third tone. */
-    background: var(--bg);
-    border-left: 1px solid var(--border-2);
+    /* Elevated card surface — one tone above the chat canvas in dark, pure
+       card white in light; the wrap's shadow carries the lift in light. */
+    background: var(--bg-elev);
+    border-left: none;
   }
   .collapse-btn {
     flex-shrink: 0;
@@ -270,7 +270,7 @@
     padding: 8vh 20px 0;
     text-align: center;
   }
-  .l-title { margin: 0 0 4px; font-family: var(--font-serif); font-size: 15px; color: var(--text); }
+  .l-title { margin: 0 0 4px; font-size: 14px; color: var(--text); }
   .l-desc { margin: 0 0 18px; font-size: 11.5px; color: var(--text-3); }
   .l-list { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 260px; }
   .l-card {

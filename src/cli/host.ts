@@ -100,8 +100,17 @@ export async function main(): Promise<void> {
   const acpStore = createAcpStore(join(dirname(config.statePath), 'acp-sessions.json'))
 
   // Build every backend (spawning opencode server(s) + ACP agents) and wire each
-  // one's event source to the relay below.
-  const built = await buildHostBackends(specs, { cwd: process.cwd(), onAcpPermission: onPermission, store: acpStore })
+  // one's event source to the relay below. The spawned server's port comes from
+  // OCRC_SERVER_PORT (default 4096) and its probe must SKIP the web port — the
+  // probe used to walk into :4099 when 4096/4097 were busy, grab it, and the
+  // web transport then died on EADDRINUSE against our own child.
+  const built = await buildHostBackends(specs, {
+    cwd: process.cwd(),
+    onAcpPermission: onPermission,
+    store: acpStore,
+    opencodePort: config.serverPort,
+    skipPorts: [config.webPort],
+  })
   const registry = createBackendRegistry({
     backends: built.backends,
     state,

@@ -435,7 +435,7 @@
     padding: 14px 18px;
     border-bottom: 1px solid var(--border-2);
   }
-  .title { font-family: var(--font-serif); font-size: 16px; font-weight: 600; color: var(--text); }
+  .title { font-size: 15px; font-weight: 600; color: var(--text); }
   .close {
     background: transparent;
     border: none;
@@ -471,7 +471,7 @@
   .ch-state.on { color: var(--ok, var(--accent)); }
   .detail { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
   .d-hd { display: flex; align-items: center; justify-content: space-between; }
-  .d-name { font-family: var(--font-serif); font-size: 15px; font-weight: 600; color: var(--text); }
+  .d-name { font-size: 14px; font-weight: 600; color: var(--text); }
   .switch {
     width: 40px; height: 22px;
     border: 1px solid var(--border);

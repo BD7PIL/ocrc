@@ -439,27 +439,36 @@
        swallows the strip's clicks (found by the click-through test). */
     pointer-events: none;
   }
-  /* Inspector pane: flush panel separated from the center by a single
-     hairline (ZCode register — one mechanism, both themes; the old floating
-     card read differently in dark (elevated) and light (gap-only)). */
+  /* Inspector pane: floating card in BOTH themes (user call after the flush
+     experiment) — gap of frame colour, rounded card, hairline border, and a
+     light shadow so the lift reads in light theme too (dark lifts by tone). */
   .inspector-wrap {
     width: var(--insp-w, 380px);
     flex-shrink: 0;
+    padding-left: 10px;
+    background: var(--bg);
     overflow: hidden;
     position: relative;
     z-index: 1;
     transition: transform .24s var(--ease-out, ease-out);
   }
   .inspector-wrap :global(.inspector) {
+    /* absolute fill: the wrap's height comes from flex-stretch, and
+       height:100% against a stretched block was resolved as auto (content)
+       in practice — the pane's scroll died with it. inset:0 cannot fail. */
+    position: absolute;
+    inset: 0;
     width: 100%;
-    background: var(--bg);
-    border-left: 1px solid var(--border-2);
+    height: 100%;
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius);
+    box-shadow: 0 1px 3px rgb(0 0 0 / .05), 0 4px 14px rgb(0 0 0 / .04);
   }
   .inspector-wrap:not(:has(.inspector)) { background: transparent; }
   /* collapsed: slide right + hand back the flex width */
   .inspector-wrap.collapsed-insp {
-    transform: translateX(100%);
-    margin-right: calc(-1 * var(--insp-w, 380px));
+    transform: translateX(calc(100% + 10px));
+    margin-right: calc(-1 * (var(--insp-w, 380px) + 10px));
     pointer-events: none;
   }
   /* Collapsed-rail strip — the always-present restore handle at the screen's

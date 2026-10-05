@@ -104,6 +104,8 @@ export interface BuildHostBackendsDeps {
   store?: AcpStore
   /** Base port for spawned opencode servers (each opencode backend gets one). */
   opencodePort?: number
+  /** Ports the probe must never claim (the web transport's own, typically). */
+  skipPorts?: number[]
 }
 
 export interface BuiltHostBackends {
@@ -127,9 +129,10 @@ const PORT_PROBE_ATTEMPTS = 10
  * Returns the server and the port it bound; rethrows the last error when every
  * probe fails.
  */
-async function spawnOpencodeServer(startPort: number): Promise<{ server: any; port: number }> {
+async function spawnOpencodeServer(startPort: number, skipPorts: number[] = []): Promise<{ server: any; port: number }> {
   let lastErr: unknown
-  for (let port = startPort; port < startPort + PORT_PROBE_ATTEMPTS; port++) {
+  for (let port = startPort; port < startPort + PORT_PROBE_ATTEMPTS + skipPorts.length; port++) {
+    if (skipPorts.includes(port)) continue
     try {
       const server = await createOpencodeServer({ hostname: '127.0.0.1', port, timeout: 15000 })
       if (port !== startPort) log.warn(`port ${startPort} unavailable — opencode backend bound to ${port} instead`)
@@ -152,7 +155,7 @@ export async function buildHostBackends(specs: BackendSpec[], deps: BuildHostBac
   for (const spec of specs) {
     if (spec.kind === 'opencode') {
       try {
-        const { server, port } = await spawnOpencodeServer(nextPort)
+        const { server, port } = await spawnOpencodeServer(nextPort, deps.skipPorts)
         nextPort = port + 1
         // The spawned server may require Basic auth (OPENCODE_SERVER_PASSWORD
         // inherited from our own env) — the client must authenticate the same

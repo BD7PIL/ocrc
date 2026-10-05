@@ -150,9 +150,9 @@
 <style>
   .md {
     font-family: var(--font-sans);
-    font-size: 15px;
+    font-size: 13.5px;
     color: var(--text);
-    line-height: 1.72;
+    line-height: 1.65;
     word-break: break-word;
   }
   .md :global(p) { margin: 0.55em 0; }

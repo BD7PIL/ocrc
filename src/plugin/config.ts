@@ -12,6 +12,8 @@ export interface PluginConfig {
   webEnabled: boolean
   webHost: string
   webPort: number
+  /** Port for the spawned opencode server (host mode); default 4096. */
+  serverPort: number
   webPublicUrl: string
   webStaticRoot: string
   webCacheSize: number
@@ -133,6 +135,7 @@ export function loadPluginConfig(
       (process.env.OCRC_WEB_ENABLED ?? process.env.WEB_ENABLED) === 'true',
     webHost,
     webPort: num(options?.webPort ?? process.env.OCRC_WEB_PORT ?? process.env.WEB_PORT, 4099, 'OCRC_WEB_PORT'),
+    serverPort: num(process.env.OCRC_SERVER_PORT ?? process.env.SERVER_PORT, 4096, 'OCRC_SERVER_PORT'),
     webPublicUrl: envFork('OCRC_WEB_PUBLIC_URL', 'WEB_PUBLIC_URL', options?.webPublicUrl as string) ?? '',
     webStaticRoot: envFork('OCRC_WEB_STATIC_ROOT', 'WEB_STATIC_ROOT', options?.webStaticRoot as string) ?? resolve(PLUGIN_ROOT, 'web', 'dist'),
     webCacheSize: num(options?.webCacheSize ?? process.env.OCRC_WEB_SESSION_CACHE_SIZE ?? process.env.WEB_SESSION_CACHE_SIZE, 100, 'OCRC_WEB_SESSION_CACHE_SIZE'),

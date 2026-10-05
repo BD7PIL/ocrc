@@ -165,7 +165,7 @@
           <div class="empty">正在加载 agent…</div>
         {:else}
           <div class="field">
-            <span class="label">Agent</span>
+            <span class="label">引擎 / 后端</span>
             <div class="agent-chips" role="radiogroup" aria-label="选择 agent">
               {#each agents as a (a.id)}
                 {@const theme = agentAccent(a.id)}
@@ -182,10 +182,10 @@
                     class="chip-tile"
                     style="background:{ACCENT_BG[theme]}; color:{ACCENT_HEX[theme]}; border-color:{ACCENT_LINE[theme]}"
                   >
-                    {glyph(a)}
+                    {#if a.id.startsWith('remote:')}☁{:else}{glyph(a)}{/if}
                   </span>
                   <span class="chip-status {statusClass(a.status)}" style="--dot:{ACCENT_HEX[theme]}"><span class="sr-only">{statusClass(a.status)}</span></span>
-                  <span class="chip-name">{a.name ?? a.id}</span>
+                  <span class="chip-name">{a.id.startsWith('remote:') ? a.id.replace('remote:', '远程 · ') : (a.name ?? a.id)}</span>
                 </button>
               {/each}
             </div>
@@ -209,7 +209,7 @@
           {#if dirSug.length > 0}
             <div class="dir-sug" role="listbox">
               {#each dirSug as sug (sug.path)}
-                <button class="dir-sug-item" type="button" role="option" on:click={() => pickSug(sug.path)} title={sug.path}>
+                <button class="dir-sug-item" type="button" role="option" aria-selected="false" on:click={() => pickSug(sug.path)} title={sug.path}>
                   <span class="recent-name">{sug.name}</span>
                   <span class="recent-dir mono">{sug.path}</span>
                 </button>
@@ -231,16 +231,6 @@
           {/if}
         </div>
 
-        <div class="field">
-          <label class="label" for="new-session-branch">Branch <span class="optional">(optional)</span></label>
-          <input
-            id="new-session-branch"
-            class="branch mono"
-            type="text"
-            placeholder="main"
-            bind:value={branch}
-          />
-        </div>
 
         {#if error}<div class="error">{error}</div>{/if}
       </div>
@@ -422,15 +412,6 @@
     transition: border-color .15s ease;
   }
   .dir-input:focus-within { border-color: var(--accent); }
-  .backend-row { display: flex; flex-wrap: wrap; gap: 8px; }
-  .backend-chip {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 6px 12px; border-radius: var(--radius-sm);
-    border: 1px solid var(--border-2); background: var(--bg-input);
-    color: var(--text-2); font: inherit; font-size: 12.5px; cursor: pointer;
-  }
-  .backend-chip.sel { border-color: var(--accent); color: var(--text); }
-  .backend-chip.sel .recent-name { color: var(--text); }
   .dir-sug {
     margin-top: 6px; border: 1px solid var(--border-2); border-radius: var(--radius-sm);
     overflow: hidden; max-height: 180px; overflow-y: auto;

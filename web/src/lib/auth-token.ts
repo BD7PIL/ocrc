@@ -64,8 +64,17 @@ export function clearToken(): void {
 export function captureToken(loc: Location = window.location): string | null {
   const fromHash = readTokenFromHash(loc.hash)
   if (fromHash) {
-    setToken(fromHash)
-    return fromHash
+    const stored = getToken()
+    // An old tab URL (or a phone home-screen icon) carries the token from ITS
+    // pairing era. If we already hold a DIFFERENT token — e.g. the server side
+    // was rotated (撤销配对) and this device re-paired — the hash must NOT
+    // re-seed it, or every boot resurrects a dead credential (WS/HTTP 401
+    // loop, "must refresh forever"). A first pairing on a fresh device
+    // (nothing stored yet) still takes the hash.
+    if (!stored || stored === fromHash) {
+      setToken(fromHash)
+      return fromHash
+    }
   }
   return getToken()
 }

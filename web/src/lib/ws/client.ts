@@ -1,5 +1,6 @@
 import { connection, latency, type ConnectionStatus } from '../stores/connection.js'
 import { getToken } from '../auth-token.js'
+import { handleAuthFailure } from '../auth-reload.js'
 
 const BACKOFF = [2000, 4000, 8000, 16000, 30000]
 
@@ -111,6 +112,14 @@ export function createWsClient(opts: WsClientOpts): WsClient {
     setStatus('reconnecting')
     const delay = BACKOFF[Math.min(reconnectAttempt, BACKOFF.length - 1)]
     reconnectAttempt += 1
+    // Dead-credential self-heal: if upgrades keep failing, this tab is likely
+    // holding a stale token (rotated server-side). Probe once at attempt 4 —
+    // a 401 means re-pair (auth-reload clears the token and reloads).
+    if (reconnectAttempt === 4) {
+      void fetch('/api/me', { headers: { Authorization: `Bearer ${getToken() ?? ''}` } })
+        .then((r) => { if (r.status === 401) handleAuthFailure() })
+        .catch(() => {})
+    }
     reconnectTimer = setTimeout(() => void connect(), delay)
   }
 

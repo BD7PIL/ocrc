@@ -127,8 +127,19 @@ export function onUnauthorized(): void {
   }
   const fragment = typeof location !== 'undefined' ? readTokenFromHash(location.hash) : null
   if (fragment && fragment !== stored) {
+    // Hash/stored disagree (a pairing link opened over an existing device, or
+    // a stale home-screen URL over a re-paired one). Blindly trusting the hash
+    // resurrected dead tokens after 撤销配对 rotated the server side. Probe
+    // with the fragment: accept only if the server actually takes it.
     setToken(fragment)
-    auth.set('ready')
+    void fetch('/api/me', { headers: { Authorization: `Bearer ${fragment}` } })
+      .then((res) => {
+        if (res.ok) { auth.set('ready'); return }
+        clearToken()
+        try { history.replaceState(null, '', location.pathname + location.search) } catch { /* ignore */ }
+        auth.set('pairing')
+      })
+      .catch(() => {})
     return
   }
   if (fragment) {

@@ -4,6 +4,9 @@
   import Icon from '$lib/components/Icon.svelte'
 
   export let email = ''
+  /** Build commit of the served bundle — hover the user chip to self-verify
+   *  which UI version the tab is actually running (SW-staleness check). */
+  export let build = ''
   export let onPalette: () => void
   export let installEvent: any = null
   export let onInstall: () => void = () => {}
@@ -84,7 +87,7 @@
   </button>
 
   <!-- User -->
-  <div class="user">
+  <div class="user" title={build ? `UI build ${build}` : undefined}>
     <span class="user-email mono">{userLabel}</span>
     <span class="avatar mono" aria-hidden="true">{userInitial}</span>
   </div>

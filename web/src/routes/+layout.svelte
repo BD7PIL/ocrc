@@ -51,6 +51,8 @@
 
   let email = ''
   let wsClient: ReturnType<typeof createWsClient> | null = null
+  /** Commit of the bundle this tab is running (hover the user chip). */
+  let uiBuild = ''
 
   // Registered ONCE in onMount — the old inline registration sat inside
   // afterNavigate, stacking one more window listener per navigation.
@@ -177,6 +179,12 @@
     if (wsClient) { wsClient.close(); wsClient = null }
 
     api.me().then((m) => { email = m.email }).catch(() => {})
+    api.version().then((v) => { uiBuild = v.commit || '' }).catch(() => {})
+    // Periodic SW update check: a tab left open for days otherwise never
+    // notices a new build (the update banner relies on this firing).
+    setInterval(() => {
+      navigator.serviceWorker?.getRegistration?.()?.then((r) => r?.update().catch(() => {}))
+    }, 30 * 60 * 1000)
     api.sessions().then((list) => { sessionList.set(list) }).catch(() => {})
     loadCapabilities()
     loadBackends()
@@ -334,6 +342,7 @@
   {#if !(isMobile && hasSession)}
     <Titlebar
       {email}
+      build={uiBuild}
       onPalette={() => paletteOpen.set(true)}
       {installEvent}
       onInstall={install}

@@ -5,6 +5,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { api } from '$lib/api/client.js'
+  import MarkdownView from '../MarkdownView.svelte'
 
   export let sessionId: string
   export let messageId: string
@@ -18,6 +19,15 @@
   let error = ''
   let missing = false
   let loading = true
+  /** Raw terminal output is the default (tool semantics); long markdown
+     documents (prompts, reports) can be flipped to rendered md. The choice
+     persists — it's a viewer preference, not per-tab state. */
+  let renderMd = false
+  try { renderMd = localStorage.getItem('ocrc.toolMd') === '1' } catch { /* private mode */ }
+  function toggleMd() {
+    renderMd = !renderMd
+    try { localStorage.setItem('ocrc.toolMd', renderMd ? '1' : '0') } catch { /* ignore */ }
+  }
 
   let pollTimer: ReturnType<typeof setTimeout> | undefined
   let destroyed = false
@@ -69,6 +79,10 @@
   <div class="hd">
     <span class="tool mono">{tool || 'tool'}</span>
     <span class="st mono {status}">{statusLabel}</span>
+    <span class="sp"></span>
+    {#if output}
+      <button class="md-toggle mono" class:on={renderMd} title="渲染为 Markdown / 原始输出" on:click={toggleMd}>MD</button>
+    {/if}
   </div>
   {#if command}
     <div class="cmd mono">{command}</div>
@@ -80,7 +94,11 @@
   {:else if error}
     <pre class="body mono err">{error}</pre>
   {:else if output}
-    <pre class="body mono">{output}</pre>
+    {#if renderMd}
+      <div class="md-wrap"><MarkdownView src={output} /></div>
+    {:else}
+      <pre class="body mono">{output}</pre>
+    {/if}
   {:else}
     <div class="hint mono">{status === 'running' || status === 'pending' ? '运行中——输出将在完成时出现' : '（无输出）'}</div>
   {/if}
@@ -89,6 +107,26 @@
 <style>
   .out { font-size: 11.5px; }
   .hd { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .sp { flex: 1; }
+  .md-toggle {
+    background: transparent;
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-xs, 4px);
+    color: var(--text-3);
+    font-size: 9px;
+    padding: 2px 6px;
+    cursor: pointer;
+    letter-spacing: .08em;
+  }
+  .md-toggle.on { color: var(--accent); border-color: var(--accent-line, var(--accent)); }
+  .md-wrap {
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: 8px 10px;
+    background: var(--bg-elev2, var(--bg-input));
+    border-radius: var(--radius-xs, 4px);
+    font-size: 12px;
+  }
   .tool { font-size: 12px; font-weight: 600; color: var(--text-2); }
   .st { font-size: 10px; color: var(--text-3); }
   .st.running, .st.pending { color: var(--warn); }

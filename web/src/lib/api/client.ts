@@ -213,7 +213,7 @@ export interface RemoteRow {
 export interface SkillRow { name: string; description?: string }
 export interface FileEntryRow { name: string; path: string; type: 'file' | 'directory' }
 export interface WorktreeRow { name: string; directory?: string }
-export type ChannelKind = 'telegram' | 'wechat' | 'lark'
+export type ChannelKind = 'telegram' | 'wechat' | 'lark' | 'dingtalk'
 export interface ChannelRow {
   id: string
   channel: ChannelKind

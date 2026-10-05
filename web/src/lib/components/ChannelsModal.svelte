@@ -55,13 +55,68 @@
   onDestroy(() => { if (countdownTimer) clearInterval(countdownTimer) })
 
   function name(channel: string): string {
-    return channel === 'telegram' ? 'Telegram' : channel === 'wechat' ? '微信' : channel === 'lark' ? 'Lark' : channel
+    return channel === 'telegram' ? 'Telegram'
+      : channel === 'wechat' ? '企业微信'
+      : channel === 'lark' ? '飞书 / Lark'
+      : channel === 'dingtalk' ? '钉钉 / DingTalk'
+      : channel
+  }
+
+  // 0.27: per-platform credential surfaces — the fields each future transport
+  // will actually consume. Saved write-only into channels.json (GET redacts).
+  const CREDENTIAL_FIELDS: Record<string, Array<{ key: string; label: string; placeholder?: string }>> = {
+    telegram: [{ key: 'token', label: 'BotFather token', placeholder: 'BotFather token（留空保持不变）' }],
+    wechat: [
+      { key: 'corp_id', label: '企业 ID（corp_id）' },
+      { key: 'corp_secret', label: '应用 Secret（corp_secret）' },
+      { key: 'agent_id', label: 'AgentId' },
+      { key: 'callback_token', label: '回调 Token' },
+      { key: 'encoding_aes_key', label: '回调 EncodingAESKey' },
+    ],
+    lark: [
+      { key: 'app_id', label: 'App ID' },
+      { key: 'app_secret', label: 'App Secret' },
+    ],
+    dingtalk: [
+      { key: 'client_id', label: 'Client ID（AppKey）' },
+      { key: 'client_secret', label: 'Client Secret（AppSecret）' },
+    ],
+  }
+  /** Draft state for the NON-telegram credential editors: channelId → field → value. */
+  let credDraft: Record<string, Record<string, string>> = {}
+  function resetCredDraft(id: string) {
+    credDraft = { ...credDraft, [id]: {} }
+    credNote = ''; credError = ''
+  }
+  function setDraft(id: string, key: string, value: string) {
+    credDraft = { ...credDraft, [id]: { ...(credDraft[id] ?? {}), [key]: value } }
+  }
+  function credFields(channel: string) {
+    return CREDENTIAL_FIELDS[channel] ?? []
+  }
+  async function saveCredFields(c: ChannelRow) {
+    const draft = (credDraft[c.id] ?? {}) as Record<string, string>
+    const filled: Record<string, string> = {}
+    for (const [k, v] of Object.entries(draft)) {
+      if (typeof v === 'string' && v.trim()) filled[k] = v.trim()
+    }
+    if (Object.keys(filled).length === 0) { credError = '请至少填写一个字段'; return }
+    try {
+      const res = await api.updateChannel(c.id, { credentials: filled })
+      if (res.error) { credError = res.error; return }
+      credNote = '已保存——接入后生效'
+      credDraft = { ...credDraft, [c.id]: {} }
+      await load()
+    } catch (e) {
+      credError = `保存失败：${(e as Error).message}`
+    }
   }
   function close() { channelsOpen.set(false) }
   function select(id: string) {
     selectedId = id
     tokenDraft = ''; credNote = ''; credError = ''
     allowDraft = ''; allowNote = ''; allowError = ''
+    resetCredDraft(id)
   }
   async function toggleEnabled(c: ChannelRow) {
     channels = channels.map((x) => (x.id === c.id ? { ...x, enabled: !x.enabled } : x))
@@ -177,14 +232,29 @@
             </p>
 
             <div class="sec">
-              <div class="sec-label">关联凭证{#if selected.channel === 'telegram'}（保存时向 Telegram 验证）{/if}</div>
-              <input class="cred mono" placeholder={selected.channel === 'telegram' ? 'BotFather token（留空保持不变）' : '凭证（预留）'}
-                bind:value={tokenDraft} />
-              <div class="sec-acts">
-                <button class="save" on:click={() => saveCred(selected)}>保存</button>
-                {#if credNote}<span class="note">{credNote}</span>{/if}
-                {#if credError}<span class="note err">{credError}</span>{/if}
-              </div>
+              <div class="sec-label">关联凭证{#if selected.channel === 'telegram'}（保存时向 Telegram 验证）{:else}（{name(selected.channel)}接入前预置，保存到本地凭证库）{/if}</div>
+              {#if selected.channel === 'telegram'}
+                <input class="cred mono" placeholder="BotFather token（留空保持不变）"
+                  bind:value={tokenDraft} />
+                <div class="sec-acts">
+                  <button class="save" on:click={() => saveCred(selected)}>保存</button>
+                  {#if credNote}<span class="note">{credNote}</span>{/if}
+                  {#if credError}<span class="note err">{credError}</span>{/if}
+                </div>
+              {:else}
+                {#each credFields(selected.channel) as f (f.key)}
+                  <label class="cred-row">
+                    <span class="cred-label">{f.label}</span>
+                    <input class="cred mono" placeholder="待接入" value={credDraft[selected.id]?.[f.key] ?? ''} on:input={(e) => setDraft(selected.id, f.key, e.currentTarget.value)} />
+                  </label>
+                {/each}
+                <div class="sec-acts">
+                  <button class="save" on:click={() => saveCredFields(selected)}>保存</button>
+                  <span class="note">保存整体替换该通道凭证；接入前仅落盘不入网</span>
+                  {#if credNote}<span class="note">{credNote}</span>{/if}
+                  {#if credError}<span class="note err">{credError}</span>{/if}
+                </div>
+              {/if}
             </div>
 
             {#if selected.channel === 'telegram'}
@@ -375,6 +445,8 @@
   .switch.on .knob { background: var(--accent); transform: translateX(18px); }
   .note { margin: 0; font-size: 11.5px; color: var(--text-3); }
   .note.err { color: var(--err); }
+  .cred-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .cred-label { flex-shrink: 0; width: 168px; font-size: 11px; color: var(--text-3); }
   .sec { border-top: 1px solid var(--border-2); padding-top: 10px; }
   .danger { border-top-color: var(--err); }
   .sec-label { font-size: 11px; color: var(--text-3); margin-bottom: 6px; }

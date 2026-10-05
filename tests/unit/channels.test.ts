@@ -9,12 +9,13 @@ function tmpPath() {
 }
 
 describe('createChannelsStore', () => {
-  it('seeds three channel defaults with only telegram enabled', () => {
+  it('seeds four channel defaults with only telegram enabled', () => {
     const store = createChannelsStore(tmpPath())
     const bots = store.list()
-    expect(bots.map((b) => b.id)).toEqual(['tg-default', 'wechat-default', 'lark-default'])
+    expect(bots.map((b) => b.id)).toEqual(['tg-default', 'wechat-default', 'lark-default', 'dingtalk-default'])
     expect(bots.find((b) => b.id === 'tg-default')?.enabled).toBe(true)
     expect(bots.find((b) => b.id === 'wechat-default')?.enabled).toBe(false)
+    expect(bots.find((b) => b.id === 'dingtalk-default')?.enabled).toBe(false)
     expect(bots.find((b) => b.id === 'tg-default')?.replyGranularity).toBe('standard')
   })
 
@@ -47,7 +48,7 @@ describe('createChannelsStore', () => {
     const fresh = store.reset('tg-default')!
     expect(fresh.enabled).toBe(true)
     expect(fresh.replyGranularity).toBe('standard')
-    expect(store.list()).toHaveLength(3)
+    expect(store.list()).toHaveLength(4)
   })
 
   it('update()/reset() on an unknown id returns undefined', () => {

@@ -11,7 +11,10 @@ const log = createLogger('channels')
  * resets them to defaults.
  */
 
-export type ChannelKind = 'telegram' | 'wechat' | 'lark'
+/** Channel kinds. `dingtalk` joins 0.27 as a first-class stub (official
+ *  Stream-Mode app integration planned); `wechat` means 企业微信 (WeCom
+ *  self-built app) — personal-WeChat automation is out of scope entirely. */
+export type ChannelKind = 'telegram' | 'wechat' | 'lark' | 'dingtalk'
 /** standard = hide the tool-call process (ZCode 标准回复); detailed = show it. */
 export type ReplyGranularity = 'standard' | 'detailed'
 export type WorkspaceScope = { mode: 'all' } | { mode: 'custom'; dirs: string[] }
@@ -41,6 +44,7 @@ const DEFAULT_IDS: Array<{ id: string; channel: ChannelKind }> = [
   { id: 'tg-default', channel: 'telegram' },
   { id: 'wechat-default', channel: 'wechat' },
   { id: 'lark-default', channel: 'lark' },
+  { id: 'dingtalk-default', channel: 'dingtalk' },
 ]
 
 function defaults(): ChannelBot[] {

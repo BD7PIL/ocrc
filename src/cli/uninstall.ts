@@ -5,44 +5,59 @@ import { fileURLToPath } from 'node:url'
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const OPENCODE_CONFIG_DIR = process.env.OPENCODE_CONFIG_DIR ?? join(homedir(), '.config', 'opencode')
-const BRIDGE_FILE = join(OPENCODE_CONFIG_DIR, 'plugins', 'ocrc.js')
 const GLOBAL_OPENCODE_JSON = join(OPENCODE_CONFIG_DIR, 'opencode.json')
+const PKG_NAME = '@bd7pil/ocrc'
 
 type PluginEntry = string | [string, Record<string, unknown>]
 
-/** Remove any legacy directory-path / package entry from opencode.json. */
-function removeLegacyEntry(): boolean {
-  if (!existsSync(GLOBAL_OPENCODE_JSON)) return false
+/** Every bridge layout any past install ever wrote (0.26.x scattered them). */
+function bridgeFiles(): string[] {
+  const homes = [OPENCODE_CONFIG_DIR, join(homedir(), '.opencode')]
+  const dirs = ['plugins', 'plugin']
+  const files: string[] = []
+  for (const home of homes) {
+    for (const dir of dirs) files.push(join(home, dir, 'ocrc.js'))
+  }
+  return files
+}
+
+/** Remove the ocrc npm entry (and any legacy directory-path entry) from an opencode config. */
+function removeConfigEntry(path: string): boolean {
+  if (!existsSync(path)) return false
   let config: Record<string, any>
-  try { config = JSON.parse(readFileSync(GLOBAL_OPENCODE_JSON, 'utf-8')) } catch { return false }
+  try { config = JSON.parse(readFileSync(path, 'utf-8')) } catch { return false }
   const plugins: PluginEntry[] = config.plugin ?? []
   const filtered = plugins.filter((e) => {
     const name = Array.isArray(e) ? e[0] : e
-    return !(name === REPO_ROOT || name.startsWith('opencode-remote-control'))
+    return !(name === PKG_NAME || name === REPO_ROOT || name.startsWith('opencode-remote-control'))
   })
   if (filtered.length === plugins.length) return false
   if (filtered.length > 0) config.plugin = filtered
   else delete config.plugin
-  writeFileSync(GLOBAL_OPENCODE_JSON, JSON.stringify(config, null, 2) + '\n')
+  writeFileSync(path, JSON.stringify(config, null, 2) + '\n')
   return true
 }
 
 export async function runUninstall(): Promise<void> {
   let removed = false
 
-  if (existsSync(BRIDGE_FILE)) {
-    rmSync(BRIDGE_FILE)
-    console.log(`Removed plugin bridge: ${BRIDGE_FILE}`)
-    removed = true
+  for (const f of bridgeFiles()) {
+    if (existsSync(f)) {
+      rmSync(f)
+      console.log(`Removed plugin bridge: ${f}`)
+      removed = true
+    }
   }
 
-  if (removeLegacyEntry()) {
-    console.log(`Removed legacy plugin entry from ${GLOBAL_OPENCODE_JSON}`)
-    removed = true
+  for (const path of [GLOBAL_OPENCODE_JSON, join(homedir(), '.opencode', 'opencode.json')]) {
+    if (removeConfigEntry(path)) {
+      console.log(`Removed ocrc plugin entry from ${path}`)
+      removed = true
+    }
   }
 
   if (!removed) {
-    console.log('opencode-remote-control was not installed (no bridge or config entry found).')
+    console.log('ocrc was not installed (no bridges or config entries found).')
     return
   }
 
@@ -53,14 +68,14 @@ export async function runUninstall(): Promise<void> {
 export async function main(): Promise<void> {
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
     console.log(`
-opencode-remote-control uninstall (opencode 1.17+)
+ocrc uninstall
 
 USAGE:
   node dist/cli/uninstall.js
 
 WHAT IT DOES:
-  - Removes the plugin bridge from ~/.config/opencode/plugins/
-  - Removes any legacy directory-path entry from opencode.json
+  - Removes every plugin bridge from all config-home layouts (legacy 0.2x installs)
+  - Removes the "@bd7pil/ocrc" npm entry (and legacy entries) from opencode configs
   - Leaves your .env untouched
 `)
     return

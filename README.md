@@ -50,10 +50,11 @@ verified on 1.18.x, the `"plugin"` array is the reliable load path:
 `ocrc install` adds this line automatically when it can do so safely (plain
 `opencode.json`); for a commented `jsonc` it prints the exact edit. opencode
 installs the package on next start; upgrades ship via `npm i -g
-@bd7pil/ocrc@latest` + restart. Directory-scanned global plugins
-(`~/.config/opencode/plugins/` and its 1.18 relocate targets) work on 1.17
-but were verified **not to load at all** on 1.18.32/1.18.34 serve mode
-(experiment: 2026-10-05) — the npm array is the only supported path.
+@bd7pil/ocrc@latest` + restart. This array is the **only** supported
+plugin-mode load path — directory-scanned "bridge" files (an older install
+mechanism) were removed in 0.26.8: opencode loaded them at unpredictable
+moments, spawning ghost instances that fought the real one for the PRIMARY
+lock and the web port. `ocrc uninstall` cleans any legacy bridges up.
 
 In **host mode** nothing touches opencode's config at all:
 

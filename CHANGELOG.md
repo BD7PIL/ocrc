@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.26.8 — exorcism: every bridge is gone (2026-10-05)
+
+### removed(install): directory bridges, everywhere, permanently
+- 「桥」时代终结：0.2x 的 install 曾把 `ocrc.js` 桥散布到各配置家
+  （`~/.config/opencode/plugins/`、1.18 迁移目标的 `~/.opencode/plugin(s)/`）。
+  实验与生产双重确认其加载时机**不可预测**：opencode 实例会在任意时刻加载
+  桥，派生出幽灵 ocrc 实例（1 PRIMARY + 4 PASSIVE 同屏），与真正的 host 抢
+  PRIMARY 锁与 web 端口——日志里成对的 starting、幽灵 primary.lock pid、
+  EADDRINUSE 重试都源于此。
+- **install** 不再写任何桥：只写 .env + npm 数组条目（1.18.x 唯一可靠路径，
+  0.26.7 已修复其对象 default 导出），并顺手清理环境中的一切旧桥。
+- **uninstall** 清理所有历史布局的桥 + npm 数组条目 + 遗留配置项。
+- 本机环境已手工清空（三桥 + /tmp 实验残留全部移除），生产 host 独占
+  web 4099，无第二实例。
+
+### docs: README 桥的最终结论同步
+
 ## 0.26.7 — the npm-plugin path actually works on opencode 1.18.3x; pairing revoke; mode visibility (2026-10-05)
 
 ### fix(plugin): default export must be an object (this is the serve-mode unlock)

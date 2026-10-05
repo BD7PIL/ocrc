@@ -32,9 +32,9 @@
 
 ## 第四条：兼容基线
 
-- 被控端 opencode **pin 1.18.x**——这个 HTTP API 形状是 ocrc 的方言；V2 支持单独立项（`v2-backend`/`control-plane` seam 已备好）。
+- 被控端 opencode **pin 1.18.x**——这个 HTTP API 形状是 ocrc 的方言；V2 支持单独立项（`v2-backend`/`control-plane` seam 已备好）。**2026-10-05 EL7 实测**：1.18.34（V1 最新补丁）在 glibc 2.17 正常运行——跟随 1.18.x 补丁版不破坏 EL7；V2 无公开 release、默认安装通道仍发 V1，冒烟脚本 `scripts/v2-smoke.sh` 就绪，拿到 V2 通道后复跑。
 - **EL7（glibc 2.17）是遗留生产下限**，不强行升级；新部署 x86_64 现代 baseline。
-- Windows 被控端 = 有界补丁（Node 端口探测替代 ss、配置路径对齐上游 Windows 约定、e2e 真机验证），排企业中转之后，做不做看需求。
+- Windows 被控端 = 有界补丁（~~Node 端口探测替代 ss~~ 已落地：`portOwner()` 绑定探测 2026-10-05 合入；余项：配置路径对齐上游 Windows 约定、e2e 真机验证），排企业中转之后，做不做看需求。
 - 信创 arm64 出现时再立项（scp 的架构匹配检查会拒绝跨架构，安全设计）。
 
 ## 第五条：明确不做

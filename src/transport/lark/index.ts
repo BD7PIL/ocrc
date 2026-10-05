@@ -169,6 +169,11 @@ export function createLarkTransport(cfg: LarkConfig): Transport & { handleCardAc
       const slot = { messageId: '', lastPatchAt: now }
       turnCards.set(card.sessionId, slot)
       slot.messageId = await sendCard(chatId, card)
+      if (!slot.messageId) {
+        // create resolved without an id — drop the slot so the next snapshot
+        // retries a fresh send instead of dropping every patch forever.
+        turnCards.delete(card.sessionId)
+      }
       return
     }
     if (card.kind === 'assistant') {

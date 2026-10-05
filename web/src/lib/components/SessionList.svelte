@@ -210,7 +210,10 @@
   $: workspaceScoped = filterByWorkspace(byAgent, $activeWorkspace)
   $: searched = workspaceScoped.filter((s) => matchesQuery(s, query))
   $: live = searched.filter((s) => !$archivedSessions.has(s.id))
-  $: archivedRows = [...searched.filter((s) => $archivedSessions.has(s.id))]
+  // the archive view lists ALL archived sessions — the toolbar query belongs
+  // to the default view (a hidden input silently filtering a different view
+  // was an OCR review finding)
+  $: archivedRows = [...workspaceScoped.filter((s) => $archivedSessions.has(s.id))]
     .sort((a, b) => b.lastActiveAt - a.lastActiveAt)
 
   $: timeBuckets = partitionTime(live, $pinnedSessions)

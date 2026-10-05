@@ -37,6 +37,9 @@ export interface DingTalkConfig {
   clientId: string
   clientSecret: string
   robotCode?: string // defaults to clientId (the robot's code IS the app key)
+  /** Optional sender allowlist (senderStaffId values). Empty = open to
+   *  anyone who can reach the app — set it in enterprise deployments. */
+  allowIds?: string[]
   stream?: DingStreamClientLike
   rest?: DingRestLike
 }
@@ -92,23 +95,26 @@ export function createDingTalkTransport(cfg: DingTalkConfig): Transport {
   let messageHandler: ((msg: IncomingMessage) => Promise<void>) | undefined
   let connected = false
   let stream: DingStreamClientLike | undefined
+  let restClient: unknown
   const robotCode = cfg.robotCode ?? cfg.clientId
 
   /** messageId (inbound) → sender id; the user-card echo binds it to a session. */
   const senderByMessageId = new Map<string, string>()
   /** sessionId → sender id (learned from user-card echoes). */
   const senderBySession = new Map<string, string>()
-  let lastSender: string | undefined // fallback for pinned/global flows
 
   async function rest(): Promise<DingRestLike> {
     if (cfg.rest) return cfg.rest
-    const mod = await import('dingtalk-stream')
+    // one cached DWClient — a fresh client per call defeated the SDK's
+    // per-instance token cache (OCR review) and hammered the token endpoint.
+    if (!restClient) {
+      const mod = await import('dingtalk-stream')
+      restClient = new mod.DWClient({ clientId: cfg.clientId, clientSecret: cfg.clientSecret })
+    }
+    const client = restClient
     return {
       async getAccessToken() {
-        // The SDK's DWClient.getAccessToken() fetches + caches the token; a
-        // one-off client per refresh keeps the REST slice SDK-shaped.
-        const c = new mod.DWClient({ clientId: cfg.clientId, clientSecret: cfg.clientSecret })
-        return String(await (c as any).getAccessToken())
+        return String(await (client as any).getAccessToken())
       },
       async oToMessages(token, body) {
         const res = await fetch('https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend', {
@@ -138,9 +144,17 @@ export function createDingTalkTransport(cfg: DingTalkConfig): Transport {
           const text = String(body?.text?.content ?? '').replace(/^@\S+\s*/, '').trim()
           if (!text || !messageHandler) return
           const sender = String(body?.senderStaffId ?? body?.senderNick ?? '')
+          // optional per-channel allow gate (credentials.allow_ids, CSV) —
+          // empty/absent = any coworker who can reach the app may drive it
+          const allowRaw = cfg.allowIds ?? []
+          if (allowRaw.length > 0 && !allowRaw.includes(sender)) {
+            log.warn(`dingtalk message from non-allowlisted sender dropped`)
+            return { status: 'SUCCESS' }
+          }
           const messageId = String(body?.msgId ?? `ding_${Date.now()}`)
+          // bounded map (OCR review: it grew without bound on enterprise bots)
+          if (senderByMessageId.size > 2000) senderByMessageId.clear()
           senderByMessageId.set(messageId, sender)
-          lastSender = sender
           await messageHandler({
             userId: sender,
             chatId: sender, // 1:1 robot chats route by sender

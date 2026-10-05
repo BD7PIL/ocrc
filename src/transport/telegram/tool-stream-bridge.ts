@@ -24,6 +24,11 @@ import { createLogger } from '../../utils/logger.js'
 
 const log = createLogger('tg-tools')
 
+/** TG API calls must never hang the bridge (same posture as streaming-render). */
+function withTimeout<T>(p: Promise<T>, ms = 15000): Promise<T> {
+  return Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error('telegram call timeout')), ms))])
+}
+
 const DONE_ICON = '✅'
 const ERROR_ICON = '❌'
 const MAX_ARGS = 80
@@ -51,24 +56,24 @@ export class ToolStreamBridge {
     this.streamer = new ToolCallStreamer({
       throttleMs: (sessionId) => getSessionStreamThrottleMs(sessionId),
       sendText: async (_sessionId, text) => {
-        const res = await deps.api.sendMessage(deps.chatId, text, {
+        const res = await withTimeout(deps.api.sendMessage(deps.chatId, text, {
           parse_mode: undefined,
           link_preview_options: { is_disabled: true },
-        } as any)
+        } as any))
         return res.message_id
       },
       editText: async (_sessionId, messageId, text) => {
         try {
-          await deps.api.editMessageText(deps.chatId, messageId, text, {
+          await withTimeout(deps.api.editMessageText(deps.chatId, messageId, text, {
             parse_mode: undefined,
             link_preview_options: { is_disabled: true },
-          } as any)
+          } as any))
         } catch (err) {
           if (!(err as Error)?.message?.includes('message is not modified')) throw err
         }
       },
       deleteText: async (_sessionId, messageId) => {
-        await deps.api.deleteMessage(deps.chatId, messageId).catch(() => {})
+        await withTimeout(deps.api.deleteMessage(deps.chatId, messageId)).catch(() => {})
       },
     })
     this.tracker = new RunningToolTracker({

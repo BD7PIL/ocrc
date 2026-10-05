@@ -68,7 +68,9 @@ export function redactProxyUrl(u: string | undefined): string | undefined {
     }
     return url.toString()
   } catch {
-    return u // not a parseable URL — show as-is (likely a bare host:port)
+    // not a parseable URL — fail CLOSED rather than risk a credential-bearing
+    // odd syntax flowing raw to the panel.
+    return '••••'
   }
 }
 export function redactRemote(r: RemoteHost): RedactedRemote {
@@ -151,6 +153,10 @@ export function createRemotesStore(path: string): RemotesStore {
         name: remote.name,
         serverPassword: remote.serverPassword || generateServerPassword(),
         enabled: remote.enabled ?? true,
+        httpProxy: remote.httpProxy,
+        httpsProxy: remote.httpsProxy,
+        noProxy: remote.noProxy,
+        caPath: remote.caPath,
       })
       remotes.push(fresh)
       persist()

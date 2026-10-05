@@ -90,11 +90,13 @@ export function shouldRestart(exitCode: number | null, signal: string | null, st
  */
 export async function portOwner(port: string): Promise<{ pid: number | null } | null> {
   const net = await import('node:net')
+  // CONNECT probe, not bind probe: a bind can steal 127.0.0.1:port for its
+  // brief lifetime and EADDRINUSE-crash the very server we're waiting for.
+  // Connecting succeeds ⇒ owned; refused/reset ⇒ free.
   const owned = await new Promise<boolean>((resolve) => {
-    const srv = net.createServer()
-    srv.once('error', (err: NodeJS.ErrnoException) => resolve(err.code === 'EADDRINUSE'))
-    srv.once('listening', () => { srv.close(() => resolve(false)) })
-    srv.listen(Number(port), '127.0.0.1')
+    const sock = net.connect(Number(port), '127.0.0.1')
+    sock.once('connect', () => { sock.destroy(); resolve(true) })
+    sock.once('error', () => resolve(false))
   })
   if (!owned) return null
   return { pid: pidFromSsBestEffort(port) }
@@ -253,7 +255,7 @@ export async function main(argv: string[]): Promise<void> {
     }
     const existing = await portOwner(cfg.port)
     if (existing !== null) {
-      console.log(`already running (pid ${existing}, port ${cfg.port}) — nothing to do`)
+      console.log(`already running (pid ${existing.pid ?? 'unknown'}, port ${cfg.port}) — nothing to do`)
       return
     }
     const supPid = readPid(cfg.port)
@@ -353,11 +355,11 @@ export async function main(argv: string[]): Promise<void> {
   }
 
   if (cmd === 'status') {
-    const portPid = (await portOwner(cfg.port))?.pid ?? null
+    const portOwnerRes = await portOwner(cfg.port)
     const ver = spawnSync(cfg.bin, ['--version'], { encoding: 'utf-8' }).stdout?.trim()
     const supPid = readPid(cfg.port)
     console.log(`binary    : ${cfg.bin} (${(ver ?? 'n/a').split('\n')[0]})`)
-    console.log(`server    : port ${cfg.port} ${portPid !== null ? `UP (pid ${portPid})` : 'DOWN'}`)
+    console.log(`server    : port ${cfg.port} ${portOwnerRes !== null ? `UP (pid ${portOwnerRes.pid ?? 'unknown'})` : 'DOWN'}`)
     console.log(`supervisor: ${supPid !== null && alive(supPid) ? `active (pid ${supPid})` : 'none'}`)
     const web = httpGetStatus(`http://127.0.0.1:${webPort}/`)
     console.log(`web panel : port ${webPort} ${web !== null ? `HTTP ${web}` : 'unreachable'}`)

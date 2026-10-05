@@ -16,8 +16,8 @@ const { app, BrowserWindow, Tray, Menu, nativeImage } = require('electron')
 const { spawn } = require('node:child_process')
 const http = require('node:http')
 
-const PANEL_URL = process.env.OCRC_PANEL_URL || 'http://127.0.0.1:4099'
 const PANEL_PORT = Number(process.env.OCRC_WEB_PORT || 4099)
+const PANEL_URL = process.env.OCRC_PANEL_URL || `http://127.0.0.1:${PANEL_PORT}`
 const OCRC_BIN = process.env.OCRC_BIN || 'ocrc'
 const WORK_DIR = process.env.OCRC_WORK_DIR || null
 const HEALTH_TIMEOUT_MS = Number(process.env.OCRC_SHELL_HEALTH_TIMEOUT || 60_000)
@@ -68,7 +68,11 @@ function createWindow() {
     title: 'ocrc',
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
-  win.loadURL(PANEL_URL)
+  win.loadURL(PANEL_URL).catch((err) => {
+    // daemon died (or the port got stolen) between health-check and load —
+    // an unhandled rejection here would crash the main process
+    console.error('[ocrc-shell] panel load failed:', err.message)
+  })
   // Windows: closing the window hides to tray (ZCode desktop's default);
   // the explicit 退出 menu item sets quitting first.
   win.on('close', (e) => {

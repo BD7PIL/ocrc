@@ -86,6 +86,9 @@ export function registerChannels(
     if (body.replyGranularity && body.replyGranularity !== 'standard' && body.replyGranularity !== 'detailed') {
       return c.json({ error: 'replyGranularity must be standard|detailed' }, 400)
     }
+    if (body.enabled !== undefined && typeof body.enabled !== 'boolean') {
+      return c.json({ error: 'enabled must be a boolean' }, 400)
+    }
     if (body.workspaces && body.workspaces.mode !== 'all' && body.workspaces.mode !== 'custom') {
       return c.json({ error: 'invalid workspaces' }, 400)
     }

@@ -5,17 +5,20 @@
      ~/.ocrc/channels.json via /api/channels. -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
-  import { api, type ChannelRow } from '$lib/api/client.js'
+  import { api, type ChannelRow, type ChannelsInfo } from '$lib/api/client.js'
   import { channelsOpen } from '$lib/stores/ui.js'
   import ChannelLogo from './ChannelLogo.svelte'
 
   let channels: ChannelRow[] = []
-  let tgMeta: { tokenSource: 'panel' | 'env' | 'none'; allowUsers: number } | null = null
+  let tgMeta: ChannelsInfo | null = null
   let selectedId: string | undefined
   let pair: { url: string; svg: string; expiresAt?: number } | null = null
   let tokenDraft = ''
   let credNote = ''
   let credError = ''
+  let allowDraft = ''
+  let allowNote = ''
+  let allowError = ''
   let workspaceDirs: string[] = []
   let copied = false
   // ZCode-style pairing session: countdown from expiresAt; 停止 parks the block
@@ -55,7 +58,11 @@
     return channel === 'telegram' ? 'Telegram' : channel === 'wechat' ? '微信' : channel === 'lark' ? 'Lark' : channel
   }
   function close() { channelsOpen.set(false) }
-  function select(id: string) { selectedId = id; tokenDraft = ''; credNote = ''; credError = '' }
+  function select(id: string) {
+    selectedId = id
+    tokenDraft = ''; credNote = ''; credError = ''
+    allowDraft = ''; allowNote = ''; allowError = ''
+  }
   async function toggleEnabled(c: ChannelRow) {
     channels = channels.map((x) => (x.id === c.id ? { ...x, enabled: !x.enabled } : x))
     try { await api.updateChannel(c.id, { enabled: !c.enabled }) } catch { /* ignore */ }
@@ -80,7 +87,36 @@
   async function resetBot() {
     if (!selected) return
     try { await api.resetChannel(selected.id) } catch { /* ignore */ }
+    allowDraft = ''; allowNote = ''; allowError = ''
     await load()
+  }
+
+  /** Parse the comma-separated draft into a validated numeric id list. */
+  function parseAllow(text: string): number[] | null {
+    const ids = text.split(/[,\s]+/).map((t) => t.trim()).filter(Boolean)
+    if (ids.length === 0) return []
+    for (const t of ids) {
+      if (!/^\d{1,15}$/.test(t)) return null
+    }
+    return ids.map(Number)
+  }
+  async function saveAllow(c: ChannelRow) {
+    const parsed = parseAllow(allowDraft)
+    if (parsed === null) { allowError = '存在非法 id——必须是纯数字（Telegram 数字 user id）'; return }
+    try {
+      const res = await api.updateChannel(c.id, { allowUsers: parsed })
+      if (res.error) { allowError = res.error; return }
+      allowNote = parsed.length === 0 ? '面板名单已清空——恢复使用 config.env 的 ALLOWED_USER_IDS（重启生效）' : `已保存 ${parsed.length} 个用户——重启实例后生效`
+      allowError = ''
+      allowDraft = ''
+      await load()
+    } catch (e) {
+      allowError = `保存失败：${(e as Error).message}`
+    }
+  }
+  async function clearAllow() {
+    allowDraft = ''
+    await saveAllow(selected!)
   }
   async function copyLink() {
     if (!pair) return
@@ -133,8 +169,8 @@
                 停用/启用在重启实例后生效。<br />
                 凭证来源：{tgMeta?.tokenSource === 'panel' ? '面板凭证' : tgMeta?.tokenSource === 'env' ? 'config.env（TELEGRAM_BOT_TOKEN）' : '未配置'}
                 {#if selected.hasToken && selected.tokenHint}（面板：{selected.tokenHint}）{/if}
-                · 允许用户：{tgMeta?.allowUsers ?? 0} 个
-                {#if (tgMeta?.allowUsers ?? 0) === 0}——未配置 ALLOWED_USER_IDS，bot 不会回复任何人{/if}
+                · 允许用户（生效）：{tgMeta?.allowUsers ?? 0} 个（来源：{tgMeta?.allowSource === 'panel' ? '面板' : 'config.env'}）
+                {#if (tgMeta?.allowUsers ?? 0) === 0}——bot 不会回复任何人{/if}
               {:else}
                 待接入：凭证保存后，通道本体在后续版本启用。
               {/if}
@@ -150,6 +186,21 @@
                 {#if credError}<span class="note err">{credError}</span>{/if}
               </div>
             </div>
+
+            {#if selected.channel === 'telegram'}
+              <div class="sec">
+                <div class="sec-label">允许用户{#if tgMeta?.allowSource === 'panel'}（面板优先于 config.env）{:else}（当前来自 config.env）{/if}</div>
+                <input class="cred mono" placeholder="逗号分隔的数字 user id，如 123456789, 987654321"
+                  bind:value={allowDraft} />
+                <div class="sec-acts">
+                  <button class="save" on:click={() => saveAllow(selected)}>保存</button>
+                  <button class="save" on:click={clearAllow} title="清空面板名单，恢复 config.env 的 ALLOWED_USER_IDS">恢复 env</button>
+                  {#if allowNote}<span class="note">{allowNote}</span>{/if}
+                  {#if allowError}<span class="note err">{allowError}</span>{/if}
+                </div>
+                <p class="note">改动重启实例后生效。数字 id 通过 @userinfobot 等获取；空名单 = bot 不回复任何人。</p>
+              </div>
+            {/if}
 
             <div class="sec">
               <div class="sec-label">回复粒度</div>

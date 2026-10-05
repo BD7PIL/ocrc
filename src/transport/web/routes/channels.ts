@@ -29,6 +29,10 @@ export function registerChannels(
 
   app.get('/api/channels', (c) => {
     const status = tgStatus?.() ?? null
+    const tg = channels.get('tg-default')
+    // Effective allowlist follows the boot precedence: panel value (when
+    // non-empty) wins over the env allowlist.
+    const panelAllow = tg?.allowUsers?.length ? tg.allowUsers : undefined
     return c.json({
       channels: channels.list().map((b) => ({
         ...b,
@@ -39,8 +43,9 @@ export function registerChannels(
       })),
       telegram: {
         // Panel token wins over config.env at boot — mirror that here live.
-        tokenSource: channels.get('tg-default')?.credentials?.token ? 'panel' : telegramMeta?.hasEnvToken ? 'env' : 'none',
-        allowUsers: telegramMeta?.allowUsers ?? 0,
+        tokenSource: tg?.credentials?.token ? 'panel' : telegramMeta?.hasEnvToken ? 'env' : 'none',
+        allowSource: panelAllow ? 'panel' : 'env',
+        allowUsers: (panelAllow?.length ?? telegramMeta?.allowUsers) ?? 0,
       },
     })
   })
@@ -67,6 +72,7 @@ export function registerChannels(
       replyGranularity?: ReplyGranularity
       workspaces?: WorkspaceScope
       credentials?: Record<string, string>
+      allowUsers?: unknown
     }
     if (body.replyGranularity && body.replyGranularity !== 'standard' && body.replyGranularity !== 'detailed') {
       return c.json({ error: 'replyGranularity must be standard|detailed' }, 400)
@@ -75,8 +81,28 @@ export function registerChannels(
       return c.json({ error: 'invalid workspaces' }, 400)
     }
 
+    let allowUsers: number[] | undefined
+    if (body.allowUsers !== undefined) {
+      if (!Array.isArray(body.allowUsers)) {
+        return c.json({ error: 'allowUsers must be an array of numeric Telegram user ids' }, 400)
+      }
+      const bad = body.allowUsers.find((n) => typeof n !== 'number' || !Number.isInteger(n) || n <= 0)
+      if (bad !== undefined) {
+        return c.json({ error: `allowUsers 含非法 id：${JSON.stringify(bad)}（必须是正整数）` }, 400)
+      }
+      if (body.allowUsers.length > 50) {
+        return c.json({ error: 'allowUsers 上限 50 个' }, 400)
+      }
+      allowUsers = [...new Set(body.allowUsers)]
+    }
+
     let warning: string | undefined
-    const patch = { ...body }
+    // Assemble explicitly — body.allowUsers is unvalidated `unknown` and must
+    // reach the store only through the sanitized `allowUsers` below.
+    const patch: Parameters<ChannelsStore['update']>[1] = {}
+    if (body.enabled !== undefined) patch.enabled = body.enabled
+    if (body.replyGranularity !== undefined) patch.replyGranularity = body.replyGranularity
+    if (body.workspaces !== undefined) patch.workspaces = body.workspaces
     const draftToken = body.credentials?.token
     if (typeof draftToken === 'string' && draftToken.trim()) {
       const verdict = await validateBotToken(draftToken.trim())
@@ -89,7 +115,7 @@ export function registerChannels(
       patch.credentials = { token: draftToken.trim() }
     }
 
-    const updated = channels.update(c.req.param('id'), patch)
+    const updated = channels.update(c.req.param('id'), allowUsers !== undefined ? { ...patch, allowUsers } : patch)
     if (!updated) return c.json({ error: 'not found' }, 404)
     return c.json({
       channel: { ...updated, credentials: undefined, hasToken: !!updated.credentials?.token },

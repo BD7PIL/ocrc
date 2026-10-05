@@ -31,7 +31,7 @@ describe('channels route — credential redaction + validation (0.27)', () => {
     expect(tg.tokenHint).toBe('••••cret')
     expect(JSON.stringify(body)).not.toContain('ABCDEF-secret')
     expect(tg.live).toEqual({ connected: true, username: 'my_ocrc_bot' })
-    expect(body.telegram).toEqual({ tokenSource: 'panel', allowUsers: 2 })
+    expect(body.telegram).toEqual({ tokenSource: 'panel', allowSource: 'env', allowUsers: 2 })
   })
 
   it('tokenSource reflects env when no panel credential is set', async () => {
@@ -94,5 +94,55 @@ describe('channels route — credential redaction + validation (0.27)', () => {
       body: JSON.stringify({ replyGranularity: 'verbose' }),
     })
     expect(res.status).toBe(400)
+  })
+
+  // ── allowlist editing (0.27) ──────────────────────────────────────────────
+
+  it('PATCH allowUsers validates shape and dedupes; GET exposes it + allowSource panel', async () => {
+    const { a, store } = app({ hasEnvToken: true, allowUsers: 1 })
+
+    const bad = await a.request('/api/channels/tg-default', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ allowUsers: [123, 'abc'] }),
+    })
+    expect(bad.status).toBe(400)
+    const neg = await a.request('/api/channels/tg-default', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ allowUsers: [-5] }),
+    })
+    expect(neg.status).toBe(400)
+
+    const ok = await a.request('/api/channels/tg-default', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ allowUsers: [123, 456, 123] }),
+    })
+    expect(ok.status).toBe(200)
+    // deduped on persist
+    expect(store.get('tg-default')?.allowUsers).toEqual([123, 456])
+
+    const body = await (await a.request('/api/channels')).json() as any
+    const tg = body.channels.find((c: any) => c.id === 'tg-default')
+    expect(tg.allowUsers).toEqual([123, 456])
+    // effective list follows the panel-wins precedence
+    expect(body.telegram.allowUsers).toBe(2)
+    expect(body.telegram.allowSource).toBe('panel')
+  })
+
+  it('reset clears the panel allowlist → allowSource falls back to env', async () => {
+    const { a, store } = app({ hasEnvToken: true, allowUsers: 3 })
+    await a.request('/api/channels/tg-default', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ allowUsers: [777] }),
+    })
+    await a.request('/api/channels/tg-default/reset', { method: 'POST' })
+
+    expect(store.get('tg-default')?.allowUsers).toBeUndefined()
+    const body = await (await a.request('/api/channels')).json() as any
+    expect(body.telegram.allowSource).toBe('env')
+    expect(body.telegram.allowUsers).toBe(3)
   })
 })

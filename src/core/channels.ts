@@ -24,12 +24,16 @@ export interface ChannelBot {
   credentials: Record<string, string>
   replyGranularity: ReplyGranularity
   workspaces: WorkspaceScope
+  /** 0.27: the Telegram allowlist (Telegram numeric user ids). When absent or
+   *  empty, entry falls back to the env ALLOWED_USER_IDS; set = panel wins
+   *  (same precedence as the panel token). Reset returns to the env fallback. */
+  allowUsers?: number[]
 }
 
 export interface ChannelsStore {
   list(): ChannelBot[]
   get(id: string): ChannelBot | undefined
-  update(id: string, patch: Partial<Pick<ChannelBot, 'enabled' | 'credentials' | 'replyGranularity' | 'workspaces'>>): ChannelBot | undefined
+  update(id: string, patch: Partial<Pick<ChannelBot, 'enabled' | 'credentials' | 'replyGranularity' | 'workspaces' | 'allowUsers'>>): ChannelBot | undefined
   reset(id: string): ChannelBot | undefined
 }
 
@@ -100,6 +104,11 @@ export function createChannelsStore(path: string): ChannelsStore {
       if (patch.credentials !== undefined) b.credentials = { ...patch.credentials }
       if (patch.replyGranularity !== undefined) b.replyGranularity = patch.replyGranularity
       if (patch.workspaces !== undefined) b.workspaces = patch.workspaces
+      if (patch.allowUsers !== undefined) {
+        // Defense in depth: the route validates shape; the store still only
+        // ever persists deduped integers.
+        b.allowUsers = [...new Set(patch.allowUsers.filter((n) => Number.isInteger(n)))]
+      }
       persist()
       return { ...b }
     },

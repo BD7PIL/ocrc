@@ -146,7 +146,7 @@ export const api = {
     jsonDelete<{ ok: boolean }>(`/api/worktrees?directory=${encodeURIComponent(directory)}&name=${encodeURIComponent(name)}`),
   channels: () =>
     jsonGet<{ channels: ChannelRow[]; telegram?: ChannelsInfo }>('/api/channels'),
-  updateChannel: (id: string, patch: { enabled?: boolean; replyGranularity?: 'standard' | 'detailed'; workspaces?: { mode: 'all' } | { mode: 'custom'; dirs: string[] }; credentials?: Record<string, string> }) =>
+  updateChannel: (id: string, patch: { enabled?: boolean; replyGranularity?: 'standard' | 'detailed'; workspaces?: { mode: 'all' } | { mode: 'custom'; dirs: string[] }; credentials?: Record<string, string>; allowUsers?: number[] }) =>
     jsonPatch<{ channel?: ChannelRow; warning?: string; error?: string }>(`/api/channels/${id}`, patch),
   resetChannel: (id: string) =>
     jsonPost<{ channel?: ChannelRow; error?: string }>(`/api/channels/${id}/reset`, {}),
@@ -222,6 +222,9 @@ export interface ChannelRow {
   credentials?: Record<string, string>
   hasToken?: boolean
   tokenHint?: string
+  /** Telegram allowlist (numeric user ids). Editable since 0.27; empty/absent
+   *  = falls back to config.env ALLOWED_USER_IDS at boot. */
+  allowUsers?: number[]
   replyGranularity: 'standard' | 'detailed'
   workspaces: { mode: 'all' } | { mode: 'custom'; dirs: string[] }
   live?: { connected: boolean; username?: string } | null
@@ -229,5 +232,7 @@ export interface ChannelRow {
 export interface ChannelsInfo {
   /** Where the running token comes from: panel credential / config.env / none. */
   tokenSource: 'panel' | 'env' | 'none'
+  /** Effective allowlist (panel value wins over env) + its source. */
+  allowSource: 'panel' | 'env'
   allowUsers: number
 }

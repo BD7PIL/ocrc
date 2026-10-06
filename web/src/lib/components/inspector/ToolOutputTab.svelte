@@ -117,7 +117,7 @@
 </div>
 
 <style>
-  .out { font-size: 11.5px; }
+  .out { font-size: 12px; }
   .hd { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
   .sp { flex: 1; }
   .md-toggle {

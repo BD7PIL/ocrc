@@ -2,7 +2,8 @@
   import { goto } from '$app/navigation'
   import Icon from './Icon.svelte'
   import { api } from '$lib/api/client.js'
-  import { backends, setActiveBackend, agentAccent, ACCENTS, ACCENT_HEX, ACCENT_BG, ACCENT_LINE, type Accent, type CapabilitiesSnapshot } from '$lib/stores/capabilities.js'
+  import { backends as backendsStore, backends, setActiveBackend, agentAccent, ACCENTS, ACCENT_HEX, ACCENT_BG, ACCENT_LINE, type Accent, type CapabilitiesSnapshot } from '$lib/stores/capabilities.js'
+  import RemoteWizard from '$lib/components/RemoteWizard.svelte'
   import { workspaces } from '$lib/stores/workspaces.js'
   import { sessionList } from '$lib/stores/sessions.js'
   import { newSessionOpen } from '$lib/stores/ui.js'
@@ -76,39 +77,24 @@
     browserOpen = false
   }
 
-  // ── Remote connect (the user's design: NewSessionModal is THE adopt
-  // entrance — every remote connection flows through here). Saves via
-  // saveRemote; the backend list refresh picks the new remote up as a
-  // `remote:*` agent chip that can be selected immediately.
-  let remoteFormOpen = false
-  let rHost = ''
-  let rUser = ''
-  let rPort = '22'
-  let rSaving = false
-  async function submitRemote() {
-    if (!rHost.trim() || rSaving) return
-    rSaving = true
-    error = null
+  // ── Remote connect（修复#4：唯一添加入口 = 本页 → 共享向导下一级）。
+  // 完成后刷新 backends 并自动选中新远程 chip。
+  let remoteWizardOpen = false
+  let addedRemoteId: string | undefined
+  async function onWizardClose(e: CustomEvent<{ remoteId?: string; endState?: string }>) {
+    remoteWizardOpen = false
+    addedRemoteId = e.detail?.remoteId
     try {
-      const { backends: bstore } = await import('$lib/stores/capabilities.js')
-      const port = Number(rPort)
-      if (!Number.isInteger(port) || port < 1 || port > 65535) {
-        error = '端口必须是 1–65535 的整数'
-        rSaving = false
-        return
-      }
-      await api.saveRemote({ host: rHost.trim(), user: rUser.trim() || undefined, port })
       const snap = await api.backends()
-      bstore.set(snap as any)
-      const created = (snap.backends ?? []).find((b) => b.id.startsWith('remote:') && b.id.includes(rHost.trim()))
+      backendsStore.set(snap as any)
+      const created = (snap.backends ?? []).find((b) => b.id === `remote:${addedRemoteId}`)
       if (created) selectedAgentId = created.id
-      remoteFormOpen = false
-      rHost = ''; rUser = ''; rPort = '22'
-    } catch (e) {
-      error = `远程主机保存失败: ${(e as Error).message}`
-    } finally {
-      rSaving = false
-    }
+      addedRemoteId = undefined
+    } catch { /* chips refresh on next open */ }
+  }
+  $: if (addedRemoteId) {
+    const created = agents.find((b) => b.id === `remote:${addedRemoteId}`)
+    if (created) { selectedAgentId = created.id; addedRemoteId = undefined }
   }
   // Directory autocomplete: list sibling dirs of the typed path via /api/browse
   // (graphical suggestions, ZCode/opencode register — no blind typing).
@@ -303,19 +289,11 @@
               <button
                 class="agent-chip remote-add"
                 type="button"
-                aria-expanded={remoteFormOpen}
-                on:click={() => { remoteFormOpen = !remoteFormOpen }}
-                title="添加一台 SSH 远程主机（opencode 部署后即可在此驱动）"
+                aria-haspopup="dialog"
+                on:click={() => { remoteWizardOpen = true }}
+                title="连接远程主机（SSH / WSL / Docker）— 作为新建会话的下一级"
               >＋ 远程连接</button>
             </div>
-            {#if remoteFormOpen}
-              <form class="remote-form" on:submit|preventDefault={submitRemote}>
-                <input class="rf mono" type="text" placeholder="host（IP 或主机名）" bind:value={rHost} />
-                <input class="rf mono" type="text" placeholder="user（默认当前用户）" bind:value={rUser} />
-                <input class="rf mono" type="text" inputmode="numeric" placeholder="22" bind:value={rPort} />
-                <button class="btn primary rf-go" type="submit" disabled={!rHost.trim() || rSaving}>{rSaving ? '保存中…' : '保存'}</button>
-              </form>
-            {/if}
           </div>
         {/if}
 
@@ -402,6 +380,10 @@
   </div>
 {/if}
 
+{#if remoteWizardOpen}
+  <RemoteWizard on:close={onWizardClose} />
+{/if}
+
 <style>
   .overlay {
     position: fixed;
@@ -482,7 +464,7 @@
     gap: 8px;
   }
   .label {
-    font-size: 10.5px;
+    font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: .12em;
@@ -579,7 +561,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     color: var(--text);
-    font-size: 12.5px;
+    font-size: 13px;
     padding: 7px 9px;
     outline: none;
     min-width: 0;
@@ -611,7 +593,7 @@
     border-radius: var(--radius-xs);
     color: var(--text-2);
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: 11px;
     padding: 3px 7px;
     cursor: pointer;
   }
@@ -633,7 +615,7 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    font-size: 10.5px;
+    font-size: 11px;
     color: var(--text-3);
     cursor: pointer;
     user-select: none;
@@ -654,14 +636,14 @@
     border-radius: var(--radius-xs);
     color: var(--text-2);
     font: inherit;
-    font-size: 12.5px;
+    font-size: 13px;
     cursor: pointer;
     text-align: left;
   }
   .db-row:hover { background: var(--bg-elev); color: var(--text); }
   .db-ico { flex-shrink: 0; font-size: 9px; color: var(--text-4); }
   .db-name { font-family: var(--font-mono); }
-  .db-note { padding: 12px 10px; font-size: 11.5px; color: var(--text-3); }
+  .db-note { padding: 12px 10px; font-size: 12px; color: var(--text-3); }
   .db-note.err { color: var(--err); }
   .db-foot {
     display: flex;
@@ -696,7 +678,7 @@
   .dir-sug-item:hover { background: var(--bg-elev); color: var(--text); }
   .host-prefix {
     padding: 8px 0 8px 10px;
-    font-size: 12.5px;
+    font-size: 13px;
     color: var(--text-3);
     flex-shrink: 0;
   }
@@ -770,7 +752,7 @@
     color: var(--text-2);
   }
   .recent-dir {
-    font-size: 10.5px;
+    font-size: 11px;
     color: var(--text-4);
     white-space: nowrap;
     overflow: hidden;
@@ -821,7 +803,7 @@
     padding: 24px;
     text-align: center;
     color: var(--text-3);
-    font-size: 13.5px;
+    font-size: 14px;
   }
   .empty .retry {
     display: block;

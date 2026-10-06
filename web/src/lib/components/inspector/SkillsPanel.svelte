@@ -33,7 +33,7 @@
 </div>
 
 <style>
-  .skills { font-size: 11.5px; }
+  .skills { font-size: 12px; }
   .label {
     text-transform: uppercase;
     letter-spacing: .16em;
@@ -52,7 +52,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-pill);
     color: var(--text-2);
-    font-size: 10.5px;
+    font-size: 11px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -63,7 +63,7 @@
     padding: 0;
     background: transparent; border: none;
     color: var(--text-3);
-    font: inherit; font-size: 10.5px;
+    font: inherit; font-size: 11px;
     cursor: pointer; text-align: left;
   }
   .more:hover { color: var(--accent); }

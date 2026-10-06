@@ -34,7 +34,6 @@
   // Drawer mode (mobile): panel fills the off-canvas drawer.
   export let drawer = false
 
-  let pickerOpen = false
 
 
   $: activeBackendId = $backends?.activeId ?? $backends?.backends[0]?.id ?? 'opencode'
@@ -66,25 +65,10 @@
     ]),
   ) as Record<string, number>
 
-  async function selectAgent(id: string) {
-    pickerOpen = false
-    await setActiveBackend(id)
-    // Stay on the Sessions view showing this agent's sessions (pick agent → pick
-    // session → chat); don't auto-jump into a session.
-  }
-
-  function togglePicker() {
-    pickerOpen = !pickerOpen
-  }
-
   /** Mobile switcher row: change the active agent but STAY on the Sessions screen
    *  (the list below re-renders for the new agent), unlike selectAgent which jumps. */
   async function switchAgentOnly(id: string) {
     await setActiveBackend(id)
-  }
-
-  function onKey(e: KeyboardEvent) {
-    if (e.key === 'Escape') pickerOpen = false
   }
 
   const ACTIVE_WINDOW_MS = 24 * 60 * 60 * 1000
@@ -139,12 +123,12 @@
   })
 </script>
 
-<svelte:window on:keydown={onKey} />
-
 <div class="agent-panel" class:drawer>
   <div class="panel">
     <div class="header">
-      <button class="agent-pill" on:click={togglePicker} aria-haspopup="true" aria-expanded={pickerOpen}>
+      <!-- 修复#3：agent 切换下拉移除（单后端下无意义，ZCode 寄存器=左栏按
+           workspace 分组排布）。桌面端=静态身份行；移动 drawer 保留切换 pills。 -->
+      <div class="agent-pill static">
         <span
           class="glyph-tile"
           style="background:{ACCENT_BG[activeTheme]}; color:{ACCENT_HEX[activeTheme]}; border-color:{ACCENT_LINE[activeTheme]}"
@@ -154,59 +138,13 @@
         <span class="status-dot {statusClass(activeAgent?.status)}" style="--dot:{ACCENT_HEX[activeTheme]}"><span class="sr-only">{statusClass(activeAgent?.status)}</span></span>
         <span class="name mono">{activeAgent?.name ?? activeAgent?.id ?? 'Agent'}</span>
         {#if activeAgent?.host}<span class="host mono">{activeAgent.host}</span>{/if}
-        <span class="caret" aria-hidden="true"><Icon name="caret-down" size={11} /></span>
-      </button>
+      </div>
       {#if !drawer}
         <button class="collapse" title="收起面板" aria-label="收起面板" on:click={() => leftPanelOpen.set(false)}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
         </button>
       {/if}
 
-      {#if pickerOpen}
-        <div class="picker" role="dialog" aria-label="Agent 选择">
-          <div class="picker-list">
-            {#each agents as a (a.id)}
-              {@const theme = agentThemes[a.id] ?? agentAccent(a.id)}
-              {@const selected = a.id === activeBackendId}
-              <button class="agent-row" class:selected on:click={() => selectAgent(a.id)}>
-                <span
-                  class="row-tile"
-                  style="background:{ACCENT_BG[theme]}; color:{ACCENT_HEX[theme]}; border-color:{ACCENT_LINE[theme]}"
-                >
-                  {glyph(a)}
-                </span>
-                <span class="row-info">
-                  <span class="row-name mono">{a.name ?? a.id}</span>
-                  <span class="row-host mono">{a.host ?? 'local'} · {(sessionCounts[a.id] ?? 0)} ses</span>
-                </span>
-                <span class="status-dot {statusClass(a.status)}" style="--dot:{ACCENT_HEX[theme]}"><span class="sr-only">{statusClass(a.status)}</span></span>
-                {#if selected}<span class="check">✓</span>{/if}
-              </button>
-            {/each}
-          </div>
-          <div class="picker-footer">
-            <div class="theme-row">
-              <span class="theme-label mono">Theme · {activeAgent?.name ?? activeAgent?.id ?? 'Agent'}</span>
-              <div class="swatches">
-                {#each ACCENTS as accent}
-                  <button
-                    class="swatch"
-                    class:active={activeTheme === accent}
-                    aria-label="设置 {accent} 主题"
-                    style="background:{ACCENT_HEX[accent]}"
-                    on:click={() => setAgentAccent(activeBackendId, accent)}
-                  ></button>
-                {/each}
-                <button
-                  class="auto"
-                  class:active={activeTheme === defaultAccentForAgent(activeBackendId)}
-                  on:click={() => setAgentAccent(activeBackendId, null)}
-                >auto</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      {/if}
     </div>
     {#if drawer && agents.length > 1}
       <div class="agents-label">Agents</div>
@@ -306,7 +244,8 @@
     cursor: pointer;
     transition: border-color .12s ease, background .12s ease;
   }
-  .agent-pill:hover { border-color: var(--accent); background: var(--bg-elev2); }
+  .agent-pill.static { cursor: default; }
+  .agent-pill.static:hover { border-color: var(--border); background: var(--bg-elev); }
   .glyph-tile {
     width: 24px;
     height: 24px;
@@ -355,7 +294,7 @@
     border: 1.5px solid var(--text-4);
   }
   .name {
-    font-size: 12.5px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--text);
     white-space: nowrap;
@@ -369,12 +308,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .caret {
-    font-size: 9px;
-    color: var(--text-3);
-    flex-shrink: 0;
-  }
-
   .collapse {
     display: inline-flex;
     align-items: center;
@@ -391,105 +324,6 @@
   }
   .collapse:hover { color: var(--text); background: var(--bg-elev); border-color: var(--border); }
 
-  .picker {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 12px;
-    right: 12px;
-    width: auto;
-    background: var(--bg-elev);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    box-shadow: 0 18px 50px rgba(0,0,0,.55);
-    z-index: var(--z-popover);
-    overflow: hidden;
-    animation: ocrc-pop var(--dur-1, 120ms) var(--ease-out, ease-out);
-  }
-  @keyframes ocrc-pop {
-    from { opacity: 0; transform: translateY(-6px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  .picker-list {
-    max-height: 320px;
-    overflow-y: auto;
-    padding: 6px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .agent-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    padding: 8px 10px;
-    background: transparent;
-    border: none;
-    border-radius: var(--radius-sm);
-    color: var(--text);
-    cursor: pointer;
-    text-align: left;
-    transition: background .12s ease;
-  }
-  .agent-row:hover, .agent-row.selected { background: var(--accent-2); }
-  .row-tile {
-    width: 30px;
-    height: 30px;
-    display: inline-grid;
-    place-items: center;
-    border-radius: var(--radius-xs);
-    border: 1px solid transparent;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 700;
-    flex-shrink: 0;
-  }
-  .row-info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    flex: 1;
-  }
-  .row-name {
-    font-size: 12.5px;
-    font-weight: 600;
-    color: var(--text);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .row-host {
-    font-size: 10.5px;
-    color: var(--text-3);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .check {
-    font-size: 13px;
-    color: var(--accent);
-    flex-shrink: 0;
-  }
-
-  .picker-footer {
-    border-top: 1px solid var(--border);
-    padding: 10px;
-  }
-  .theme-row {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .theme-label {
-    font-size: 10.5px;
-    color: var(--text-3);
-  }
-  .swatches {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
   .swatch {
     width: 20px;
     height: 20px;
@@ -508,7 +342,7 @@
     border-radius: var(--radius-sm);
     color: var(--text-3);
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: 11px;
     cursor: pointer;
     transition: color .12s ease, border-color .12s ease, background .12s ease;
   }
@@ -619,7 +453,7 @@
     border-radius: var(--radius-sm);
     color: var(--text-3);
     font: inherit;
-    font-size: 11.5px;
+    font-size: 12px;
     cursor: pointer;
     text-align: left;
     transition: color .12s ease, background .12s ease;

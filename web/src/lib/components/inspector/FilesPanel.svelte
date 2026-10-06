@@ -58,14 +58,14 @@
 </div>
 
 <style>
-  .files { font-size: 11.5px; }
+  .files { font-size: 12px; }
   .label {
     text-transform: uppercase;
     letter-spacing: .16em;
     color: var(--text-3);
     font-size: 10px;
   }
-  .crumb { margin-top: 6px; color: var(--text-3); font-size: 10.5px; }
+  .crumb { margin-top: 6px; color: var(--text-3); font-size: 11px; }
   .up {
     background: transparent;
     border: none;

@@ -146,7 +146,7 @@
 <style>
   .md {
     font-family: var(--font-sans);
-    font-size: 13.5px;
+    font-size: 14px;
     color: var(--text);
     line-height: 1.65;
     word-break: break-word;
@@ -187,7 +187,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-xs);
     color: var(--text-3);
-    font-size: 10.5px;
+    font-size: 11px;
     padding: 2px 8px;
     cursor: pointer;
     transition: color .12s var(--ease, ease), border-color .12s var(--ease, ease);

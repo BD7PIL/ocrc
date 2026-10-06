@@ -49,7 +49,7 @@
 </div>
 
 <style>
-  .subs { font-size: 11.5px; }
+  .subs { font-size: 12px; }
   .row {
     display: flex;
     align-items: center;

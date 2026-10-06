@@ -452,7 +452,7 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 13.5px;
+    font-size: 14px;
     color: var(--text);
     text-transform: none;
     letter-spacing: normal;
@@ -471,7 +471,7 @@
     padding: 24px;
     text-align: center;
     color: var(--text-3);
-    font-size: 13.5px;
+    font-size: 14px;
   }
   .error {
     padding: 10px;
@@ -482,6 +482,6 @@
     padding: 8px 14px 10px;
     border-top: 1px solid var(--border);
     color: var(--text-4);
-    font-size: 10.5px;
+    font-size: 11px;
   }
 </style>

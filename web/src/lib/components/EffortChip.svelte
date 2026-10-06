@@ -76,7 +76,7 @@
     box-sizing: border-box;
     background: transparent; border: 1px solid var(--border);
     color: var(--text-2); border-radius: var(--radius-pill);
-    padding: 5px 11px; font-size: 11.5px; white-space: nowrap; cursor: pointer;
+    padding: 5px 11px; font-size: 12px; white-space: nowrap; cursor: pointer;
     transition: border-color .15s, color .15s;
   }
   .chip:hover { border-color: var(--accent); color: var(--text); }

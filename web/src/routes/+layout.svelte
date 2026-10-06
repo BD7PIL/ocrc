@@ -398,18 +398,7 @@
     {#if drawerLeft || $inspectorOpen}
       <button class="backdrop" aria-label="Close" on:click={closeDrawers}></button>
     {/if}
-    {#if !$leftPanelOpen && !isMobile}
-      <!-- Collapsed-rail strip: the restore affordance is a permanent fixture
-           at the screen edge (VS Code activity-bar register), not a hidden
-           chevron — "collapsed" must never mean "lost" (user report). -->
-      <button class="rail-strip" on:click={() => leftPanelOpen.set(true)} title="展开会话栏 (⌘B)" aria-label="展开会话栏">
-        <svg class="strip-mark" viewBox="0 0 64 64" fill="none" stroke-width="8" stroke-linecap="round" aria-hidden="true">
-          <path d="M46 15 A24 24 0 1 0 54 32" stroke="var(--text)"/>
-          <circle cx="49" cy="20" r="6" fill="var(--accent)" stroke="none"/>
-        </svg>
-        <svg class="strip-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
-      </button>
-    {/if}
+    <!-- 修复#2：折叠=完全隐藏（零占位）。重开：中栏标题栏展开箭头 / ⌘B。 -->
     <div class="rail-wrap" class:collapsed={!$leftPanelOpen && !isMobile} class:open={drawerLeft || (isMobile && !hasSession)}>
       <AgentPanel activeId={$page.params.sessionId} drawer={isMobile} {email} build={uiBuild} />
     </div>
@@ -546,26 +535,6 @@
     margin-right: calc(-1 * (var(--insp-w, 380px) + 10px));
     pointer-events: none;
   }
-  /* Collapsed-rail strip — the always-present restore handle at the screen's
-     left edge. Mobile hides it (drawers have their own toggles). */
-  .rail-strip {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 12px;
-    width: 44px;
-    flex-shrink: 0;
-    padding: 14px 0 10px;
-    background: var(--bg-panel);
-    border: none;
-    border-right: 1px solid var(--border);
-    color: var(--text-3);
-    cursor: pointer;
-    transition: color .12s ease, background .12s ease;
-  }
-  .rail-strip:hover { color: var(--text); background: var(--bg-elev2); }
-  .rail-strip .strip-mark { width: 22px; height: 22px; flex-shrink: 0; }
-  .rail-strip .strip-caret { width: 14px; height: 14px; }
   .divider {
     width: 6px;
     flex-shrink: 0;
@@ -615,7 +584,6 @@
     .inspector-wrap.open { transform: translateY(0); }
 
     .rail-wrap :global(.agent-panel), .rail-wrap :global(.panel) { width: 100%; }
-    .rail-strip { display: none; }
     .inspector-wrap :global(.inspector) { width: 100%; height: 100%; }
     /* MUST sit below the rail (--z-drawer) AND the inspector sheet (--z-sheet)
        so taps on an open drawer hit the drawer, not the backdrop. It only dims

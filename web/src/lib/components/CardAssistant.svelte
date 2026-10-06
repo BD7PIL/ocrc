@@ -145,7 +145,7 @@
   }
   .chip {
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: 11px;
     color: var(--text-3);
     background: var(--bg-elev);
     border: 1px solid var(--border);

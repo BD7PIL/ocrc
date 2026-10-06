@@ -13,7 +13,7 @@
   </div>
 </div>
 <style>
-  .mcp { font-size: 11.5px; }
+  .mcp { font-size: 12px; }
   .list { display: flex; flex-direction: column; gap: 4px; color: var(--text-2); margin-top: 6px; }
   .row { display: flex; align-items: center; gap: 7px; }
   .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex-shrink: 0; }

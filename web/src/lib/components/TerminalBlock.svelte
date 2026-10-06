@@ -107,7 +107,7 @@
   }
   .error .glyph { color: var(--err); }
   .tname {
-    font-size: 11.5px;
+    font-size: 12px;
     font-weight: 500;
     color: var(--text-2);
   }
@@ -145,7 +145,7 @@
   }
   .term-body {
     padding: 8px 10px;
-    font-size: 11.5px;
+    font-size: 12px;
     line-height: 1.5;
     color: var(--toolout);
     white-space: pre-wrap;

@@ -158,7 +158,7 @@
   .ring svg { width: 20px; height: 20px; }
   .track { fill: none; stroke: var(--border); stroke-width: 3; }
   .arc { fill: none; stroke-width: 3; stroke-linecap: round; transition: stroke-dasharray var(--dur-3, 240ms) var(--ease-out, ease-out); }
-  .pct { font-size: 10.5px; color: var(--text-3); }
+  .pct { font-size: 11px; color: var(--text-3); }
   /* Mobile: icon-only ring (no percent text) — the popover carries the detail. */
   @media (max-width: 820px) {
     .pct { display: none; }
@@ -199,7 +199,7 @@
   }
   .head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
   .label { font-size: 11px; font-weight: 600; color: var(--text-2); }
-  .dim { font-size: 10.5px; color: var(--text-3); }
+  .dim { font-size: 11px; color: var(--text-3); }
   .bar {
     display: flex;
     height: 6px;
@@ -217,7 +217,7 @@
     display: flex;
     justify-content: space-between;
     padding: 3px 0;
-    font-size: 11.5px;
+    font-size: 12px;
     color: var(--text-3);
     border-top: 1px solid var(--border);
   }

@@ -10,7 +10,7 @@
   import { api } from '$lib/api/client.js'
   import { feeds, sessionList } from '$lib/stores/sessions.js'
   import { can } from '$lib/stores/capabilities.js'
-  import { inspectorOpen } from '$lib/stores/ui.js'
+  import { inspectorOpen, composerEmpty, planHudExpanded } from '$lib/stores/ui.js'
   import { openHome, openPaneTab } from '$lib/stores/sidePane.js'
   import { summarizeTodos, type TodoSummary } from '$lib/inspector/summarizeTodos.js'
 
@@ -145,31 +145,53 @@
     save({ expanded })
   }
 
-  // Idle auto-expand (user's design): this floating window IS the target —
-  // not the right pane, not the rail. 60s without input on desktop opens the
-  // collapsed window when subagents are RUNNING (live work must surface on
-  // its own); a quiet plan never pops itself open. Fires once per idle
-  // period; any input re-arms. Reads the subagent list fresh at fire time —
-  // the collapsed state only refreshes `subs` on feed ticks, which go quiet
-  // exactly when the user is away.
-  let idleTimer: ReturnType<typeof setTimeout> | undefined
+  // ── Auto-expand（用户规格，修复#1）：右栏关闭 + 输入框为空 + 最近 5s 无输入
+  // + 计划未完成 + 有子代理运行中 → 自动展开。折叠态每 5s 轮询一次子代理
+  // （有界：一次 API 调用），因为子代理启动不一定伴随父会话 feed 事件。
+  // 用户手动收起后本轮不再自动展开，直到子代理归零（latch 重置）。
   let autoExpanded = false
-  function armIdleExpand() {
-    clearTimeout(idleTimer)
-    if (!desktop) return
+  let lastInputAt = Date.now()
+  let pollTimer: ReturnType<typeof setInterval> | undefined
+  function markInput() {
+    lastInputAt = Date.now()
+  }
+  function autoExpandConditions(): boolean {
+    if (!desktop || expanded) return false
+    if (typeof document === 'undefined' || document.hidden) return false
+    if ($inspectorOpen) return false // 右栏关闭
+    if (!$composerEmpty) return false // 输入框为空
+    if (Date.now() - lastInputAt < 5_000) return false // 无输入行为
+    if (dismissed && !desktop) return false
+    if (sum.total === 0 || sum.done >= sum.total) return false // 计划未完成
+    return runningSubs.length > 0 // 有子代理在执行
+  }
+  async function autoExpandTick() {
     const sid = sessionId
-    idleTimer = setTimeout(async () => {
-      if (sid !== sessionId || expanded || typeof document === 'undefined' || document.hidden) return
+    if (autoExpandConditions()) {
       try {
         const r = await api.subagents(sid)
-        if (sid !== sessionId || expanded) return
-        if ((r.subagents ?? []).some((s) => s.busy)) {
-          expanded = true
-          autoExpanded = true
-          save({ expanded: true })
+        if (sid !== sessionId) return
+        if (r.subagents?.length) {
+          subs = [...r.subagents].sort((a, b) => Number(b.busy ?? false) - Number(a.busy ?? false))
         }
-      } catch { /* unreachable backend — nothing to surface */ }
-    }, 60_000)
+      } catch { /* backend unreachable — nothing to surface */ }
+      if (autoExpandConditions()) {
+        expanded = true
+        autoExpanded = true
+        save({ expanded: true })
+      }
+    } else if (!expanded && !autoExpanded) {
+      // 条件未满足时也轻量刷新（含折叠徽标），失败静默
+      try {
+        const r = await api.subagents(sid)
+        if (sid !== sessionId) return
+        subs = [...(r.subagents ?? [])].sort((a, b) => Number(b.busy ?? false) - Number(a.busy ?? false))
+      } catch { /* ignore */ }
+    }
+  }
+  $: if (typeof window !== 'undefined') {
+    clearInterval(pollTimer)
+    pollTimer = setInterval(() => void autoExpandTick(), 5_000)
   }
   // ZCode register (SessionPane sections): a section folds itself when its
   // work count drops to 0. We only auto-close what WE auto-opened — a
@@ -179,9 +201,13 @@
     expanded = false
     save({ expanded: false })
   }
-  $: if (sessionId) armIdleExpand()
-  if (typeof window !== 'undefined') armIdleExpand()
-  onDestroy(() => clearTimeout(idleTimer))
+  $: if (sessionId) markInput()
+  // 桌面展开态广播给中栏布局（正文让位）；卡片实际可渲染时才让位。
+  $: {
+    const renderable = loadedFor === sessionId && (sum.total > 0 || subs.length > 0 || breadcrumb)
+    planHudExpanded.set(Boolean(desktop && expanded && !dismissed && renderable))
+  }
+  onDestroy(() => { clearInterval(pollTimer); planHudExpanded.set(false) })
 
   function hide() {
     save({ dismissed: [...(hud.dismissed ?? []), sessionId].slice(-20) })
@@ -219,16 +245,16 @@
   }
   function onWindowPointerdown(e: PointerEvent) {
     onOutside(e)
-    armIdleExpand()
+    markInput()
   }
 </script>
 
 <svelte:window
   on:pointerdown={onWindowPointerdown}
-  on:keydown={armIdleExpand}
-  on:mousemove|passive={armIdleExpand}
-  on:wheel|passive={armIdleExpand}
-  on:touchstart|passive={armIdleExpand}
+  on:keydown={markInput}
+  on:mousemove|passive={markInput}
+  on:wheel|passive={markInput}
+  on:touchstart|passive={markInput}
 />
 
 {#if loadedFor === sessionId && (sum.total > 0 || subs.length > 0 || breadcrumb) && $can('todos')}
@@ -418,7 +444,7 @@
     font-size: 10px;
     font-weight: 600;
   }
-  .ghost .bar-count { font-size: 10.5px; }
+  .ghost .bar-count { font-size: 11px; }
   .ghost .bar-count i { font-style: normal; color: var(--text-3); padding: 0 1px; }
 
   /* Desktop collapsed bar (ZCode window chrome). */
@@ -610,7 +636,7 @@
     background: transparent;
     border: none;
     color: var(--text-3);
-    font-size: 11.5px;
+    font-size: 12px;
     cursor: pointer;
   }
   .grp.static { cursor: default; }
@@ -708,7 +734,7 @@
     border-radius: var(--radius-sm);
     color: var(--text-2);
     font: inherit;
-    font-size: 11.5px;
+    font-size: 12px;
     cursor: pointer;
     text-align: left;
   }
@@ -717,7 +743,7 @@
   .sub-count {
     flex-shrink: 0;
     margin-top: 1px;
-    font-size: 10.5px;
+    font-size: 11px;
     color: var(--accent);
     min-width: 26px;
   }
@@ -737,6 +763,6 @@
        collapsed bar parks at the exact same corner, so the HUD has ONE fixed
        address on desktop — it is always findable. */
     .bar { display: flex; top: 60px; bottom: auto; }
-    .plan-card { display: block; width: min(60vw, 380px); top: 60px; bottom: auto; transform-origin: 85% 0; }
+    .plan-card { display: block; width: min(60vw, 340px); top: 60px; bottom: auto; transform-origin: 85% 0; }
   }
 </style>

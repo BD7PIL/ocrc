@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation'
   import { tick, onMount, onDestroy } from 'svelte'
   import { feeds, cardsOf, sessionList, prependHistory, serverBusy } from '$lib/stores/sessions.js'
-  import { leftPanelOpen, inspectorOpen, composerDraft, composerEmpty, feedResyncing, sessionBooting } from '$lib/stores/ui.js'
+  import { leftPanelOpen, inspectorOpen, composerDraft, composerEmpty, feedResyncing, sessionBooting, planHudExpanded } from '$lib/stores/ui.js'
   import { sidePane } from '$lib/stores/sidePane.js'
   import Suggestions from '$lib/components/Suggestions.svelte'
   import { api } from '$lib/api/client.js'
@@ -309,7 +309,7 @@
   onDestroy(() => { ro?.disconnect(); io?.disconnect(); vvCleanup?.(); for (const c of scrollCleanups) c(); if (runTimer) clearInterval(runTimer) })
 </script>
 
-<div class="chat" bind:this={scrollEl} on:scroll={onChatScroll}>
+<div class="chat" class:hud-open={$planHudExpanded && !isMobile} bind:this={scrollEl} on:scroll={onChatScroll}>
   <div class="sub-header">
     <div class="left">
       <!-- Mobile: back to the Sessions screen (dual-screen nav). -->
@@ -321,7 +321,8 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
         </button>
       {/if}
-      <SessionSwitcher activeId={sessionId} interactive={!$inspectorOpen || isMobile} />
+      <!-- 修复#5：降级跟随左栏（左栏展开时下拉=纯标题），移动端不受影响 -->
+      <SessionSwitcher activeId={sessionId} interactive={!$leftPanelOpen || isMobile} />
       {#if branch}<span class="branch mono">{branch}</span>{/if}
     </div>
     <div class="right">
@@ -454,7 +455,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-pill);
     color: var(--text-2);
-    font-size: 11.5px;
+    font-size: 12px;
     cursor: pointer;
     animation: ocrc-rise-sm var(--dur-1, 120ms) var(--ease-out, ease-out) backwards;
   }
@@ -632,6 +633,10 @@
   .stream.suppressed > :global(*):last-child:not(.stream-end) {
     animation: none;
   }
+  /* 修复#7：悬浮窗展开时正文右移让位（ZCode inline-layout），不再盖住气泡 */
+  @media (min-width: 1024px) {
+    .chat.hud-open .stream { padding-right: 300px; transition: padding-right var(--dur-3, 240ms) var(--ease-out, ease-out); }
+  }
   .stream-end { height: 1px; flex-shrink: 0; }
   /* Perf: off-screen history cards skip layout/paint entirely (the streaming
      card and entering cards are excluded — they need live layout). The
@@ -682,7 +687,7 @@
     margin: 0;
     max-width: 420px;
     line-height: 1.6;
-    font-size: 12.5px;
+    font-size: 13px;
   }
 
   /* Desktop: composer is a normal in-flow bar at the bottom. Its right inset

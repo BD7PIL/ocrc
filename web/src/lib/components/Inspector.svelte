@@ -315,7 +315,7 @@
     text-align: center;
   }
   .l-title { margin: 0 0 4px; font-size: 14px; color: var(--text); }
-  .l-desc { margin: 0 0 18px; font-size: 11.5px; color: var(--text-3); }
+  .l-desc { margin: 0 0 18px; font-size: 12px; color: var(--text-3); }
   .l-list { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 260px; }
   .l-card {
     display: flex;
@@ -328,7 +328,7 @@
     border-radius: var(--radius-sm);
     color: var(--text-2);
     font: inherit;
-    font-size: 12.5px;
+    font-size: 13px;
     text-align: left;
     cursor: pointer;
     transition: border-color .12s ease, color .12s ease;
@@ -415,7 +415,8 @@
     cursor: pointer;
   }
   .tab-ctx button:hover { background: var(--bg-input); color: var(--text); }
-  .dlabel { max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
+  /* 修复#7：label 让宽（旧 max-width:96px 在窄页签下把 ✕ 挤出按钮外） */
+  .dlabel { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .tbadge { font-size: 10px; color: var(--text-3); }
   .tab.active .tbadge { color: var(--text-2); }
   .closer {
@@ -462,7 +463,6 @@
   /* Sticky keeps the add-tab and collapse controls pinned to the strip's right
      edge while tabs scroll beneath — with 7+ tabs both were scrolled out of
      the viewport entirely (x=1464, CDP-measured) and unreachable. */
-  .tabs::after { content: ''; position: sticky; right: 0; flex-shrink: 0; width: 4px; background: var(--bg-elev); }
   .plus-btn {
     display: inline-grid;
     place-items: center;
@@ -520,7 +520,7 @@
     border: 1px solid color-mix(in srgb, var(--err) 35%, transparent);
     border-radius: var(--radius-sm);
     color: var(--err);
-    font-size: 11.5px;
+    font-size: 12px;
   }
   .sidechat-err button {
     background: transparent;
@@ -540,6 +540,8 @@
   .pane {
     flex: 1;
     min-height: 0;
+    /* 卡片宽度自适应 pane（修复#7）：内容不再固定宽 */
+    container-type: inline-size;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     padding: 12px 14px 18px;

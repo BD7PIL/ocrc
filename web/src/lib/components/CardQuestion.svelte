@@ -135,7 +135,7 @@
     color: var(--accent);
   }
   .rule { flex: 1; height: 1px; background: var(--border-2); opacity: .7; }
-  .warn-note { font-size: 10.5px; color: var(--warn); }
+  .warn-note { font-size: 11px; color: var(--warn); }
 
   .q { padding: 10px 12px 2px; }
   .qhead {
@@ -171,7 +171,7 @@
     font-size: 12px;
   }
   .custom:focus { outline: none; border-color: var(--accent-line); }
-  .hint { margin-top: 6px; font-size: 10.5px; color: var(--text-3); }
+  .hint { margin-top: 6px; font-size: 11px; color: var(--text-3); }
 
   .acts {
     display: flex; align-items: center; gap: 8px;

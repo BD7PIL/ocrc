@@ -56,7 +56,7 @@
   /* The chip must track the wrap's flex-resolved width (never overflow it and
      paint over the sibling chip on narrow screens): label is a truncating
      span, icons are fixed, the chip caps at its parent. */
-  .chip { display: flex; align-items: center; gap: 5px; min-height: 24px; min-width: 0; max-width: 100%; box-sizing: border-box; background: transparent; border: 1px solid var(--border); color: var(--text-2); border-radius: var(--radius-pill); padding: 5px 11px; font-size: 11.5px; white-space: nowrap; cursor: pointer; transition: border-color .15s, color .15s; }
+  .chip { display: flex; align-items: center; gap: 5px; min-height: 24px; min-width: 0; max-width: 100%; box-sizing: border-box; background: transparent; border: 1px solid var(--border); color: var(--text-2); border-radius: var(--radius-pill); padding: 5px 11px; font-size: 12px; white-space: nowrap; cursor: pointer; transition: border-color .15s, color .15s; }
   .chip :global(.icon), .chip :global(svg) { flex-shrink: 0; }
   .txt { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
   /* Mobile icon variant: hidden on desktop, swaps in ≤820px. */

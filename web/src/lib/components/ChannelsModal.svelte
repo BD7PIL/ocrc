@@ -490,7 +490,7 @@
   }
   .switch.on { border-color: var(--accent); }
   .switch.on .knob { background: var(--accent); transform: translateX(18px); }
-  .note { margin: 0; font-size: 11.5px; color: var(--text-3); }
+  .note { margin: 0; font-size: 12px; color: var(--text-3); }
   .note .n-line { display: block; padding: 1px 0; }
   .note.err { color: var(--err); }
   .cred-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
@@ -520,7 +520,7 @@
     border-radius: var(--radius-sm);
     color: var(--accent-ink);
     font: inherit;
-    font-size: 11.5px;
+    font-size: 12px;
     font-weight: 600;
     cursor: pointer;
   }
@@ -537,7 +537,7 @@
     cursor: pointer;
   }
   .opt.sel { border-color: var(--accent); color: var(--text); background: var(--accent-2); }
-  .hint { font-size: 10.5px; color: var(--text-3); margin: 4px 0 0; }
+  .hint { font-size: 11px; color: var(--text-3); margin: 4px 0 0; }
   .reset {
     padding: 5px 12px;
     background: transparent;
@@ -545,7 +545,7 @@
     border-radius: var(--radius-sm);
     color: var(--err);
     font: inherit;
-    font-size: 11.5px;
+    font-size: 12px;
     cursor: pointer;
   }
   .pair { border-top: 1px solid var(--border); padding: 12px 18px 16px; }
@@ -560,8 +560,8 @@
   /* ZCode 手机扫码连接 block: status header (等待手机连接 · countdown + 停止),
      big centered QR on a white card, actions row. */
   .pair-head { display: flex; align-items: flex-start; gap: 10px; justify-content: space-between; }
-  .pair-title { font-size: 12.5px; font-weight: 650; color: var(--text); }
-  .cd { font-weight: 500; color: var(--text-3); font-size: 11.5px; margin-left: 4px; }
+  .pair-title { font-size: 13px; font-weight: 650; color: var(--text); }
+  .cd { font-weight: 500; color: var(--text-3); font-size: 12px; margin-left: 4px; }
   .cd.expired { color: var(--warn); }
   .stop {
     flex-shrink: 0;
@@ -571,7 +571,7 @@
     border-radius: var(--radius-sm);
     color: var(--text-2);
     font: inherit;
-    font-size: 11.5px;
+    font-size: 12px;
     cursor: pointer;
   }
   .stop:hover { color: var(--err); border-color: var(--err); }
@@ -608,7 +608,7 @@
     border-radius: var(--radius-sm);
     color: var(--text-2);
     font: inherit;
-    font-size: 11.5px;
+    font-size: 12px;
     cursor: pointer;
   }
   .copy:hover { border-color: var(--accent); color: var(--text); }

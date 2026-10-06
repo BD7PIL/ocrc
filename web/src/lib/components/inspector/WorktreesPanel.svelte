@@ -78,7 +78,7 @@
 </div>
 
 <style>
-  .wt { font-size: 11.5px; }
+  .wt { font-size: 12px; }
   .hd { display: flex; align-items: center; justify-content: space-between; }
   .label {
     text-transform: uppercase;
@@ -141,7 +141,7 @@
     box-sizing: border-box;
   }
   .name-in:focus { outline: 1px solid var(--accent); }
-  .err { color: var(--err); font-size: 10.5px; }
+  .err { color: var(--err); font-size: 11px; }
   .go {
     padding: 4px 10px;
     background: var(--accent);

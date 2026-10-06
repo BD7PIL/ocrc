@@ -251,7 +251,7 @@
     flex: 1;
   }
   .row-title {
-    font-size: 12.5px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--text);
     white-space: nowrap;
@@ -259,7 +259,7 @@
     text-overflow: ellipsis;
   }
   .row-meta {
-    font-size: 10.5px;
+    font-size: 11px;
     color: var(--text-3);
   }
   .check {

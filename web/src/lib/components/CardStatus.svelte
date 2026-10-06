@@ -18,7 +18,7 @@
     margin: 6px 0;
     padding: 6px 12px;
     text-align: center;
-    font-size: 12.5px;
+    font-size: 13px;
     color: var(--text-3);
     line-height: 1.5;
   }

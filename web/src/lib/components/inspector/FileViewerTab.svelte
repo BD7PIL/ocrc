@@ -52,7 +52,7 @@
 </div>
 
 <style>
-  .fv { font-size: 11.5px; }
+  .fv { font-size: 12px; }
   .label {
     text-transform: uppercase;
     letter-spacing: .16em;
@@ -64,7 +64,7 @@
     color: var(--warn);
     text-transform: none;
     letter-spacing: 0;
-    font-size: 10.5px;
+    font-size: 11px;
   }
   .body { overflow: visible; }
   .hint { padding: 10px 0; }

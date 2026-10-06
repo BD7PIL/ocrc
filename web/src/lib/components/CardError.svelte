@@ -62,7 +62,7 @@
     border: 1px solid var(--err);
     border-radius: var(--radius-pill);
     color: var(--err);
-    font-size: 11.5px;
+    font-size: 12px;
     cursor: pointer;
   }
   .retry:hover { background: var(--err); color: var(--accent-ink); }

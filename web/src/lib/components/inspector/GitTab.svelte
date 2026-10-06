@@ -81,7 +81,7 @@
 </div>
 
 <style>
-  .git { font-size: 11.5px; }
+  .git { font-size: 12px; }
   .hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
   .branch { font-size: 12px; font-weight: 600; color: var(--text-2); }
   .count { font-size: 10px; color: var(--text-3); }
@@ -122,7 +122,7 @@
     background: var(--bg-code);
     border-radius: var(--radius-xs);
     color: var(--toolout);
-    font-size: 10.5px;
+    font-size: 11px;
     line-height: 1.5;
     white-space: pre-wrap;
     word-break: break-word;

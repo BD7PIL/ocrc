@@ -119,7 +119,7 @@
   }
   .wordmark {
     font-family: var(--font-serif);
-    font-size: 15.5px;
+    font-size: 16px;
     letter-spacing: .01em;
     display: inline-flex;
     align-items: baseline;
@@ -159,7 +159,7 @@
     border-radius: var(--radius);
     color: var(--text-3);
     padding: 5px 10px;
-    font-size: 12.5px;
+    font-size: 13px;
     cursor: text;
     transition: border-color .15s ease, color .15s ease;
   }
@@ -230,7 +230,7 @@
   .connection-latency.slow { color: var(--warn); }
   .connection-pill.reconnecting .connection-state { color: var(--warn); }
   .connection-pill.offline .connection-state { color: var(--err); }
-  .connection-latency { color: var(--text-3); font-size: 10.5px; }
+  .connection-latency { color: var(--text-3); font-size: 11px; }
 
   .install {
     background: var(--accent);

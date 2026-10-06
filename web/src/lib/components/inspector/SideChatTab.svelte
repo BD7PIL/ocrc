@@ -106,7 +106,7 @@
   }
   .sc-body :global(.card) { margin: 4px 0 10px; }
   .sc-body :global(.card .text) { font-size: 12px; }
-  .empty { padding: 14px 0; color: var(--text-3); font-size: 11.5px; }
+  .empty { padding: 14px 0; color: var(--text-3); font-size: 12px; }
   .sc-input {
     flex-shrink: 0;
     display: flex;

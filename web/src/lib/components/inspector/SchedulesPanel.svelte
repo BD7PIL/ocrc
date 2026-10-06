@@ -134,7 +134,7 @@
 </div>
 
 <style>
-  .schedules { font-size: 11.5px; }
+  .schedules { font-size: 12px; }
   .hd {
     display: flex;
     align-items: center;
@@ -219,7 +219,7 @@
   }
   .txt { flex: 1; min-width: 0; }
   .prompt {
-    font-size: 11.5px;
+    font-size: 12px;
     color: var(--text-2);
     white-space: nowrap;
     overflow: hidden;
@@ -289,7 +289,7 @@
     font-size: 11px;
   }
   .num:disabled, .time:disabled { opacity: .4; }
-  .err { color: var(--err); font-size: 10.5px; }
+  .err { color: var(--err); font-size: 11px; }
   .go {
     align-self: flex-end;
     padding: 4px 12px;

@@ -230,7 +230,7 @@
   }
   .hicon svg { width: 34px; height: 34px; display: block; }
   h1 { margin: 0; font-size: 16px; color: var(--text); font-weight: 700; }
-  .sub { margin: 2px 0 0; font-size: 12.5px; color: var(--text-2); }
+  .sub { margin: 2px 0 0; font-size: 13px; color: var(--text-2); }
 
   .cols { display: grid; grid-template-columns: 1.25fr 1fr; gap: 16px; }
   @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } }
@@ -244,7 +244,7 @@
   .sec-head { display: flex; align-items: center; gap: 8px; justify-content: space-between; flex-wrap: wrap; }
   .sec-title { font-size: 13px; font-weight: 650; color: var(--text); }
   .chip {
-    font-size: 10.5px; color: var(--text-2);
+    font-size: 11px; color: var(--text-2);
     background: var(--bg-elev); border: 1px solid var(--border);
     padding: 2px 8px; border-radius: var(--radius-pill);
   }
@@ -271,7 +271,7 @@
   .qr-re {
     position: absolute; inset: 0;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
-    color: var(--text); font-size: 12.5px; font-weight: 600;
+    color: var(--text); font-size: 13px; font-weight: 600;
   }
 
   .acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -298,14 +298,14 @@
   }
   .lock { margin-left: auto; font-size: 12px; opacity: .65; flex-shrink: 0; }
   .ch-icon { display: grid; place-items: center; flex-shrink: 0; }
-  .ch-name { font-size: 12.5px; font-weight: 650; color: var(--text); display: flex; gap: 8px; align-items: baseline; }
-  .ok { font-size: 10.5px; color: var(--ok, #2e9e6b); font-weight: 600; }
-  .off { font-size: 10.5px; color: var(--text-3); font-weight: 500; }
-  .ch-note { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+  .ch-name { font-size: 13px; font-weight: 650; color: var(--text); display: flex; gap: 8px; align-items: baseline; }
+  .ok { font-size: 11px; color: var(--ok, #2e9e6b); font-weight: 600; }
+  .off { font-size: 11px; color: var(--text-3); font-weight: 500; }
+  .ch-note { font-size: 12px; color: var(--text-3); margin-top: 2px; }
 
-  .hint { font-size: 11.5px; color: var(--text-3); margin: 0; line-height: 1.5; }
+  .hint { font-size: 12px; color: var(--text-3); margin: 0; line-height: 1.5; }
   .dim { color: var(--text-3); }
-  .rejected { margin: 0; font-size: 12.5px; color: var(--err); }
+  .rejected { margin: 0; font-size: 13px; color: var(--err); }
 
   .paste { border-top: 1px solid var(--border); padding-top: 10px; }
   .paste summary { cursor: pointer; font-size: 12px; color: var(--text-2); }
@@ -316,7 +316,7 @@
     border: 1px solid var(--border);
     background: var(--bg-input);
     color: var(--text);
-    font-size: 12.5px;
+    font-size: 13px;
   }
   .field:focus { outline: none; border-color: var(--accent-line); }
   .err { font-size: 12px; color: var(--err); }
@@ -326,7 +326,7 @@
     background: var(--accent); border: 1px solid var(--accent);
     color: var(--accent-ink);
     border-radius: var(--radius-sm);
-    font: inherit; font-size: 12.5px; font-weight: 600;
+    font: inherit; font-size: 13px; font-weight: 600;
     cursor: pointer;
   }
   .connect:disabled { opacity: .45; cursor: default; }

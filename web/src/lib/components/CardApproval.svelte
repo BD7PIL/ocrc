@@ -93,7 +93,7 @@
     background: var(--bg-code);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    font-size: 11.5px;
+    font-size: 12px;
     line-height: 1.5;
     color: var(--text-2);
     white-space: pre-wrap;

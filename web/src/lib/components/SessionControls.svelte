@@ -100,7 +100,7 @@
   .wrap { position: relative; min-width: 0; }
   /* Same contract as AgentChip/ModelChip: the chip tracks its wrap's width and
      the label truncates — the mobile footer shrinks wraps, chips must follow. */
-  .chip { display: flex; align-items: center; gap: 5px; min-height: 24px; min-width: 0; max-width: 100%; box-sizing: border-box; background: transparent; border: 1px solid var(--border); color: var(--text-2); border-radius: var(--radius-pill); padding: 5px 11px; font-size: 11.5px; white-space: nowrap; cursor: pointer; transition: border-color .15s, color .15s; }
+  .chip { display: flex; align-items: center; gap: 5px; min-height: 24px; min-width: 0; max-width: 100%; box-sizing: border-box; background: transparent; border: 1px solid var(--border); color: var(--text-2); border-radius: var(--radius-pill); padding: 5px 11px; font-size: 12px; white-space: nowrap; cursor: pointer; transition: border-color .15s, color .15s; }
   .chip:hover { border-color: var(--accent); color: var(--text); }
   .chip :global(svg) { flex-shrink: 0; }
   .txt { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }

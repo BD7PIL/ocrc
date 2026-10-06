@@ -518,7 +518,7 @@
   .gicon { flex-shrink: 0; color: var(--text-3); }
   .gicon.cloud { color: var(--text-3); }
   .group-head .gh-label {
-    font-size: 11.5px;
+    font-size: 12px;
     font-weight: 600;
     color: inherit;
     text-transform: none;
@@ -716,7 +716,7 @@
       border-radius: var(--radius-xs);
       color: var(--text-2);
       font: inherit;
-      font-size: 12.5px;
+      font-size: 13px;
       text-align: left;
       cursor: pointer;
     }
@@ -730,7 +730,7 @@
     align-items: center;
     gap: 5px;
     flex-wrap: wrap;
-    font-size: 10.5px;
+    font-size: 11px;
     color: var(--text-3);
     margin: 4px 0 0 16px;
   }

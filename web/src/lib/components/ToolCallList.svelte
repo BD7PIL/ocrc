@@ -217,7 +217,7 @@
 
   .name {
     flex-shrink: 0;
-    font-size: 12.5px;
+    font-size: 13px;
     font-weight: 500;
   }
   .row.done .name { color: var(--text-2); }
@@ -231,7 +231,7 @@
        theme — decorative glyph, muted ink reads better anyway */
     color: var(--text-4);
     font-weight: 700;
-    font-size: 12.5px;
+    font-size: 13px;
   }
   /* bash rows are command echoes — paper-ink: ink command after the $ prompt */
   .row.bash .arg {
@@ -241,7 +241,7 @@
   .arg {
     flex: 1;
     min-width: 0;
-    font-size: 12.5px;
+    font-size: 13px;
     color: var(--hl-green);
     white-space: nowrap;
     overflow: hidden;
@@ -253,7 +253,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 11.5px;
+    font-size: 12px;
   }
   .diff .add { color: var(--ok); }
   .diff .del { color: var(--err); }
@@ -287,7 +287,7 @@
     background: transparent;
     border: none;
     color: var(--text-3);
-    font-size: 11.5px;
+    font-size: 12px;
     padding: 4px 8px;
     cursor: pointer;
   }

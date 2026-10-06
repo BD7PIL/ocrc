@@ -61,7 +61,7 @@
     background: transparent;
     color: var(--text-3);
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: 11px;
     cursor: pointer;
     transition: background .12s ease, border-color .12s ease, color .12s ease;
   }

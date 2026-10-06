@@ -1,33 +1,60 @@
-// M2 placeholder: the conversation timeline + composer land here. The page
-// already binds the route param to the shell's active-session state.
+// SessionPage — the real M2 page: viewSession wiring (history + subscribe +
+// prune), the transcript over the live feed, and the composer. Chips/docks
+// are M2-3b.
 import { useParams } from 'react-router'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useSessions } from '../lib/stores/sessions.js'
+import { useFeeds, cardsOf, isRunningCard } from '../lib/stores/feeds.js'
+import { viewSession } from '../lib/ws/boot.js'
+import { Transcript, useFeed } from '../components/transcript/Transcript.js'
+import { Composer } from '../components/composer/Composer.js'
+import { SessionIdContext } from '../components/transcript/sessionContext.js'
 import { useUi } from '../lib/stores/ui.js'
 
 export function SessionPage() {
   const { id } = useParams<{ id: string }>()
+  return id ? <SessionPageInner id={id} /> : null
+}
+
+function SessionPageInner({ id }: { id: string }) {
   const setActiveSession = useUi((s) => s.setActiveSession)
   const activeSessionId = useUi((s) => s.activeSessionId)
   const list = useSessions((s) => s.list)
-  const s = list.find((x) => x.id === id)
+  const serverBusy = useSessions((s) => s.serverBusy[id])
+  const feed = useFeed(id)
+  const [, force] = useState(0)
 
   useEffect(() => {
-    if (id && id !== activeSessionId) setActiveSession(id)
-  }, [id, activeSessionId, setActiveSession])
+    if (id !== activeSessionId) setActiveSession(id)
+    void viewSession(id)
+    // id is the full dependency; activeSessionId reads latest via closure
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
+
+  // re-render on feed writes (cardsOf derives from the feed object identity)
+  useEffect(() => useFeeds.subscribe(() => force((n) => n + 1)), [])
+
+  const s = list.find((x) => x.id === id)
+  const running = !!serverBusy || cardsOf(feed).some((c) => isRunningCard(c.kind))
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
-      <h1 style={{ fontSize: 'var(--ui-lg)', color: 'var(--text)' }}>{s?.title || '会话'}</h1>
-      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1" style={{ fontSize: 'var(--ui-sm)', color: 'var(--text-3)' }}>
-        <dt className="mono">id</dt><dd className="mono truncate">{id}</dd>
-        {s?.directory && (<><dt className="mono">dir</dt><dd className="mono truncate">{s.directory}</dd></>)}
-        {s?.model && (<><dt className="mono">model</dt><dd>{s.model}</dd></>)}
-        {s?.backendId && (<><dt className="mono">backend</dt><dd className="mono">{s.backendId}</dd></>)}
-      </dl>
-      <p className="mt-6" style={{ fontSize: 'var(--ui-sm)', color: 'var(--text-3)' }}>
-        聊天流（回合式时间线 / composer / dock）按蓝图在 M2 落地。
-      </p>
-    </div>
+    <SessionIdContext.Provider value={id}>
+      <div className="flex h-full flex-col">
+        <Transcript sessionId={id} feed={feed} />
+        <div
+          className="flex h-7 shrink-0 items-center gap-2 border-t px-4"
+          style={{ borderColor: 'var(--border-2)' }}
+        >
+          <span
+            className={`size-1.5 rounded-full ${running ? 'ocrc-pulse-dot' : ''}`}
+            style={{ background: running ? 'var(--accent)' : 'var(--ok)' }}
+            aria-hidden
+          />
+          <span style={{ fontSize: 'var(--ui-2xs)', color: 'var(--text-3)' }}>{running ? '运行中' : '空闲'}</span>
+          {s?.model && <span className="mono" style={{ fontSize: 'var(--ui-2xs)', color: 'var(--text-4)' }}>{s.model}</span>}
+        </div>
+        <Composer sessionId={id} />
+      </div>
+    </SessionIdContext.Provider>
   )
 }

@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, Square } from 'lucide-react'
 import { api } from '$lib/api/client.js'
+import { ModeChip, ModelChip, EffortChip, ContextChip } from './Chips.js'
 import { useSessions } from '../../lib/stores/sessions.js'
 import { upsertCard, removeCard, isRunningCard, cardsOf, feedOf } from '../../lib/stores/feeds.js'
 
@@ -13,6 +14,8 @@ let clientIdSeq = 0
 export function Composer({ sessionId }: { sessionId: string }) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
+  const [variant, setVariant] = useState<string | null>(null)
+  const [contextUsage, setContextUsage] = useState<{ used: number; max: number } | undefined>(undefined)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const serverBusy = useSessions((s) => s.serverBusy[sessionId])
 
@@ -31,6 +34,14 @@ export function Composer({ sessionId }: { sessionId: string }) {
     if (ta.style.height !== `${h}px`) ta.style.height = `${h}px`
   }, [text])
 
+  // context usage (session-scoped) — refresh on turn completion is M3's feed tick
+  useEffect(() => {
+    void api.context(sessionId).then((c) => {
+      const t = (c as { tokens?: { used?: number; max?: number } }).tokens
+      if (t?.used && t?.max) setContextUsage({ used: t.used, max: t.max })
+    }).catch(() => {})
+  }, [sessionId])
+
   const send = async () => {
     const t = text.trim()
     if (!t || busy || sending) return
@@ -41,7 +52,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
     // (server republishes the user card with its own id — ours is temporary).
     upsertCard({ kind: 'user', sessionId, text: t, ts: Date.now(), origin: 'web', id: clientId } as any)
     try {
-      await api.sendMessage({ sessionId, text: t, clientId })
+      await api.sendMessage({ sessionId, text: t, clientId, variant: variant ?? undefined })
     } catch {
       removeCard(clientId)
       setText(t)
@@ -93,9 +104,15 @@ export function Composer({ sessionId }: { sessionId: string }) {
           </button>
         )}
       </div>
-      <p className="mx-auto mt-1.5 max-w-3xl px-2" style={{ fontSize: 'var(--ui-2xs)', color: 'var(--text-4)' }}>
-        Enter 发送 · Shift+Enter 换行 · 权限/模型 chips 在 M2-3b 落地
-      </p>
+      <div className="mx-auto mt-1.5 flex max-w-3xl items-center gap-1.5 px-1">
+        <ModeChip sessionId={sessionId} />
+        <ModelChip sessionId={sessionId} />
+        <EffortChip variant={variant} setVariant={setVariant} />
+        <ContextChip usage={contextUsage} />
+        <span className="ml-auto hidden md:inline" style={{ fontSize: 'var(--ui-2xs)', color: 'var(--text-4)' }}>
+          Enter 发送 · Shift+Enter 换行
+        </span>
+      </div>
     </div>
   )
 }

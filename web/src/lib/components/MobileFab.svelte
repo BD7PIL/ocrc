@@ -58,7 +58,9 @@
 
   .fab {
     position: fixed; z-index: var(--z-fab);
-    right: 18px; bottom: calc(76px + env(safe-area-inset-bottom, 0px) + var(--kb, 0px));
+    /* 120px clears the rail foot (定时任务/远程主机 rows ≈109px tall on mobile) —
+       at 76px the FAB covered those rows (CDP screenshot r1-mobile-home). */
+    right: 18px; bottom: calc(120px + env(safe-area-inset-bottom, 0px) + var(--kb, 0px));
     width: 56px; height: 56px; border-radius: 50%;
     display: grid; place-items: center;
     background: var(--accent); color: var(--accent-ink);

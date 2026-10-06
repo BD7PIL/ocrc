@@ -18,8 +18,13 @@ function authHeaders(extra?: Record<string, string>): Record<string, string> {
   return h
 }
 
+// Every REST call gets a hard timeout: a hung fetch (EL7 host under load,
+// proxy stall) must surface as a catchable error, not a forever-pending
+// promise — the session loading dots spin on `!feed` and would never clear.
+const FETCH_TIMEOUT_MS = 20_000
+
 async function jsonGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${base}${path}`, { credentials: 'include', headers: authHeaders() })
+  const res = await fetch(`${base}${path}`, { credentials: 'include', headers: authHeaders(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
   if (res.status === 401) { onUnauthorized(); throw new Error(`GET ${path} 401`) }
   if (!res.ok) throw new Error(`GET ${path} ${res.status}`)
   clearAuthReloadFlag()
@@ -32,6 +37,7 @@ async function jsonPost<T>(path: string, body: unknown): Promise<T> {
     headers: authHeaders({ 'content-type': 'application/json' }),
     credentials: 'include',
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
   if (res.status === 401) { onUnauthorized(); throw new Error(`POST ${path} 401`) }
   if (!res.ok) throw new Error(`POST ${path} ${res.status}`)
@@ -45,6 +51,7 @@ async function jsonMethod<T>(method: string, path: string, body?: unknown): Prom
     headers: authHeaders(body === undefined ? undefined : { 'content-type': 'application/json' }),
     credentials: 'include',
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
   if (res.status === 401) { onUnauthorized(); throw new Error(`${method} ${path} 401`) }
   if (!res.ok) throw new Error(`${method} ${path} ${res.status}`)

@@ -18,6 +18,92 @@
   let creating = false
   let error: string | null = null
   let showRecents = false
+
+  // ── DirectoryBrowser (ZCode register): step-by-step readdir with an `..`
+  // up row and a hidden-dirs toggle — replaces blind path typing with a
+  // graphical walk. api.browse lists one level at a time; "选择此目录" commits.
+  let browserOpen = false
+  let browserDir = '/'
+  let browserEntries: Array<{ name: string; path: string }> = []
+  let browserLoading = false
+  let browserError: string | null = null
+  let showHidden = false
+  let browserSeq = 0
+  async function openBrowser() {
+    browserOpen = true
+    showRecents = false
+    const start = directory.trim()
+    if (start.startsWith('/')) {
+      // Resume INSIDE the typed dir (trailing slash semantics: list its children).
+      browserDir = start.endsWith('/') ? start.slice(0, -1) || '/' : start
+    } else {
+      browserDir = agentRecents[0]?.directory ?? '/'
+    }
+    await loadBrowserDir()
+  }
+  async function loadBrowserDir() {
+    const seq = ++browserSeq
+    browserLoading = true
+    browserError = null
+    try {
+      const res = await api.browse(browserDir, browserDir)
+      if (seq !== browserSeq) return
+      browserEntries = (res.files ?? [])
+        .filter((f) => f.type === 'directory')
+        .map((f) => {
+          const name = f.path.split('/').filter(Boolean).pop() ?? ''
+          return { name, path: `${browserDir === '/' ? '' : browserDir}/${name}` }
+        })
+        .filter((e) => e.name && (showHidden || !e.name.startsWith('.')))
+        .sort((a, b) => a.name.localeCompare(b.name))
+    } catch (e) {
+      if (seq === browserSeq) { browserEntries = []; browserError = (e as Error).message }
+    } finally {
+      if (seq === browserSeq) browserLoading = false
+    }
+  }
+  function upBrowserDir() {
+    if (browserDir === '/') return
+    browserDir = browserDir.slice(0, browserDir.lastIndexOf('/')) || '/'
+    void loadBrowserDir()
+  }
+  function intoBrowserDir(path: string) {
+    browserDir = path
+    void loadBrowserDir()
+  }
+  function commitBrowserDir() {
+    directory = browserDir
+    browserOpen = false
+  }
+
+  // ── Remote connect (the user's design: NewSessionModal is THE adopt
+  // entrance — every remote connection flows through here). Saves via
+  // saveRemote; the backend list refresh picks the new remote up as a
+  // `remote:*` agent chip that can be selected immediately.
+  let remoteFormOpen = false
+  let rHost = ''
+  let rUser = ''
+  let rPort = '22'
+  let rSaving = false
+  async function submitRemote() {
+    if (!rHost.trim() || rSaving) return
+    rSaving = true
+    error = null
+    try {
+      const { backends: bstore } = await import('$lib/stores/capabilities.js')
+      await api.saveRemote({ host: rHost.trim(), user: rUser.trim() || undefined, port: Number(rPort) || 22 })
+      const snap = await api.backends()
+      bstore.set(snap as any)
+      const created = (snap.backends ?? []).find((b) => b.id.startsWith('remote:') && b.id.includes(rHost.trim()))
+      if (created) selectedAgentId = created.id
+      remoteFormOpen = false
+      rHost = ''; rUser = ''; rPort = '22'
+    } catch (e) {
+      error = `远程主机保存失败: ${(e as Error).message}`
+    } finally {
+      rSaving = false
+    }
+  }
   // Directory autocomplete: list sibling dirs of the typed path via /api/browse
   // (graphical suggestions, ZCode/opencode register — no blind typing).
   let dirSug: Array<{ name: string; path: string }> = []
@@ -189,7 +275,22 @@
                   <span class="chip-name">{a.id.startsWith('remote:') ? a.id.replace('remote:', '远程 · ') : (a.name ?? a.id)}</span>
                 </button>
               {/each}
+              <button
+                class="agent-chip remote-add"
+                type="button"
+                aria-expanded={remoteFormOpen}
+                on:click={() => { remoteFormOpen = !remoteFormOpen }}
+                title="添加一台 SSH 远程主机（opencode 部署后即可在此驱动）"
+              >＋ 远程连接</button>
             </div>
+            {#if remoteFormOpen}
+              <form class="remote-form" on:submit|preventDefault={submitRemote}>
+                <input class="rf mono" type="text" placeholder="host（IP 或主机名）" bind:value={rHost} />
+                <input class="rf mono" type="text" placeholder="user（默认当前用户）" bind:value={rUser} />
+                <input class="rf mono" type="text" inputmode="numeric" placeholder="22" bind:value={rPort} />
+                <button class="btn primary rf-go" type="submit" disabled={!rHost.trim() || rSaving}>{rSaving ? '保存中…' : '保存'}</button>
+              </form>
+            {/if}
           </div>
         {/if}
 
@@ -205,8 +306,38 @@
               on:input={fetchDirSug}
               on:focus={() => { showRecents = true }}
             />
+            <button class="browse" type="button" on:click={openBrowser} title="逐级浏览目录">浏览</button>
             <button class="browse" type="button" on:click={() => (showRecents = !showRecents)} title="该 agent 最近使用的目录">最近</button>
           </div>
+          {#if browserOpen}
+            <div class="dir-browser" role="dialog" aria-label="目录浏览器">
+              <div class="db-head">
+                <button class="db-up" type="button" on:click={upBrowserDir} disabled={browserDir === '/'} title="上一级">↑..</button>
+                <span class="db-path mono">{browserDir}</span>
+                <label class="db-hidden"><input type="checkbox" bind:checked={showHidden} on:change={loadBrowserDir} /> 隐藏</label>
+              </div>
+              <div class="db-list">
+                {#if browserLoading}
+                  <div class="db-note">读取中…</div>
+                {:else if browserError}
+                  <div class="db-note err">{browserError}</div>
+                {:else if browserEntries.length === 0}
+                  <div class="db-note">（没有子目录）</div>
+                {:else}
+                  {#each browserEntries as e (e.path)}
+                    <button class="db-row" type="button" on:click={() => intoBrowserDir(e.path)} title={e.path}>
+                      <span class="db-ico" aria-hidden="true">▸</span>
+                      <span class="db-name">{e.name}</span>
+                    </button>
+                  {/each}
+                {/if}
+              </div>
+              <div class="db-foot">
+                <button class="btn secondary" type="button" on:click={() => (browserOpen = false)}>关闭</button>
+                <button class="btn primary" type="button" on:click={commitBrowserDir}>选择此目录</button>
+              </div>
+            </div>
+          {/if}
           {#if dirSug.length > 0}
             <div class="dir-sug" role="listbox">
               {#each dirSug as sug (sug.path)}
@@ -401,6 +532,120 @@
   .chip-status.online { background: var(--dot, var(--ok)); border-color: var(--dot, var(--ok)); }
   .chip-status.connecting { background: var(--warn); border-color: var(--warn); animation: ocrc-pulse 1.2s ease-in-out infinite; }
   .chip-status.offline { background: transparent; border: 1.5px solid var(--text-4); }
+
+  /* "+ 远程连接" — dashed affordance chip (ZCode add-account register). */
+  .agent-chip.remote-add {
+    border-style: dashed;
+    color: var(--text-3);
+    font-weight: 600;
+  }
+  .agent-chip.remote-add:hover { color: var(--text); border-color: var(--accent-line); }
+  .remote-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr 64px auto;
+    gap: 6px;
+    padding: 10px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-sm);
+  }
+  .rf {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 12.5px;
+    padding: 7px 9px;
+    outline: none;
+    min-width: 0;
+  }
+  .rf:focus { border-color: var(--accent); }
+  .rf::placeholder { color: var(--text-4); }
+  .rf-go { padding: 7px 12px; font-size: 12px; }
+
+  /* DirectoryBrowser: step-by-step readdir (ZCode register). */
+  .dir-browser {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-panel);
+    overflow: hidden;
+  }
+  .db-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 9px;
+    border-bottom: 1px solid var(--border-2);
+  }
+  .db-up {
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+    background: var(--bg-input);
+    border-radius: var(--radius-xs);
+    color: var(--text-2);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    padding: 3px 7px;
+    cursor: pointer;
+  }
+  .db-up:disabled { opacity: .4; cursor: default; }
+  .db-up:hover:not(:disabled) { color: var(--text); border-color: var(--text-4); }
+  .db-path {
+    flex: 1;
+    min-width: 0;
+    font-size: 11px;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    direction: rtl;
+    text-align: left;
+  }
+  .db-hidden {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10.5px;
+    color: var(--text-3);
+    cursor: pointer;
+    user-select: none;
+  }
+  .db-list {
+    max-height: 210px;
+    overflow-y: auto;
+    padding: 3px;
+  }
+  .db-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    width: 100%;
+    padding: 6px 8px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-xs);
+    color: var(--text-2);
+    font: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .db-row:hover { background: var(--bg-elev); color: var(--text); }
+  .db-ico { flex-shrink: 0; font-size: 9px; color: var(--text-4); }
+  .db-name { font-family: var(--font-mono); }
+  .db-note { padding: 12px 10px; font-size: 11.5px; color: var(--text-3); }
+  .db-note.err { color: var(--err); }
+  .db-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 8px 9px;
+    border-top: 1px solid var(--border-2);
+  }
+  .db-foot .btn { padding: 5px 11px; font-size: 12px; }
 
   .dir-input {
     display: flex;

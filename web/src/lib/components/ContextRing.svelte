@@ -104,11 +104,12 @@
     <span class="pct mono">{maxUnknown ? (used > 0 ? fmtK(used) : '—') : `${pct.toFixed(0)}%`}</span>
   </button>
 
-  {#if open && max}
+  {#if open}
     <div class="pop" role="dialog" aria-label="上下文用量">
       <div class="head">
         <span class="label">上下文</span>
-        <span class="mono dim">{fmtK(used)} / {fmtK(max)}</span>
+        {#if max}<span class="mono dim">{fmtK(used)} / {fmtK(max)}</span>
+        {:else}<span class="mono dim">{fmtK(used)} · 上限未知</span>{/if}
       </div>
       {#if breakdown && breakdown.segments.length > 0}
         <!-- THE capacity bar: full scale = model context limit (the ring's

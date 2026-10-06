@@ -335,12 +335,26 @@
         <span class="idle mono">空闲</span>
       {/if}
       <!-- Mobile: open the inspector bottom sheet. Desktop: toggle the side
-           pane (ZCode 切换面板 — the pane has no persistent strip). -->
+           pane (ZCode WorkspaceSidePaneToggleButton — icon flips by state and
+           the button highlights while the pane is open). -->
       <button class="inspect" on:click={() => inspectorOpen.update((v) => !v)} aria-label="Inspector">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="14" y2="17"/></svg>
       </button>
-      <button class="pane-toggle" title="侧栏面板" aria-label="侧栏面板" on:click={() => inspectorOpen.update((v) => !v)}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/><path d="M9 9l3 3-3 3"/></svg>
+      <button
+        class="pane-toggle"
+        class:open={$inspectorOpen}
+        title={$inspectorOpen ? '收起面板' : '打开面板'}
+        aria-label={$inspectorOpen ? '收起面板' : '打开面板'}
+        aria-expanded={$inspectorOpen}
+        on:click={() => inspectorOpen.update((v) => !v)}
+      >
+        {#if $inspectorOpen}
+          <!-- lucide panel-right-close -->
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m8 9 3 3-3 3"/></svg>
+        {:else}
+          <!-- lucide panel-right-open -->
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m10 15-3-3 3-3"/></svg>
+        {/if}
       </button>
     </div>
   </div>
@@ -513,6 +527,8 @@
     transition: color .12s ease, border-color .12s ease;
   }
   .pane-toggle:hover { color: var(--text); border-color: var(--text-4); }
+  /* ZCode register: the header toggle highlights while the pane is open. */
+  .pane-toggle.open { color: var(--text); background: var(--bg-elev2); border-color: var(--border); }
   @media (min-width: 821px) { .pane-toggle { display: inline-flex; } }
   @media (max-width: 820px) {
     .expand { display: none; }

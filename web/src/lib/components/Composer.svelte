@@ -267,13 +267,13 @@
         <span class="hint send-hint">↵ 发送 · ⇧↵ 换行</span>
         {#if showStop}
           <button class="send stop" on:click={stopRun} aria-label="停止" title="停止生成">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
           </button>
         {:else}
           <button class="send" on:click={send} aria-label="发送"
                   disabled={sending || (!text.trim() && pendingImages.length === 0) || $connection !== 'connected'}>
             {#if sending}…{:else}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
             {/if}
           </button>
         {/if}
@@ -309,8 +309,9 @@
     .footer :global(.wrap) { min-width: 0; flex-shrink: 1; }
     .footer :global(.chip) { max-width: min(36vw, 100%); }
     .send, .attach { flex-shrink: 0; }
-    /* ≥44px touch targets on small/coarse screens. */
-    .send { width: 44px; height: 44px; }
+    /* ≥44px touch targets on small/coarse screens (radius keeps the ZCode
+       square-ish proportion: 8/28 ≈ 29% → 13px at 44px). */
+    .send { width: 44px; height: 44px; border-radius: 13px; }
     .attach { width: 44px; height: 44px; }
   }
   .dock {
@@ -364,7 +365,13 @@
   }
   .spacer { flex: 1; min-width: 8px; }
   /* Hide the keyboard-hint texts when the composer gets narrow so the chips +
-     send button never overflow the box (and the page). */
+     send button never overflow the box (and the page). Container query (not a
+     media query): the INSPECTOR narrows the middle column without changing the
+     viewport — with the pane open, hints truncated mid-glyph (CDP shot). */
+  .composer { container-type: inline-size; }
+  @container (max-width: 880px) {
+    .send-hint, .hint.command { display: none; }
+  }
   @media (max-width: 720px) {
     .send-hint, .hint.command { display: none; }
   }
@@ -385,13 +392,18 @@
     transition: color .15s ease;
   }
   .hint.command:hover { color: var(--text-2); }
+  /* ZCode register (ConversationComposer + ui/button.tsx): send = size-7
+     rounded-lg (28px, 8px corners) with a 16px up-arrow; disabled keeps the
+     brand bg at 50% opacity (never a grey fill); stop = the same box on a
+     SECONDARY (muted) bg with a 16px filled square. Colors stay ocrc:
+     accent/ink here = their brand/foreground-inverse; --bg-elev2 = secondary. */
   .send {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 33px;
-    height: 33px;
-    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
     border: none;
     background: var(--accent);
     color: var(--accent-ink);
@@ -399,12 +411,12 @@
     transition: opacity .15s ease, transform .1s ease;
     flex-shrink: 0;
   }
-  .send:not(:disabled):hover { transform: scale(1.06); }
-  .send.stop:disabled { background: var(--accent); color: var(--accent-ink); cursor: pointer; width: 30px; height: 30px; }
+  .send:not(:disabled):hover { opacity: .8; }
+  .send.stop { background: var(--bg-elev2); color: var(--text); }
   .send.stop:not(:disabled):active { transform: scale(.9); }
   .send:disabled {
-    background: var(--border);
-    color: var(--text-3);
+    background: var(--accent);
+    opacity: .5;
     cursor: not-allowed;
   }
   .thumbnails {

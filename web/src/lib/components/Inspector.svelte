@@ -181,7 +181,7 @@
       {/if}
     {/if}
     <div class="plus" bind:this={plusEl}>
-      <button class="plus-btn" aria-label="打开面板" title="打开面板" on:click={() => (plusOpen = !plusOpen)}>+</button>
+      <button class="plus-btn" aria-label="新建页签" title="新建页签" on:click={() => (plusOpen = !plusOpen)}>+</button>
       {#if plusOpen}
         <div class="plus-menu" role="menu">
           <button role="menuitem" disabled={sideChatBusy} on:click={openSideChat}>辅助对话</button>
@@ -197,7 +197,8 @@
       {/if}
     </div>
     <button class="collapse-btn" title="收起面板" aria-label="收起面板" on:click={() => { inspectorClosedAt.set(Date.now()); inspectorOpen.set(false) }}>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/><path d="M9 9l3 3-3 3"/></svg>
+      <!-- lucide panel-right-close (ZCode's exact toggle geometry) -->
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m8 9 3 3-3 3"/></svg>
     </button>
   </div>
 
@@ -285,8 +286,11 @@
     place-items: center;
     width: 20px;
     height: 20px;
-    margin-left: 6px;
-    background: transparent;
+    margin-left: 2px;
+    /* Pinned beside the + control: the strip scrolls beneath both. */
+    position: sticky;
+    right: 0;
+    background: var(--bg-elev);
     border: none;
     border-radius: var(--radius-xs);
     color: var(--text-3);
@@ -365,7 +369,9 @@
     font-size: 12px;
     white-space: nowrap;
     cursor: pointer;
-    flex-shrink: 0;
+    /* NO flex-shrink:0 here — the ZCode register is "shrink to fit, never
+       below 60px": flex: 0 1 156px must actually shrink, or the 5th+ tab
+       overflows the strip and becomes unreachable (CDP-probed regression). */
   }
   .tab:hover { color: var(--text-2); }
   .tab.active { color: var(--text); font-weight: 600; }
@@ -446,7 +452,11 @@
     z-index: var(--z-popover);
     animation: ocrc-pop .14s var(--ease-out, ease-out);
   }
-  .plus { position: relative; margin-left: auto; flex-shrink: 0; }
+  .plus { position: sticky; right: 0; margin-left: auto; flex-shrink: 0; background: var(--bg-elev); }
+  /* Sticky keeps the add-tab and collapse controls pinned to the strip's right
+     edge while tabs scroll beneath — with 7+ tabs both were scrolled out of
+     the viewport entirely (x=1464, CDP-measured) and unreachable. */
+  .tabs::after { content: ''; position: sticky; right: 0; flex-shrink: 0; width: 4px; background: var(--bg-elev); }
   .plus-btn {
     display: inline-grid;
     place-items: center;

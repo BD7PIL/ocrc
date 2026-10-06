@@ -145,6 +145,44 @@
     save({ expanded })
   }
 
+  // Idle auto-expand (user's design): this floating window IS the target —
+  // not the right pane, not the rail. 60s without input on desktop opens the
+  // collapsed window when subagents are RUNNING (live work must surface on
+  // its own); a quiet plan never pops itself open. Fires once per idle
+  // period; any input re-arms. Reads the subagent list fresh at fire time —
+  // the collapsed state only refreshes `subs` on feed ticks, which go quiet
+  // exactly when the user is away.
+  let idleTimer: ReturnType<typeof setTimeout> | undefined
+  let autoExpanded = false
+  function armIdleExpand() {
+    clearTimeout(idleTimer)
+    if (!desktop) return
+    const sid = sessionId
+    idleTimer = setTimeout(async () => {
+      if (sid !== sessionId || expanded || typeof document === 'undefined' || document.hidden) return
+      try {
+        const r = await api.subagents(sid)
+        if (sid !== sessionId || expanded) return
+        if ((r.subagents ?? []).some((s) => s.busy)) {
+          expanded = true
+          autoExpanded = true
+          save({ expanded: true })
+        }
+      } catch { /* unreachable backend — nothing to surface */ }
+    }, 60_000)
+  }
+  // ZCode register (SessionPane sections): a section folds itself when its
+  // work count drops to 0. We only auto-close what WE auto-opened — a
+  // manually opened card stays until the user closes it.
+  $: if (autoExpanded && expanded && subs.length > 0 && runningSubs.length === 0) {
+    autoExpanded = false
+    expanded = false
+    save({ expanded: false })
+  }
+  $: if (sessionId) armIdleExpand()
+  if (typeof window !== 'undefined') armIdleExpand()
+  onDestroy(() => clearTimeout(idleTimer))
+
   function hide() {
     save({ dismissed: [...(hud.dismissed ?? []), sessionId].slice(-20) })
     menuOpen = false
@@ -179,9 +217,19 @@
     expanded = false
     save({ expanded: false })
   }
+  function onWindowPointerdown(e: PointerEvent) {
+    onOutside(e)
+    armIdleExpand()
+  }
 </script>
 
-<svelte:window on:pointerdown={onOutside} />
+<svelte:window
+  on:pointerdown={onWindowPointerdown}
+  on:keydown={armIdleExpand}
+  on:mousemove|passive={armIdleExpand}
+  on:wheel|passive={armIdleExpand}
+  on:touchstart|passive={armIdleExpand}
+/>
 
 {#if loadedFor === sessionId && (sum.total > 0 || subs.length > 0 || breadcrumb) && $can('todos')}
   {#if dismissed && !desktop}

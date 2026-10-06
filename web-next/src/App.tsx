@@ -7,8 +7,10 @@ import { ShellLayout } from './components/shell/ShellLayout.js'
 import { CommandCenter } from './components/shell/CommandCenter.js'
 import { NewSessionDialog } from './components/shell/NewSessionDialog.js'
 import { PairGate } from './components/shell/PairGate.js'
+import { ChannelsDialog } from './components/shell/ChannelsDialog.js'
 import { HomePage } from './pages/HomePage.js'
 import { SessionPage } from './pages/SessionPage.js'
+import { AutomationsPage } from './pages/AutomationsPage.js'
 import { TokenGallery } from './pages/TokenGallery.js'
 import { bootConnection } from './lib/ws/boot.js'
 import { registerCommands } from '$lib/shortcuts/commands.js'
@@ -56,12 +58,14 @@ export default function App() {
         <Route element={<ShellLayout />}>
           <Route path="/" element={<HomePage />} />
           <Route path="/session/:id" element={<SessionPage />} />
+          <Route path="/automations" element={<AutomationsPage />} />
           <Route path="/dev/tokens" element={<TokenGallery />} />
           <Route path="*" element={<HomePage />} />
         </Route>
       </Routes>
       <CommandCenter />
       <NewSessionDialog />
+      <ChannelsDialog />
       {(authStatus === 'pairing' || authStatus === 'rejected') && <PairGate />}
     </BrowserRouter>
   )

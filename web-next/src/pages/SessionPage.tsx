@@ -11,6 +11,7 @@ import { Composer } from '../components/composer/Composer.js'
 import { Dock } from '../components/transcript/Dock.js'
 import { useApprovals } from '../lib/stores/approvals.js'
 import { SessionIdContext } from '../components/transcript/sessionContext.js'
+import { StatusPanel } from '../components/hud/StatusPanel.js'
 import { useUi } from '../lib/stores/ui.js'
 
 export function SessionPage() {
@@ -58,6 +59,7 @@ function SessionPageInner({ id }: { id: string }) {
   return (
     <SessionIdContext.Provider value={id}>
       <div className="flex h-full flex-col">
+      <StatusPanel sessionId={id} running={running} />
         <Transcript sessionId={id} feed={feed} filter={isPending} busy={running} />
         <div
           className="flex h-7 shrink-0 items-center gap-2 border-t px-4"

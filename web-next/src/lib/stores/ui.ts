@@ -29,6 +29,8 @@ interface UiState {
   inspectorOpen: boolean
   paletteOpen: boolean
   newSessionOpen: boolean
+  channelsOpen: boolean
+  composerEmpty: boolean
   activeSessionId: string | null
   setLeftPanel: (open: boolean) => void
   toggleLeftPanel: () => void
@@ -36,6 +38,8 @@ interface UiState {
   toggleInspector: () => void
   setPalette: (open: boolean) => void
   setNewSessionOpen: (open: boolean) => void
+  setChannelsOpen: (open: boolean) => void
+  setComposerEmpty: (empty: boolean) => void
   setActiveSession: (id: string | null) => void
 }
 
@@ -45,6 +49,8 @@ export const useUi = create<UiState>((set, get) => ({
   inspectorOpen: false,
   paletteOpen: false,
   newSessionOpen: false,
+  channelsOpen: false,
+  composerEmpty: true,
   activeSessionId: null,
   setLeftPanel: (open) => { writeBool('ocrc.railOpen', open); set({ leftPanelOpen: open }) },
   toggleLeftPanel: () => get().setLeftPanel(!get().leftPanelOpen),
@@ -56,5 +62,7 @@ export const useUi = create<UiState>((set, get) => ({
   toggleInspector: () => set({ inspectorOpen: !get().inspectorOpen }),
   setPalette: (open) => set({ paletteOpen: open }),
   setNewSessionOpen: (open) => set({ newSessionOpen: open }),
+  setChannelsOpen: (open) => set({ channelsOpen: open }),
+  setComposerEmpty: (empty) => set({ composerEmpty: empty }),
   setActiveSession: (id) => set({ activeSessionId: id }),
 }))

@@ -3,10 +3,10 @@
 // timeline / archived task views, 1.5px status dots, footer. Data: live
 // session summaries (WS hello) + local pins/archive.
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useLocation } from 'react-router'
 import {
   MessageCirclePlus, Search, Folder, Cloud, Archive, ArchiveRestore,
-  Pin, PinOff, SunMoon, CircleDashed,
+  Pin, PinOff, SunMoon, CircleDashed, CalendarClock, Bot,
 } from 'lucide-react'
 import { useUi } from '../../lib/stores/ui.js'
 import { usePins } from '../../lib/stores/pins.js'
@@ -31,7 +31,8 @@ function relTime(ts: number): string {
 
 export function Sidebar() {
   const navigate = useNavigate()
-  const { activeSessionId, setActiveSession, setNewSessionOpen, setPalette, toggleLeftPanel } = useUi()
+  const location = useLocation()
+  const { activeSessionId, setActiveSession, setNewSessionOpen, setPalette, toggleLeftPanel, setChannelsOpen } = useUi()
   const { list, loaded, busy } = useSessions()
   const { pins, archived, togglePin } = usePins()
   const [view, setView] = useState<ViewMode>('project')
@@ -79,6 +80,20 @@ export function Sidebar() {
           <Search size={16} strokeWidth={1.75} />
           <span>搜索</span>
           <kbd className="rail-kbd">{bindingLabel('Ctrl+K')}</kbd>
+        </button>
+        <button
+          type="button"
+          className="rail-row"
+          aria-pressed={location.pathname === '/automations'}
+          style={{ color: location.pathname === '/automations' ? 'var(--text)' : undefined, background: location.pathname === '/automations' ? 'var(--bg-elev2)' : undefined }}
+          onClick={() => { void navigate('/automations') }}
+        >
+          <CalendarClock size={16} strokeWidth={1.75} />
+          <span>自动化</span>
+        </button>
+        <button type="button" className="rail-row" onClick={() => setChannelsOpen(true)}>
+          <Bot size={16} strokeWidth={1.75} />
+          <span>机器人</span>
         </button>
       </div>
 

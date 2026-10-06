@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, Square } from 'lucide-react'
 import { api } from '$lib/api/client.js'
 import { ModeChip, ModelChip, EffortChip, ContextChip } from './Chips.js'
+import { useUi } from '../../lib/stores/ui.js'
 import { useSessions } from '../../lib/stores/sessions.js'
 import { upsertCard, removeCard, isRunningCard, cardsOf, feedOf } from '../../lib/stores/feeds.js'
 
@@ -16,6 +17,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const [sending, setSending] = useState(false)
   const [variant, setVariant] = useState<string | null>(null)
   const [contextUsage, setContextUsage] = useState<{ used: number; max: number } | undefined>(undefined)
+  const setComposerEmpty = useUi((st) => st.setComposerEmpty)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const serverBusy = useSessions((s) => s.serverBusy[sessionId])
 
@@ -33,6 +35,9 @@ export function Composer({ sessionId }: { sessionId: string }) {
     const h = Math.min(140, ta.scrollHeight)
     if (ta.style.height !== `${h}px`) ta.style.height = `${h}px`
   }, [text])
+
+  // StatusPanel auto-expand consumes this (composer empty = user idle)
+  useEffect(() => { setComposerEmpty(text.trim().length === 0) }, [text, setComposerEmpty])
 
   // context usage (session-scoped) — refresh on turn completion is M3's feed tick
   useEffect(() => {

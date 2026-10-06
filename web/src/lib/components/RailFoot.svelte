@@ -4,18 +4,16 @@
 <script lang="ts">
   import { toggleTheme, channelsOpen, themeMode } from '$lib/stores/ui.js'
 
-  export let email = ''
-  /** Build commit of the served bundle — hover the identity row to self-check
-   *  which UI version this tab runs (stale-bundle self-check). */
+  /** Build commit of the served bundle — shown instead of a login identity
+   *  (single-user local product: there is no account to display). */
   export let build = ''
 
-  $: label = email || 'local'
-  $: initial = label.charAt(0).toUpperCase()
+  $: label = build || 'dev'
+  $: initial = '◉'
 </script>
 
 <div class="rail-foot">
-  <span class="avatar mono" title={build ? `${email} · UI build ${build}` : email}>{initial}</span>
-  <span class="who" title={build ? `${email} · UI build ${build}` : email}>{label}</span>
+  <span class="who mono" title={build ? `UI build ${build}` : 'ocrc'}>{label}</span>
   <span class="sp"></span>
   <button class="fbtn" on:click={toggleTheme} aria-label={`主题：${$themeMode}`} title={`主题：${$themeMode === 'auto' ? '跟随系统' : $themeMode === 'light' ? '浅色' : '深色'}`}>
     {#if $themeMode === 'light'}

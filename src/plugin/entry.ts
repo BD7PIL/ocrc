@@ -191,6 +191,7 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
     // sdelta side channel (0.25.0): relay → WS hub. The web transport binds the
     // sink when it starts; without web enabled, deltas are simply dropped here.
     const streamDeltaSink: { broadcast?: (frame: import('../core/structured-card.js').StreamDeltaFrame) => void } = {}
+    const statusSink: { broadcast?: (frame: { sessionId: string; busy: boolean }) => void } = {}
 
     const relay = createRelay({
       cardBus,
@@ -314,6 +315,7 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
         channels,
         pairing,
         streamDeltaSink,
+        statusSink,
         remotes: remotesStore,
         remoteManager,
         telegramStatus: () => tgTransport?.status?.() ?? { connected: false },
@@ -463,10 +465,12 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
         case 'session.created':
         case 'session.updated':
         case 'session.status':
+
           try {
             const st = (ev as { properties?: { sessionID?: string; status?: { type?: string } } }).properties
             if (typeof st?.sessionID === 'string' && st.sessionID) {
               state.setSessionBusy(st.sessionID, st.status?.type === 'busy')
+              statusSink.broadcast?.({ sessionId: st.sessionID, busy: st.status?.type === 'busy' })
             }
           } catch { /* best effort */ }
           {

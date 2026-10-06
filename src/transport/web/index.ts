@@ -34,6 +34,7 @@ export interface WebTransportConfig {
    *  the WS hub so relay deltas reach subscribed clients. Mutable slot because
    *  the transport (and its hub) boots after the relay is constructed. */
   streamDeltaSink?: { broadcast?: (frame: StreamDeltaFrame) => void }
+  statusSink?: { broadcast?: (frame: { sessionId: string; busy: boolean }) => void }
   /** 0.26.0 remote host management routes. */
   remotes?: import('../../core/remotes.js').RemotesStore
   remoteManager?: import('../../core/remote-host.js').RemoteHostManager
@@ -58,6 +59,7 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
       }
       const wsHub = createWsHub({ cardBus: deps.cardBus, registry: cfg.registry, state: deps.state })
       if (cfg.streamDeltaSink) cfg.streamDeltaSink.broadcast = (frame) => wsHub.broadcastDelta(frame)
+      if (cfg.statusSink) cfg.statusSink.broadcast = (frame) => wsHub.broadcastStatus(frame)
       const app = buildServer({
         auth: cfg.auth,
         registry: cfg.registry,

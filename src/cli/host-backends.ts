@@ -121,6 +121,9 @@ export interface BuildHostBackendsDeps {
    *  could not drive). */
   remotesStore?: RemotesStore
   remoteManager?: RemoteHostManager
+  /** Live busy/idle sink (web WS) — session.status events broadcast here so
+   *  the composer shows 停止 for turns started outside the panel too. */
+  statusSink?: { broadcast?: (frame: { sessionId: string; busy: boolean }) => void }
 }
 
 export interface BuiltHostBackends {
@@ -275,6 +278,10 @@ export async function buildHostBackends(specs: BackendSpec[], deps: BuildHostBac
           client,
           onEvent: (ev) => {
             safePush(ev) // opencode events are already the shape push expects
+            if ((ev as { type?: string }).type === 'session.status') {
+              const p = (ev as { properties?: { sessionID?: string; status?: { type?: string } } }).properties
+              if (p?.sessionID) deps.statusSink?.broadcast?.({ sessionId: p.sessionID, busy: p.status?.type === 'busy' })
+            }
             if (PERMISSION_TYPES.has(ev.type ?? '')) { onOpencodePermission(ev); return }
             const ae = normalizeOpencodeEvent(ev)
             if (ae) relay.handleEvent(ae).catch((err) => log.error('relay.handleEvent failed', err as Error))

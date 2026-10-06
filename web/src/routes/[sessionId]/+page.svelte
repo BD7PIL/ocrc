@@ -13,6 +13,7 @@
   import PlanHud from '$lib/components/PlanHud.svelte'
 
   let scrollEl: HTMLDivElement
+  const scrollCleanups: Array<() => void> = []
   let composerEl: HTMLElement
   let endEl: HTMLDivElement
   let io: IntersectionObserver | undefined
@@ -265,21 +266,33 @@
     // but content can also grow WITHOUT a new card — markdown re-flow after a
     // code block closes, tool-output rAF flushes. The observer catches those:
     // while pinned, any frame where the end marker left the viewport re-pins.
+    // User-scroll detection: scrollTop only moves when the USER scrolls —
+    // content growth (streaming deltas, reflow) changes scrollHeight under a
+    // stationary scrollTop. The old IO unpin fired on growth (d > 24px) and
+    // unlatched auto-follow ("↓ 最新" mid-stream). Yield ONLY on real scroll.
+    let lastUserScrollTop = 0
+    const onChatScrollU = () => { lastUserScrollTop = scrollEl.scrollTop }
+    scrollEl.addEventListener('scroll', onChatScrollU, { passive: true })
+    scrollCleanups.push(() => scrollEl.removeEventListener('scroll', onChatScrollU))
     io = new IntersectionObserver(
       (entries) => {
-        // The sentinel left the viewport while we believed we were pinned.
-        // Two very different causes: streaming growth (pin again) or the
-        // USER scrolling up with a small wheel tick (their scroll was being
-        // swallowed by the re-pin — the "初段滚不动" report). Decide by the
-        // actual distance: still ≈at-bottom → pin; genuinely moved → yield.
         if (!pinnedToBottom || !entries.some((en) => !en.isIntersecting)) return
-        const d = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight
-        if (d <= 24) requestAnimationFrame(pinBottom)
-        else pinnedToBottom = false
+        const grew = Math.abs(scrollEl.scrollHeight - lastScrollHeight) > 2
+        const userScrolled = Math.abs(scrollEl.scrollTop - lastUserScrollTop) > 2
+        if (grew && !userScrolled) requestAnimationFrame(pinBottom) // content grew — keep following
+        else pinnedToBottom = false // genuine user scroll — yield
+        lastScrollHeight = scrollEl.scrollHeight
       },
       { root: scrollEl, threshold: 0 },
     )
+    let lastScrollHeight = scrollEl.scrollHeight
     if (endEl) io.observe(endEl)
+    // sdelta growth does not change scrollKey (no new card/seq) — without this
+    // listener the re-pin machinery was blind between snapshot cards and the
+    // follow broke mid-stream ("↓ 最新" while running).
+    const onStreamGrew = () => { if (pinnedToBottom) requestAnimationFrame(pinBottom) }
+    window.addEventListener('ocrc:stream-grew', onStreamGrew)
+    scrollCleanups.push(() => window.removeEventListener('ocrc:stream-grew', onStreamGrew))
 
     // The keyboard/toolbar shifts the composer via --kb; re-pin the latest message
     // above it (only when already at the bottom, so scroll-up isn't fought).
@@ -288,7 +301,7 @@
     vv?.addEventListener('resize', onVV)
     vvCleanup = () => vv?.removeEventListener('resize', onVV)
   })
-  onDestroy(() => { ro?.disconnect(); io?.disconnect(); vvCleanup?.(); if (runTimer) clearInterval(runTimer) })
+  onDestroy(() => { ro?.disconnect(); io?.disconnect(); vvCleanup?.(); for (const c of scrollCleanups) c(); if (runTimer) clearInterval(runTimer) })
 </script>
 
 <div class="chat" bind:this={scrollEl} on:scroll={onChatScroll}>

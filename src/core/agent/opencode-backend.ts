@@ -293,9 +293,14 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     let used: number | undefined
     try {
       const msgs = ((await client.session.messages({ path: { id } })).data ?? []) as any[]
-      for (let i = msgs.length - 1; i >= 0; i--) {
+      // Scan up to 3 recent assistant messages: the newest often has no tokens
+      // yet (turn in flight) — the previous settled ones carry the honest
+      // "current context" estimate.
+      let assistantSeen = 0
+      for (let i = msgs.length - 1; i >= 0 && assistantSeen < 3; i--) {
         const info = (msgs[i]?.info ?? msgs[i]) as any
         if (info?.role !== 'assistant') continue
+        assistantSeen += 1
         const t = info?.tokens
         if (t && used == null) {
           used = (t.input ?? 0) + (t.output ?? 0) + (t.reasoning ?? 0) + (t.cache?.read ?? 0) + (t.cache?.write ?? 0)

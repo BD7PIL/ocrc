@@ -21,6 +21,10 @@ export interface WsHub {
   /** Incremental streaming frames (0.25.0): same subscription filter as
    *  cards, but never buffered/replayed — the next snapshot card heals. */
   broadcastDelta(frame: StreamDeltaFrame): void
+  /** Live busy/idle for a session (from engine session.status) — the composer
+   *  shows 停止 vs 发送 from this; without it, turns started outside the
+   *  panel show 发送 while running. */
+  broadcastStatus(frame: { sessionId: string; busy: boolean }): void
 }
 
 export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry; state: SessionState }): WsHub {
@@ -104,6 +108,14 @@ export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry;
     },
     detach(ws) { clients.delete(ws) },
     broadcast(card) { /* cards flow via CardBus.publish */ },
+    broadcastStatus(frame) {
+      const targets = [...clients.values()].filter(
+        (state) => state.ws.readyState === 1 && (state.subscribed.size === 0 || state.subscribed.has(frame.sessionId)),
+      )
+      for (const state of targets) {
+        try { state.ws.send(JSON.stringify({ type: 'session.status', ...frame })) } catch {}
+      }
+    },
     broadcastDelta(frame) {
       const targets = [...clients.values()].filter(
         (state) => state.ws.readyState === 1 && (state.subscribed.size === 0 || state.subscribed.has(frame.sessionId)),

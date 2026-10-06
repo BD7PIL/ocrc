@@ -262,7 +262,7 @@
       <span>{pushedCount} 已推送</span>
     </div>
     {#if !drawer}
-      <RailFoot {email} {build} />
+      <RailFoot {build} />
     {/if}
   </div>
 </div>

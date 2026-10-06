@@ -9,8 +9,7 @@
   import { createWsClient } from '$lib/ws/client.js'
   import { setWsSend } from '$lib/ws/send.js'
   import { sidePane } from '$lib/stores/sidePane.js'
-  import { sessionList, feeds, upsertCard, upsertCards, setHistory, pruneFeeds, isSeqGap, applyStreamDelta, setFeedEpoch } from '$lib/stores/sessions.js'
-  import { serverBusy } from '$lib/stores/sessions.js'
+  import { sessionList, feeds, upsertCard, upsertCards, setHistory, pruneFeeds, isSeqGap, applyStreamDelta, setFeedEpoch, serverBusy } from '$lib/stores/sessions.js'
   import { setViewedSession, noteSessionActivity } from '$lib/notify.js'
   import { capabilities, loadCapabilities, backends, loadBackends, viewedSessionId, applyAgentTheme } from '$lib/stores/capabilities.js'
   import { paletteOpen } from '$lib/stores/palette.js'
@@ -118,6 +117,7 @@
     lastResyncAt = Date.now()
     try {
       const { cards, lastSeq, busy } = await api.history(id)
+      serverBusy.setKey(id, !!busy)
       // The replacement re-keys history cards — suppress the stream's
       // :last-child entrance for one beat (a resync IS history, rule 1).
       feedResyncing.set(true)
@@ -218,10 +218,17 @@
             gapTimer = setTimeout(() => { void resyncViaRest(sid) }, 500)
           }
         }
+        else if ((msg as any).type === 'cards' && Array.isArray((msg as any).cards)) {
+          upsertCards((msg as any).cards)
+        }
+        else if (msg.type === 'session.status' && typeof (msg as any).sessionId === 'string') {
+          serverBusy.setKey((msg as any).sessionId, !!(msg as any).busy)
+        }
         // Incremental streaming frames (0.25.0): append-only, no seq — the next
         // full card frame is authoritative and clears whatever buffered here.
         if (msg.type === 'sdelta' && msg.sessionId && msg.cardId) {
           applyStreamDelta(msg as { sessionId: string; cardId: string; partId: string; text: string })
+          if ((msg as any).sessionId === get(viewedSessionId)) window.dispatchEvent(new CustomEvent('ocrc:stream-grew'))
         }
         // hello (on connect) and sessions (live updates) both carry the list.
         if ((msg.type === 'hello' || msg.type === 'sessions') && msg.sessions) {

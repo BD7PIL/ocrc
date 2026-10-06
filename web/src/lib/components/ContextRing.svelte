@@ -40,6 +40,9 @@
   $: tout = typeof ctx?.tokens?.output === 'number' ? (ctx.tokens.output as number) : 0
   $: used = typeof ctx?.tokens?.used === 'number' ? (ctx.tokens.used as number) : tin + tout
   $: max = typeof ctx?.tokens?.max === 'number' ? (ctx.tokens.max as number) : undefined
+  $: maxUnknown = !max
+  // max unknown ≠ 0%: show the grey unknown ring + the used figure instead of
+  // a lying zero (adopted engines with custom models have no context limit).
   $: pct = used > 0 && max ? Math.min(100, (used / max) * 100) : 0
   $: arcColor = pct >= 90 ? 'var(--err)' : pct >= 70 ? 'var(--warn)' : 'var(--ok)'
   $: model = ctx?.model ? String(ctx.model).split('/').pop() : undefined
@@ -87,7 +90,7 @@
 <!-- presentation: hover-intent wrapper for the popover; the interactive part
      is the ring <button> inside. -->
 <div class="wrap" role="presentation" bind:this={wrap} on:mouseenter={enter} on:mouseleave={leave}>
-  <button class="ring" on:click={() => (open = !open)} aria-label={`上下文占用 ${pct.toFixed(0)}%`} aria-expanded={open} title="上下文占用">
+  <button class="ring" on:click={() => (open = !open)} aria-label={maxUnknown ? `上下文用量 ${fmtK(used)}（上限未知）` : `上下文占用 ${pct.toFixed(0)}%`} aria-expanded={open} title="上下文占用">
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <circle class="track" cx="12" cy="12" r={R} />
       <circle
@@ -98,7 +101,7 @@
         transform="rotate(-90 12 12)"
       />
     </svg>
-    <span class="pct mono">{pct.toFixed(0)}<i>%</i></span>
+    <span class="pct mono">{maxUnknown ? (used > 0 ? fmtK(used) : '—') : `${pct.toFixed(0)}%`}</span>
   </button>
 
   {#if open && max}
@@ -157,7 +160,6 @@
     .pct { display: none; }
     .ring svg { width: 22px; height: 22px; }
   }
-  .pct i { font-style: normal; font-size: 8.5px; }
   .ring:hover .pct { color: var(--text-2); }
 
 

@@ -44,8 +44,8 @@
 <div class="wrap" bind:this={wrap}>
   <button class="chip mono" aria-haspopup="listbox" aria-expanded={open} title="推理强度（当前模型：{current.model?.modelID ?? '—'}）"
           on:click={() => { open = !open; if (open) refresh() }}>
-    <Icon name="cpu" size={11} />
-    <span class="txt">🧠 {label}</span>
+    <Icon name="brain" size={11} />
+    <span class="txt">{label}</span>
     <Icon name="caret-down" size={9} />
   </button>
   {#if open}

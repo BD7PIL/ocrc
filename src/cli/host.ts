@@ -100,6 +100,7 @@ export async function main(): Promise<void> {
   const acpStore = createAcpStore(join(dirname(config.statePath), 'acp-sessions.json'))
   const dataDir = dirname(config.statePath)
   const remotesStore = createRemotesStore(join(dataDir, 'remotes.json'))
+  const statusSink: { broadcast?: (frame: { sessionId: string; busy: boolean }) => void } = {}
   const remoteManager = createRemoteHostManager({ store: remotesStore })
 
   // Build every backend (spawning opencode server(s) + ACP agents) and wire each
@@ -116,6 +117,7 @@ export async function main(): Promise<void> {
     serverUrl: config.serverUrl || undefined,
     remotesStore,
     remoteManager,
+    statusSink,
   })
   const registry = createBackendRegistry({
     backends: built.backends,

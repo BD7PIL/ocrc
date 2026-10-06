@@ -111,3 +111,15 @@
 }
 .diff-lines.removals { background: color-mix(in srgb, var(--err) 10%, transparent); color: var(--err); }
 .diff-lines.additions { background: color-mix(in srgb, var(--ok) 10%, transparent); color: var(--ok); }
+
+/* ── M3 SidePane (ZCode SidePaneTabTrigger register) ── */
+.pane-tabs { border-bottom: 1px solid var(--border-2); }
+.pane-tab { height: 28px; }
+.pane-tab-title {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  mask-image: linear-gradient(to right, black calc(100% - 14px), transparent);
+}
+.pane-tab:hover .pane-tab-x, .pane-tab[aria-selected='true'] .pane-tab-x {
+  opacity: 1 !important; pointer-events: auto !important;
+}
+.pane-tab:hover .pane-tab-title { mask-image: linear-gradient(to right, black calc(100% - 22px), transparent); }

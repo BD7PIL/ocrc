@@ -6,6 +6,7 @@ import { useRef } from 'react'
 import { Outlet } from 'react-router'
 import { PanelRight, SlidingPanelLeftHandle } from './icons.tsx'
 import { Sidebar } from './Sidebar.js'
+import { SidePane } from '../pane/SidePane.js'
 import { useUi } from '../../lib/stores/ui.js'
 import { useSessions } from '../../lib/stores/sessions.js'
 
@@ -101,17 +102,10 @@ export function ShellLayout() {
       {/* right pane container — populated by the M3 SidePane tab family */}
       {inspectorOpen && (
         <aside
-          className="h-full w-[40%] min-w-[320px] shrink-0 overflow-y-auto border-l"
+          className="h-full w-[40%] min-w-[320px] shrink-0 border-l"
           style={{ background: 'var(--bg-panel)', borderColor: 'var(--border)' }}
         >
-          <div className="flex h-full items-center justify-center p-6 text-center" style={{ color: 'var(--text-3)' }}>
-            <div>
-              <p style={{ fontSize: 'var(--ui-sm)' }}>右栏面板</p>
-              <p className="mt-1" style={{ fontSize: 'var(--ui-caption)' }}>
-                页签族在 M3 落地（子代理目录 / 任务 / 文件 / Git / 计划详情…）
-              </p>
-            </div>
-          </div>
+          <SidePane />
         </aside>
       )}
     </div>

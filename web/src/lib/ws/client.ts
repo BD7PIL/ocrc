@@ -77,6 +77,7 @@ export function createWsClient(opts: WsClientOpts): WsClient {
     ws.onopen = () => {
       reconnectAttempt = 0
       setStatus('connected')
+      if (pending.length > 50) pending.splice(0, pending.length - 50) // cap: stale queue is garbage after 25s of backoff
       for (const data of pending.splice(0)) ws?.send(data)
       if (everConnected) opts.onReconnect?.()
       everConnected = true
@@ -84,8 +85,9 @@ export function createWsClient(opts: WsClientOpts): WsClient {
     }
 
     ws.onmessage = (ev) => {
+      let msg: any
+      try { msg = JSON.parse(ev.data) } catch (err) { console.warn('[ws] unparseable frame', err); return }
       try {
-        const msg = JSON.parse(ev.data)
         if (msg.type === 'pong') {
           if (pongTimer) { clearTimeout(pongTimer); pongTimer = null }
           if (pingSentAt) { latency.set(Math.round(performance.now() - pingSentAt)) }

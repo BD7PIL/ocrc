@@ -13,6 +13,7 @@
   import PlanHud from '$lib/components/PlanHud.svelte'
 
   let scrollEl: HTMLDivElement
+  let isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 820px)').matches
   const scrollCleanups: Array<() => void> = []
   let composerEl: HTMLElement
   let endEl: HTMLDivElement
@@ -316,7 +317,7 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
         </button>
       {/if}
-      <SessionSwitcher activeId={sessionId} />
+      <SessionSwitcher activeId={sessionId} interactive={!$inspectorOpen || isMobile} />
       {#if branch}<span class="branch mono">{branch}</span>{/if}
     </div>
     <div class="right">

@@ -118,6 +118,7 @@ export async function main(): Promise<void> {
     remotesStore,
     remoteManager,
     statusSink,
+    state,
   })
   const registry = createBackendRegistry({
     backends: built.backends,

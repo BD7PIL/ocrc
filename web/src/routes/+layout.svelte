@@ -462,6 +462,7 @@
   /* New-version notice: the service worker finds an update while old tabs
      keep running the old bundle for days — surface it, don't stay silent. */
   .sw-update {
+    animation: ocrc-banner-drop 180ms var(--ease-out, ease-out);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -636,5 +637,9 @@
       animation: fade .18s ease;
     }
     @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+  }
+  @keyframes ocrc-banner-drop {
+    from { opacity: 0; transform: translateY(-16px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 </style>

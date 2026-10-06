@@ -22,7 +22,7 @@ describe('sanitize', () => {
   })
 
   it('falls back to plain text on very long input', () => {
-    const long = 'x'.repeat(30_000)
+    const long = 'x'.repeat(60_001)
     const html = renderMarkdown(long)
     expect(html).not.toContain('hljs-')
     expect(html).toContain('<pre class="raw">')

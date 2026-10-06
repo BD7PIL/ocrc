@@ -439,7 +439,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
   }
 
   async function getSubagents(sessionId: string): Promise<SubagentInfo[]> {
-    return hotCached(`subs:${sessionId}`, 4000, async () => {
+    return hotCached(`subs:${sessionId}`, 2000, async () => {
     const all = (await listAllSessions(client)) as Array<{
       id: string; parentID?: string; title?: string; time?: { updated?: number }
     }>

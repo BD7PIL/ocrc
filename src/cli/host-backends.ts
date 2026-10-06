@@ -105,6 +105,8 @@ export interface BuildHostBackendsDeps {
   onAcpPermission: (req: AcpPermissionRequest) => Promise<string | null>
   /** Persistent session+history store, shared by all ACP backends. */
   store?: AcpStore
+  /** Session state (busy map) — subagents panel reads isSessionBusy. */
+  state?: { setSessionBusy?: (id: string, busy: boolean) => void }
   /** Base port for spawned opencode servers (each opencode backend gets one). */
   opencodePort?: number
   /** Ports the probe must never claim (the web transport's own, typically). */
@@ -280,7 +282,10 @@ export async function buildHostBackends(specs: BackendSpec[], deps: BuildHostBac
             safePush(ev) // opencode events are already the shape push expects
             if ((ev as { type?: string }).type === 'session.status') {
               const p = (ev as { properties?: { sessionID?: string; status?: { type?: string } } }).properties
-              if (p?.sessionID) deps.statusSink?.broadcast?.({ sessionId: p.sessionID, busy: p.status?.type === 'busy' })
+              if (p?.sessionID) {
+                deps.statusSink?.broadcast?.({ sessionId: p.sessionID, busy: p.status?.type === 'busy' })
+                deps.state?.setSessionBusy?.(p.sessionID, p.status?.type === 'busy')
+              }
             }
             if (PERMISSION_TYPES.has(ev.type ?? '')) { onOpencodePermission(ev); return }
             const ae = normalizeOpencodeEvent(ev)

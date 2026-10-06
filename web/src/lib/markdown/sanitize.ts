@@ -54,7 +54,7 @@ marked.use(markedHighlight({
 
 // Cap markdown rendering — very long outputs (extraction tasks, JSON blobs)
 // blow up marked's tokenizer and freeze the main thread for seconds.
-const MAX_MARKDOWN_LEN = 20_000
+const MAX_MARKDOWN_LEN = 60_000
 
 // Force external links to open safely (new tab, no window.opener handle, no
 // referrer). Registered once at module load.

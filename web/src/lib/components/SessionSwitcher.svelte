@@ -8,6 +8,9 @@
   import { workspaces, activeWorkspace } from '$lib/stores/workspaces.js'
 
   export let activeId: string | undefined = undefined
+  /** False = the left rail is open and owns session switching — this control
+   *  degrades to a plain title (no dropdown), per ZCode register. */
+  export let interactive = true
 
   let open = false
   let creating = false

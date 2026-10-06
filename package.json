@@ -1,6 +1,6 @@
 {
   "name": "@bd7pil/ocrc",
-  "version": "0.27.0-alpha.11",
+  "version": "0.27.0-alpha.12",
   "description": "Remote-control opencode from Telegram and a web PWA — live sessions, tool streams, approvals, SSH remote hosts, schedules. Plugin mode or standalone host.",
   "type": "module",
   "main": "dist/plugin/entry.js",
@@ -24,9 +24,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "build:web": "npm --prefix web install && npm --prefix web run build",
     "build:web-next": "npm --prefix web-next install && npm --prefix web-next run build",
-    "build:all": "npm run build && npm run build:web && npm run build:web-next",
+    "build:all": "npm run build && npm run build:web-next",
     "prepublishOnly": "npm run build:all",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -40,7 +39,7 @@
     "dist",
     "bin",
     "patches",
-    "web/dist"
+    "web-next/dist"
   ],
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.6.1",

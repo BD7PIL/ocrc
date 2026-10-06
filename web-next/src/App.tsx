@@ -52,8 +52,9 @@ export default function App() {
     )
   }
 
+  const basename = typeof location !== 'undefined' && location.pathname.startsWith('/next') ? '/next' : ''
   return (
-    <BrowserRouter basename="/next">
+    <BrowserRouter basename={basename}>
       <Routes>
         <Route element={<ShellLayout />}>
           <Route path="/" element={<HomePage />} />

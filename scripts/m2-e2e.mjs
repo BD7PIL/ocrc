@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
-const require = createRequire(new URL('../web/', import.meta.url))
+const require = createRequire(new URL('../web-next/package.json', import.meta.url))
 const { chromium } = require('playwright')
 
 const ISO_PORT = 4199

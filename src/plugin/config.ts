@@ -145,7 +145,9 @@ export function loadPluginConfig(
     serverPort: num(process.env.OCRC_SERVER_PORT ?? process.env.SERVER_PORT, 4096, 'OCRC_SERVER_PORT'),
     serverUrl: (process.env.OCRC_SERVER_URL ?? '').trim(),
     webPublicUrl: envFork('OCRC_WEB_PUBLIC_URL', 'WEB_PUBLIC_URL', options?.webPublicUrl as string) ?? '',
-    webStaticRoot: envFork('OCRC_WEB_STATIC_ROOT', 'WEB_STATIC_ROOT', options?.webStaticRoot as string) ?? resolve(PLUGIN_ROOT, 'web', 'dist'),
+    // M4-3 retirement: the React shell IS the web surface (the Svelte shell is
+    // gone); /next/ keeps serving the same dist for bookmark compatibility.
+    webStaticRoot: envFork('OCRC_WEB_STATIC_ROOT', 'WEB_STATIC_ROOT', options?.webStaticRoot as string) ?? resolve(PLUGIN_ROOT, 'web-next', 'dist'),
     webNextStaticRoot: (process.env.OCRC_WEB_NEXT_STATIC_ROOT ?? '').trim() || resolve(PLUGIN_ROOT, 'web-next', 'dist'),
     webCacheSize: num(options?.webCacheSize ?? process.env.OCRC_WEB_SESSION_CACHE_SIZE ?? process.env.WEB_SESSION_CACHE_SIZE, 100, 'OCRC_WEB_SESSION_CACHE_SIZE'),
     webCfAccessTeam: envFork('OCRC_WEB_CF_ACCESS_TEAM', 'WEB_CF_ACCESS_TEAM', options?.webCfAccessTeam as string) ?? '',

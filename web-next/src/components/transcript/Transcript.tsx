@@ -7,12 +7,13 @@ import { api } from '$lib/api/client.js'
 import type { StructuredCard } from '$lib/api/types.js'
 import { useFeeds, cardsOf, prependHistory, type SessionFeed } from '$lib/stores/feeds.js'
 import { CardView } from '../cards/CardView.js'
+import { TurnNavigator } from './TurnNavigator.js'
 import { shouldAnimate } from './entrance.js'
 
 const FIRST_WINDOW = 24
 const WINDOW = 80
 
-export function Transcript({ sessionId, feed, filter }: { sessionId: string; feed: SessionFeed | undefined; filter?: (c: StructuredCard) => boolean }) {
+export function Transcript({ sessionId, feed, filter, busy = false }: { sessionId: string; feed: SessionFeed | undefined; filter?: (c: StructuredCard) => boolean; busy?: boolean }) {
   const allCards = cardsOf(feed)
   const cards = filter ? allCards.filter((c) => !filter(c)) : allCards
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -84,7 +85,8 @@ export function Transcript({ sessionId, feed, filter }: { sessionId: string; fee
   const shown = windowed ? cards.slice(cards.length - visibleCount) : cards
 
   return (
-    <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+    <div className="relative min-h-0 flex-1">
+    <div ref={scrollRef} className="h-full overflow-y-auto">
       <div className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-4">
         {windowed && (
           <button
@@ -102,6 +104,8 @@ export function Transcript({ sessionId, feed, filter }: { sessionId: string; fee
         ))}
       </div>
     </div>
+    <TurnNavigator scrollerRef={scrollRef} cards={shown} busy={busy} />
+    </div>
   )
 }
 
@@ -114,7 +118,7 @@ export function useFeed(sessionId: string): SessionFeed | undefined {
 function CardRow({ card }: { card: StructuredCard }) {
   const [enter] = useState(() => shouldAnimate(card.id))
   return (
-    <div className={`cv-card${enter ? ' card-enter' : ''}`}>
+    <div className={`cv-card${enter ? ' card-enter' : ''}`} data-card-id={card.id}>
       <CardView card={card} />
     </div>
   )

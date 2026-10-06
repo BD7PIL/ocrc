@@ -58,7 +58,7 @@ function SessionPageInner({ id }: { id: string }) {
   return (
     <SessionIdContext.Provider value={id}>
       <div className="flex h-full flex-col">
-        <Transcript sessionId={id} feed={feed} filter={isPending} />
+        <Transcript sessionId={id} feed={feed} filter={isPending} busy={running} />
         <div
           className="flex h-7 shrink-0 items-center gap-2 border-t px-4"
           style={{ borderColor: 'var(--border-2)' }}

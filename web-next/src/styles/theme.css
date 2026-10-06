@@ -486,8 +486,10 @@ a:focus-visible {
 /* ── 元素基线 ── */
 html { background: var(--bg); }
 /* 锁定文档，只有内层 pane 滚动——防 iOS 状态栏拖拽/橡皮筋。height:100vh
-   （非 %）：iOS standalone PWA 里百分比高度破坏 viewport-fit=cover。 */
-html, body { height: 100vh; }
+   （非 %）：iOS standalone PWA 里百分比高度破坏 viewport-fit=cover。
+   #root 同样锁高——整条 h-full 约束链的根；缺了它应用退化为内容撑开，
+   所有内层滚动容器永不溢出（TurnNavigator E2E 抓出的布局 bug）。 */
+html, body, #root { height: 100vh; }
 /* 每个按钮的按压反馈——触屏上无 hover，这是即时的「收到点击」。 */
 button {
   transition: opacity .12s var(--ease, ease), transform .12s var(--ease, ease);

@@ -132,3 +132,12 @@
 }
 .diff-patch .add { color: var(--ok); background: color-mix(in srgb, var(--ok) 8%, transparent); }
 .diff-patch .rem { color: var(--err); background: color-mix(in srgb, var(--err) 8%, transparent); }
+
+/* ── M3-3 TurnNavigator (dsh register) ── */
+.turn-tick {
+  position: absolute; right: 2px; width: 8px; height: 4px;
+  border-radius: 2px; background: var(--border); cursor: pointer;
+  transition: background var(--dur-1) var(--ease, ease), width var(--dur-1) var(--ease, ease);
+}
+.turn-tick:hover { background: var(--text-3); width: 10px; }
+.turn-tick-busy { background: var(--accent); animation: ocrc-pulse 1.6s ease-in-out infinite; }

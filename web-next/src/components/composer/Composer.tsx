@@ -52,7 +52,10 @@ export function Composer({ sessionId }: { sessionId: string }) {
     // (server republishes the user card with its own id — ours is temporary).
     upsertCard({ kind: 'user', sessionId, text: t, ts: Date.now(), origin: 'web', id: clientId } as any)
     try {
-      await api.sendMessage({ sessionId, text: t, clientId, variant: variant ?? undefined })
+      const { messageId } = await api.sendMessage({ sessionId, text: t, clientId, variant: variant ?? undefined })
+      // The server republishes the user card with the real message id (relay
+      // register: reconciles in place) — drop our temporary-id copy either way.
+      if (messageId) removeCard(clientId)
     } catch {
       removeCard(clientId)
       setText(t)

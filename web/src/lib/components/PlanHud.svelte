@@ -10,7 +10,7 @@
   import { api } from '$lib/api/client.js'
   import { feeds, sessionList } from '$lib/stores/sessions.js'
   import { can } from '$lib/stores/capabilities.js'
-  import { inspectorOpen, composerEmpty, planHudExpanded } from '$lib/stores/ui.js'
+  import { inspectorOpen, composerEmpty } from '$lib/stores/ui.js'
   import { openHome, openPaneTab } from '$lib/stores/sidePane.js'
   import { summarizeTodos, type TodoSummary } from '$lib/inspector/summarizeTodos.js'
 
@@ -142,6 +142,8 @@
 
   function toggleExpanded() {
     expanded = !expanded
+    // 手动收起时若子代理仍在跑：本轮 latched，不再自动展开
+    if (!expanded && runningSubs.length > 0) autoExpanded = true
     save({ expanded })
   }
 
@@ -152,38 +154,25 @@
   // 永不展开）。用户手动收起后本轮不再展开，直到子代理归零（latch 重置）。
   let autoExpanded = false
   let pollTimer: ReturnType<typeof setInterval> | undefined
-  function autoExpandConditions(): boolean {
-    if (!desktop || expanded) return false
-    if (typeof document === 'undefined' || document.hidden) return false
-    if ($inspectorOpen) return false // 右栏关闭
-    if (!$composerEmpty) return false // 输入框为空 = 没有输入行为
-    if (dismissed) return false
-    if (sum.total === 0 || sum.done >= sum.total) return false // 计划未完成
-    return runningSubs.length > 0 // 有子代理在执行
-  }
   async function autoExpandTick() {
     const sid = sessionId
-    if (autoExpandConditions()) {
-      try {
-        const r = await api.subagents(sid)
-        if (sid !== sessionId) return
-        if (r.subagents?.length) {
-          subs = [...r.subagents].sort((a, b) => Number(b.busy ?? false) - Number(a.busy ?? false))
-        }
-      } catch { /* backend unreachable — nothing to surface */ }
-      if (autoExpandConditions()) {
-        expanded = true
-        autoExpanded = true
-        save({ expanded: true })
-      }
-    } else if (!expanded && !autoExpanded) {
-      // 条件未满足时也轻量刷新（含折叠徽标），失败静默
-      try {
-        const r = await api.subagents(sid)
-        if (sid !== sessionId) return
-        subs = [...(r.subagents ?? [])].sort((a, b) => Number(b.busy ?? false) - Number(a.busy ?? false))
-      } catch { /* ignore */ }
-    }
+    if (!desktop || expanded || dismissed) return
+    let busy = false
+    try {
+      const r = await api.subagents(sid)
+      if (sid !== sessionId) return
+      subs = [...(r.subagents ?? [])].sort((a, b) => Number(b.busy ?? false) - Number(a.busy ?? false))
+      busy = (r.subagents ?? []).some((s) => s.busy)
+    } catch { return }
+    if (sid !== sessionId) return
+    if (!busy) { autoExpanded = false; return } // 本轮子代理跑完 → latch 重置
+    if (autoExpanded) return // 用户本轮已手动收起：不再打扰，直到下一轮
+    if ($inspectorOpen || !$composerEmpty) return
+    if (typeof document === 'undefined' || document.hidden) return
+    if (sum.total === 0 || sum.done >= sum.total) return
+    expanded = true
+    autoExpanded = true
+    save({ expanded: true })
   }
   $: if (typeof window !== 'undefined') {
     clearInterval(pollTimer)
@@ -197,16 +186,12 @@
     expanded = false
     save({ expanded: false })
   }
-  // 桌面展开态广播给中栏布局（正文让位）；卡片实际可渲染时才让位。
-  $: {
-    const renderable = loadedFor === sessionId && (sum.total > 0 || subs.length > 0 || breadcrumb)
-    planHudExpanded.set(Boolean(desktop && expanded && !dismissed && renderable))
-  }
-  onDestroy(() => { clearInterval(pollTimer); planHudExpanded.set(false) })
+  onDestroy(() => { clearInterval(pollTimer) })
 
   function hide() {
     save({ dismissed: [...(hud.dismissed ?? []), sessionId].slice(-20) })
     menuOpen = false
+    if (runningSubs.length > 0) autoExpanded = true
   }
   function undismiss() {
     save({ dismissed: (hud.dismissed ?? []).filter((x) => x !== sessionId) })
@@ -233,7 +218,9 @@
       if (menuEl?.contains(t) || dotsEl?.contains(t)) return
       menuOpen = false
     }
-    if (!expanded) return
+    // 点外收起是移动端遮罩层（scrim）的交互；桌面 dock 窗口只经 ✕ 收起——
+    // 否则用户一边看结果一边点页面，展开就被自己的点击收掉（0.26.22 事故）。
+    if (desktop || !expanded) return
     if (cardEl?.contains(t) || ballEl?.contains(t)) return
     expanded = false
     save({ expanded: false })
@@ -751,6 +738,6 @@
        collapsed bar parks at the exact same corner, so the HUD has ONE fixed
        address on desktop — it is always findable. */
     .bar { display: flex; top: 60px; bottom: auto; }
-    .plan-card { display: block; width: min(60vw, 340px); top: 60px; bottom: auto; transform-origin: 85% 0; }
+    .plan-card { display: block; width: min(60vw, 380px); top: 60px; bottom: auto; transform-origin: 85% 0; }
   }
 </style>

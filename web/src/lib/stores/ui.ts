@@ -66,9 +66,6 @@ export function takeComposerDraft(sid: string | undefined): string {
 /** True while the composer textarea is empty — hides suggestion chips once the
     user starts typing (baseline: chips must yield the moment they're noise). */
 export const composerEmpty = writable(true)
-// 悬浮窗（PlanHud）桌面展开态——中栏正文据此右移让位（修复#7，ZCode
-// inline-layout 寄存器：面板展开时 timeline 让出横向空间，不再盖住气泡）。
-export const planHudExpanded = writable(false)
 
 /** localStorage key for the theme override — also read by the early inline
     script in app.html (keep in sync). Absent = follow the system. */

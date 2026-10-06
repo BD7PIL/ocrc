@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation'
   import { tick, onMount, onDestroy } from 'svelte'
   import { feeds, cardsOf, sessionList, prependHistory, serverBusy } from '$lib/stores/sessions.js'
-  import { leftPanelOpen, inspectorOpen, composerDraft, composerEmpty, feedResyncing, sessionBooting, planHudExpanded } from '$lib/stores/ui.js'
+  import { leftPanelOpen, inspectorOpen, composerDraft, composerEmpty, feedResyncing, sessionBooting } from '$lib/stores/ui.js'
   import { sidePane } from '$lib/stores/sidePane.js'
   import Suggestions from '$lib/components/Suggestions.svelte'
   import { api } from '$lib/api/client.js'
@@ -309,7 +309,7 @@
   onDestroy(() => { ro?.disconnect(); io?.disconnect(); vvCleanup?.(); for (const c of scrollCleanups) c(); if (runTimer) clearInterval(runTimer) })
 </script>
 
-<div class="chat" class:hud-open={$planHudExpanded && !isMobile} bind:this={scrollEl} on:scroll={onChatScroll}>
+<div class="chat" bind:this={scrollEl} on:scroll={onChatScroll}>
   <div class="sub-header">
     <div class="left">
       <!-- Mobile: back to the Sessions screen (dual-screen nav). -->
@@ -632,10 +632,6 @@
   }
   .stream.suppressed > :global(*):last-child:not(.stream-end) {
     animation: none;
-  }
-  /* 修复#7：悬浮窗展开时正文右移让位（ZCode inline-layout），不再盖住气泡 */
-  @media (min-width: 1024px) {
-    .chat.hud-open .stream { padding-right: 300px; transition: padding-right var(--dur-3, 240ms) var(--ease-out, ease-out); }
   }
   .stream-end { height: 1px; flex-shrink: 0; }
   /* Perf: off-screen history cards skip layout/paint entirely (the streaming

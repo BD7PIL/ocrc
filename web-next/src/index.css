@@ -16,3 +16,51 @@
   color: var(--accent-ink);
   border-color: var(--accent-line);
 }
+
+/* ── M1 shell primitives ── */
+.rail-row {
+  display: flex; align-items: center; gap: 8px;
+  height: 32px; padding: 0 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text-2); font-size: var(--ui-sm);
+  cursor: pointer;
+}
+.rail-row:hover { background: var(--bg-elev2); color: var(--text); }
+.rail-kbd {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--ui-2xs); color: var(--text-3);
+}
+.ocrc-pulse-dot { animation: ocrc-pulse 1.6s ease-in-out infinite; }
+
+/* cmdk command center (ZCode CommandCenterDialog register, ocrc-skinned) */
+.cmdk-overlay { background: var(--scrim); }
+.cmdk-root {
+  position: fixed; left: 50%; top: 14vh; transform: translateX(-50%);
+  width: min(92vw, 560px); z-index: var(--z-overlay);
+  background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-palette);
+  overflow: hidden;
+  animation: ocrc-pop var(--dur-2) var(--ease-out);
+}
+.cmdk-input {
+  width: 100%; padding: 12px 14px; background: transparent;
+  border: none; outline: none; color: var(--text);
+  font-size: var(--ui-base);
+  border-bottom: 1px solid var(--border-2);
+}
+.cmdk-input::placeholder { color: var(--text-3); }
+.cmdk-list { max-height: min(52vh, 420px); overflow-y: auto; padding: 6px; }
+.cmdk-empty { padding: 14px; text-align: center; color: var(--text-3); font-size: var(--ui-sm); }
+.cmdk-group { padding: 2px 0; }
+.cmdk-group > [cmdk-group-heading] {
+  padding: 6px 10px 2px; color: var(--text-3);
+  font-size: var(--ui-2xs); text-transform: uppercase; letter-spacing: .06em;
+}
+.cmdk-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border-radius: var(--radius-xs);
+  color: var(--text-2); font-size: var(--ui-sm); cursor: pointer;
+}
+.cmdk-item:hover, .cmdk-item[data-selected='true'] { background: var(--accent-2); color: var(--text); }
+.cmdk-kbd { margin-left: auto; font-family: var(--font-mono); font-size: var(--ui-2xs); color: var(--text-4); }

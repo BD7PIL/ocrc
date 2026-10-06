@@ -63,6 +63,21 @@ export async function viewSession(id: string): Promise<void> {
   pruneFeeds(id)
 }
 
+/** Peek a session WITHOUT making it the viewed one (subagent session tabs):
+ *  load history once, subscribe from the cursor, never prune. */
+export async function peekSession(id: string): Promise<void> {
+  if (!feedOf(id)) {
+    try {
+      const { cards, lastSeq } = await api.history(id)
+      setHistory(id, cards, lastSeq)
+    } catch (err) {
+      console.warn('[boot] peek history failed', err)
+    }
+  }
+  const feed = feedOf(id)
+  client?.send({ type: 'subscribe', sessionId: id, sinceSeq: feed?.lastSeq ?? 0, epoch: feed?.epoch })
+}
+
 export function bootConnection(): void {
   if (booted) return
   booted = true

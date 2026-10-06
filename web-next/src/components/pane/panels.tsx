@@ -4,6 +4,7 @@
 // output, subagent sessions, git) are M3-2.
 import { useEffect, useState } from 'react'
 import { api } from '$lib/api/client.js'
+import { openPaneTab } from '$lib/stores/sidePane.js'
 import type { SkillRow } from '$lib/api/client.js'
 
 function Empty({ text }: { text: string }) {
@@ -84,14 +85,19 @@ export function SubsPanel({ sessionId }: { sessionId: string | null }) {
 
 function SubRow({ s }: { s: SubagentRow }) {
   return (
-    <div className="flex items-center gap-2 rounded-[6px] px-2 py-1" style={{ fontSize: 'var(--ui-sm)', color: 'var(--text-2)' }}>
+    <button
+      type="button"
+      className="flex w-full items-center gap-2 rounded-[6px] px-2 py-1 text-left transition-colors hover:bg-[var(--bg-elev2)]"
+      title="打开子会话转写"
+      onClick={() => openPaneTab({ id: `sub:${s.id}`, kind: 'subagent', title: s.name || s.id, childId: s.id })}
+    >
       <span
         className={`size-1.5 shrink-0 rounded-full ${s.busy ? 'ocrc-pulse-dot' : ''}`}
         style={{ background: s.busy ? 'var(--accent)' : 'var(--ok)' }}
         aria-hidden
       />
       <span className="min-w-0 flex-1 truncate">{s.name || s.id}</span>
-    </div>
+    </button>
   )
 }
 
@@ -164,11 +170,4 @@ export function SkillsPanel() {
       ))}
     </div>
   )
-}
-
-// ── 文件：M3-2（browse + 内容查看器）──
-export function FilesPanel({ sessionId }: { sessionId: string | null }) {
-  return sessionId
-    ? <Empty text="文件浏览 + 内容查看器在 M3-2 落地" />
-    : <NoSession what="文件" />
 }

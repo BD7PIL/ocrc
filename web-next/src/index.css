@@ -123,3 +123,12 @@
   opacity: 1 !important; pointer-events: auto !important;
 }
 .pane-tab:hover .pane-tab-title { mask-image: linear-gradient(to right, black calc(100% - 22px), transparent); }
+
+.diff-patch {
+  font-family: var(--font-mono); font-size: var(--ui-2xs); line-height: 1.5;
+  overflow-x: auto; padding: 6px 8px; margin-top: 2px;
+  background: var(--bg-code); border: 1px solid var(--border-2); border-radius: var(--radius-xs);
+  color: var(--text-2);
+}
+.diff-patch .add { color: var(--ok); background: color-mix(in srgb, var(--ok) 8%, transparent); }
+.diff-patch .rem { color: var(--err); background: color-mix(in srgb, var(--err) 8%, transparent); }

@@ -1,25 +1,42 @@
 // components/pane/SidePane.tsx — the right pane (ZCode SidePaneTabTrigger +
 // workspaceSidePane register): nothing permanently resident, every tab
-// closable, idempotent ids, "+" menu reopens homes, empty state is a launcher.
-// Tab strip: 28px, flex 1_1_156px shrinking to 60px, active = filled 10% ink
-// block (never an underline), ✕ hover-revealed, title mask-fade.
-import { useState } from 'react'
+// closable, idempotent ids, "+" menu reopens homes, drag reorders, empty
+// state is a launcher. Tab strip: 28px, flex 1_1_156px shrinking to 60px,
+// active = filled 10% ink block (never an underline), ✕ hover-revealed,
+// title mask-fade.
+import { useRef, useState, useMemo } from 'react'
 import { Plus, X } from 'lucide-react'
-import { useSidePane, openHome, closePaneTab, activatePane, HOMES, type PaneTab, type HomeId } from '$lib/stores/sidePane.js'
+import {
+  useSidePane, openPaneTab, openHome, closePaneTab, activatePane, reorderPaneTab,
+  HOMES, type PaneTab,
+} from '$lib/stores/sidePane.js'
+import { useSessions } from '../../lib/stores/sessions.js'
 import { useUi } from '../../lib/stores/ui.js'
-import { TasksPanel, SubsPanel, SchedulesPanel, McpPanel, SkillsPanel, FilesPanel } from './panels.js'
+import { TasksPanel, SubsPanel, SchedulesPanel, McpPanel, SkillsPanel } from './panels.js'
+import { FileBrowse, FileViewer, GitPanel, ToolOutput, SubagentTranscript } from './deep.js'
 
 export function SidePane() {
   const { tabs, activeId } = useSidePane()
   const [plusOpen, setPlusOpen] = useState(false)
+  const dragFrom = useRef<number | null>(null)
   const active = tabs.find((t) => t.id === activeId)
 
   return (
     <div className="flex h-full flex-col" style={{ background: 'var(--bg-panel)', containerType: 'inline-size' }}>
       {/* tab strip */}
       <div className="pane-tabs flex h-7 shrink-0 items-stretch gap-px overflow-x-auto px-1 pt-1" style={{ scrollbarWidth: 'none' }}>
-        {tabs.map((t) => (
-          <TabTrigger key={t.id} tab={t} active={t.id === activeId} onActivate={() => activatePane(t.id)} onClose={() => closePaneTab(t.id)} />
+        {tabs.map((t, i) => (
+          <div
+            key={t.id}
+            className="flex min-w-0"
+            style={{ flex: '1 1 156px' }}
+            draggable
+            onDragStart={() => { dragFrom.current = i }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={() => { if (dragFrom.current !== null) reorderPaneTab(dragFrom.current, i); dragFrom.current = null }}
+          >
+            <TabTrigger tab={t} active={t.id === activeId} onActivate={() => activatePane(t.id)} onClose={() => closePaneTab(t.id)} />
+          </div>
         ))}
         <div className="relative flex shrink-0 items-center">
           <button
@@ -54,11 +71,7 @@ export function SidePane() {
 
       {/* content */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {active ? (
-          <PaneContent tab={active} />
-        ) : (
-          <Launcher />
-        )}
+        {active ? <PaneContent tab={active} /> : <Launcher />}
       </div>
     </div>
   )
@@ -74,7 +87,6 @@ function TabTrigger({ tab, active, onActivate, onClose }: { tab: PaneTab; active
       onKeyDown={(e) => { if (e.key === 'Enter') onActivate() }}
       className="pane-tab group relative flex min-w-[60px] cursor-pointer items-center overflow-hidden"
       style={{
-        flex: '1 1 156px',
         background: active ? 'color-mix(in srgb, var(--text) 10%, transparent)' : 'transparent',
         borderRadius: '6px 6px 0 0',
       }}
@@ -86,11 +98,7 @@ function TabTrigger({ tab, active, onActivate, onClose }: { tab: PaneTab; active
         type="button"
         aria-label="关闭页签"
         className="pane-tab-x absolute right-1 flex h-4 w-4 items-center justify-center rounded-[4px]"
-        style={{
-          color: 'var(--text-3)',
-          opacity: 0,
-          pointerEvents: 'none',
-        }}
+        style={{ color: 'var(--text-3)', opacity: 0, pointerEvents: 'none' }}
         onClick={(e) => { e.stopPropagation(); onClose() }}
       >
         <X size={10} strokeWidth={2} />
@@ -101,22 +109,50 @@ function TabTrigger({ tab, active, onActivate, onClose }: { tab: PaneTab; active
 
 function PaneContent({ tab }: { tab: PaneTab }) {
   const activeSessionId = useUi((s) => s.activeSessionId)
-  if (tab.kind === 'home') return <HomePanel homeId={tab.homeId} sessionId={activeSessionId} />
-  // dynamic tab kinds (subagent sessions / files / tool output / git /
-  // sidechat) land with M3-2's deeper panels
-  return <p className="p-4" style={{ fontSize: 'var(--ui-sm)', color: 'var(--text-3)' }}>该页签的完整面板在 M3-2 落地。</p>
-}
 
-function HomePanel({ homeId, sessionId }: { homeId: HomeId; sessionId: string | null }) {
-  switch (homeId) {
-    case 'tasks': return <TasksPanel sessionId={sessionId} />
-    case 'subs': return <SubsPanel sessionId={sessionId} />
-    case 'schedules': return <SchedulesPanel />
-    case 'mcp': return <McpPanel />
-    case 'skills': return <SkillsPanel />
-    case 'files': return <FilesPanel sessionId={sessionId} />
+  if (tab.kind === 'home') {
+    switch (tab.homeId) {
+      case 'tasks': return activeSessionId ? <TasksPanel sessionId={activeSessionId} /> : <SessionGate what="任务" />
+      case 'subs': return activeSessionId ? <SubsPanel sessionId={activeSessionId} /> : <SessionGate what="子代理" />
+      case 'schedules': return <SchedulesPanel />
+      case 'mcp': return <McpPanel />
+      case 'skills': return <SkillsPanel />
+      case 'files': return activeSessionId ? <FilesHome sessionId={activeSessionId} /> : <SessionGate what="文件" />
+      default: return null
+    }
+  }
+
+  switch (tab.kind) {
+    case 'file': return <FileViewer sessionId={activeSessionId ?? ''} directory={tab.directory} path={tab.path} />
+    case 'tool': return <ToolOutput sessionId={tab.sessionId} messageId={tab.messageId} partId={tab.partId} />
+    case 'subagent': return <SubagentTranscript childId={tab.childId} />
+    case 'git': return activeSessionId ? <GitPanel sessionId={activeSessionId} /> : <SessionGate what="Git" />
     default: return null
   }
+}
+
+function SessionGate({ what }: { what: string }) {
+  return (
+    <p className="p-4 text-center" style={{ fontSize: 'var(--ui-sm)', color: 'var(--text-3)' }}>
+      {what}面板跟随当前会话——先在左栏选择一个会话
+    </p>
+  )
+}
+
+/** Files home: browse the ACTIVE session's directory; clicking a file opens
+ *  a viewer tab (idempotent per path). */
+function FilesHome({ sessionId }: { sessionId: string }) {
+  const list = useSessions((s) => s.list)
+  const directory = useMemo(() => list.find((x) => x.id === sessionId)?.directory, [list, sessionId])
+  return (
+    <FileBrowse
+      sessionId={sessionId}
+      directory={directory}
+      onOpenFile={(path) => {
+        if (directory) openPaneTab({ id: `file:${path}`, kind: 'file', title: path.split('/').pop() ?? path, path, directory })
+      }}
+    />
+  )
 }
 
 function Launcher() {

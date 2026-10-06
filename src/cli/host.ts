@@ -161,11 +161,32 @@ export async function main(): Promise<void> {
   // opencode permission events arrive on the SSE stream → forward to the same
   // approval UX (Telegram buttons + Web card). Web-only: publish the card directly.
   const onOpencodePermission = (ev: OcEvent) => {
+    const p = (ev as any).properties ?? {}
+    // 0.27 权限四档: session-level host approval routing (PRODUCT.md). 'edit'
+    // auto-approves edit-class requests, 'yolo' approves everything — the
+    // request never becomes an approval card; a status line keeps it auditable.
+    // plan/build stay native engine modes.
+    if (ev.type === 'permission.asked' && p.id && p.sessionID) {
+      const policy = state.getSessionApprovalPolicy(p.sessionID)
+      const permType = String(p.type ?? p.args?.type ?? '').toLowerCase()
+      const editClass = /edit|write|patch|multiedit/.test(permType) || /edit|write|patch/i.test(String(p.title ?? ''))
+      if (policy === 'yolo' || (policy === 'edit' && editClass)) {
+        const backend = registry.forSession?.(p.sessionID)
+        void (backend as { resolvePermission?: (id: string, requestId: string, d: 'once' | 'always' | 'reject') => Promise<void> } | undefined)
+          ?.resolvePermission?.(p.sessionID, p.id, 'once')
+          .then(() => cardBus.publish({ kind: 'status', sessionId: p.sessionID, fields: { 自动放行: `${p.title ?? (permType || 'permission')}（${policy} 策略）` } }))
+          .catch((err: unknown) => log.warn('auto-approve failed; surfacing card', (err as Error).message))
+        if (tgTransport) {
+          tgTransport.handlePluginPermissionEvent({ type: ev.type!, properties: p })
+            .catch((err: unknown) => log.error('opencode permission surface failed', err as Error))
+        }
+        return
+      }
+    }
     if (tgTransport) {
       tgTransport.handlePluginPermissionEvent({ type: ev.type!, properties: (ev as any).properties })
         .catch((err: unknown) => log.error('opencode permission surface failed', err as Error))
     } else {
-      const p = (ev as any).properties ?? {}
       if (ev.type === 'permission.asked' && p.id && p.sessionID) {
         cardBus.publish({ kind: 'approval', sessionId: p.sessionID, title: p.title ?? 'Permission', args: p.args ?? {}, requestId: p.id })
       }

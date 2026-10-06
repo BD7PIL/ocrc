@@ -102,6 +102,9 @@ export const api = {
   sendMessage: (body: { sessionId?: string; text: string; clientId?: string; variant?: string; images?: Array<{ data: string; mimeType: string }> }) => jsonPost<{ messageId: string }>('/api/message', body),
   abort: (sessionId: string) => jsonPost<{ ok: boolean }>('/api/abort', { sessionId }),
   suggestions: (sessionId: string) => jsonGet<{ suggestions: string[] }>(`/api/session/${sessionId}/suggestions`),
+  getPolicy: (sessionId: string) => jsonGet<{ policy: 'default' | 'edit' | 'yolo' }>(`/api/session/${sessionId}/policy`),
+  setPolicy: (sessionId: string, policy: 'default' | 'edit' | 'yolo') =>
+    jsonPost<{ ok: boolean; policy: 'default' | 'edit' | 'yolo' }>(`/api/session/${sessionId}/policy`, { policy }),
   approve: (sessionId: string, requestId: string, decision: 'once' | 'always' | 'reject') =>
     jsonPost<{ ok: boolean }>('/api/approval', { sessionId, requestId, decision }),
   answerQuestion: (sessionId: string, requestId: string, answers: string[][]) =>

@@ -12,8 +12,9 @@ import { shouldAnimate } from './entrance.js'
 const FIRST_WINDOW = 24
 const WINDOW = 80
 
-export function Transcript({ sessionId, feed }: { sessionId: string; feed: SessionFeed | undefined }) {
-  const cards = cardsOf(feed)
+export function Transcript({ sessionId, feed, filter }: { sessionId: string; feed: SessionFeed | undefined; filter?: (c: StructuredCard) => boolean }) {
+  const allCards = cardsOf(feed)
+  const cards = filter ? allCards.filter((c) => !filter(c)) : allCards
   const scrollRef = useRef<HTMLDivElement>(null)
   const [visibleCount, setVisibleCount] = useState(FIRST_WINDOW)
   const [loadingOlder, setLoadingOlder] = useState(false)

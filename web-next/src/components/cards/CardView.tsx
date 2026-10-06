@@ -5,6 +5,7 @@ import { memo, useState } from 'react'
 import type { StructuredCard } from '$lib/api/types.js'
 import { api } from '$lib/api/client.js'
 import { useCurrentSessionId } from '../transcript/sessionContext.js'
+import { useApprovals } from '../../lib/stores/approvals.js'
 import { Blocks } from './Blocks.js'
 
 export const CardView = memo(function CardView({ card }: { card: StructuredCard }) {
@@ -124,6 +125,7 @@ function ApprovalCard({ card }: { card: Extract<StructuredCard, { kind: 'approva
   const [done, setDone] = useState<string | null>(null)
   const decide = (d: 'once' | 'always' | 'reject') => {
     setDone(d)
+    useApprovals.getState().markAnswered(card.requestId, d)
     void api.approve(card.sessionId, card.requestId, d).catch(() => setDone(null))
   }
   return (
@@ -155,10 +157,12 @@ function QuestionCard({ card }: { card: Extract<StructuredCard, { kind: 'questio
   if (!q) return null
   const pick = async (label: string) => {
     setAnswered([[label]])
+    useApprovals.getState().markAnswered(card.requestId, 'once')
     await api.answerQuestion(card.sessionId, card.requestId, [[label]]).catch(() => setAnswered(null))
   }
   const reject = async () => {
     setAnswered([])
+    useApprovals.getState().markAnswered(card.requestId, 'skip')
     await api.rejectQuestion(card.sessionId, card.requestId).catch(() => setAnswered(null))
   }
   return (

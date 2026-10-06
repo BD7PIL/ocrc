@@ -20,6 +20,10 @@ interface PersistedState {
   sessionBackends?: Record<string, string>
   /** Multi-backend: the backend new sessions are created on (UI selection). */
   activeBackend?: string
+  /** 0.27: per-session host approval policy — 'edit' auto-approves edit-class
+   *  permission requests, 'yolo' auto-approves ALL of them (plan/build remain
+   *  native engine modes; the policy layers on top of 'build'). */
+  sessionApprovalPolicy?: Record<string, 'edit' | 'yolo'>
 }
 
 export interface SessionState {
@@ -66,6 +70,9 @@ export interface SessionState {
   /** Multi-backend: the backend new sessions are created on. */
   getActiveBackend(): string | undefined
   setActiveBackend(backendId: string | undefined): void
+  /** 0.27: host-side approval routing (PRODUCT.md 权限四档). */
+  getSessionApprovalPolicy(sessionId: string): 'edit' | 'yolo' | undefined
+  setSessionApprovalPolicy(sessionId: string, policy: 'edit' | 'yolo' | undefined): void
   /**
    * Normalize a short display ID (suffix) to the full session ID used as the
    * cardBus / pluginSessions key.  Full IDs ("ses_*", "session_*", UUIDs) pass
@@ -211,6 +218,7 @@ export function createFileBackedState(path: string): SessionState {
       if (cache.pinnedSessionId === sid) { delete cache.pinnedSessionId; dirty = true }
       if (cache.tuiSelectedSession === sid) { delete cache.tuiSelectedSession; dirty = true }
       if (cache.sessionBackends?.[sid]) { delete cache.sessionBackends[sid]; dirty = true }
+      if (cache.sessionApprovalPolicy?.[sid]) { delete cache.sessionApprovalPolicy[sid]; dirty = true }
       if (dirty) void persist()
     },
     setSessionBusy: (sid, busy) => { if (busy) sessionBusy.set(sid, true); else sessionBusy.delete(sid) },
@@ -226,6 +234,15 @@ export function createFileBackedState(path: string): SessionState {
         if (cache.sessionBackends) delete cache.sessionBackends[sid]
       } else {
         ;(cache.sessionBackends ??= {})[sid] = backendId
+      }
+      void persist()
+    },
+    getSessionApprovalPolicy: (sid) => cache.sessionApprovalPolicy?.[sid],
+    setSessionApprovalPolicy: (sid, policy) => {
+      if (policy === undefined) {
+        if (cache.sessionApprovalPolicy) delete cache.sessionApprovalPolicy[sid]
+      } else {
+        ;(cache.sessionApprovalPolicy ??= {})[sid] = policy
       }
       void persist()
     },

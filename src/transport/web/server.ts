@@ -34,6 +34,7 @@ import { registerWorkspaces } from './routes/workspaces.js'
 import { registerCreateSession } from './routes/create-session.js'
 import { registerCommands } from './routes/commands.js'
 import { registerRename } from './routes/rename.js'
+import { registerPolicy } from './routes/policy.js'
 import type { Scheduler } from '../../core/scheduler.js'
 import { registerSuggestions } from './routes/suggestions.js'
 import { registerSchedules } from './routes/schedules.js'
@@ -141,6 +142,7 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerCreateSession(app, reg)
   registerCommands(app, reg, opts.state)
   registerRename(app, reg, opts.state)
+  registerPolicy(app, opts.state)
   registerSuggestions(app, opts.state)
   registerSchedules(app, opts.scheduler)
   registerChannels(app, opts.channels, opts.telegramStatus, opts.telegramMeta)

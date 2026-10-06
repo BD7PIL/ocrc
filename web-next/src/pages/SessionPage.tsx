@@ -8,6 +8,8 @@ import { useFeeds, cardsOf, isRunningCard } from '../lib/stores/feeds.js'
 import { viewSession } from '../lib/ws/boot.js'
 import { Transcript, useFeed } from '../components/transcript/Transcript.js'
 import { Composer } from '../components/composer/Composer.js'
+import { Dock } from '../components/transcript/Dock.js'
+import { useApprovals } from '../lib/stores/approvals.js'
 import { SessionIdContext } from '../components/transcript/sessionContext.js'
 import { useUi } from '../lib/stores/ui.js'
 
@@ -37,10 +39,26 @@ function SessionPageInner({ id }: { id: string }) {
   const s = list.find((x) => x.id === id)
   const running = !!serverBusy || cardsOf(feed).some((c) => isRunningCard(c.kind))
 
+  // dock: pending approvals/questions surface below the composer and are
+  // filtered out of the timeline; answered ones stay in the transcript
+  const answered = useApprovals((st) => st.answered)
+  const cards = cardsOf(feed)
+  const isPending = (c: (typeof cards)[number]): boolean => {
+    if (c.kind === 'approval') return !answered[c.requestId]
+    if (c.kind === 'question') return !c.resolved && !answered[c.requestId]
+    return false
+  }
+  const pendingApproval = [...cards].reverse().find((c) => c.kind === 'approval' && isPending(c)) as
+    | Extract<(typeof cards)[number], { kind: 'approval' }>
+    | undefined
+  const pendingQuestion = [...cards].reverse().find((c) => c.kind === 'question' && isPending(c)) as
+    | Extract<(typeof cards)[number], { kind: 'question' }>
+    | undefined
+
   return (
     <SessionIdContext.Provider value={id}>
       <div className="flex h-full flex-col">
-        <Transcript sessionId={id} feed={feed} />
+        <Transcript sessionId={id} feed={feed} filter={isPending} />
         <div
           className="flex h-7 shrink-0 items-center gap-2 border-t px-4"
           style={{ borderColor: 'var(--border-2)' }}
@@ -54,6 +72,7 @@ function SessionPageInner({ id }: { id: string }) {
           {s?.model && <span className="mono" style={{ fontSize: 'var(--ui-2xs)', color: 'var(--text-4)' }}>{s.model}</span>}
         </div>
         <Composer sessionId={id} />
+        <Dock sessionId={id} data={{ pendingApproval, pendingQuestion }} />
       </div>
     </SessionIdContext.Provider>
   )

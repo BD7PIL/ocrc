@@ -6,11 +6,6 @@ import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, Gauge, Zap } from 'lucide-react'
 import { api } from '$lib/api/client.js'
 
-interface Controls {
-  mode?: { current?: string; options: Array<{ id: string; name: string }> }
-  model?: { current?: string; options: Array<{ id: string; name: string }> }
-}
-
 function useOutsideClose(open: boolean, close: () => void) {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -74,38 +69,48 @@ function MenuItem({ selected, onClick, children }: { selected?: boolean; onClick
   )
 }
 
-// ── 权限/模式 chip：plan·build 走会话原生模式；edit/yolo 的宿主审批路由在
-//    下一批接（UI 先按同一位阶呈现）──────────────────────────────────────
+// ── 权限四档 chip（ZCode V4ComposerModeControls 寄存器）：plan/build 走会
+//    话原生模式；edit/yolo 是宿主审批路由策略（PRODUCT.md 权限四档），铺在
+//    build 之上。yolo 选中时常驻 warning 黄（危险档示警）。──────────────
+type Tier = 'plan' | 'build' | 'edit' | 'yolo'
+const TIER_LABEL: Record<Tier, string> = { plan: '计划模式', build: '询问', edit: '自动编辑', yolo: '完全访问' }
+
 export function ModeChip({ sessionId }: { sessionId: string }) {
-  const [controls, setControls] = useState<Controls | null>(null)
+  const [policy, setPolicyState] = useState<'default' | 'edit' | 'yolo'>('default')
+  const [agent, setAgentState] = useState<string | undefined>(undefined)
   const [open, setOpen] = useState(false)
   const ref = useOutsideClose(open, () => setOpen(false))
 
   useEffect(() => {
-    void api.controls(sessionId).then(setControls).catch(() => {})
+    void api.getOverrides().then((o) => setAgentState(o.agent ?? undefined)).catch(() => {})
+    void api.getPolicy(sessionId).then((p) => setPolicyState(p.policy)).catch(() => {})
   }, [sessionId])
 
-  const current = controls?.mode?.current
-  const options = controls?.mode?.options ?? []
-  const label = options.find((o) => o.id === current)?.name ?? current ?? '模式'
+  const tier: Tier = policy === 'edit' || policy === 'yolo' ? policy : (agent === 'plan' ? 'plan' : 'build')
+
+  const select = (t: Tier) => {
+    setOpen(false)
+    const nextAgent = t === 'plan' ? 'plan' : 'build'
+    setAgentState(nextAgent)
+    void api.setOverrides({ agent: nextAgent }).catch(() => {})
+    const nextPolicy = t === 'edit' || t === 'yolo' ? t : 'default'
+    setPolicyState(nextPolicy)
+    void api.setPolicy(sessionId, nextPolicy).catch(() => {})
+  }
 
   return (
     <div className="relative" ref={ref}>
-      <Chip label={label} open={open} onClick={() => setOpen((v) => !v)} title="切换模式（plan/build）" />
+      <Chip label={TIER_LABEL[tier]} warn={tier === 'yolo'} open={open} onClick={() => setOpen((v) => !v)} title="权限模式" />
       {open && (
         <Menu>
-          {options.length === 0 && <div className="px-2.5 py-1.5" style={{ color: 'var(--text-3)', fontSize: 'var(--ui-sm)' }}>暂无可选（会话在引擎里激活后出现）</div>}
-          {options.map((o) => (
-            <MenuItem
-              key={o.id}
-              selected={o.id === current}
-              onClick={() => {
-                setOpen(false)
-                void api.setMode(sessionId, o.id).then(() => api.controls(sessionId)).then(setControls).catch(() => {})
-              }}
-            >
-              {o.name}
-            </MenuItem>
+          {(['plan', 'build', 'edit', 'yolo'] as Tier[]).map((t) => (
+            <div key={t}>
+              <MenuItem selected={tier === t} onClick={() => select(t)}>
+                <span style={{ color: t === 'yolo' ? 'var(--warn)' : undefined }}>{TIER_LABEL[t]}</span>
+                {t === 'yolo' && <span style={{ fontSize: 'var(--ui-2xs)', color: 'var(--text-4)' }}>自动放行全部审批</span>}
+              </MenuItem>
+              {t === 'build' && <div className="mx-2.5 my-1 border-t" style={{ borderColor: 'var(--border-2)' }} />}
+            </div>
           ))}
         </Menu>
       )}
@@ -113,38 +118,57 @@ export function ModeChip({ sessionId }: { sessionId: string }) {
   )
 }
 
-// ── 模型 chip：会话级 model 覆盖 ─────────────────────────────────────────
+// ── 模型 chip：overrides 管线（opencode backend 刻意不做 session 级切换 —
+//    sessionControls:false；与旧壳 AgentChip/ModelChip 同一事实源）─────────
+interface Catalog { id: string; name?: string; models: Array<{ id: string; name?: string }> }
+
 export function ModelChip({ sessionId }: { sessionId: string }) {
-  const [controls, setControls] = useState<Controls | null>(null)
+  const [providers, setProviders] = useState<Catalog[]>([])
+  const [current, setCurrent] = useState<{ providerID: string; modelID: string } | null>(null)
   const [open, setOpen] = useState(false)
   const ref = useOutsideClose(open, () => setOpen(false))
 
   useEffect(() => {
-    void api.controls(sessionId).then(setControls).catch(() => {})
+    void Promise.all([api.models(), api.getOverrides()]).then(([catalog, o]) => {
+      setProviders(catalog)
+      setCurrent(o.model ?? null)
+    }).catch(() => {})
   }, [sessionId])
 
-  const current = controls?.model?.current
-  const options = controls?.model?.options ?? []
-  const label = options.find((o) => o.id === current)?.name ?? current ?? '模型'
+  const label = current?.modelID ?? '模型'
 
   return (
     <div className="relative" ref={ref}>
       <Chip label={label} open={open} onClick={() => setOpen((v) => !v)} title="会话模型" />
       {open && (
         <Menu>
-          {options.length === 0 && <div className="px-2.5 py-1.5" style={{ color: 'var(--text-3)', fontSize: 'var(--ui-sm)' }}>暂无可选</div>}
-          {options.map((o) => (
-            <MenuItem
-              key={o.id}
-              selected={o.id === current}
-              onClick={() => {
-                setOpen(false)
-                void api.setModel(sessionId, o.id).then(() => api.controls(sessionId)).then(setControls).catch(() => {})
-              }}
-            >
-              {o.name}
-            </MenuItem>
+          {providers.length === 0 && <div className="px-2.5 py-1.5" style={{ color: 'var(--text-3)', fontSize: 'var(--ui-sm)' }}>暂无可选</div>}
+          {providers.map((p) => (
+            <div key={p.id}>
+              <div className="px-2.5 pt-1.5 label">{p.id}</div>
+              {p.models.map((m) => {
+                const sel = current?.providerID === p.id && current?.modelID === m.id
+                return (
+                  <MenuItem
+                    key={m.id}
+                    selected={sel}
+                    onClick={() => {
+                      setOpen(false)
+                      setCurrent({ providerID: p.id, modelID: m.id })
+                      void api.setOverrides({ model: { providerID: p.id, modelID: m.id } }).catch(() => {})
+                    }}
+                  >
+                    {m.name || m.id}
+                  </MenuItem>
+                )
+              })}
+            </div>
           ))}
+          {current && (
+            <MenuItem onClick={() => { setOpen(false); setCurrent(null); void api.setOverrides({ model: null }).catch(() => {}) }}>
+              清除覆盖
+            </MenuItem>
+          )}
         </Menu>
       )}
     </div>

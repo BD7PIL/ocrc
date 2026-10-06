@@ -19,11 +19,11 @@ await page.waitForTimeout(4500)
 // 1. chips row renders with real values
 const chipRow = page.locator('main .flex.items-center.gap-1\\.5', { hasText: '模式' })
 const chips = page.locator('main button[title]')
-const chipTitles = await page.locator('main button[title="切换模式（plan/build）"], main button[title="会话模型"], main button[title="推理强度（随下一条消息生效）"], main button[title="上下文占用"]').count()
+const chipTitles = await page.locator('main button[title="权限模式"], main button[title="会话模型"], main button[title="推理强度（随下一条消息生效）"], main button[title="上下文占用"]').count()
 check('chips: 4 chips render', chipTitles === 4, `${chipTitles}`)
 
 // 2. mode chip: opens, lists REAL options from the host, Esc closes
-await page.locator('button[title*="切换模式"]').click()
+await page.locator('button[title="权限模式"]').click()
 await page.waitForTimeout(300)
 const options = await page.locator('[role="listbox"] [role="option"]').count()
 // idle session: controls are empty until the engine activates it — assert the
@@ -36,8 +36,9 @@ check('mode chip: Esc closes', (await page.locator('[role="listbox"]').count()) 
 // 3. model chip: opens with options
 await page.locator('button[title="会话模型"]').click()
 await page.waitForTimeout(300)
-const modelEmpty = await page.locator('[role="listbox"]', { hasText: '暂无可选' }).count()
-check('model chip: honest empty state', modelEmpty === 1)
+// production has a real provider catalog — the overrides pipeline lists it
+const modelOptions = await page.locator('[role="listbox"] [role="option"]').count()
+check('model chip: lists real catalog', modelOptions > 0, `${modelOptions} options`)
 await page.keyboard.press('Escape')
 
 // 4. effort chip: default + 3 levels

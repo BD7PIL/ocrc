@@ -25,8 +25,9 @@
   async function fetchDirSug() {
     const seq = ++dirSugSeq
     const typed = directory.trim()
-    if (!typed.startsWith('/') || typed.endsWith('/')) { dirSug = []; return }
-    const parent = typed.slice(0, typed.lastIndexOf('/')) || '/'
+    if (!typed.startsWith('/')) { dirSug = []; return }
+    // `/a/b/` (trailing slash) = list INSIDE b; `/a/b` = complete siblings of b.
+    const parent = typed.endsWith('/') ? typed.slice(0, -1) : typed.slice(0, typed.lastIndexOf('/')) || '/'
     try {
       const res = await api.browse(parent, parent)
       if (seq !== dirSugSeq) return

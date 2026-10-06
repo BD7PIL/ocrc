@@ -331,9 +331,26 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
 
     // Only surface used/max when known — never leak undefined keys (consumers
     // read tokens.used / tokens.max and treat absence as "unknown").
+    //
+    // Priority: the message-scan `used` (settled usage of recent assistant
+    // turns) beats s.tokens.used — the engine reports 0 there while a turn is
+    // in flight, which used to fold the ring into a lying 0% mid-stream. Zero
+    // from the scan itself is still honored (genuinely empty context).
     const tokens: Record<string, number> = { ...(s.tokens ?? {}) }
-    if (typeof used === 'number') tokens.used = used
+    if (typeof used === 'number' && used > 0) tokens.used = used
+    else if (typeof used === 'number' && used === 0 && !(tokens.used > 0)) tokens.used = 0
     if (typeof max === 'number') tokens.max = max
+    // lastKnown cache: engine-busy windows make the message fetch fail —
+    // serve the last good numbers instead of an empty context (the "经常归零"
+    // report was this + the s.tokens.used=0 override, together).
+    if (tokens.used > 0 || (tokens.input ?? 0) > 0) lastKnownCtx.set(id, { tokens: { ...tokens }, at: Date.now() })
+    else {
+      const last = lastKnownCtx.get(id)
+      if (last && Date.now() - last.at < 10 * 60_000) {
+        log.warn(`context empty for ${id.slice(-8)} — serving lastKnown from ${Math.round((Date.now() - last.at) / 1000)}s ago`)
+        return { agent: s.agent?.name, model: modelId, tokens: last.tokens, cost: typeof s.cost === 'number' ? s.cost : undefined, directory: typeof s.directory === 'string' ? s.directory : undefined }
+      }
+    }
 
     return {
       agent: s.agent?.name,
@@ -437,6 +454,8 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
       })),
     }))
   }
+
+  const lastKnownCtx = new Map<string, { tokens: Record<string, number>; at: number }>()
 
   async function getSubagents(sessionId: string): Promise<SubagentInfo[]> {
     return hotCached(`subs:${sessionId}`, 2000, async () => {

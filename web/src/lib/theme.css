@@ -96,9 +96,12 @@
   --shadow-card: 0 1px 4px rgba(0, 0, 0, .35);
   --shadow-composer: 0 6px 24px rgba(0, 0, 0, .4);
   --shadow-palette: 0 24px 70px rgba(0, 0, 0, .6);
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  /* 字体栈对齐 ZCode（styles.css / web/index.html）：Inter 优先（桌面端随
+     系统提供），CJK 显式链保证中文不落宋体；mono 带 CJK 链——mono 区块里的
+     中文（运行中/命令/路径）不再回退到随机系统字体（发虚修复#6）。 */
+  --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Hiragino Sans GB', sans-serif;
   --font-serif: 'Noto Serif CJK SC', 'Source Han Serif SC', 'DejaVu Serif', Georgia, 'Times New Roman', serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC', monospace;
 
   /* semantic z-index scale (low → high) */
   --z-sticky:    5;   /* sub-headers, floating composer */

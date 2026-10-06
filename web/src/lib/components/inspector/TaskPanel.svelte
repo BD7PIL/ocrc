@@ -73,7 +73,7 @@
   .meta {
     font-family: var(--font-mono);
     color: var(--text-2);
-    font-size: 11px;
+    font-size: 12px;
   }
   .bar {
     height: 4px;
@@ -127,12 +127,12 @@
     display: none;
   }
   .check {
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1;
     display: none;
   }
   .tx {
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.45;
     color: var(--text-2);
   }

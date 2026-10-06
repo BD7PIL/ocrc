@@ -145,23 +145,19 @@
     save({ expanded })
   }
 
-  // ── Auto-expand（用户规格，修复#1）：右栏关闭 + 输入框为空 + 最近 5s 无输入
-  // + 计划未完成 + 有子代理运行中 → 自动展开。折叠态每 5s 轮询一次子代理
-  // （有界：一次 API 调用），因为子代理启动不一定伴随父会话 feed 事件。
-  // 用户手动收起后本轮不再自动展开，直到子代理归零（latch 重置）。
+  // ── Auto-expand（用户规格）：右栏关闭 + 输入框为空 + 计划未完成 + 有子代理
+  // 运行中 → 自动展开。折叠态每 3s 轮询一次子代理（有界：一次 API 调用），
+  // 因为子代理启动不一定伴随父会话 feed 事件。不设"鼠标静止"门槛——
+  // mousemove 会把条件永久打断（v0.26.21 事故：用户看着屏幕鼠标偶尔一动，
+  // 永不展开）。用户手动收起后本轮不再展开，直到子代理归零（latch 重置）。
   let autoExpanded = false
-  let lastInputAt = Date.now()
   let pollTimer: ReturnType<typeof setInterval> | undefined
-  function markInput() {
-    lastInputAt = Date.now()
-  }
   function autoExpandConditions(): boolean {
     if (!desktop || expanded) return false
     if (typeof document === 'undefined' || document.hidden) return false
     if ($inspectorOpen) return false // 右栏关闭
-    if (!$composerEmpty) return false // 输入框为空
-    if (Date.now() - lastInputAt < 5_000) return false // 无输入行为
-    if (dismissed && !desktop) return false
+    if (!$composerEmpty) return false // 输入框为空 = 没有输入行为
+    if (dismissed) return false
     if (sum.total === 0 || sum.done >= sum.total) return false // 计划未完成
     return runningSubs.length > 0 // 有子代理在执行
   }
@@ -191,7 +187,7 @@
   }
   $: if (typeof window !== 'undefined') {
     clearInterval(pollTimer)
-    pollTimer = setInterval(() => void autoExpandTick(), 5_000)
+    pollTimer = setInterval(() => void autoExpandTick(), 3_000)
   }
   // ZCode register (SessionPane sections): a section folds itself when its
   // work count drops to 0. We only auto-close what WE auto-opened — a
@@ -201,7 +197,6 @@
     expanded = false
     save({ expanded: false })
   }
-  $: if (sessionId) markInput()
   // 桌面展开态广播给中栏布局（正文让位）；卡片实际可渲染时才让位。
   $: {
     const renderable = loadedFor === sessionId && (sum.total > 0 || subs.length > 0 || breadcrumb)
@@ -245,17 +240,10 @@
   }
   function onWindowPointerdown(e: PointerEvent) {
     onOutside(e)
-    markInput()
   }
 </script>
 
-<svelte:window
-  on:pointerdown={onWindowPointerdown}
-  on:keydown={markInput}
-  on:mousemove|passive={markInput}
-  on:wheel|passive={markInput}
-  on:touchstart|passive={markInput}
-/>
+<svelte:window on:pointerdown={onWindowPointerdown} />
 
 {#if loadedFor === sessionId && (sum.total > 0 || subs.length > 0 || breadcrumb) && $can('todos')}
   {#if dismissed && !desktop}

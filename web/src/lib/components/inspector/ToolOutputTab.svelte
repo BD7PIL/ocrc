@@ -117,7 +117,7 @@
 </div>
 
 <style>
-  .out { font-size: 12px; }
+  .out { font-size: 13px; }
   .hd { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
   .sp { flex: 1; }
   .md-toggle {
@@ -137,9 +137,9 @@
     padding: 8px 10px;
     background: var(--bg-elev2, var(--bg-input));
     border-radius: var(--radius-xs, 4px);
-    font-size: 12px;
+    font-size: 13px;
   }
-  .tool { font-size: 12px; font-weight: 600; color: var(--text-2); }
+  .tool { font-size: 13px; font-weight: 600; color: var(--text-2); }
   .st { font-size: 10px; color: var(--text-3); }
   .st.running, .st.pending { color: var(--warn); }
   .st.error { color: var(--err); }
@@ -149,7 +149,7 @@
     background: var(--bg-input);
     border-radius: var(--radius-xs);
     color: var(--toolcmd);
-    font-size: 11px;
+    font-size: 12px;
     white-space: pre-wrap;
     word-break: break-word;
     margin-bottom: 6px;
@@ -160,7 +160,7 @@
     background: var(--bg-code);
     border-radius: var(--radius-xs);
     color: var(--toolout);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.55;
     white-space: pre-wrap;
     word-break: break-word;

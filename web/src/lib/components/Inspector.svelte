@@ -16,7 +16,6 @@
   import McpPanel from './inspector/McpPanel.svelte'
   import Icon from './Icon.svelte'
   import SchedulesPanel from './inspector/SchedulesPanel.svelte'
-  import RemotesPanel from './inspector/RemotesPanel.svelte'
   import SkillsPanel from './inspector/SkillsPanel.svelte'
   import FilesPanel from './inspector/FilesPanel.svelte'
   import WorktreesPanel from './inspector/WorktreesPanel.svelte'
@@ -99,7 +98,6 @@
         case 'skills': return 'skill'
         case 'schedules': return 'clock'
         case 'mcp': return 'plug'
-        case 'remotes': return 'cloud'
       }
       return 'gear'
     }
@@ -224,8 +222,6 @@
         <SchedulesPanel {tick} />
       {:else if activeTab.homeId === 'mcp'}
         {#if $can('mcp')}<McpPanel {tick} />{:else}<div class="na">此 agent 未配置 MCP</div>{/if}
-      {:else if activeTab.homeId === 'remotes'}
-        <RemotesPanel {tick} />
       {/if}
     {:else if activeTab?.kind === 'subagent'}
       <SubagentSessionTab childId={activeTab.childId} {tick} />
@@ -249,7 +245,6 @@
                 {:else if h.homeId === 'files'}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/></svg>
                 {:else if h.homeId === 'subs'}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
                 {:else if h.homeId === 'skills'}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8z"/></svg>
-                {:else if h.homeId === 'remotes'}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01M6 17.5h.01"/></svg>
                 {:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                 {/if}
               </span>
@@ -359,36 +354,34 @@
     scrollbar-width: none;
   }
   .tabs::-webkit-scrollbar { display: none; }
+  /* ── ZCode SidePaneTabTrigger register（照抄）──
+     28px 高、flex 1_1_156px 收缩到 60px；active=填充块（10% 前景）而非下划线；
+     ✕ 绝对定位右缘、悬停/激活才显影（永不挤占布局）；标题用右缘渐隐遮罩而非
+     省略号。 */
   .tab {
     position: relative;
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    /* ZCode register: uniform tab width, shrink to fit, never below 60px. */
-    flex: 0 1 156px;
+    flex: 1 1 156px;
     min-width: 60px;
-    padding: 9px 6px 8px;
+    max-width: 156px;
+    height: 28px;
+    padding: 0 26px 0 6px;
     background: transparent;
     border: none;
+    border-radius: var(--radius-sm);
     color: var(--text-3);
     font: inherit;
-    font-size: 12px;
+    font-size: 13px;
+    font-weight: 500;
     white-space: nowrap;
-    cursor: pointer;
-    /* NO flex-shrink:0 here — the ZCode register is "shrink to fit, never
-       below 60px": flex: 0 1 156px must actually shrink, or the 5th+ tab
-       overflows the strip and becomes unreachable (CDP-probed regression). */
+    cursor: default;
+    overflow: hidden;
+    transition: background .12s ease, color .12s ease;
   }
-  .tab:hover { color: var(--text-2); }
-  .tab.active { color: var(--text); font-weight: 600; }
-  .tab.active::after {
-    content: '';
-    position: absolute;
-    left: 6px; right: 6px; bottom: -1px;
-    height: 2px;
-    background: var(--accent);
-    border-radius: var(--radius-pill);
-  }
+  .tab:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
+  .tab.active { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text); }
   .tico { display: inline-flex; flex-shrink: 0; color: var(--text-3); }
   .tab.active .tico { color: var(--text); }
   .tab-ctx {
@@ -415,22 +408,38 @@
     cursor: pointer;
   }
   .tab-ctx button:hover { background: var(--bg-input); color: var(--text); }
-  /* 修复#7：label 让宽（旧 max-width:96px 在窄页签下把 ✕ 挤出按钮外） */
-  .dlabel { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* 标题右缘渐隐（ZCode mask-image register）——比省略号安静，且 ✕ 显影时
+     文字自然淡出不重叠 */
+  .dlabel {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent);
+  }
   .tbadge { font-size: 10px; color: var(--text-3); }
   .tab.active .tbadge { color: var(--text-2); }
   .closer {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
     display: inline-grid;
     place-items: center;
-    width: 14px;
-    height: 14px;
+    width: 18px;
+    height: 18px;
     border-radius: var(--radius-xs);
-    color: var(--text-4);
-    font-size: 10px;
+    color: var(--text-3);
+    font-size: 11px;
     line-height: 1;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .12s ease;
   }
-  .closer:hover { color: var(--text); background: var(--bg-input); }
-  .tab.active .closer { color: var(--text-3); }
+  .tab:hover .closer,
+  .tab.active .closer,
+  .tab:focus-within .closer { opacity: 1; pointer-events: auto; }
+  .closer:hover { color: var(--text); background: color-mix(in srgb, var(--text) 10%, transparent); }
 
   .tabs-more {
     flex-shrink: 0;

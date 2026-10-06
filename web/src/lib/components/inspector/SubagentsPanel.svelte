@@ -49,7 +49,7 @@
 </div>
 
 <style>
-  .subs { font-size: 12px; }
+  .subs { font-size: 13px; }
   .row {
     display: flex;
     align-items: center;
@@ -80,5 +80,5 @@
   .title { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .count { flex-shrink: 0; font-size: 10px; color: var(--text-3); }
   .live-label { flex-shrink: 0; font-size: 10px; color: var(--text-3); }
-  .empty { padding: 10px 0; color: var(--text-3); font-size: 11px; }
+  .empty { padding: 10px 0; color: var(--text-3); font-size: 12px; }
 </style>

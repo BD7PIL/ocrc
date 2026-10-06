@@ -132,6 +132,29 @@
     }
   }
 
+  // ── 已有主机管理（折叠在第一步卡片下方）────────────────────────────
+  let armed: string | undefined
+  let armTimer: ReturnType<typeof setTimeout> | undefined
+  async function toggle(r: RemoteRow) {
+    rows = rows.map((x) => (x.id === r.id ? { ...x, enabled: !x.enabled } : x))
+    try { await api.setRemoteEnabled(r.id, !r.enabled); await load() } catch { await load() }
+  }
+  async function remove(id: string) {
+    if (armed !== id) {
+      armed = id
+      clearTimeout(armTimer)
+      armTimer = setTimeout(() => (armed = undefined), 3000)
+      return
+    }
+    clearTimeout(armTimer)
+    armed = undefined
+    try { await api.deleteRemote(id); await load() } catch { /* keep row */ }
+  }
+  async function syncAuth(id: string) {
+    try { await api.syncRemoteAuth(id) } catch { /* ignore */ }
+    await load()
+  }
+
   async function retryConnect() {
     if (wizId) { try { await api.setRemoteEnabled(wizId, false) } catch { /* ignore */ } }
     await runConnect()
@@ -175,6 +198,26 @@
               <span class="cdesc">待接入</span>
             </button>
           </div>
+          {#if rows.length}
+            <!-- 已有主机管理（修复#4：唯一的远程管理面，随向导走） -->
+            <div class="owned">
+              <div class="owned-hd mono">已配置的主机 · {rows.length}</div>
+              {#each rows as r (r.id)}
+                {@const st = r.status?.state ?? 'unknown'}
+                <div class="owned-row" class:off={!r.enabled}>
+                  <button class="omini switch" class:on={r.enabled} on:click={() => toggle(r)} aria-pressed={r.enabled} aria-label={`${r.enabled ? '停用' : '启用'} ${r.host}`}>
+                    <span class="omini-dot"></span>
+                  </button>
+                  <span class="oname mono">{r.name || r.host}</span>
+                  <span class="badge b-{st}">{STATE_LABEL[st] ?? st}</span>
+                  {#if st === 'needs-auth'}
+                    <button class="omini op" on:click={() => syncAuth(r.id)}>同步凭据</button>
+                  {/if}
+                  <button class="omini del" class:arm={armed === r.id} on:click={() => remove(r.id)} aria-label="删除 {r.host}">{armed === r.id ? '确认?' : '✕'}</button>
+                </div>
+              {/each}
+            </div>
+          {/if}
           <div class="wiz-foot">
             <button class="btn" on:click={() => finish({ remoteId: wizId, endState: wizEndState })}>取消</button>
             <button class="btn primary" on:click={() => (wizStep = 2)}>下一步 ›</button>
@@ -314,6 +357,40 @@
   .hint code { font-family: var(--font-mono); color: var(--text-2); }
 
   .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+  .badge {
+    display: inline-block; padding: 0 5px; border-radius: var(--radius-pill);
+    font-size: 10px; letter-spacing: .04em; border: 1px solid var(--border); color: var(--text-3);
+  }
+  .badge.b-online { border-color: var(--ok); color: var(--ok); }
+  .badge.b-launching, .badge.b-provisioning, .badge.b-detecting { border-color: var(--accent); color: var(--accent); }
+  .badge.b-error { border-color: var(--err); color: var(--err); }
+  .badge.b-needs-auth { border-color: var(--warn); color: var(--warn); }
+  .badge.b-disabled, .badge.b-offline { color: var(--text-4); }
+
+  /* 已有主机管理列表 */
+  .owned { margin-top: 16px; display: flex; flex-direction: column; gap: 4px; }
+  .owned-hd { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-4); margin-bottom: 2px; }
+  .owned-row {
+    display: flex; align-items: center; gap: 8px; padding: 5px 6px;
+    border-radius: var(--radius-sm); font-size: 12px; color: var(--text-2);
+  }
+  .owned-row:hover { background: var(--bg-input); }
+  .owned-row.off .oname { text-decoration: line-through; text-decoration-color: var(--border); color: var(--text-3); }
+  .oname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .omini {
+    background: transparent; border: 1px solid var(--border); border-radius: var(--radius-xs);
+    color: var(--text-3); font-size: 10.5px; padding: 2px 7px; cursor: pointer;
+  }
+  .omini:hover { color: var(--text); border-color: var(--text-4); }
+  .omini.del.arm { color: var(--err); border-color: var(--err); }
+  .omini.switch {
+    width: 22px; height: 14px; padding: 0; display: grid; align-items: center;
+    background: var(--bg-input); border-radius: var(--radius-pill);
+  }
+  .omini-dot { width: 8px; height: 8px; margin: 0 2px; border-radius: 50%; background: var(--text-3); transition: transform .16s ease, background .16s ease; }
+  .omini.switch.on { border-color: var(--accent); }
+  .omini.switch.on .omini-dot { background: var(--accent); transform: translateX(8px); }
+  .omini.op { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
   .card {
     display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
     padding: 14px; text-align: left;

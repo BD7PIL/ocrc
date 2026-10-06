@@ -97,8 +97,6 @@
 
   // ── rail v2 quick sections (ZCode bottom-nav register): 定时任务 + 远程主机 ──
   let scheduleCount = 0
-  let remotesTotal = 0
-  let remotesOnline = 0
   let quickTimer: ReturnType<typeof setInterval> | undefined
 
   async function loadQuick() {
@@ -108,12 +106,6 @@
     try {
       const res = await api.schedules()
       scheduleCount = (res.schedules ?? []).length
-    } catch { /* keep last */ }
-    try {
-      const res = await api.remotes()
-      const rows = res.remotes ?? []
-      remotesTotal = rows.length
-      remotesOnline = rows.filter((r: any) => r.status?.state === 'online').length
     } catch { /* keep last */ }
   }
   onMount(() => {
@@ -125,27 +117,6 @@
 
 <div class="agent-panel" class:drawer>
   <div class="panel">
-    <div class="header">
-      <!-- 修复#3：agent 切换下拉移除（单后端下无意义，ZCode 寄存器=左栏按
-           workspace 分组排布）。桌面端=静态身份行；移动 drawer 保留切换 pills。 -->
-      <div class="agent-pill static">
-        <span
-          class="glyph-tile"
-          style="background:{ACCENT_BG[activeTheme]}; color:{ACCENT_HEX[activeTheme]}; border-color:{ACCENT_LINE[activeTheme]}"
-        >
-          {glyph(activeAgent)}
-        </span>
-        <span class="status-dot {statusClass(activeAgent?.status)}" style="--dot:{ACCENT_HEX[activeTheme]}"><span class="sr-only">{statusClass(activeAgent?.status)}</span></span>
-        <span class="name mono">{activeAgent?.name ?? activeAgent?.id ?? 'Agent'}</span>
-        {#if activeAgent?.host}<span class="host mono">{activeAgent.host}</span>{/if}
-      </div>
-      {#if !drawer}
-        <button class="collapse" title="收起面板" aria-label="收起面板" on:click={() => leftPanelOpen.set(false)}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-        </button>
-      {/if}
-
-    </div>
     {#if drawer && agents.length > 1}
       <div class="agents-label">Agents</div>
       <div class="switcher-row">
@@ -170,6 +141,9 @@
         <button class="search-btn" title="搜索（⌘K）" aria-label="搜索会话与命令" on:click={() => paletteOpen.set(true)}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
         </button>
+        <button class="search-btn" title="收起会话栏 (⌘B)" aria-label="收起会话栏" on:click={() => leftPanelOpen.set(false)}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
       {/if}
     </div>
     {#if drawer}
@@ -188,11 +162,7 @@
         <span class="q-label">定时任务</span>
         <span class="q-count mono">{scheduleCount}</span>
       </button>
-      <button class="quick-row" on:click={() => { inspectorOpen.set(true); openHome('remotes') }} title="远程主机">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01M6 17.5h.01"/></svg>
-        <span class="q-label">远程主机</span>
-        <span class="q-count mono">{remotesTotal ? `${remotesOnline}/${remotesTotal}` : 0}</span>
-      </button>
+      <!-- 修复#4：远程主机入口移除——唯一入口 = 新建会话 → 远程连接向导 -->
     </div>
     <div class="footer mono">
       <span>{activeCount} 活跃</span>
@@ -231,21 +201,6 @@
     flex-shrink: 0;
   }
 
-  .agent-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    min-width: 0;
-    padding: 5px 9px 5px 5px;
-    background: var(--bg-elev);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-pill);
-    color: var(--text-2);
-    cursor: pointer;
-    transition: border-color .12s ease, background .12s ease;
-  }
-  .agent-pill.static { cursor: default; }
-  .agent-pill.static:hover { border-color: var(--border); background: var(--bg-elev); }
   .glyph-tile {
     width: 24px;
     height: 24px;

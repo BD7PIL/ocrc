@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router'
 import {
   MessageCirclePlus, Search, Folder, Cloud, Archive, ArchiveRestore,
-  Pin, PinOff, SunMoon, CircleDashed, CalendarClock, Bot,
+  Pin, PinOff, SunMoon, CircleDashed, CalendarClock, Bot, Settings as SettingsIcon,
 } from 'lucide-react'
 import { useUi } from '../../lib/stores/ui.js'
 import { usePins } from '../../lib/stores/pins.js'
@@ -94,6 +94,16 @@ export function Sidebar() {
         <button type="button" className="rail-row" onClick={() => setChannelsOpen(true)}>
           <Bot size={16} strokeWidth={1.75} />
           <span>机器人</span>
+        </button>
+        <button
+          type="button"
+          className="rail-row"
+          aria-pressed={location.pathname === '/settings'}
+          style={{ color: location.pathname === '/settings' ? 'var(--text)' : undefined, background: location.pathname === '/settings' ? 'var(--bg-elev2)' : undefined }}
+          onClick={() => { void navigate('/settings') }}
+        >
+          <SettingsIcon size={16} strokeWidth={1.75} />
+          <span>设置</span>
         </button>
       </div>
 

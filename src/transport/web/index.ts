@@ -44,6 +44,8 @@ export interface WebTransportConfig {
   remoteManager?: import('../../core/remote-host.js').RemoteHostManager
   /** 0.27: runtime remote registration (backend + tunnel + events, no restart). */
   onRemoteEnabled?: (r: import('../../core/remotes.js').RemoteHost) => void
+  /** M5 设置域: opencode global config dir (the settings routes read/write it). */
+  settingsConfigDir?: string
 }
 
 const CAPS: ChannelCapabilities = {
@@ -79,6 +81,7 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         pairing: cfg.pairing,
         remotes: cfg.remotes,
         remoteManager: cfg.remoteManager,
+        settingsConfigDir: cfg.settingsConfigDir,
       })
 
       // Immutable hashed assets cache forever; everything else (above all

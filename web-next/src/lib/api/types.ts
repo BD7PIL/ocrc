@@ -25,6 +25,14 @@ export type ReasoningBlock = Extract<ContentBlock, { type: 'reasoning' }>
 
 export type ExtractStructuredCard<K extends StructuredCard['kind']> = Extract<StructuredCard, { kind: K }>
 
+export interface ConfigSummary {
+  path: string
+  raw: string
+  parsed: boolean
+  error?: string
+  providers: Array<{ id: string; baseURL?: string; hasKey: boolean; keyHint?: string; models: Array<{ id: string; name?: string }> }>
+}
+
 export interface SessionSummary {
   id: string
   title: string

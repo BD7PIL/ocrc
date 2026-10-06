@@ -11,6 +11,7 @@ import { ChannelsDialog } from './components/shell/ChannelsDialog.js'
 import { HomePage } from './pages/HomePage.js'
 import { SessionPage } from './pages/SessionPage.js'
 import { AutomationsPage } from './pages/AutomationsPage.js'
+import { SettingsPage } from './pages/SettingsPage.js'
 import { TokenGallery } from './pages/TokenGallery.js'
 import { bootConnection } from './lib/ws/boot.js'
 import { registerCommands } from '$lib/shortcuts/commands.js'
@@ -60,6 +61,7 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/session/:id" element={<SessionPage />} />
           <Route path="/automations" element={<AutomationsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="/dev/tokens" element={<TokenGallery />} />
           <Route path="*" element={<HomePage />} />
         </Route>

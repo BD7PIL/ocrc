@@ -248,6 +248,7 @@ export async function main(): Promise<void> {
       remotes: remotesStore,
       remoteManager,
       onRemoteEnabled: (r) => wireHandle.registerRemoteBackend(r),
+      settingsConfigDir: process.env.OPENCODE_CONFIG_DIR ?? join(process.env.HOME ?? '', '.config', 'opencode'),
       telegramStatus: () => tgTransport?.status?.() ?? null,
       telegramMeta: {
         hasEnvToken: !!config.telegramBotToken,

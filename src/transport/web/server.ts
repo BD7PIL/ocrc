@@ -35,6 +35,7 @@ import { registerCreateSession } from './routes/create-session.js'
 import { registerCommands } from './routes/commands.js'
 import { registerRename } from './routes/rename.js'
 import { registerPolicy } from './routes/policy.js'
+import { registerSettings } from './routes/settings.js'
 import type { Scheduler } from '../../core/scheduler.js'
 import { registerSuggestions } from './routes/suggestions.js'
 import { registerSchedules } from './routes/schedules.js'
@@ -66,6 +67,9 @@ export interface BuildServerOpts {
   remoteManager?: import('../../core/remote-host.js').RemoteHostManager
   /** 0.27: runtime remote registration (see WebTransportConfig). */
   onRemoteEnabled?: (r: import('../../core/remotes.js').RemoteHost) => void
+  /** M5 设置域: dir containing the opencode global config (defaults inside
+   *  the settings service to ~/.config/opencode). */
+  settingsConfigDir?: string
 }
 
 export function buildServer(opts: BuildServerOpts): Hono {
@@ -145,6 +149,8 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerCommands(app, reg, opts.state)
   registerRename(app, reg, opts.state)
   registerPolicy(app, opts.state)
+  registerSettings(app, opts.settingsConfigDir)
+  registerSettings(app, opts.settingsConfigDir)
   registerSuggestions(app, opts.state)
   registerSchedules(app, opts.scheduler)
   registerChannels(app, opts.channels, opts.telegramStatus, opts.telegramMeta)

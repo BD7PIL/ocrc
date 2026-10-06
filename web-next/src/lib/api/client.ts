@@ -1,4 +1,4 @@
-import type { StructuredCard, SessionSummary } from './types.js'
+import type { StructuredCard, SessionSummary, ConfigSummary } from './types.js'
 import { clearAuthReloadFlag } from '../auth-reload.js'
 import { onUnauthorized } from '../auth.js'
 import { getToken } from '../auth-token.js'
@@ -63,6 +63,20 @@ async function jsonPatch<T>(path: string, body: unknown): Promise<T> {
   return jsonMethod('PATCH', path, body)
 }
 
+async function jsonPut<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${base}${path}`, {
+    method: 'PUT',
+    headers: authHeaders({ 'content-type': 'application/json' }),
+    credentials: 'include',
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  })
+  if (res.status === 401) { onUnauthorized(); throw new Error(`PUT ${path} 401`) }
+  if (!res.ok) throw new Error(`PUT ${path} ${res.status}`)
+  clearAuthReloadFlag()
+  return res.json()
+}
+
 async function jsonDelete<T>(path: string): Promise<T> {
   return jsonMethod('DELETE', path)
 }
@@ -102,6 +116,17 @@ export const api = {
   sendMessage: (body: { sessionId?: string; text: string; clientId?: string; variant?: string; images?: Array<{ data: string; mimeType: string }> }) => jsonPost<{ messageId: string }>('/api/message', body),
   abort: (sessionId: string) => jsonPost<{ ok: boolean }>('/api/abort', { sessionId }),
   suggestions: (sessionId: string) => jsonGet<{ suggestions: string[] }>(`/api/session/${sessionId}/suggestions`),
+  getConfig: () => jsonGet<ConfigSummary>('/api/settings/opencode-config'),
+  putConfig: (raw: string) => jsonPut<{ ok?: boolean; error?: string }>('/api/settings/opencode-config', { raw }),
+  patchProvider: (patch: { providerId: string; baseURL?: string; apiKey?: string; models?: Array<{ id: string; name?: string; [k: string]: unknown }> }) =>
+    jsonPost<{ ok?: boolean; error?: string }>('/api/settings/opencode-config/provider', patch),
+  fetchModels: async (baseURL: string, apiKey?: string) => {
+    try {
+      return await jsonPost<{ models?: Array<{ id: string; name?: string }>; error?: string }>('/api/settings/fetch-models', { baseURL, apiKey })
+    } catch (e) {
+      return { error: (e as Error).message }
+    }
+  },
   getPolicy: (sessionId: string) => jsonGet<{ policy: 'default' | 'edit' | 'yolo' }>(`/api/session/${sessionId}/policy`),
   setPolicy: (sessionId: string, policy: 'default' | 'edit' | 'yolo') =>
     jsonPost<{ ok: boolean; policy: 'default' | 'edit' | 'yolo' }>(`/api/session/${sessionId}/policy`, { policy }),

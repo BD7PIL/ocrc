@@ -36,6 +36,10 @@ export function messageToCards(sessionId: string, msg: any): StructuredCard[] {
       sessionId,
       text: textParts.join('') || '(empty)',
       ts,
+      // The engine message id — the revert cutoff points at USER messages when
+      // a whole turn is reverted, and the web transcript's cutoff filter can
+      // only match if user cards carry it too (assistant cards already did).
+      messageId: typeof info.id === 'string' ? info.id : undefined,
     }]
   }
 

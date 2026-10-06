@@ -1,18 +1,22 @@
 # Architecture
 
-> How ocrc is actually structured, as of **v0.26.5**. Everything here is
-> grounded in the current source; file references are clickable anchors into
-> `src/`. For runbooks see [OPS.md](OPS.md); for the SSH-remote design see
-> [remote-provisioning-design.md](remote-provisioning-design.md).
+> How ocrc is actually structured, as of **v0.27.0-M0** (2026-10-07 rebuild
+> kickoff). Everything here is grounded in the current source; sections marked
+> **(0.27 规划)** are approved-but-not-yet-built plans from the rebuild
+> blueprint. File references are anchors into `src/`. For runbooks see
+> [OPS.md](OPS.md); for the SSH-remote design see
+> [remote-provisioning-design.md](remote-provisioning-design.md); for product
+> boundaries see [PRODUCT.md](PRODUCT.md).
 
 ## The one-paragraph version
 
 ocrc is a long-lived **relay** sitting between your coding agent(s) and your
-surfaces (Telegram + Web PWA). Agent events flow DOWN through a normalization
+surfaces (Telegram + Web). Agent events flow DOWN through a normalization
 layer into per-session `StructuredCard`s on a **CardBus**; user messages flow
-UP through the same relay into per-session, serialized turns against an
-**AgentBackend**. The core speaks only these two seams, so the same core runs
-in four host shapes (V1 plugin, V2 plugin, standalone, remote-driver) and any
+UP through the same relay into per-session, serialized turns against a
+**HarnessAdapter** (formerly AgentBackend — the seam is being formalized,
+0.27 规划). The core speaks only these two seams, so the same core runs in
+four host shapes (V1 plugin, V2 plugin, standalone, remote-driver) and any
 number of backends.
 
 ## 分层原则（2026-10-05 定稿；产品定义见 [PRODUCT.md](PRODUCT.md)）
@@ -21,20 +25,23 @@ number of backends.
 
 | 层 | 内容 | 判据 |
 |---|---|---|
-| **核心** | relay / CardBus / registry / AgentBackend seam | 换掉任何壳它都不变 |
-| **壳** | Telegram ✅ / Web PWA ✅ / ocrc Desktop（规划） | 可替换的表现面 |
-| **宿主** | V1 插件 ✅ / V2 插件（待立项）/ standalone ✅ / SSH remote ✅ / Windows 被控（有界补丁：Node 端口探测、配置路径、e2e） | opencode 在哪跑 |
+| **核心** | relay / CardBus / registry / HarnessAdapter seam | 换掉任何壳它都不变 |
+| **壳** | Telegram ✅ / Web：Svelte PWA（M4 退役）→ **web-next**（React，0.27 规划 M0 起）/ ocrc Desktop（规划，与 web 共用 app 层） | 可替换的表现面 |
+| **宿主** | V1 插件 ✅ / V2 插件（待立项）/ standalone ✅ / SSH remote ✅（WSL/Docker 补真中）/ Windows 被控（有界补丁） | opencode 在哪跑 |
 | **分发** | npm ✅ / 桌面安装器（随壳）/ 企业离线分发（未来） | 怎么装 |
 
 **兼容基线**：被控端 opencode pin 1.18.x（V2 支持独立立项）；EL7 为遗留下限；
-新部署 x86_64 现代 baseline。
+新部署 x86_64 现代 baseline；构建 node ≥ 20（Tailwind v4 门槛）。
 
-**路线图**（2026-10-05 排定）：① 宪法 + pact 清理 → ② 左栏 v2（三桶/搜索/
-归档/远程标识）+ 远程向导 v2 → ③ 企业中转（代理环境注入 + ProxyJump 文档）
-→ ④ Windows 被控（看需求）→ ⑤ V2 迁移 → ⑥ ocrc Desktop 薄壳（**Electron
-倾向**：opencode 2026-05 Tauri→Electron 迁移 + ZCode desktop 双先例；启动链
-= 拉起守护 → 等端口 → 开窗，参考 opencode desktop 的 health-poll/Basic/kill
-生命周期与 ZCode desktopTray 菜单）。
+**重建路线图（2026-10-07 定案，0.27.x 受控重建）**：`web-next/`（React）平行
+新建，旧 Svelte 壳冻结只修 P0，M4 用户验收后一次性切换删除。每程 = CDP 全组
+件矩阵 + 隔离栈门禁 + :4099 实测。
+**M0 地基**（本文档/脚手架/搬运层/双 root/令牌重组）→ **M1 壳**（三栏+左栏+
+命令中心+快捷键三层）→ **M2 聊天流**（时间线/markdown 管线/composer/dock）
+→ **M3 右栏**（SidePane 页签族+TurnNavigator）→ **M4 ocrc 域+退役切换**
+（新建任务页两态/provisioning UI/自动化主视图/BotsDialog/PlanHud 迁移）→
+**M5 设置域** → **M6 分享+工作台+画板** → **M7 浏览器/browser-use** →
+**M8 通道域升级**。
 
 ## Host shapes (one core, four entrypoints)
 
@@ -64,26 +71,32 @@ Key facts per shape:
 
 ## The seams
 
-### AgentBackend (command path) — src/core/agent/backend.ts
+### HarnessAdapter (command path) — src/core/agent/backend.ts
 
-Every operation the transports need, normalized: `prompt/abort`, session CRUD,
-reads (`getHistory/getDiff/getTodos/getContext/...`), catalog, questions,
-permissions, plus optional capability-gated extras (`getSkills`, `getVcs`,
-`getControls`, `suggestFollowUps`, ...). `BackendCapabilities` drives honest
-UI degradation per backend. Implementations:
+**(0.27 规划)** The existing `AgentBackend` seam is formalized into the
+**HarnessAdapter** contract: opencode-1.18 is the first adapter; opencode-V2
+and pi are future adapters. The formalization adds: (a) opencode-specific
+concepts (part kinds, tool names, todo shape) quarantined inside the
+opencode adapter instead of leaking into relay/web shapes, (b) explicit
+capability negotiation per backend (the existing `BackendCapabilities`
+extends), (c) the backend domain model below.
+
+Every operation the transports need, normalized: `prompt/abort`, session
+CRUD, reads (`getHistory/getDiff/getTodos/getContext/...`), catalog,
+questions, permissions, plus optional capability-gated extras (`getSkills`,
+`getVcs`, `getControls`, `suggestFollowUps`, ...). `BackendCapabilities`
+drives honest UI degradation per backend. Implementations today:
 
 - **OpencodeBackend** (opencode-backend.ts): SDK client for typed routes, raw
   `ocFetch` (HTTP Basic from `OPENCODE_SERVER_PASSWORD`) for the many
   endpoints the SDK doesn't type (skills/files/worktrees/questions/revert/
-  tui-select). Reads the LOCAL filesystem only for `getVcs/getVcsDiff` (spawned
-  read-only git — the server's /vcs takes minutes on huge worktrees) — omitted
-  on remote backends. 0.26: per-backend `fetchImpl` + SDK client-level Basic
-  headers for remotes.
+  tui-select). Reads the LOCAL filesystem only for `getVcs/getVcsDiff` —
+  omitted on remote backends. Per-backend `fetchImpl` + SDK client-level
+  Basic headers for remotes.
 - **AcpBackend** (acp-backend.ts): drives a spawned ACP agent over stdio
   (acp-connect.ts). OWNS its event source (`onEvent`); persists sessions +
-  history itself (acp-store.ts — ACP agents expose neither); tombstones
-  instead of deletes (kimi has no session/delete); recovers from session
-  takeover by re-issuing `session/load` (resyncIfStolen).
+  history itself (acp-store.ts); tombstones instead of deletes; recovers from
+  session takeover by re-issuing `session/load` (resyncIfStolen).
 - **V2Backend** (v2-backend.ts): ctx-domain calls; capabilities mostly off —
   honest empties where V2 ctx has no slice yet.
 
@@ -91,14 +104,45 @@ UI degradation per backend. Implementations:
 
 Six normalized kinds: `part` / `delta` / `idle` / `error` / `notice` / `role`.
 Both opencode events (opencode-normalizer.ts) and ACP `session/update`
-(acp-normalizer.ts — stateful: synthesizes part ids for ACP's id-less text
-chunks) reduce to these, so relay logic is backend-agnostic.
+(acp-normalizer.ts) reduce to these, so relay logic is backend-agnostic.
 
 ### BackendRegistry — src/core/agent/registry.ts
 
 `forSession(sid)` resolves the owning backend from state's persisted
-`sessionBackends` map (tagged at creation and on every listing); untagged →
-primary. New sessions route to `active()` (UI selection).
+`sessionBackends` map; untagged → primary. New sessions route to `active()`.
+**(0.27 规划)** remote backends register dynamically (no host restart to
+appear in the session list — today's wart).
+
+## Backend domain model (0.27 规划 — PRODUCT.md 第零点五条)
+
+**backend = (transport × lifecycle)**：
+
+- **transport**: 本地直连 / SSH 隧道 / WSL / Docker.
+- **lifecycle**: **adopt**（已有引擎，host 只驾驶、永不 kill——本地
+  `OCRC_SERVER_URL` 与远端纯隧道态）× **spawn**（host 拉起管生死；本地
+  disposer、远端绑隧道共生）。
+
+The new-session UI must present both states explicitly per transport
+(已装→接入 vs 未装→拉起). ZCode has spawn-only everywhere; adopt-first is
+ocrc's differentiator and the architectural basis of the "zero test traffic
+through the user's engine" rule.
+
+## Provisioning & updates (0.27 规划 — PRODUCT.md 第零点六条)
+
+- **自持二进制缓存** `~/.ocrc/bin-cache/`: at host install/update time the
+  host pulls official per-platform artifacts from the npm registry for the
+  pinned version (linux-x64/arm64; win32-x64 bounded). Artifacts are selected
+  by TARGET platform, decoupled from the host's own platform (today's scp
+  same-platform check is retired).
+- **Push is the primary path** (remote needs no internet);
+  `curl opencode.ai/install` becomes the optional "self-install" path.
+  Official artifacts only — never musl/compat builds.
+- **Centralized updates**: host is the single version source; drift detection
+  (remote `inspection.version` ≠ host pin) surfaces a one-click "push upgrade
+  to pin" in the wizard/panel. Web assets ship with the host.
+- Proxy env (`httpProxy/httpsProxy/noProxy/caPath`) covers BOTH the remote
+  serve's LLM traffic and install/download channels (today's gap: the install
+  curl inherits no proxy env).
 
 ## Downflow: agent → user
 
@@ -124,16 +168,14 @@ immediately before a snapshot card — the wire order "deltas, then the
 snapshot containing them" is what makes the client's wholesale-replace
 append-safe (relay.ts:397-449). Snapshot cards are throttled by accumulated
 volume: 1s floor, 2s past 50k chars, 3s past 150k. `idle` finalizes the
-assistant card (upserts the streaming card in place via shared card id) and
-stamps `markAssistantDelivered` so push doesn't double-notify.
+assistant card and stamps `markAssistantDelivered` so push doesn't
+double-notify.
 
-**Correctness load-bearing details** (each pinned by tests in
-tests/unit/relay.test.ts): user parts never enter the accumulator (`role`
-events + race retraction); aborts stay mapped under BOTH provisional and
-resolved session keys until turn end; `hasSession` treats only 404 as "gone" —
-transport errors must not misroute; externally-initiated (TUI) turns are
-adopted with a real timeout so they can't leak; ephemeral sessions (Tier2
-suggestion side-calls) never surface to feeds.
+**Correctness load-bearing details** (pinned by tests in
+tests/unit/relay.test.ts): user parts never enter the accumulator; aborts
+stay mapped under BOTH provisional and resolved session keys until turn end;
+`hasSession` treats only 404 as "gone"; externally-initiated (TUI) turns are
+adopted with a real timeout; ephemeral sessions never surface to feeds.
 
 ## Upflow: user → agent
 
@@ -141,79 +183,79 @@ suggestion side-calls) never surface to feeds.
 /api/message, or the scheduler → `relay(msg)`:
 
 1. **Queue**: per-session turn queue — a second message for a busy session
-   waits; different sessions run concurrently; failures never wedge the gate
-   (relay.ts:177-200). Telegram acks with「已排队」via the shared abort
-   registry, not a local flag.
-2. **Resolve target**: `msg.sessionId` (web pins the viewed session) → pinned
-   → TUI-selected (if visible) → last → newest root session. Short suffixes
-   normalize via `normalizeSessionId` (≥6 chars, unambiguous endsWith match,
-   state.ts:90). Target validated with `hasSession` before submit.
-3. **Submit** with per-message agent/model overrides;
-   `submitWithRetry` — network-class errors only, 5 tries, 2s exponential
-   (relay.ts:57).
+   waits; different sessions run concurrently (relay.ts:177-200).
+2. **Resolve target**: `msg.sessionId` → pinned → TUI-selected → last →
+   newest root session. Short suffixes normalize via `normalizeSessionId`.
+3. **Submit** with per-message agent/model overrides; `submitWithRetry` —
+   network-class errors only, 5 tries, 2s exponential (relay.ts:57).
 4. Publish `thinking` + `user` cards (user card id = incoming message id so
-   the web's optimistic card reconciles in place); install the response ctx;
-   return. Finalization happens on `idle`.
+   the web's optimistic card reconciles in place); finalization on `idle`.
 
 ## Telegram surface (src/transport/telegram/)
 
-- **index.ts** — transport factory: allowlist middleware (silent drop), photo
-  intake (largest PhotoSize → base64), reply-keyboard hears-routers, callback
-  routing (`permission:*`, `q:*`, `menu:*`, `retry:*`, `sug:*`, `wt:*`,
-  `ls:*`, `sk:*`, `tmode:*`, legacy `approve:*:*` with sha1 short tokens for
-  the 64-byte callback_data limit), grammY polling with 409/401 fatal handling.
-- **streaming-render.ts + streaming/response-streamer.ts** — the turn
-  pipeline: streaming cards → per-part progressive throttle
-  (1s→2s→5s→10s by session runtime, stream-throttle.ts) → editMessageText;
-  429 honors retry_after; first native failure degrades the message to plain
-  text; finalize flushes in place + appends a tools/meta footer (hidden at
-  `standard` granularity) + regenerate action bar.
-- **render/** — markdown → TelegramBlock (remark) → oversize splitting →
-  chunker (32k char / 480 block budgets; plain fallback 3800) → parts.
-- **managers/ + flows** — InteractionManager (single mutex slot + generation),
-  PermissionManager (merges equal permission requests; one click fans out all
-  requestIds), PermissionFlow, QuestionFlow (multi-select wizard, 30min TTL).
-- **handlers.ts** — 35 commands; **i18n/** — zh/en (`OCRC_LOCALE`), flat
-  namespaced keys, fallback zh→en→key.
-- Historical note: the grinev pipeline was ported wholesale in P2b-M2; where a
-  ported module is not yet wired into index.ts it is dead code — see the
-  orphans list in CHANGELOG (Unreleased) before "cleaning up" render/streaming
-  files.
+- **index.ts** — transport factory: allowlist middleware, photo intake,
+  hears-routers, callback routing, grammY polling with 409/401 fatal handling.
+- **streaming-render.ts + streaming/response-streamer.ts** — progressive
+  editMessageText pipeline with per-session throttle and markdown→plain
+  degradation. (Three-way audit 2026-10-07: best-in-class vs ZCode bots and
+  grinev — this stays the base.)
+- **managers/ + flows** — InteractionManager, PermissionManager, PermissionFlow,
+  QuestionFlow.
+- **handlers.ts** — 35 commands; **i18n/** — zh/en.
+- **(0.27 规划 M8)** absorb from ZCode: cross-process polling lock (atomic
+  rename + lease + pid liveness), manual offset ack (persist, advance only on
+  success), runtime status sink (polling/idle/error/occupied → ChannelsModal),
+  command policy + BotFather menu sync, universal attachment pipeline
+  (photo/document/video/audio/voice → download → prompt), cron "subscribe
+  before dispatch" (no missed pushes on fast runs). Absorb from grinev:
+  media output (asset extraction → sendPhoto/sendMediaGroup), session deep
+  commands (/undo /redo /compact /usage, live model switch). Voice
+  transcription and admin tiering are OUT (PRODUCT.md 第五条).
 
 ## Web surface (src/transport/web/)
 
-- **Auth**: pluggable `AuthStrategy` (connectivity/auth/) — `token`
-  (constant-time compare; Bearer header, cookie, or `?token=` on the /ws
-  upgrade ONLY) or `cf-access` (JWT via jose). devBypass requires a real
-  loopback *socket peer* — a loopback bind alone is not a bypass signal
-  (tunnels connect from 127.0.0.1).
-- **Pairing (M11)**: surfaces issue 1-minute single-use PENDING tokens
-  (`#pair=` fragment); the device exchanges at POST /api/pair/exchange for the
-  permanent token. The onboarding landing page (pre-auth) shows a live QR +
-  channel status only.
-- **REST**: ~40 endpoints under /api (see web/src/lib/api/client.ts for the
-  client-side list; server.ts registers the routes).
-- **WS protocol** (ws-hub.ts): client sends `{type:'subscribe',sessionId,sinceSeq}`,
-  `unsubscribe`, `ping`. Server replies `hello{sessions}`, `card`,
-  `sdelta`, `replayEnd{lastSeq,complete}` — `complete:false` (client snapshot
-  predates the ring buffer) tells the client to REST-resync. Cards carry
-  monotonic per-session `seq` for dedupe/ordering. Proactive push cards are
-  Telegram-only (the web already shows the turn live). maxPayload 64KB.
-- **Static**: adapter-static SvelteKit output; immutable hashed assets cache
-  forever, index.html always revalidates; SPA fallback serves index.html for
-  navigation paths only.
+- **Auth**: pluggable `AuthStrategy` — `token` (constant-time compare) or
+  `cf-access`. devBypass requires a real loopback *socket peer*.
+- **Pairing (M11)**: 1-minute single-use PENDING tokens (`#pair=` fragment);
+  exchange at POST /api/pair/exchange.
+- **REST**: ~45 endpoints under /api.
+- **WS protocol** (ws-hub.ts): `{subscribe,unsubscribe,ping}` up; `hello`,
+  `card`, `sdelta`, `replayEnd{lastSeq,complete}` down; `complete:false` →
+  REST resync. Monotonic per-session `seq`. maxPayload 64KB. **This wire
+  contract is frozen across the rebuild** — web-next speaks it unchanged.
+- **Static (0.27 规划 M0)**: dual static root — `web/dist` (frozen Svelte
+  shell) at `/` and `web-next/dist` (React shell) at `/next/` during
+  migration (index.html revalidate, hashed assets immutable, SPA fallback per
+  root); M4 switches the roots and deletes `web/`.
+
+### web-next (0.27 规划 M0 起) — web-next/
+
+React SPA replacing the Svelte shell: React 19 + react-router + Vite +
+@tailwindcss/vite + zustand + vitest. Register sources: ZCode `packages/ui`
+(mitigated via Apache-2.0 + NOTICE), dsh `ui-theme` global sheets, opencode
+`packages/app` patterns. Migrated verbatim from the Svelte app (framework-free
+layer + tests): ws/client, api/client+types, markdown/sanitize, ansi,
+auth-token, auth-reload, nav/*, notify, summarizeTodos, contextBreakdown;
+stores logic ports to zustand (seq/epoch resync semantics preserved
+line-for-line). Precise-replication checklist: visualViewport `--kb` keyboard
+tracking, pre-paint theme script (FOUC), SPA fallback + trailing-slash shapes,
+index.html revalidate, service worker rewrite (Vite manifest; `/api` `/ws`
+never intercepted). Platform seam (web no-op implementation) reserved for the
+future Electron shell (register: ZCode `IPlatformService`).
 
 ## Remote hosts (0.26) — src/core/remote-host.ts
 
-State machine `unknown→detecting→provisioning→launching→online` (+`needs-auth`
-/`error`/`offline`/`disabled`). One ssh process does tunnel + remote serve
-(`ssh -N -L local:127.0.0.1:remotePort host 'opencode serve …'`), so ssh death
-kills everything it started; respawn 2s→60s backoff with fresh detect each
-time (a stale "port listening" inspection would respawn-loop). Provisioning
-pins the LOCAL opencode version (official installer; fallback: scp the local
-binary — never a musl/compat build). Per-remote SSE feeds the same
-dispatchEvent, so remote turns mirror exactly like local ones. Design detail
-and the ZCode comparison live in
+State machine `unknown→detecting→provisioning→launching→online`
+(+`needs-auth`/`error`/`offline`/`disabled`). One ssh process does tunnel +
+remote serve, so ssh death kills everything it started; respawn 2s→60s
+backoff with fresh detect each time. Two session shapes per start(): remote
+port already listening → pure tunnel (adopt, a user-managed serve); else
+tunnel + our own serve (spawn, tunnel-bound lifecycle). Provisioning today:
+official installer pinned to the local version; fallback scp of the local
+binary (same platform only). Per-remote SSE feeds the same dispatchEvent.
+**(0.27 规划 M4)**: bin-cache push as primary path (target-platform
+artifacts), proxy env into install, drift warnings, path UI, dynamic
+registration. Design detail in
 [remote-provisioning-design.md](remote-provisioning-design.md).
 
 ## State & persistence — `~/.ocrc/` (override: `OCRC_HOME`)
@@ -228,45 +270,51 @@ and the ZCode comparison live in
 | `remotes.json` | core/remotes.ts | SSH remote hosts incl. generated server passwords (0600) |
 | `acp-sessions.json` | agent/acp-store.ts | ACP sessions + history (standalone host) |
 | `config.env` | installer/CLI | KEY=VALUE, 0600 |
-| `ocrc.log` (+`.old`) | utils/logger.ts | 10MB rotate; 500-line ring buffer also served at /api/logs |
+| `ocrc.log` (+`.old`) | utils/logger.ts | 10MB rotate; ring buffer at /api/logs |
 | `run/` | cli/service.ts | pid files, last.json (restore), paired-count |
+| `bin-cache/` | core/remote-host.ts (0.27 规划) | pinned official opencode artifacts, per-platform |
 
 All stores share the same pattern: in-memory cache → 100-200ms debounced
 `*.tmp`+`rename` atomic write; corrupt file → warn + start empty.
 
 ## Configuration
 
-Resolved in src/plugin/config.ts; FIRST dotenv file wins (`~/.ocrc/config.env`
-→ plugin dir `.env` → cwd), fork names beat legacy upstream names
-(`OCRC_*` > `WEB_*`). Highlights (full table in README):
+Resolved in src/plugin/config.ts; FIRST dotenv file wins. Highlights (full
+table in README):
 
 | Var | Default | Note |
 |---|---|---|
-| `OCRC_WEB_HOST` / `_PORT` | `0.0.0.0` / `4099` | LAN-first fork decision; token gate non-optional |
+| `OCRC_WEB_HOST` / `_PORT` | `0.0.0.0` / `4099` | LAN-first; token gate non-optional |
 | `OCRC_WEB_ENABLED` | `true` (env) | |
 | `OCRC_STATE_PATH` | `~/.ocrc/state.json` | |
 | `CHAT_TIMEOUT_MS` | `600000` | per-turn abort timer |
-| `TG_CHUNK_SOFT_LIMIT` | `3500` | TG pagination |
 | `OCRC_BACKENDS` / `OCRC_ACP_CMD` | — / `kimi acp` | standalone host only |
-| `LOG_LEVEL` | **`warn`** | file-only logging (never stdout — it would pollute the TUI) |
+| `LOG_LEVEL` | **`warn`** | file-only logging (never stdout) |
 | `OPENCODE_SERVER_PASSWORD` | — | enables HTTP Basic on ALL raw server calls |
 | `OCRC_LOCALE` | `zh` | TG i18n |
 
 ## Extending
 
-- **New backend**: implement `AgentBackend` (+ honest capabilities), register
-  in the host's backend list, normalize its events into `AgentEvent`. Relay,
-  transports, web UI gate off capabilities — nothing else changes.
+- **New backend (adapter)**: implement the HarnessAdapter contract (+ honest
+  capabilities), register in the host's backend list, normalize events into
+  `AgentEvent`. Relay, transports, web UI gate off capabilities — nothing
+  else changes.
 - **New transport**: docs/transports/CONTRIBUTING-NEW-TRANSPORT.md.
 
 ## Intentional decisions (do not "fix" without reading the rationale)
 
-- **busy 语义分叉**: the web Composer judges busy from the LAST card while
-  +page/SessionList judge from ANY live card — deliberate (0.23 fixes,
-  commit 9bc5317), not drift.
+- **busy 语义分叉**: web Composer judges busy from the LAST card while
+  +page/SessionList judge from ANY live card — deliberate (0.23 fixes), not
+  drift. (M2 port must preserve.)
 - **WS token in the query string**: browsers cannot set headers on a
   WebSocket; accepted on the /ws upgrade path only (token.ts:95).
-- **`StrictHostKeyChecking=no` (not accept-new)**: EL7 ships OpenSSH 7.4 and
-  the `accept-new` option needs 7.6+ (remote-host.ts:82).
-- **No process.exit in the plugin**: an exiting plugin takes the opencode host
-  down (entry.ts:49 guards absorb rejections instead).
+- **`StrictHostKeyChecking=no` (not accept-new)**: EL7 ships OpenSSH 7.4;
+  `accept-new` needs 7.6+ (remote-host.ts:82).
+- **No process.exit in the plugin**: an exiting plugin takes the opencode
+  host down (entry.ts:49 guards absorb rejections instead).
+- **Remote spawn is tunnel-bound**: ssh death kills the remote serve —
+  anti-stale/anti-drift by design (remote-host.ts header comment).
+- **Fonts**: no `-webkit-font-smoothing: antialiased`, no
+  `text-rendering: optimizeLegibility`, integer px sizes only, mono stack
+  carries the CJK chain — the 0.26.22 发虚 fixes must not regress in
+  web-next.

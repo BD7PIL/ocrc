@@ -20,6 +20,9 @@ export interface PluginConfig {
   serverUrl: string
   webPublicUrl: string
   webStaticRoot: string
+  /** 0.27 migration: optional web-next (React) static root served at /next/
+   *  while the Svelte shell stays at '/'. Absent dir = mount skipped. */
+  webNextStaticRoot: string
   webCacheSize: number
   webCfAccessTeam: string
   webCfAccessAud: string
@@ -143,6 +146,7 @@ export function loadPluginConfig(
     serverUrl: (process.env.OCRC_SERVER_URL ?? '').trim(),
     webPublicUrl: envFork('OCRC_WEB_PUBLIC_URL', 'WEB_PUBLIC_URL', options?.webPublicUrl as string) ?? '',
     webStaticRoot: envFork('OCRC_WEB_STATIC_ROOT', 'WEB_STATIC_ROOT', options?.webStaticRoot as string) ?? resolve(PLUGIN_ROOT, 'web', 'dist'),
+    webNextStaticRoot: (process.env.OCRC_WEB_NEXT_STATIC_ROOT ?? '').trim() || resolve(PLUGIN_ROOT, 'web-next', 'dist'),
     webCacheSize: num(options?.webCacheSize ?? process.env.OCRC_WEB_SESSION_CACHE_SIZE ?? process.env.WEB_SESSION_CACHE_SIZE, 100, 'OCRC_WEB_SESSION_CACHE_SIZE'),
     webCfAccessTeam: envFork('OCRC_WEB_CF_ACCESS_TEAM', 'WEB_CF_ACCESS_TEAM', options?.webCfAccessTeam as string) ?? '',
     webCfAccessAud: envFork('OCRC_WEB_CF_ACCESS_AUD', 'WEB_CF_ACCESS_AUD', options?.webCfAccessAud as string) ?? '',

@@ -214,6 +214,7 @@ export async function main(): Promise<void> {
       registry,
       auth,
       staticRoot: config.webStaticRoot,
+      nextStaticRoot: config.webNextStaticRoot,
       scheduler,
       channels,
       pairing,

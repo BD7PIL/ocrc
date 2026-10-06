@@ -311,6 +311,7 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
         registry,
         auth,
         staticRoot: config.webStaticRoot,
+        nextStaticRoot: config.webNextStaticRoot,
         scheduler,
         channels,
         pairing,

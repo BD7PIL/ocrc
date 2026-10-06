@@ -1,0 +1,18 @@
+@import 'tailwindcss';
+@import './styles/theme.css';
+
+/* M0 gallery demo button (real buttons come with the M1 shell) */
+.demo-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-elev2);
+  color: var(--text-2);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-size: var(--ui-sm);
+  cursor: pointer;
+}
+.demo-btn.accent {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent-line);
+}

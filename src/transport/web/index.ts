@@ -21,6 +21,10 @@ export interface WebTransportConfig {
   registry: BackendRegistry
   auth: AuthStrategy
   staticRoot: string
+  /** 0.27 migration dual root: web-next (React) build served under /next/
+   *  while staticRoot (frozen Svelte shell) stays at '/'. Missing dir = the
+   *  mount is skipped entirely — the old shell keeps working unchanged. */
+  nextStaticRoot?: string
   /** P2b-M7 cross-channel scheduled prompts (optional). */
   scheduler?: Scheduler
   /** M9 bot-channel settings store + live TG status (optional). */
@@ -91,6 +95,38 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
           c.header('Cache-Control', 'no-cache')
         }
       })
+
+      // ── 0.27 dual root: web-next (React) at /next/ ─────────────────────
+      // Present-and-optional: when the build dir doesn't exist (fresh clone,
+      // npm consumers), none of this mounts and '/' serves exactly as before.
+      const nextRoot = cfg.nextStaticRoot
+      const hasNext = !!nextRoot && existsSync(nextRoot) && existsSync(join(nextRoot, 'index.html'))
+      if (hasNext) {
+        // Vite hashed assets (base '/next/' → /next/assets/*) — immutable.
+        app.use('/next/assets/*', async (c, next) => {
+          await next()
+          c.header('Cache-Control', 'public, max-age=31536000, immutable')
+        })
+        // index.html of the next shell must always revalidate.
+        app.use(async (c, next) => {
+          await next()
+          if (c.req.path === '/next/' || c.req.path === '/next' || c.req.path === '/next/index.html') {
+            c.header('Cache-Control', 'no-cache')
+          }
+        })
+        app.get('/next', (c) => c.redirect('/next/'))
+        // serveStatic resolves against `root`; strip the mount prefix so
+        // /next/assets/x → <nextRoot>/assets/x.
+        app.use('/next/*', serveStatic({
+          root: nextRoot!,
+          rewriteRequestPath: (p) => p.replace(/^\/next/, '') || '/',
+        }))
+        // SPA fallback inside the next shell — navigation-style paths only,
+        // never a missed asset (same rationale as the legacy fallback below).
+        const nextIndexHtml = readFileSync(join(nextRoot!, 'index.html'), 'utf-8')
+        app.get('/next/*', (c) => c.html(nextIndexHtml))
+      }
+
       app.use('/*', serveStatic({ root: cfg.staticRoot }))
 
       // SPA fallback — SvelteKit static adapter only prerenders index.html;

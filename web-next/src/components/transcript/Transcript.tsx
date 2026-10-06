@@ -4,8 +4,10 @@
 // 48px tolerance — follow only when the user is actually at the bottom).
 import { useEffect, useRef, useState } from 'react'
 import { api } from '$lib/api/client.js'
+import type { StructuredCard } from '$lib/api/types.js'
 import { useFeeds, cardsOf, prependHistory, type SessionFeed } from '$lib/stores/feeds.js'
 import { CardView } from '../cards/CardView.js'
+import { shouldAnimate } from './entrance.js'
 
 const FIRST_WINDOW = 24
 const WINDOW = 80
@@ -95,9 +97,7 @@ export function Transcript({ sessionId, feed }: { sessionId: string; feed: Sessi
           </button>
         )}
         {shown.map((c) => (
-          <div key={c.id} className="cv-card">
-            <CardView card={c} />
-          </div>
+          <CardRow key={c.id} card={c} />
         ))}
       </div>
     </div>
@@ -106,4 +106,15 @@ export function Transcript({ sessionId, feed }: { sessionId: string; feed: Sessi
 
 export function useFeed(sessionId: string): SessionFeed | undefined {
   return useFeeds((s) => s.feeds[sessionId])
+}
+
+/** Entrance class decided ONCE per mount (useState initializer) — a stateful
+ *  shouldAnimate() called during render would un-animate on every re-render. */
+function CardRow({ card }: { card: StructuredCard }) {
+  const [enter] = useState(() => shouldAnimate(card.id))
+  return (
+    <div className={`cv-card${enter ? ' card-enter' : ''}`}>
+      <CardView card={card} />
+    </div>
+  )
 }

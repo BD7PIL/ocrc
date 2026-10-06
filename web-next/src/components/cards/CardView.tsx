@@ -10,7 +10,7 @@ import { Blocks } from './Blocks.js'
 export const CardView = memo(function CardView({ card }: { card: StructuredCard }) {
   switch (card.kind) {
     case 'user': return <UserCard card={card} />
-    case 'streaming': return <Shell><Blocks blocks={card.blocks} /><StreamCaret /></Shell>
+    case 'streaming': return <Shell><Blocks blocks={card.blocks} streaming /><StreamCaret /></Shell>
     case 'assistant': return <AssistantCard card={card} />
     case 'thinking': return <ThinkingCard showStop={'showStop' in card ? card.showStop : false} />
     case 'think-stream': return <Shell><p className="mono" style={{ color: 'var(--text-3)', fontSize: 'var(--ui-sm)' }}>思考…</p></Shell>

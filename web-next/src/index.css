@@ -102,3 +102,12 @@
 .md th { background: var(--bg-elev2); }
 .md img { max-width: 100%; border-radius: var(--radius-sm); }
 .md hr { border: none; border-top: 1px solid var(--border-2); margin: .8em 0; }
+
+/* ── M2-2 stream polish ── */
+.card-enter { animation: ocrc-rise var(--dur-2) var(--ease-out); }
+.diff-lines {
+  font-family: var(--font-mono); font-size: var(--ui-2xs); line-height: 1.5;
+  overflow-x: auto; border-radius: var(--radius-xs); padding: 4px 6px;
+}
+.diff-lines.removals { background: color-mix(in srgb, var(--err) 10%, transparent); color: var(--err); }
+.diff-lines.additions { background: color-mix(in srgb, var(--ok) 10%, transparent); color: var(--ok); }

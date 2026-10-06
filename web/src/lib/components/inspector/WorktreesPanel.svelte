@@ -104,7 +104,7 @@
      refetches swap content in place without replaying it. */
   .rows {
     display: flex; flex-direction: column; gap: 4px;
-    animation: ocrc-fade 150ms var(--ease-out, ease-out);
+    animation: ocrc-fade var(--dur-1, 120ms) var(--ease-out, ease-out);
   }
   .row { display: flex; align-items: center; gap: 6px; }
   .ico { flex-shrink: 0; }

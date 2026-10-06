@@ -43,7 +43,7 @@
   .chips {
     display: flex; flex-wrap: wrap; gap: 4px;
     margin-top: 6px;
-    animation: ocrc-fade 150ms var(--ease-out, ease-out);
+    animation: ocrc-fade var(--dur-1, 120ms) var(--ease-out, ease-out);
   }
   .chips.clipped { max-height: 132px; overflow: hidden; mask-image: linear-gradient(to bottom, #000 70%, transparent); }
   .chip {

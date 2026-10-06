@@ -73,6 +73,9 @@
   <span class="connection-pill {$connection}" title="WebSocket: {statusText($connection)}">
     <span class="dot-wrap" aria-hidden="true">
       <span class="dot"></span>
+      <!-- Perf/motion audit: the perpetual 1.6s ping ring ran on EVERY page
+           for the whole session lifetime — a permanent animation for a status
+           that is static after connect. Removed; the dot's glow carries it. -->
       {#if $connection === 'connected'}<span class="dot-ring"></span>{/if}
     </span>
     <span class="connection-state">{statusText($connection)}</span>
@@ -227,7 +230,6 @@
     border-radius: 50%;
     border: 1.5px solid var(--ok);
     opacity: 0;
-    animation: ocrc-ring 1.6s ease-out infinite;
     pointer-events: none;
   }
   /* 'live' pill stays semantic green (connection health), NOT themed — by request. */

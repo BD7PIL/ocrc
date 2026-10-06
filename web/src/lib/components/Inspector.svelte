@@ -327,7 +327,7 @@
     cursor: pointer;
     transition: border-color .12s ease, color .12s ease;
     /* Entrance: rise + per-card stagger (Suggestions register). */
-    animation: ocrc-rise 200ms var(--ease-out, ease-out) backwards;
+    animation: ocrc-rise var(--dur-enter, 180ms) var(--ease-out, ease-out) backwards;
   }
   .l-card:nth-child(1) { animation-delay: 30ms; }
   .l-card:nth-child(2) { animation-delay: 75ms; }
@@ -450,7 +450,7 @@
     box-shadow: 0 14px 36px rgba(0, 0, 0, .25);
     padding: 4px;
     z-index: var(--z-popover);
-    animation: ocrc-pop .14s var(--ease-out, ease-out);
+    animation: ocrc-pop var(--dur-1, 120ms) var(--ease-out, ease-out);
   }
   .plus { position: sticky; right: 0; margin-left: auto; flex-shrink: 0; background: var(--bg-elev); }
   /* Sticky keeps the add-tab and collapse controls pinned to the strip's right
@@ -482,7 +482,7 @@
     box-shadow: 0 14px 36px rgba(0, 0, 0, .25);
     padding: 4px;
     z-index: var(--z-popover);
-    animation: ocrc-pop .14s var(--ease-out, ease-out);
+    animation: ocrc-pop var(--dur-1, 120ms) var(--ease-out, ease-out);
   }
   .plus-menu button {
     display: flex;

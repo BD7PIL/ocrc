@@ -299,10 +299,16 @@ a:focus-visible {
   border-radius: inherit;
 }
 
-/* ── Shared motion vocabulary (entry only — no perpetual motion here) ── */
+/* ── Shared motion vocabulary (entry only — no perpetual motion here) ──
+   Three durations, one curve: micro feedback (120), standard entrance (180),
+   large surface / slow-tracked value changes (240). The old 10-duration zoo
+   (.12–.4s) read as inconsistent motion, the core of the '不顺手' feel. */
 :root {
   --ease-out: cubic-bezier(.22, 1, .36, 1);
-  --dur-enter: 200ms;
+  --dur-1: 120ms;
+  --dur-2: 180ms;
+  --dur-3: 240ms;
+  --dur-enter: var(--dur-2);
 }
 @keyframes ocrc-rise {
   from { opacity: 0; transform: translateY(8px); }
@@ -442,9 +448,14 @@ body {
   0% { transform: scale(.6); opacity: .7; }
   100% { transform: scale(2.2); opacity: 0; }
 }
+/* Shimmer is transform-based (motion audit): the old background-position
+   animation repainted the element every frame for its whole lifetime. The
+   element is now an overflow-hidden container; its ::before carries a
+   200%-wide tiling gradient that slides one tile per loop — seamless because
+   the gradient tiles every 50% of the strip. */
 @keyframes ocrc-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
 }
 
 /* Center-anchored pop (mobile context ring): the translateX offset must be

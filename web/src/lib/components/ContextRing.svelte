@@ -154,7 +154,7 @@
   }
   .ring svg { width: 20px; height: 20px; }
   .track { fill: none; stroke: var(--border); stroke-width: 3; }
-  .arc { fill: none; stroke-width: 3; stroke-linecap: round; transition: stroke-dasharray .3s ease; }
+  .arc { fill: none; stroke-width: 3; stroke-linecap: round; transition: stroke-dasharray var(--dur-3, 240ms) var(--ease-out, ease-out); }
   .pct { font-size: 10.5px; color: var(--text-3); }
   /* Mobile: icon-only ring (no percent text) — the popover carries the detail. */
   @media (max-width: 820px) {
@@ -175,7 +175,7 @@
     box-shadow: 0 16px 40px rgba(0, 0, 0, .28);
     padding: 12px 14px;
     z-index: var(--z-popover);
-    animation: ocrc-pop .14s var(--ease-out, ease-out);
+    animation: ocrc-pop var(--dur-1, 120ms) var(--ease-out, ease-out);
     cursor: default;
   }
 /* Mobile pop: fit the viewport (declared after the base rule — the earlier

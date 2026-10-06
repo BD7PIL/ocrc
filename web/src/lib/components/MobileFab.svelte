@@ -66,7 +66,7 @@
     background: var(--accent); color: var(--accent-ink);
     border: none; font-size: 28px; line-height: 1; cursor: pointer;
     box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
-    transition: transform .2s ease;
+    transition: transform var(--dur-2, 180ms) var(--ease-out, ease-out);
   }
   .fab.rot { transform: rotate(45deg); }
   .fab:active { transform: scale(.94); }

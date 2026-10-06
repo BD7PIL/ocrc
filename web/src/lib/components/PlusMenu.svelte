@@ -78,7 +78,7 @@
     flex-direction: column;
     gap: 2px;
     pointer-events: auto;
-    animation: ocrc-pop .14s ease;
+    animation: ocrc-pop var(--dur-1, 120ms) var(--ease-out, ease-out);
   }
   @keyframes ocrc-pop {
     from { opacity: 0; transform: translateY(-6px); }
@@ -146,7 +146,7 @@
       max-width: 100%;
       border-bottom-left-radius: 0;
       border-bottom-right-radius: 0;
-      animation: sheetin .18s ease;
+      animation: sheetin var(--dur-2, 180ms) var(--ease-out, ease-out);
     }
     @keyframes sheetin {
       from { opacity: 0; transform: translateY(40px); }

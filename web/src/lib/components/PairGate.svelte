@@ -218,7 +218,7 @@
     box-shadow: var(--shadow-card);
     padding: 22px 26px;
     display: flex; flex-direction: column; gap: 14px;
-    animation: ocrc-pop var(--dur-enter, 200ms) var(--ease-out, ease-out) backwards;
+    animation: ocrc-pop var(--dur-enter, 180ms) var(--ease-out, ease-out) backwards;
   }
   .head { display: flex; gap: 14px; align-items: center; }
   .hicon {

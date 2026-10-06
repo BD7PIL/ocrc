@@ -197,10 +197,32 @@
     send()
   }
 
+  let lastGrowH = 0
+  let baseH = 0
   function autoGrow() {
     if (!textarea) return
+    // Keystroke-path discipline (perf audit): the height:auto → scrollHeight
+    // → write-back dance forces two reflows per key even when nothing grows.
+    // While the content is one logical line AND we're still at the measured
+    // one-line height, a plain scrollHeight read spots growth with ZERO style
+    // writes — that's the common typing state.
+    const MIN = 24
+    const MAX = 140
+    if (baseH === 0) {
+      textarea.style.height = 'auto'
+      baseH = Math.max(MIN, textarea.scrollHeight)
+    }
+    if (!text.includes('\n') && lastGrowH <= baseH + 1) {
+      const h = Math.min(MAX, Math.max(baseH, textarea.scrollHeight))
+      if (h !== lastGrowH) { textarea.style.height = h + 'px'; lastGrowH = h }
+      return
+    }
+    // Multi-line or grown: only the reset dance can detect shrink
+    // (scrollHeight floors at clientHeight when content collapses).
     textarea.style.height = 'auto'
-    textarea.style.height = Math.min(textarea.scrollHeight, 140) + 'px'
+    const h = Math.min(MAX, Math.max(MIN, textarea.scrollHeight))
+    if (h !== lastGrowH) { textarea.style.height = h + 'px'; lastGrowH = h }
+    else textarea.style.height = lastGrowH + 'px'
   }
 
   onDestroy(() => clearTimeout(mentionTimer))
@@ -239,7 +261,7 @@
         bind:this={textarea}
         bind:value={text}
         on:keydown={onKeydown}
-        on:input={() => { autoGrow(); updateMention() }}
+        on:input={() => { updateMention() }}
         on:paste={onPaste}
         on:focus={() => (focused = true)}
         on:blur={() => (focused = false)}

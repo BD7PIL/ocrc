@@ -705,7 +705,7 @@
       z-index: var(--z-popover);
       display: flex;
       flex-direction: column;
-      animation: ocrc-pop .14s var(--ease-out, ease-out);
+      animation: ocrc-pop var(--dur-1, 120ms) var(--ease-out, ease-out);
     }
     .rowmenu button {
       display: block;
@@ -752,8 +752,17 @@
     display: block;
     width: 100%;
     height: 100%;
-    background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%);
-    background-size: 200% 100%;
+    position: relative;
+    overflow: hidden;
+  }
+  /* Compositor-only shimmer (theme.css ocrc-shimmer = translateX); the tiling
+     gradient is transparent-accent-transparent so the loop is seamless. */
+  .progress-fill::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    width: 200%;
+    background: linear-gradient(90deg, transparent 0%, var(--accent) 25%, transparent 50%, var(--accent) 75%, transparent 100%);
     animation: ocrc-shimmer 1.4s linear infinite;
   }
 </style>

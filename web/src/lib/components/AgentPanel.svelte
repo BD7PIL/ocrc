@@ -403,7 +403,7 @@
     box-shadow: 0 18px 50px rgba(0,0,0,.55);
     z-index: var(--z-popover);
     overflow: hidden;
-    animation: ocrc-pop .14s ease;
+    animation: ocrc-pop var(--dur-1, 120ms) var(--ease-out, ease-out);
   }
   @keyframes ocrc-pop {
     from { opacity: 0; transform: translateY(-6px); }

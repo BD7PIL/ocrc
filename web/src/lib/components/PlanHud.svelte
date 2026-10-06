@@ -389,7 +389,7 @@
     cursor: pointer;
     place-items: center;
     transition: transform .15s var(--ease, ease);
-    animation: ocrc-pop .22s var(--ease-out, ease-out) backwards;
+    animation: ocrc-pop var(--dur-3, 240ms) var(--ease-out, ease-out) backwards;
   }
   .ball:active { transform: scale(.92); }
 
@@ -437,7 +437,7 @@
     box-shadow: var(--shadow-card);
     cursor: pointer;
     font: inherit;
-    animation: ocrc-pop .18s var(--ease-out, ease-out) backwards;
+    animation: ocrc-pop var(--dur-2, 180ms) var(--ease-out, ease-out) backwards;
   }
   .bar .label {
     text-transform: uppercase;
@@ -463,7 +463,7 @@
   .arc {
     stroke: var(--accent);
     stroke-width: 3.5;
-    transition: stroke-dasharray .4s var(--ease, ease);
+    transition: stroke-dasharray var(--dur-3, 240ms) var(--ease-out, ease-out);
   }
   .ball-count {
     position: relative;
@@ -517,7 +517,7 @@
     box-shadow: 0 18px 48px rgba(0, 0, 0, .45);
     overflow: visible;
     transform-origin: 85% 100%;
-    animation: ocrc-pop .18s var(--ease-out, ease-out) backwards;
+    animation: ocrc-pop var(--dur-2, 180ms) var(--ease-out, ease-out) backwards;
   }
 
   .hd {

@@ -38,7 +38,7 @@
     font-size: 12px;
     padding: 6px 13px;
     cursor: pointer;
-    animation: ocrc-rise .22s var(--ease-out, ease-out) backwards;
+    animation: ocrc-rise var(--dur-2, 180ms) var(--ease-out, ease-out) backwards;
     transition: border-color .12s var(--ease, ease), color .12s var(--ease, ease);
   }
   .chip:hover { border-color: var(--accent); color: var(--text); }

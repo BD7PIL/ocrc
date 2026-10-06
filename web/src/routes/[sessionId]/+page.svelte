@@ -41,9 +41,13 @@
   // once the local feed is exhausted, pages older history from the server
   // (offset pagination, message space). Keeps the DOM bounded even when a
   // session streams for hours — 569-card sessions used to freeze the browser.
+  // FIRST_WINDOW smaller than WINDOW: the boot long task (220–300ms measured)
+  // was marked.parse over every history card up front — parse 24 now, widen
+  // locally (+80 per click, no network) when the user asks for more.
   const WINDOW = 80
+  const FIRST_WINDOW = 24
   const OLDER_PAGE = 50
-  let visibleCount = WINDOW
+  let visibleCount = FIRST_WINDOW
   let olderOffset = 0
   let hasMoreOlder = true
   let loadingOlder = false
@@ -51,7 +55,7 @@
 
   $: if (sessionId && sessionId !== windowForSid) {
     windowForSid = sessionId
-    visibleCount = WINDOW
+    visibleCount = FIRST_WINDOW
     olderOffset = 0
     hasMoreOlder = true
     loadingOlder = false
@@ -427,7 +431,7 @@
     transform: translateX(-50%);
     z-index: var(--z-sticky);
     /* Fade only — a transform animation would fight the translateX centering. */
-    animation: ocrc-fade 150ms var(--ease-out, ease-out) backwards;
+    animation: ocrc-fade var(--dur-1, 120ms) var(--ease-out, ease-out) backwards;
     display: inline-flex;
     align-items: center;
     gap: 5px;
@@ -452,7 +456,7 @@
     color: var(--text-2);
     font-size: 11.5px;
     cursor: pointer;
-    animation: ocrc-rise-sm 160ms var(--ease-out, ease-out) backwards;
+    animation: ocrc-rise-sm var(--dur-1, 120ms) var(--ease-out, ease-out) backwards;
   }
   .load-earlier:hover { color: var(--text); border-color: var(--text-4); }
   .load-earlier:disabled { opacity: .55; cursor: default; }
@@ -623,7 +627,7 @@
      re-keyed the whole feed. The bottom sentinel is excluded — it IS the
      last child permanently, and the entrance belongs to the newest card. */
   .stream > :global(*):last-child:not(.stream-end) {
-    animation: ocrc-rise var(--dur-enter, 200ms) var(--ease-out, ease-out) backwards;
+    animation: ocrc-rise var(--dur-enter, 180ms) var(--ease-out, ease-out) backwards;
   }
   .stream.suppressed > :global(*):last-child:not(.stream-end) {
     animation: none;
@@ -702,7 +706,7 @@
       /* (B) Follow the keyboard/toolbar by translating up --kb on the GPU — no app
          resize, no reflow. The transition makes the snap-back (and open) glide. */
       transform: translateY(calc(-1 * var(--kb, 0px)));
-      transition: transform .25s ease-out;
+      transition: transform var(--dur-3, 240ms) var(--ease-out, ease-out);
       will-change: transform;
     }
     .composer-float :global(.composer) { background: transparent; }

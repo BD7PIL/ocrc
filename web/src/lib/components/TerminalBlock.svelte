@@ -126,8 +126,16 @@
     width: 42px;
     height: 4px;
     border-radius: var(--radius-bar);
-    background: linear-gradient(90deg, var(--accent) 0%, var(--text) 50%, var(--accent) 100%);
-    background-size: 200% 100%;
+    position: relative;
+    overflow: hidden;
+  }
+  /* Compositor-only shimmer (theme.css ocrc-shimmer = translateX). */
+  .shimmer::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    width: 200%;
+    background: linear-gradient(90deg, var(--accent) 0%, var(--text) 25%, var(--accent) 50%, var(--text) 75%, var(--accent) 100%);
     animation: ocrc-shimmer 1.4s linear infinite;
   }
   .dur {

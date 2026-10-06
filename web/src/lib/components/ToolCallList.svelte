@@ -25,15 +25,16 @@
 
   // Hysteresis: once an entry renders long (terminal block) it stays long, so
   // args streaming across the threshold don't remount the row inline↔terminal
-  // and jump the layout. Keyed by position — tool order is stable as entries
-  // only append.
-  const longIdx = new Set<number>()
+  // and jump the layout. Keyed by the entry's stable id — position keying
+  // broke when the list refetched and an older entry dropped out (perf audit).
+  const longIdx = new Set<string>()
 
   function isLong(t: ToolCallExtra, i: number): boolean {
-    if (longIdx.has(i)) return true
+    const key = `${t.messageId ?? ''}:${t.partId ?? '#' + i}`
+    if (longIdx.has(key)) return true
     const a = t.args ?? ''
     const long = a.includes('\n') || a.length > INLINE_MAX
-    if (long) longIdx.add(i)
+    if (long) longIdx.add(key)
     return long
   }
 
@@ -252,12 +253,21 @@
   .diff .del { color: var(--err); }
 
   .shimmer {
+    position: relative;
+    overflow: hidden;
     flex-shrink: 0;
     width: 42px;
     height: 4px;
     border-radius: var(--radius-bar);
-    background: linear-gradient(90deg, var(--accent) 0%, var(--text) 50%, var(--accent) 100%);
-    background-size: 200% 100%;
+  }
+  /* Compositor-only shimmer: a tiling gradient strip slides via transform
+     (theme.css ocrc-shimmer) — no per-frame repaint. */
+  .shimmer::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    width: 200%;
+    background: linear-gradient(90deg, var(--accent) 0%, var(--text) 25%, var(--accent) 50%, var(--text) 75%, var(--accent) 100%);
     animation: ocrc-shimmer 1.4s linear infinite;
   }
   .dur {

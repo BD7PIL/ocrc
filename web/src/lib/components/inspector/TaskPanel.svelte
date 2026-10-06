@@ -102,7 +102,7 @@
     width: 100%;
     background: var(--accent);
     transform-origin: left;
-    transition: transform .3s ease;
+    transition: transform var(--dur-3, 240ms) var(--ease-out, ease-out);
   }
   .items {
     display: flex;

@@ -415,7 +415,7 @@
     padding: 0;
     margin: 0;
     cursor: default;
-    animation: ocrc-fade .16s ease backwards;
+    animation: ocrc-fade var(--dur-1, 120ms) var(--ease-out, ease-out) backwards;
   }
   .modal {
     position: relative;
@@ -426,7 +426,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: var(--shadow-palette);
-    animation: ocrc-pop .16s var(--ease-out, ease-out) backwards;
+    animation: ocrc-pop var(--dur-1, 120ms) var(--ease-out, ease-out) backwards;
   }
   .header {
     display: flex;
@@ -582,7 +582,7 @@
     background: #fff;
     padding: 10px;
     border-radius: var(--radius);
-    animation: ocrc-fade 180ms var(--ease-out, ease-out);
+    animation: ocrc-fade var(--dur-2, 180ms) var(--ease-out, ease-out);
   }
   .qr-big :global(svg) { width: 100%; height: auto; display: block; }
   .qr-big.dim :global(svg) { opacity: .18; filter: blur(1px); }

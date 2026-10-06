@@ -331,7 +331,7 @@
     padding: 0;
     margin: 0;
     cursor: default;
-    animation: ocrc-fade .16s ease backwards;
+    animation: ocrc-fade var(--dur-1, 120ms) var(--ease-out, ease-out) backwards;
   }
   .palette {
     position: relative;
@@ -345,7 +345,7 @@
     box-shadow: var(--shadow-palette);
     display: flex;
     flex-direction: column;
-    animation: ocrc-pop .16s var(--ease-out, ease-out) backwards;
+    animation: ocrc-pop var(--dur-1, 120ms) var(--ease-out, ease-out) backwards;
   }
   .header {
     display: flex;

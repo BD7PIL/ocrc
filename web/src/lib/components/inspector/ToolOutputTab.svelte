@@ -31,15 +31,27 @@
 
   let pollTimer: ReturnType<typeof setTimeout> | undefined
   let destroyed = false
+  // Perf audit: this tab used to refetch on EVERY pane tick (1s after any feed
+  // event) AND on the 2s poll timer — overlapping fetches of the same message
+  // during a busy stream. Both paths now funnel through schedule() with a
+  // sequence guard; tick only fires a fetch while the tool is unsettled.
+  let loadSeq = 0
+  function schedule() {
+    if (destroyed) return
+    const seq = ++loadSeq
+    clearTimeout(pollTimer)
+    pollTimer = setTimeout(() => { if (!destroyed && seq === loadSeq) void load(seq) }, 150)
+  }
 
   function extractToolPart(parts: Array<Record<string, any>>): Record<string, any> | undefined {
     return parts.find((p) => p?.id === partId && p?.type === 'tool')
       ?? parts.find((p) => p?.type === 'tool' && p?.state?.callID != null && p?.id === partId)
   }
 
-  async function load(): Promise<void> {
+  async function load(seq: number): Promise<void> {
     try {
       const res = await api.messageRaw(sessionId, messageId)
+      if (seq !== loadSeq || destroyed) return // a newer fetch superseded this one
       const part = extractToolPart(res?.parts ?? [])
       if (!part) { missing = true; return }
       missing = false
@@ -51,22 +63,22 @@
       output = typeof st.output === 'string' ? st.output : ''
       error = typeof st.error === 'string' ? st.error : ''
     } catch {
-      missing = true
+      if (seq === loadSeq) missing = true
     } finally {
-      loading = false
+      if (seq === loadSeq) loading = false
       // Running tools have no output field yet (1.18.32): poll until the
       // state flips to completed/error so the output lands as soon as it exists.
-      if (!destroyed && (status === 'running' || status === 'pending')) {
+      if (!destroyed && seq === loadSeq && (status === 'running' || status === 'pending')) {
         clearTimeout(pollTimer)
-        pollTimer = setTimeout(() => { if (!destroyed) void load() }, 2000)
+        pollTimer = setTimeout(() => { if (!destroyed && seq === loadSeq) void load(seq) }, 2000)
       }
     }
   }
 
-  $: if (sessionId && messageId) { void sessionId, messageId, load() }
-  // Pane activity tick (1s after feed events) also refetches — cheap and
-  // covers the completion edge when the SSE poll window drifts.
-  $: if (!loading && tick) { void tick, load() }
+  // Immediate load on target change; ticks schedule a coalesced fetch only
+  // while the tool is unsettled (completed tabs never refetch on tick).
+  $: if (sessionId && messageId) { void sessionId, messageId, loading = true, void load(++loadSeq) }
+  $: if (!loading && tick && (status === 'running' || status === 'pending' || missing)) schedule()
   onDestroy(() => { destroyed = true; clearTimeout(pollTimer) })
 
   $: statusLabel = status === 'completed' || status === 'done' ? '完成'

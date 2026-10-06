@@ -498,7 +498,7 @@
        the rail's flex space to <main> instantly while the rail slides out. */
     position: relative;
     z-index: 1;
-    transition: transform .22s ease;
+    transition: transform var(--dur-2, 180ms) var(--ease-out, ease-out);
   }
   .rail-wrap.collapsed {
     transform: translateX(-100%);
@@ -519,7 +519,7 @@
     overflow: hidden;
     position: relative;
     z-index: 1;
-    transition: transform .24s var(--ease-out, ease-out);
+    transition: transform var(--dur-3, 240ms) var(--ease-out, ease-out);
   }
   .inspector-wrap :global(.inspector) {
     /* absolute fill: the wrap's height comes from flex-stretch, and
@@ -581,7 +581,7 @@
       width: 100%;
       overflow: hidden;
       margin-right: 0;
-      transition: transform .24s var(--ease, ease);
+      transition: transform var(--dur-3, 240ms) var(--ease, ease);
       transform: translateX(-100%);
     }
     .rail-wrap.open { transform: translateX(0); }
@@ -595,7 +595,7 @@
       padding-left: 0;
       background: transparent;
       overflow: hidden;
-      transition: transform .24s ease;
+      transition: transform var(--dur-3, 240ms) var(--ease-out, ease-out);
       /* Hidden = fully below the visible bottom, INCLUDING the --kb toolbar lift. */
       transform: translateY(calc(100% + var(--kb, 0px)));
       border-radius: var(--radius) var(--radius) 0 0;

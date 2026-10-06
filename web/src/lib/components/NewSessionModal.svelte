@@ -395,7 +395,7 @@
     padding: 0;
     margin: 0;
     cursor: default;
-    animation: ocrc-fade .16s ease backwards;
+    animation: ocrc-fade var(--dur-1, 120ms) var(--ease-out, ease-out) backwards;
   }
   .modal {
     position: relative;
@@ -409,7 +409,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    animation: ocrc-pop .14s ease;
+    animation: ocrc-pop var(--dur-1, 120ms) var(--ease-out, ease-out);
   }
   @keyframes ocrc-pop {
     from { opacity: 0; transform: translateY(-6px); }
@@ -826,7 +826,7 @@
       max-height: calc(86vh - var(--kb, 0px));
       border-bottom-left-radius: 0;
       border-bottom-right-radius: 0;
-      animation: sheetin .22s ease;
+      animation: sheetin var(--dur-3, 240ms) var(--ease-out, ease-out);
     }
     @keyframes sheetin {
       from { opacity: 0; transform: translateY(40px); }

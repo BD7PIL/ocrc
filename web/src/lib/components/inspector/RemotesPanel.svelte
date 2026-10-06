@@ -434,7 +434,7 @@
     position: fixed; inset: 0; z-index: var(--z-modal, 90);
     background: rgba(0, 0, 0, .55);
     display: grid; place-items: center;
-    animation: ocrc-fade .15s var(--ease-out, ease-out);
+    animation: ocrc-fade var(--dur-1, 120ms) var(--ease-out, ease-out);
   }
   @keyframes ocrc-fade {
     from { opacity: 0; }
@@ -449,7 +449,7 @@
     border-radius: var(--radius);
     box-shadow: 0 24px 70px rgba(0, 0, 0, .6);
     overflow: hidden;
-    animation: ocrc-wiz-pop .16s var(--ease-out, cubic-bezier(.22, 1, .36, 1));
+    animation: ocrc-wiz-pop var(--dur-1, 120ms) var(--ease-out, ease-out);
   }
   @keyframes ocrc-wiz-pop {
     from { opacity: 0; transform: translateY(8px) scale(.985); }

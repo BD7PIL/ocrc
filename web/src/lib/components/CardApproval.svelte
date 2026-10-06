@@ -49,7 +49,7 @@
     margin: 6px 0 14px;
     border-radius: var(--radius-sm);
     background: var(--bg-elev);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
   }
   .appr.pending {
     border-color: var(--warn);
@@ -60,7 +60,7 @@
     gap: 8px;
     padding: 9px 12px;
     background: color-mix(in srgb, var(--warn) 8%, transparent);
-    border-bottom: 1px solid var(--border-2);
+    border-bottom: 1px solid var(--border);
     border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   }
   .warn-dot {
@@ -91,7 +91,7 @@
     margin: 10px 12px;
     padding: 8px 10px;
     background: var(--bg-code);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     font-size: 11.5px;
     line-height: 1.5;

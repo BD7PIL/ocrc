@@ -100,7 +100,7 @@
     margin: 6px 0 0;
     padding: 8px 12px;
     background: var(--bg-elev);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     color: var(--text-3);
     font-family: var(--font-sans);

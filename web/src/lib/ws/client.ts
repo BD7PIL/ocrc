@@ -23,6 +23,7 @@ export interface WsClientOpts {
 
 export interface WsClient {
   send(msg: any): void
+  forceReconnect(): void
   close(): void
 }
 
@@ -108,6 +109,16 @@ export function createWsClient(opts: WsClientOpts): WsClient {
     }
   }
 
+  // Manual retry (OfflineBanner 立即重连): skip the backoff wait and reset the
+  // attempt ladder — the automatic ladder is for silent failures only.
+  function forceReconnect() {
+    reconnectAttempt = 0
+    clearTimers()
+    if (closed) return
+    if (ws) { try { ws.close() } catch { /* already dead */ } }
+    else connect()
+  }
+
   function reconnect() {
     clearTimers()
     if (closed) return
@@ -128,6 +139,7 @@ export function createWsClient(opts: WsClientOpts): WsClient {
   void connect()
 
   return {
+    forceReconnect,
     send(msg) {
       const data = JSON.stringify(msg)
       if (ws?.readyState === WebSocket.OPEN) ws.send(data)

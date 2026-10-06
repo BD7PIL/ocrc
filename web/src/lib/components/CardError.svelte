@@ -73,7 +73,7 @@
     font-size: 11px;
     line-height: 1.45;
     background: var(--bg);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     padding: 6px 8px;
     border-radius: var(--radius-sm);
     color: var(--text-2);

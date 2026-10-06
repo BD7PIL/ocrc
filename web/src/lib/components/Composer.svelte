@@ -5,7 +5,7 @@
   import { feeds, cardsOf, upsertCard, removeCard } from '../stores/sessions.js'
   import { can, backendName } from '../stores/capabilities.js'
   import { paletteOpen } from '../stores/palette.js'
-  import { composerDraft, composerEmpty } from '../stores/ui.js'
+  import { composerDraft, composerEmpty, saveComposerDraft, takeComposerDraft } from '../stores/ui.js'
 
   // Reasoning effort lives in the overrides store — read fresh at send time
   // (the EffortChip component owns the write side, mounted next to ModelChip).
@@ -25,6 +25,15 @@
 
   let text = ''
   let textarea: HTMLTextAreaElement
+  // Restore the per-session draft on session switch; persist on every change.
+  let draftSid: string | undefined
+  $: if (sessionId !== draftSid) {
+    if (draftSid !== undefined) saveComposerDraft(draftSid, text)
+    draftSid = sessionId
+    text = takeComposerDraft(sessionId)
+    if (textarea) autoGrow()
+  }
+  $: if (text !== undefined) saveComposerDraft(sessionId, text)
 
   // Suggestion chips drop their text here; consume one draft per fill.
   $: {
@@ -67,7 +76,15 @@
   async function stopRun() {
     if (aborting) return
     aborting = true
-    try { await api.abort(sessionId) } catch { /* ignore */ } finally { aborting = false }
+    error = ''
+    try {
+      await api.abort(sessionId)
+    } catch (e) {
+      // r7: a swallowed abort failure left the UI "running" with no way out
+      error = `停止失败：${(e as Error).message}`
+    } finally {
+      aborting = false
+    }
   }
   $: showStop = busy && !hasText && !sending
 

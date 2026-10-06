@@ -48,6 +48,20 @@ export const sessionBooting = writable(false)
     (never sends) — the composer watches this store, sets its text, focuses,
     and clears it. The nonce makes repeated picks of the same chip re-trigger. */
 export const composerDraft = writable<{ text: string; nonce: number } | undefined>(undefined)
+// Per-session composer drafts (r7 flow review): the draft used to live in the
+// component, so switching sessions silently discarded typed-but-unsent text.
+export const composerDrafts = new Map<string, string>()
+export function saveComposerDraft(sid: string | undefined, text: string) {
+  if (!sid) return
+  if (text) composerDrafts.set(sid, text)
+  else composerDrafts.delete(sid)
+}
+export function takeComposerDraft(sid: string | undefined): string {
+  if (!sid) return ''
+  const d = composerDrafts.get(sid) ?? ''
+  composerDrafts.delete(sid)
+  return d
+}
 
 /** True while the composer textarea is empty — hides suggestion chips once the
     user starts typing (baseline: chips must yield the moment they're noise). */

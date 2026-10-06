@@ -3,9 +3,10 @@
   import { goto } from '$app/navigation'
   import Icon from '$lib/components/Icon.svelte'
   import { sessionList } from '$lib/stores/sessions.js'
-  import { backends, agentAccent, setActiveBackend, ACCENT_HEX, ACCENT_BG, ACCENT_LINE, type CapabilitiesSnapshot } from '$lib/stores/capabilities.js'
+  import { backends, agentAccent, ACCENT_HEX, ACCENT_BG, ACCENT_LINE, type CapabilitiesSnapshot } from '$lib/stores/capabilities.js'
   import { api } from '$lib/api/client.js'
-  import { workspaces, activeWorkspace } from '$lib/stores/workspaces.js'
+  import { workspaces } from '$lib/stores/workspaces.js'
+  import { newSessionOpen } from '$lib/stores/ui.js'
 
   export let activeId: string | undefined = undefined
   /** False = the left rail is open and owns session switching — this control
@@ -13,7 +14,6 @@
   export let interactive = true
 
   let open = false
-  let creating = false
 
 
   $: activeBackendId = $backends?.activeId ?? $backends?.backends[0]?.id ?? 'opencode'
@@ -50,24 +50,6 @@
     goto(`/${id}/`)
   }
 
-  async function createSession() {
-    if (creating) return
-    const directory = $activeWorkspace || $workspaces[0]?.directory || ''
-    creating = true
-    try {
-      await setActiveBackend(activeBackendId)
-      const res = await api.createSession({ directory })
-      sessionList.set(await api.sessions())
-      workspaces.set(await api.workspaces())
-      open = false
-      goto(`/${res.id}/`)
-    } catch (e) {
-      alert(`Create session failed: ${(e as Error).message}`)
-    } finally {
-      creating = false
-    }
-  }
-
   function onKey(e: KeyboardEvent) {
     if (e.key === 'Escape') open = false
   }
@@ -93,10 +75,11 @@
 <div class="switcher">
   <button
     class="trigger"
-    on:click={toggle}
-    aria-haspopup="true"
-    aria-expanded={open}
-    title="Switch session"
+    on:click={() => { if (interactive) toggle() }}
+    aria-haspopup={interactive ? 'true' : undefined}
+    aria-expanded={interactive ? open : undefined}
+    title={interactive ? 'Switch session' : title}
+    class:plain={!interactive}
   >
     <span
       class="glyph-tile"
@@ -106,7 +89,7 @@
     </span>
     <span class="status-dot {statusClass(activeAgent?.status)}"><span class="sr-only">{statusClass(activeAgent?.status)}</span></span>
     <span class="title">{title}</span>
-    <span class="caret" aria-hidden="true"><Icon name="caret-down" size={11} /></span>
+    {#if interactive}<span class="caret" aria-hidden="true"><Icon name="caret-down" size={11} /></span>{/if}
   </button>
 
   {#if open}
@@ -126,7 +109,9 @@
         {/each}
       </div>
       <div class="footer">
-        <button class="new-session mono" on:click={createSession} disabled={creating}>
+        <!-- r7 flow review: this used to instant-create (no directory choice,
+             alert() on failure) — one create path through NewSessionModal now -->
+        <button class="new-session mono" on:click={() => { open = false; newSessionOpen.set(true) }}>
           + New session on {activeAgent?.name ?? activeAgent?.id ?? 'agent'}
         </button>
       </div>
@@ -138,6 +123,7 @@
   .switcher {
     position: relative;
     display: inline-flex;
+    /* .plain added below */
     min-width: 0;
   }
   .trigger {
@@ -154,6 +140,9 @@
     transition: border-color .12s ease, background .12s ease;
   }
   .trigger:hover { border-color: var(--accent); background: var(--bg-elev2); }
+  /* ZCode register: when the left rail owns switching, this is a plain title */
+  .trigger.plain { background: transparent; border-color: transparent; cursor: default; }
+  .trigger.plain:hover { border-color: transparent; background: transparent; }
   .glyph-tile {
     width: 22px;
     height: 22px;

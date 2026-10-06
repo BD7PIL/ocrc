@@ -91,7 +91,13 @@
     error = null
     try {
       const { backends: bstore } = await import('$lib/stores/capabilities.js')
-      await api.saveRemote({ host: rHost.trim(), user: rUser.trim() || undefined, port: Number(rPort) || 22 })
+      const port = Number(rPort)
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        error = '端口必须是 1–65535 的整数'
+        rSaving = false
+        return
+      }
+      await api.saveRemote({ host: rHost.trim(), user: rUser.trim() || undefined, port })
       const snap = await api.backends()
       bstore.set(snap as any)
       const created = (snap.backends ?? []).find((b) => b.id.startsWith('remote:') && b.id.includes(rHost.trim()))
@@ -198,10 +204,25 @@
     }
   }
 
+  async function reloadBackends() {
+    try { backends.set(await api.backends() as any) } catch { /* next open retries */ }
+  }
+
   function onKey(e: KeyboardEvent) {
     if (e.key === 'Escape') { close(); return }
     if (e.key === 'Tab') trapTab(e)
   }
+
+  // r7: the recents panel stayed open until a pick — close on any click
+  // outside the recents list and the directory input row.
+  function onWindowPointerdown(e: MouseEvent) {
+    if (!showRecents) return
+    const t = e.target as Node
+    if (recentsEl?.contains(t) || dirRowEl?.contains(t)) return
+    showRecents = false
+  }
+  let recentsEl: HTMLElement
+  let dirRowEl: HTMLElement
 
   let modalEl: HTMLElement
 
@@ -236,7 +257,7 @@
   }
 </script>
 
-<svelte:window on:keydown={onKey} />
+<svelte:window on:keydown={onKey} on:pointerdown={onWindowPointerdown} />
 
 {#if $newSessionOpen}
   <div class="overlay">
@@ -249,7 +270,11 @@
 
       <div class="body">
         {#if agents.length === 0}
-          <div class="empty">正在加载 agent…</div>
+          <!-- r7: dead-end loading — a failed backend fetch never retried -->
+          <div class="empty">
+            正在加载 agent…
+            <button type="button" class="retry" on:click={reloadBackends}>重新加载</button>
+          </div>
         {:else}
           <div class="field">
             <span class="label">引擎 / 后端</span>
@@ -296,7 +321,7 @@
 
         <div class="field">
           <label class="label" for="new-session-dir">Working directory</label>
-          <div class="dir-input">
+          <div class="dir-input" bind:this={dirRowEl}>
             <input
               id="new-session-dir"
               class="path mono"
@@ -349,7 +374,7 @@
             </div>
           {/if}
           {#if agentRecents.length > 0}
-            <div class="recents" class:open={showRecents}>
+            <div class="recents" class:open={showRecents} bind:this={recentsEl}>
               <span class="recents-label mono">recent · {selectedAgentName}</span>
               <div class="recents-list">
                 {#each agentRecents as w (w.directory)}
@@ -546,7 +571,7 @@
     gap: 6px;
     padding: 10px;
     background: var(--bg-panel);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
   }
   .rf {
@@ -577,7 +602,7 @@
     align-items: center;
     gap: 8px;
     padding: 7px 9px;
-    border-bottom: 1px solid var(--border-2);
+    border-bottom: 1px solid var(--border);
   }
   .db-up {
     flex-shrink: 0;
@@ -643,7 +668,7 @@
     justify-content: flex-end;
     gap: 8px;
     padding: 8px 9px;
-    border-top: 1px solid var(--border-2);
+    border-top: 1px solid var(--border);
   }
   .db-foot .btn { padding: 5px 11px; font-size: 12px; }
 
@@ -659,13 +684,13 @@
   }
   .dir-input:focus-within { border-color: var(--accent); }
   .dir-sug {
-    margin-top: 6px; border: 1px solid var(--border-2); border-radius: var(--radius-sm);
+    margin-top: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm);
     overflow: hidden; max-height: 180px; overflow-y: auto;
   }
   .dir-sug-item {
     display: flex; justify-content: space-between; gap: 10px; width: 100%;
     padding: 6px 10px; background: var(--bg-input); border: none;
-    border-bottom: 1px solid var(--border-2); color: var(--text-2);
+    border-bottom: 1px solid var(--border); color: var(--text-2);
     font: inherit; font-size: 12px; cursor: pointer; text-align: left;
   }
   .dir-sug-item:hover { background: var(--bg-elev); color: var(--text); }
@@ -721,7 +746,7 @@
     overflow-y: auto;
     padding: 4px;
     background: var(--bg-panel);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
   }
   .recent {
@@ -752,19 +777,6 @@
     text-overflow: ellipsis;
     width: 100%;
   }
-
-  .branch {
-    background: var(--bg-input);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text);
-    font-size: 16px;
-    padding: 8px 10px;
-    outline: none;
-    transition: border-color .15s ease;
-  }
-  .branch:focus { border-color: var(--accent); }
-  .branch::placeholder { color: var(--text-4); }
 
   .error {
     padding: 10px 12px;
@@ -811,6 +823,18 @@
     color: var(--text-3);
     font-size: 13.5px;
   }
+  .empty .retry {
+    display: block;
+    margin: 10px auto 0;
+    padding: 5px 12px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-2);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .empty .retry:hover { color: var(--text); border-color: var(--text-4); }
 
   @media (max-width: 820px) {
     .overlay {

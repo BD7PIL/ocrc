@@ -22,7 +22,9 @@ const COLORS = {
   user: 'var(--info)',
   assistant: 'var(--accent)',
   tool: 'var(--ok)',
-  other: 'var(--border)',
+  // r7 chart review: --border on the --border-2 track was ~1.1:1 — the residual
+  // segment (often the largest) was invisible. text-4 clears 3:1 on both tracks.
+  other: 'var(--text-4)',
 }
 
 /** Conservative chars→tokens: CJK chars carry ~0.6 tokens each, other

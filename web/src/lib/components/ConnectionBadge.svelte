@@ -27,5 +27,7 @@
   .badge.connected { color: var(--text-2); }
   .badge.connected .dot { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
   .badge.reconnecting .dot { background: var(--warn); }
-  .badge.offline .dot { background: var(--err); }
+  /* r7: offline was a filled red dot here but a hollow grey ring in the
+     titlebar — same state, two encodings. Hollow grey (neutral) wins. */
+  .badge.offline .dot { background: transparent; border: 1.5px solid var(--text-4); }
 </style>

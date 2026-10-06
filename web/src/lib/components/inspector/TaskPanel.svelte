@@ -7,18 +7,11 @@
   export let tick = 0
 
   let s: TodoSummary = { total: 0, done: 0, items: [] }
-  let toggled = new Set<number>()
-  let lastSessionId: string | undefined
 
   async function load(id?: string) {
     if (!id) {
       s = { total: 0, done: 0, items: [] }
-      toggled = new Set()
       return
-    }
-    if (id !== lastSessionId) {
-      lastSessionId = id
-      toggled = new Set()
     }
     try {
       const todos = await api.todo(id)
@@ -32,36 +25,28 @@
 
   $: load(sessionId), tick
 
-  $: effItems = s.items.map((it, i) => ({
-    ...it,
-    status: toggled.has(i) ? (it.status === 'done' ? 'pending' : 'done') : it.status,
-  }))
-  $: effDone = effItems.filter((it) => it.status === 'done').length
-  $: pct = s.total ? Math.round((effDone / s.total) * 100) : 0
-
-  function toggle(i: number) {
-    if (toggled.has(i)) toggled.delete(i)
-    else toggled.add(i)
-    toggled = toggled
-  }
+  $: done = s.items.filter((it) => it.status === 'done').length
+  $: pct = s.total ? Math.round((done / s.total) * 100) : 0
 </script>
 
 <div class="task">
   <div class="hd">
-    {#if s.total}<span class="meta">{effDone}/{s.total}</span>{/if}
+    {#if s.total}<span class="meta">{done}/{s.total} · {pct}%</span>{/if}
   </div>
   {#if s.total}
     <div class="bar"><div class="fill" style="transform:scaleX({pct / 100})"></div></div>
   {/if}
   <div class="items">
-    {#each effItems as it, i (it.text + '-' + i)}
-      <button type="button" class="row {it.status}" on:click={() => toggle(i)}>
+    {#each s.items as it, i (it.text + '-' + i)}
+      <!-- Read-only rows (r7 review): the old optimistic toggle flipped the
+           chart without persisting anything — a misleading affordance. -->
+      <div class="row {it.status}">
         <span class="box">
           <span class="dot"></span>
           <span class="check">✓</span>
         </span>
         <span class="tx">{it.text}</span>
-      </button>
+      </div>
     {/each}
     {#if s.total === 0}<div class="section-label">暂无任务</div>{/if}
   </div>
@@ -92,7 +77,8 @@
   }
   .bar {
     height: 4px;
-    background: var(--bg-input);
+    /* r7: --bg-input on the panel was ~1.1:1 — the unfilled track vanished */
+    background: color-mix(in srgb, var(--text-4) 28%, transparent);
     border-radius: var(--radius-bar);
     overflow: hidden;
     margin-bottom: 10px;
@@ -120,15 +106,7 @@
     color: inherit;
     font: inherit;
     text-align: left;
-    cursor: pointer;
-  }
-  .row:hover .tx {
-    color: var(--text);
-  }
-  .row:focus-visible {
-    outline: 1px solid var(--accent);
-    outline-offset: 1px;
-    border-radius: var(--radius-xs);
+    cursor: default;
   }
   .box {
     flex-shrink: 0;

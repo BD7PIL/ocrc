@@ -1,5 +1,11 @@
 <script lang="ts">
   import { connection } from '../stores/connection.js'
+
+  // r7 flow review: the banner was purely informational — the WS backoff was
+  // the only recovery. This asks the layout for an immediate reconnect.
+  function retry() {
+    window.dispatchEvent(new CustomEvent('ocrc:ws-reconnect'))
+  }
 </script>
 
 {#if $connection !== 'connected'}
@@ -9,6 +15,7 @@
     {:else}
       Offline — live updates paused
     {/if}
+    <button on:click={retry}>立即重连</button>
   </div>
 {/if}
 
@@ -33,4 +40,15 @@
     color: var(--err);
     border-bottom-color: color-mix(in srgb, var(--err) 32%, transparent);
   }
+  .banner button {
+    margin-left: 10px;
+    padding: 1px 8px;
+    background: transparent;
+    border: 1px solid currentColor;
+    border-radius: var(--radius-xs);
+    color: inherit;
+    font-size: inherit;
+    cursor: pointer;
+  }
+  .banner button:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
 </style>

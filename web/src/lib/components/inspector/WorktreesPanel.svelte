@@ -91,7 +91,7 @@
     display: grid; place-items: center;
     padding: 0;
     background: transparent;
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     color: var(--text-3);
     font-size: 13px;

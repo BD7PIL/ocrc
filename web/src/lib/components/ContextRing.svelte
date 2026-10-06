@@ -61,7 +61,7 @@
     if (n >= 1000) return (n / 1000).toFixed(1) + 'k'
     return String(n)
   }
-  function fmtCost(n?: number) { return n == null ? '—' : `$${n.toFixed(3)}` }
+  function fmtCost(n?: number) { return n == null ? '—' : n < 0.001 ? '<$0.001' : `$${n.toFixed(3)}` }
 
   // Hover opens; a short leave-delay lets the pointer travel into the popover.
   function enter() { clearTimeout(closeTimer); open = true }
@@ -90,7 +90,7 @@
 <!-- presentation: hover-intent wrapper for the popover; the interactive part
      is the ring <button> inside. -->
 <div class="wrap" role="presentation" bind:this={wrap} on:mouseenter={enter} on:mouseleave={leave}>
-  <button class="ring" on:click={() => (open = !open)} aria-label={maxUnknown ? `上下文用量 ${fmtK(used)}（上限未知）` : `上下文占用 ${pct.toFixed(0)}%`} aria-expanded={open} title="上下文占用">
+  <button class="ring" on:click={() => (open = !open)} aria-label={maxUnknown ? `上下文用量 ${fmtK(used)}（上限未知）` : `上下文占用 ${pct.toFixed(0)}%`} aria-expanded={open} title={maxUnknown ? `上下文用量 ${fmtK(used)}` : `上下文 ${fmtK(used)} / ${fmtK(max ?? 0)}`}>
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <circle class="track" cx="12" cy="12" r={R} />
       <circle
@@ -123,8 +123,11 @@
         </div>
         <div class="legend">
           {#each breakdown.segments as s}
-            <span class="lg"><span class="dot" style={`background:${s.color}`}></span>{s.key} {used > 0 ? ((s.tokens / used) * 100).toFixed(1) : '0'}%</span>
+            <!-- absolute tokens next to the % — a bare share of an unstated
+                 whole was not readable (r7 chart review) -->
+            <span class="lg"><span class="dot" style={`background:${s.color}`}></span>{s.key} {used > 0 ? ((s.tokens / used) * 100).toFixed(0) : '0'}% · {fmtK(s.tokens)}</span>
           {/each}
+          <span class="lg est">按消息内容估算</span>
         </div>
       {:else}
         <div class="bar" aria-hidden="true"></div>
@@ -207,6 +210,7 @@
   .seg { height: 100%; }
   .legend { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 6px 0 8px; }
   .lg { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-3); }
+  .lg.est { justify-content: flex-end; color: var(--text-4); font-size: 9.5px; width: 100%; }
   .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
   .rows { display: flex; flex-direction: column; }
   .row {
@@ -215,7 +219,7 @@
     padding: 3px 0;
     font-size: 11.5px;
     color: var(--text-3);
-    border-top: 1px solid var(--border-2);
+    border-top: 1px solid var(--border);
   }
   .row:first-child { border-top: none; }
   .row .mono { color: var(--text-2); font-size: 11px; }

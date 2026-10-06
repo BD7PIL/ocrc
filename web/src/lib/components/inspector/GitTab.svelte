@@ -103,10 +103,10 @@
   .row:hover { background: var(--bg-input); color: var(--text); }
   .badge {
     flex-shrink: 0;
-    font-size: 9.5px;
+    font-size: 10px;
     padding: 1px 6px;
     border-radius: var(--radius-pill);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     color: var(--text-3);
   }
   .badge.added { color: var(--ok); border-color: var(--ok); }

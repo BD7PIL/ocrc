@@ -366,7 +366,7 @@
   .hd { display: flex; align-items: center; justify-content: space-between; }
   .add {
     width: 20px; height: 20px; display: grid; place-items: center; padding: 0;
-    background: transparent; border: 1px solid var(--border-2); border-radius: var(--radius-sm);
+    background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm);
     color: var(--text-3); font-size: 13px; line-height: 1; cursor: pointer;
   }
   .add:hover { color: var(--text); border-color: var(--accent); }
@@ -394,7 +394,7 @@
 
   .badge {
     display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: var(--radius-pill);
-    font-size: 9px; letter-spacing: .04em; border: 1px solid var(--border); color: var(--text-3);
+    font-size: 10px; letter-spacing: .04em; border: 1px solid var(--border); color: var(--text-3);
   }
   .badge.b-online { border-color: var(--ok); color: var(--ok); }
   .badge.b-launching, .badge.b-provisioning, .badge.b-detecting { border-color: var(--accent); color: var(--accent); }
@@ -403,7 +403,7 @@
 
   .ops { display: flex; gap: 3px; align-items: center; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
   .op {
-    padding: 1px 6px; background: transparent; border: 1px solid var(--border-2); border-radius: var(--radius-xs);
+    padding: 1px 6px; background: transparent; border: 1px solid var(--border); border-radius: var(--radius-xs);
     color: var(--text-3); font-size: 10px; cursor: pointer;
   }
   .op:hover { color: var(--text); border-color: var(--accent); }
@@ -419,7 +419,7 @@
 
   .logs {
     margin: 2px 0 0 30px; padding: 7px 9px; max-height: 180px; overflow-y: auto;
-    background: var(--bg-code); border: 1px solid var(--border-2); border-radius: var(--radius-sm);
+    background: var(--bg-code); border: 1px solid var(--border); border-radius: var(--radius-sm);
     color: var(--text-3); font-size: 10px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
   }
 
@@ -458,7 +458,7 @@
   .wiz-steps {
     width: 176px; flex-shrink: 0;
     background: var(--bg-panel);
-    border-right: 1px solid var(--border-2);
+    border-right: 1px solid var(--border);
     padding: 18px 14px;
     display: flex; flex-direction: column; gap: 4px;
   }
@@ -529,7 +529,7 @@
   .phase { margin: 0 0 8px; font-size: 11px; color: var(--accent); }
   .console {
     flex: 1; min-height: 180px; margin: 0; padding: 10px 12px;
-    background: var(--bg-code); border: 1px solid var(--border-2); border-radius: var(--radius-sm);
+    background: var(--bg-code); border: 1px solid var(--border); border-radius: var(--radius-sm);
     color: var(--text-3); font-size: 10.5px; line-height: 1.55;
     white-space: pre-wrap; word-break: break-word;
     overflow-y: auto;
@@ -559,7 +559,7 @@
     .wiz { width: 100%; height: 100%; border: none; border-radius: 0; flex-direction: column; }
     .wiz-steps {
       width: 100%; flex-direction: row; align-items: center; gap: 8px;
-      padding: 12px 14px; border-right: none; border-bottom: 1px solid var(--border-2);
+      padding: 12px 14px; border-right: none; border-bottom: 1px solid var(--border);
       overflow-x: auto; scrollbar-width: none;
     }
     .ws-title { margin-bottom: 0; margin-right: 6px; white-space: nowrap; }

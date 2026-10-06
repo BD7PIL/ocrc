@@ -382,7 +382,7 @@
     width: 38px;
     height: 38px;
     padding: 0;
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     border-radius: 50%;
     background: var(--bg-elev);
     box-shadow: 0 6px 18px rgba(0, 0, 0, .22);
@@ -415,7 +415,7 @@
   .ghost .label {
     text-transform: uppercase;
     letter-spacing: .12em;
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 600;
   }
   .ghost .bar-count { font-size: 10.5px; }
@@ -442,7 +442,7 @@
   .bar .label {
     text-transform: uppercase;
     letter-spacing: .12em;
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 600;
     color: var(--text-3);
   }
@@ -453,7 +453,7 @@
     display: grid; place-items: center;
     background: var(--accent); color: var(--accent-ink);
     border-radius: var(--radius-pill);
-    font-size: 9px; font-weight: 700;
+    font-size: 10px; font-weight: 700;
   }
   .bar .caret { width: 13px; height: 13px; color: var(--text-3); }
   .bar:hover { border-color: var(--accent-line); }
@@ -467,7 +467,7 @@
   }
   .ball-count {
     position: relative;
-    font-size: 9.5px;
+    font-size: 10px;
     color: var(--text);
     letter-spacing: -.02em;
   }
@@ -488,7 +488,7 @@
     background: var(--accent);
     color: var(--accent-ink);
     border-radius: var(--radius-pill);
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 700;
     box-sizing: border-box;
     box-shadow: 0 0 0 2px var(--bg); /* separates it from the ring underneath */
@@ -531,7 +531,7 @@
     text-transform: uppercase;
     letter-spacing: .14em;
     color: var(--text-3);
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 600;
   }
   .title {
@@ -591,7 +591,7 @@
 
   .body {
     padding: 2px 12px 12px;
-    border-top: 1px solid var(--border-2);
+    border-top: 1px solid var(--border);
     max-height: calc(52vh - 47px); /* card total ≤ ~52vh: header (47px) + body */
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
@@ -617,7 +617,7 @@
   .sub-label {
     text-transform: uppercase;
     letter-spacing: .12em;
-    font-size: 9.5px;
+    font-size: 10px;
     font-weight: 600;
   }
   .caret {
@@ -645,7 +645,7 @@
     border: 1.5px solid var(--border);
   }
   .row.done .box { background: var(--accent); border-color: var(--accent); }
-  .check { font-size: 9px; line-height: 1; color: var(--accent-ink); }
+  .check { font-size: 10px; line-height: 1; color: var(--accent-ink); }
   .dot {
     width: 5px;
     height: 5px;

@@ -225,7 +225,7 @@
     width: 52px; height: 52px; flex-shrink: 0;
     display: grid; place-items: center;
     background: color-mix(in srgb, var(--accent) 8%, transparent);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius);
   }
   .hicon svg { width: 34px; height: 34px; display: block; }
@@ -307,7 +307,7 @@
   .dim { color: var(--text-3); }
   .rejected { margin: 0; font-size: 12.5px; color: var(--err); }
 
-  .paste { border-top: 1px solid var(--border-2); padding-top: 10px; }
+  .paste { border-top: 1px solid var(--border); padding-top: 10px; }
   .paste summary { cursor: pointer; font-size: 12px; color: var(--text-2); }
   .paste-body { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; }
   .field {
@@ -330,5 +330,5 @@
     cursor: pointer;
   }
   .connect:disabled { opacity: .45; cursor: default; }
-  .foot { border-top: 1px solid var(--border-2); padding-top: 10px; }
+  .foot { border-top: 1px solid var(--border); padding-top: 10px; }
 </style>

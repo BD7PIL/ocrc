@@ -96,6 +96,8 @@
   }
   // PWA install affordance (Chromium fires beforeinstallprompt when installable).
   let installEvent: any = null
+  let swBannerDismissed = false
+  function dismissSwBanner() { swBannerDismissed = true }
   async function install() {
     if (!installEvent) return
     installEvent.prompt()
@@ -275,6 +277,8 @@
     const onBeforeInstall = (e: Event) => { e.preventDefault(); installEvent = e }
     window.addEventListener('ocrc:resubscribe', onResubscribe)
     window.addEventListener('beforeinstallprompt', onBeforeInstall)
+    // OfflineBanner 立即重连: skip the ws backoff ladder on user request.
+    window.addEventListener('ocrc:ws-reconnect', () => wsClient?.forceReconnect())
 
     // Track the mobile breakpoint so AgentPanel can render in drawer mode
     // (panel-only, no spine toggle).
@@ -382,10 +386,12 @@
     />
   {/if}
   <OfflineBanner />
-  {#if updated.current}
+  {#if updated.current && !swBannerDismissed}
     <div class="sw-update" role="status">
       <span>ocrc 已更新到新版本</span>
       <button on:click={() => location.reload()}>刷新页面</button>
+      <!-- r7: the banner was un-dismissable — the only exit was the reload -->
+      <button class="later" on:click={dismissSwBanner}>稍后</button>
     </div>
   {/if}
   <div class="body">
@@ -454,7 +460,7 @@
     background: var(--accent-2, rgba(251, 139, 60, .12));
     color: var(--text-2);
     font-size: 12px;
-    border-bottom: 1px solid var(--border-2);
+    border-bottom: 1px solid var(--border);
     z-index: 5;
   }
   .sw-update button {
@@ -492,7 +498,7 @@
     width: var(--rail-w, 250px);
     flex-shrink: 0;
     overflow: hidden;
-    border-right: 1px solid var(--border-2);
+    border-right: 1px solid var(--border);
     /* Slide on the GPU (transform) instead of animating width — a width
        transition reflows the chat on every frame. The negative margin hands
        the rail's flex space to <main> instantly while the rail slides out. */
@@ -529,7 +535,7 @@
     inset: 0;
     width: 100%;
     height: 100%;
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: 0 1px 3px rgb(0 0 0 / .05), 0 4px 14px rgb(0 0 0 / .04);
   }
@@ -552,7 +558,7 @@
     padding: 14px 0 10px;
     background: var(--bg-panel);
     border: none;
-    border-right: 1px solid var(--border-2);
+    border-right: 1px solid var(--border);
     color: var(--text-3);
     cursor: pointer;
     transition: color .12s ease, background .12s ease;

@@ -42,7 +42,7 @@
   }
   .stop {
     background: transparent;
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     color: var(--text-3);
     border-radius: var(--radius-sm);
     padding: 2px 8px;

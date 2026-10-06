@@ -36,7 +36,7 @@
     align-items: center;
     gap: 7px;
     padding: 8px 10px;
-    border-top: 1px solid var(--border-2);
+    border-top: 1px solid var(--border);
     min-width: 0;
   }
   .avatar {
@@ -47,7 +47,7 @@
     display: grid;
     place-items: center;
     background: var(--bg-elev);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     color: var(--text-2);
     font-size: 10px;
     font-weight: 700;

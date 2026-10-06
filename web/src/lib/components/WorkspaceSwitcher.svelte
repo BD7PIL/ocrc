@@ -57,7 +57,7 @@
     align-items: center;
     padding: 4px 9px;
     border-radius: var(--radius-sm);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     background: transparent;
     color: var(--text-3);
     font-family: var(--font-mono);

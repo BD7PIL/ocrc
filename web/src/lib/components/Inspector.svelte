@@ -70,9 +70,11 @@
   let tabMenuFor: string | undefined
   let tabMenuXY = { x: 0, y: 0 }
   let sideChatBusy = false
+  let sideChatError = ''
   async function openSideChat() {
     if (sideChatBusy) return
     sideChatBusy = true
+    sideChatError = ''
     plusOpen = false
     try {
       const directory = session?.directory ?? ''
@@ -81,7 +83,9 @@
       if (id) {
         sidePane.openPaneTab({ id: `sidechat:${id}`, kind: 'sidechat', title: '辅助对话', childId: id })
       }
-    } catch { /* best effort */ } finally { sideChatBusy = false }
+    } catch (e) {
+      sideChatError = `辅助对话创建失败：${(e as Error).message}`
+    } finally { sideChatBusy = false }
   }
   const TAB_ICONS: Record<string, string> = {
     home: 'gear', // overridden per homeId below
@@ -202,22 +206,24 @@
     </button>
   </div>
 
+  {#if sideChatError}<div class="sidechat-err" role="alert">{sideChatError}<button aria-label="关闭" on:click={() => (sideChatError = '')}>✕</button></div>{/if}
+
   <div class="pane">
     {#if activeTab?.kind === 'home'}
       {#if activeTab.homeId === 'tasks'}
-        {#if $can('todos')}<TaskPanel {sessionId} {tick} />{/if}
+        {#if $can('todos')}<TaskPanel {sessionId} {tick} />{:else}<div class="na">此 agent 不支持任务面板</div>{/if}
       {:else if activeTab.homeId === 'files'}
         <FilesPanel {sessionId} {tick} />
         <div class="gap"></div>
         {#if $can('worktrees')}<WorktreesPanel {sessionId} {tick} />{/if}
       {:else if activeTab.homeId === 'subs'}
-        {#if $can('todos')}<SubagentsPanel {sessionId} {tick} />{/if}
+        {#if $can('todos')}<SubagentsPanel {sessionId} {tick} />{:else}<div class="na">此 agent 不支持子代理面板</div>{/if}
       {:else if activeTab.homeId === 'skills'}
-        {#if $can('skills')}<SkillsPanel {tick} />{/if}
+        {#if $can('skills')}<SkillsPanel {tick} />{:else}<div class="na">此 agent 不支持 Skills</div>{/if}
       {:else if activeTab.homeId === 'schedules'}
         <SchedulesPanel {tick} />
       {:else if activeTab.homeId === 'mcp'}
-        {#if $can('mcp')}<McpPanel {tick} />{/if}
+        {#if $can('mcp')}<McpPanel {tick} />{:else}<div class="na">此 agent 未配置 MCP</div>{/if}
       {:else if activeTab.homeId === 'remotes'}
         <RemotesPanel {tick} />
       {/if}
@@ -318,7 +324,7 @@
     height: 46px;
     padding: 0 12px;
     background: var(--bg-input);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     color: var(--text-2);
     font: inherit;
@@ -348,7 +354,7 @@
     align-items: center;
     gap: 2px;
     padding: 0 6px 0 10px;
-    border-bottom: 1px solid var(--border-2);
+    border-bottom: 1px solid var(--border);
     overflow-x: auto;
     scrollbar-width: none;
   }
@@ -393,7 +399,7 @@
     min-width: 130px;
     padding: 4px;
     background: var(--bg-elev);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     box-shadow: 0 6px 20px rgb(0 0 0 / .18);
   }
@@ -410,7 +416,7 @@
   }
   .tab-ctx button:hover { background: var(--bg-input); color: var(--text); }
   .dlabel { max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
-  .tbadge { font-size: 9.5px; color: var(--text-3); }
+  .tbadge { font-size: 10px; color: var(--text-3); }
   .tab.active .tbadge { color: var(--text-2); }
   .closer {
     display: inline-grid;
@@ -502,6 +508,34 @@
   }
   .plus-menu button:hover { background: var(--bg-input); color: var(--text); }
   .menu-sep { height: 1px; background: var(--border-2); margin: 4px 2px; }
+
+  .sidechat-err {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 8px 10px 0;
+    padding: 7px 10px;
+    background: color-mix(in srgb, var(--err) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--err) 35%, transparent);
+    border-radius: var(--radius-sm);
+    color: var(--err);
+    font-size: 11.5px;
+  }
+  .sidechat-err button {
+    background: transparent;
+    border: none;
+    color: var(--err);
+    cursor: pointer;
+    font-size: 11px;
+  }
+  /* capability-gap placeholder (r7: gated panes rendered completely blank) */
+  .na {
+    padding: 24px 16px;
+    text-align: center;
+    color: var(--text-3);
+    font-size: 12px;
+  }
 
   .pane {
     flex: 1;

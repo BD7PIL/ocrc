@@ -58,9 +58,11 @@
       <div class="chips">
         {#if m.agent}<span class="chip agent mono">{m.agent}</span>{/if}
         {#if m.model}<span class="chip mono">{m.model}</span>{/if}
-        {#if m.tokens}<span class="chip mono">↑{fmtK(m.tokens.input)} ↓{fmtK(m.tokens.output)}</span>{/if}
+        {#if m.tokens}<span class="chip mono" title="输入 / 输出 tokens">↑{fmtK(m.tokens.input)} ↓{fmtK(m.tokens.output)}</span>{/if}
         {#if (m as any).duration != null}<span class="chip mono">{(m as any).duration}s</span>{/if}
-        {#if m.cost !== undefined}<span class="chip cost mono">${m.cost.toFixed(3)}</span>{/if}
+        <!-- r7: --warn meant 'awaiting input' elsewhere; cost is neutral data.
+             Sub-milli-dollar costs rendered as a lying $0.000. -->
+        {#if m.cost !== undefined}<span class="chip cost mono" title="本次回复成本">${m.cost < 0.001 ? '<$0.001' : m.cost.toFixed(3)}</span>{/if}
       </div>
       <div class="actions">
         {#if onRegenerate}
@@ -90,7 +92,7 @@
      default, plain text (the answer below is the artifact). */
   .think {
     margin: 0 0 10px;
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     background: var(--bg-elev);
     overflow: hidden;
@@ -116,7 +118,7 @@
   .think pre {
     margin: 0;
     padding: 8px 12px 10px;
-    border-top: 1px solid var(--border-2);
+    border-top: 1px solid var(--border);
     color: var(--text-3);
     font-family: var(--font-sans);
     font-size: 12px;
@@ -146,7 +148,7 @@
     font-size: 10.5px;
     color: var(--text-3);
     background: var(--bg-elev);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-pill);
     padding: 2px 8px;
   }
@@ -155,7 +157,7 @@
   .chip.agent {
     color: var(--text-2);
   }
-  .chip.cost { color: var(--warn); }
+  .chip.cost { color: var(--text-3); }
   .actions {
     display: flex;
     align-items: center;
@@ -169,7 +171,7 @@
     width: 26px;
     height: 26px;
     background: transparent;
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     color: var(--text-3);
     font-size: 12px;

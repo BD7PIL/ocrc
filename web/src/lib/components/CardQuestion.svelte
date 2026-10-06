@@ -123,7 +123,7 @@
     gap: 8px;
     padding: 9px 12px;
     background: color-mix(in srgb, var(--accent) 8%, transparent);
-    border-bottom: 1px solid var(--border-2);
+    border-bottom: 1px solid var(--border);
     border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   }
   .q-dot {
@@ -147,7 +147,7 @@
   .opt {
     padding: 7px 12px;
     border-radius: var(--radius-pill);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     background: var(--bg-input);
     color: var(--text-2);
     font-size: 12px;
@@ -165,7 +165,7 @@
     width: 100%;
     padding: 8px 10px;
     border-radius: var(--radius-sm);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     background: var(--bg-input);
     color: var(--text);
     font-size: 12px;

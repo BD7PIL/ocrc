@@ -440,7 +440,7 @@
     flex-shrink: 0;
     border-radius: var(--radius-xs);
     background: var(--bg-panel);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     color: var(--text-2);
     font-family: var(--font-mono);
     font-size: 11px;
@@ -480,7 +480,7 @@
   }
   .about {
     padding: 8px 14px 10px;
-    border-top: 1px solid var(--border-2);
+    border-top: 1px solid var(--border);
     color: var(--text-4);
     font-size: 10.5px;
   }

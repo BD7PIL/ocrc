@@ -528,7 +528,7 @@
     text-overflow: ellipsis;
   }
   .gh-host {
-    font-size: 9.5px;
+    font-size: 10px;
     color: var(--text-4);
     white-space: nowrap;
     overflow: hidden;

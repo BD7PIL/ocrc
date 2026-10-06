@@ -157,7 +157,7 @@
 
   .md :global(.code-block) {
     background: var(--bg-code);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     overflow: hidden;
     margin: 0.7em 0;
@@ -168,7 +168,7 @@
     gap: 8px;
     padding: 7px 11px;
     background: rgba(255,255,255,.025);
-    border-bottom: 1px solid var(--border-2);
+    border-bottom: 1px solid var(--border);
   }
   .md :global(.code-square) {
     width: 8px;

@@ -107,7 +107,7 @@
     justify-content: center;
     border-radius: var(--radius-xs);
     background: var(--bg-panel);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     color: var(--text-2);
     font-size: 12px;
     flex-shrink: 0;

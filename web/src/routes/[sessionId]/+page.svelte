@@ -493,7 +493,7 @@
     gap: 12px;
     padding: 11px 28px;
     background: var(--bg);
-    border-bottom: 1px solid var(--border-2);
+    border-bottom: 1px solid var(--border);
   }
   /* Desktop: header sits on the white canvas sheet (band-color fix). */
   @media (min-width: 821px) {
@@ -512,7 +512,7 @@
     width: 26px;
     height: 26px;
     background: transparent;
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-pill);
     color: var(--text-3);
     cursor: pointer;
@@ -526,7 +526,7 @@
     display: none;
     align-items: center; justify-content: center;
     width: 30px; height: 30px; flex-shrink: 0;
-    background: transparent; border: 1px solid var(--border-2);
+    background: transparent; border: 1px solid var(--border);
     border-radius: var(--radius-sm); color: var(--text-3); cursor: pointer;
     transition: color .12s ease, border-color .12s ease;
   }
@@ -554,7 +554,7 @@
     font-size: 11px;
     color: var(--hl-purple);
     background: var(--bg-elev);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-pill);
     padding: 2px 8px;
   }
@@ -728,7 +728,7 @@
        input box, chips and send button (user report). */
     .composer-float {
       background: var(--bg);
-      border-top: 1px solid var(--border-2);
+      border-top: 1px solid var(--border);
       padding: 6px 10px calc(6px + env(safe-area-inset-bottom, 0px));
     }
   }

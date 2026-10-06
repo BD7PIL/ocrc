@@ -433,7 +433,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 14px 18px;
-    border-bottom: 1px solid var(--border-2);
+    border-bottom: 1px solid var(--border);
   }
   .title { font-size: 15px; font-weight: 600; color: var(--text); }
   .close {
@@ -495,7 +495,7 @@
   .note.err { color: var(--err); }
   .cred-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
   .cred-label { flex-shrink: 0; width: 168px; font-size: 11px; color: var(--text-3); }
-  .sec { border-top: 1px solid var(--border-2); padding-top: 10px; }
+  .sec { border-top: 1px solid var(--border); padding-top: 10px; }
   .danger { border-top-color: var(--err); }
   .sec-label { font-size: 11px; color: var(--text-3); margin-bottom: 6px; }
   .cred {
@@ -548,10 +548,10 @@
     font-size: 11.5px;
     cursor: pointer;
   }
-  .pair { border-top: 1px solid var(--border-2); padding: 12px 18px 16px; }
+  .pair { border-top: 1px solid var(--border); padding: 12px 18px 16px; }
   .pair-mgmt { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border-2); }
   .revoke {
-    border: 1px solid var(--border-2); background: none; color: var(--text-2);
+    border: 1px solid var(--border); background: none; color: var(--text-2);
     border-radius: 7px; padding: 4px 10px; font-size: 12px; cursor: pointer;
   }
   .revoke:hover { color: var(--danger, #c0392b); border-color: var(--danger, #c0392b); }

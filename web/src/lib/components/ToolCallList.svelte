@@ -22,6 +22,7 @@
   $: shown = expanded ? typed : typed.slice(0, LIMIT)
   $: total = typed.length
   $: done = typed.filter((t) => t.status === 'done').length
+  $: running = typed.filter((t) => t.status === 'running').length
 
   // Hysteresis: once an entry renders long (terminal block) it stays long, so
   // args streaming across the threshold don't remount the row inline↔terminal
@@ -63,7 +64,8 @@
     <div class="header">
       <span class="label mono">EXECUTION</span>
       <span class="rule" aria-hidden="true"></span>
-      <span class="count mono">{done}/{total} steps</span>
+      <!-- r7: done/total alone read 0/7 while 3 tools ran — show the in-flight part -->
+      <span class="count mono">{done}/{total} steps{running > 0 ? ` · ${running} 运行中` : ''}</span>
     </div>
     <div class="rows">
       {#each shown as t, i}
@@ -107,7 +109,7 @@
 <style>
   .execution {
     background: var(--bg-elev);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     padding: 10px 12px 12px;
     margin: 0 0 12px;
@@ -119,7 +121,7 @@
     margin-bottom: 10px;
   }
   .label {
-    font-size: 9px;
+    font-size: 10px;
     color: var(--text-4);
     letter-spacing: .12em;
     text-transform: uppercase;
@@ -202,7 +204,9 @@
     background: var(--accent);
     border-color: var(--accent);
     box-shadow: 0 0 7px var(--accent);
-    animation: ocrc-blink 1s step-end infinite;
+    /* pulse (not blink): the running affordance is opacity-eased everywhere
+       else in the app — step-end here was the odd one out (motion audit) */
+    animation: ocrc-pulse 1.2s ease-in-out infinite;
   }
   .row.done .status { background: var(--ok); border-color: var(--ok); }
   .row.error .status { background: var(--err); border-color: var(--err); }
@@ -223,7 +227,9 @@
 
   .ps1 {
     flex-shrink: 0;
-    color: var(--accent);
+    /* r8: accent orange on the code background measured 3.68:1 in the light
+       theme — decorative glyph, muted ink reads better anyway */
+    color: var(--text-4);
     font-weight: 700;
     font-size: 12.5px;
   }

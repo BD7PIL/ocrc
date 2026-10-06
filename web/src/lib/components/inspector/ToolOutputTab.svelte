@@ -122,7 +122,7 @@
   .sp { flex: 1; }
   .md-toggle {
     background: transparent;
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-xs, 4px);
     color: var(--text-3);
     font-size: 9px;

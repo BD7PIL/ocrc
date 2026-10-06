@@ -272,7 +272,7 @@
     display: flex;
     height: 100%;
     background: var(--bg-panel);
-    border-right: 1px solid var(--border-2);
+    border-right: 1px solid var(--border);
     flex-shrink: 0;
   }
   .agent-panel.drawer { width: 100%; border-right: none; }
@@ -289,7 +289,7 @@
     justify-content: space-between;
     gap: 8px;
     padding: 12px 12px 10px;
-    border-bottom: 1px solid var(--border-2);
+    border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
 
@@ -532,7 +532,7 @@
   .switcher-row {
     display: flex; gap: 7px;
     padding: 10px 12px; overflow-x: auto;
-    border-bottom: 1px solid var(--border-2);
+    border-bottom: 1px solid var(--border);
     flex-shrink: 0; scrollbar-width: none;
   }
   .switcher-row::-webkit-scrollbar { display: none; }
@@ -563,7 +563,7 @@
     align-items: center;
     gap: 6px;
     padding: 8px 12px;
-    border-bottom: 1px solid var(--border-2);
+    border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
   .new-session {
@@ -605,7 +605,7 @@
     flex-direction: column;
     gap: 1px;
     padding: 4px 6px 6px;
-    border-top: 1px solid var(--border-2);
+    border-top: 1px solid var(--border);
     flex-shrink: 0;
   }
   .quick-row {
@@ -639,7 +639,7 @@
     padding: 10px max(20px, env(safe-area-inset-right, 0px)) max(18px, calc(env(safe-area-inset-bottom, 0px) + var(--kb, 0px))) max(20px, env(safe-area-inset-left, 0px));
     font-size: 10px;
     color: var(--text-4);
-    border-top: 1px solid var(--border-2);
+    border-top: 1px solid var(--border);
     flex-shrink: 0;
   }
   .sep { color: var(--border); }

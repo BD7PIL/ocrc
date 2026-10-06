@@ -53,7 +53,9 @@ export interface RemoteHostManager {
    *  before any tunnel exists; start() reuses it. */
   assignPort(id: string): Promise<number>
   inspect(id: string): Promise<RemoteInspection>
-  provision(id: string): Promise<{ ok: boolean; detail: string }>
+  /** path: 'auto' (curl→scp fallback, legacy), 'push' (force scp push),
+   *  'install' (force remote self-install). See M4-1 provisioning matrix. */
+  provision(id: string, path?: 'auto' | 'push' | 'install'): Promise<{ ok: boolean; detail: string }>
   start(id: string): void
   stop(id: string): void
   syncAuth(id: string): Promise<{ ok: boolean; detail: string }>
@@ -384,11 +386,11 @@ export function createRemoteHostManager(opts: { store: RemotesStore }): RemoteHo
       return inspection
     },
 
-    async provision(id) {
+    async provision(id, path = 'auto') {
       const remote = opts.store.get(id)
       if (!remote) return { ok: false, detail: 'unknown remote' }
       setState(id, 'provisioning')
-      pushLog(id, `$ provision ${remote.host}`)
+      pushLog(id, `$ provision ${remote.host}（路径：${path}）`)
 
       let inspection = rt(id).inspection
       try { inspection ??= await manager.inspect(id) } catch { /* detect error already recorded */ }
@@ -401,6 +403,9 @@ export function createRemoteHostManager(opts: { store: RemotesStore }): RemoteHo
         return { ok: true, detail: 'already installed' }
       }
 
+      if (path === 'push') {
+        pushLog(id, '路径锁定：推送本机二进制（跳过远端自装）')
+      } else {
       // Path 1: official installer, pinned to the local version.
       const pin = await resolveLocalVersion()
       pushLog(id, `installing official opencode${pin ? ` (pin ${pin})` : ' (latest — local version unresolved!)'}`)
@@ -418,10 +423,11 @@ export function createRemoteHostManager(opts: { store: RemotesStore }): RemoteHo
         return { ok: true, detail: `installed ${version}` }
       }
 
-      // Path 2: no internet on the remote — scp the local binary (same
-      // official artifact) when the platform matches. NEVER a musl/compat
-      // build: the official baseline is the whole point of this project.
       pushLog(id, `installer failed (exit ${install.code}): ${(install.stderr || install.stdout).trim().split('\n').slice(-3).join(' | ')}`)
+      }
+      // Path 2: no internet on the remote — scp push (same official artifact)
+      // when the platform matches. NEVER a musl/compat build: the official
+      // baseline is the whole point of this project.
       const localPlatform = `${process.platform === 'darwin' ? 'darwin' : 'linux'} ${process.arch === 'arm64' ? 'arm64' : 'x86_64'}`
       const remotePlatform = `${inspection?.platform ?? '?'} ${inspection?.arch ?? '?'}`
       if (inspection?.platform === 'linux' && inspection?.arch && localPlatform.includes(inspection.arch)) {

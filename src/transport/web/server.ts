@@ -64,6 +64,8 @@ export interface BuildServerOpts {
   /** 0.26.0 SSH remote hosts: store + lifecycle manager (optional). */
   remotes?: import('../../core/remotes.js').RemotesStore
   remoteManager?: import('../../core/remote-host.js').RemoteHostManager
+  /** 0.27: runtime remote registration (see WebTransportConfig). */
+  onRemoteEnabled?: (r: import('../../core/remotes.js').RemoteHost) => void
 }
 
 export function buildServer(opts: BuildServerOpts): Hono {
@@ -146,7 +148,7 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerSuggestions(app, opts.state)
   registerSchedules(app, opts.scheduler)
   registerChannels(app, opts.channels, opts.telegramStatus, opts.telegramMeta)
-  registerRemotes(app, opts.remotes, opts.remoteManager)
+  registerRemotes(app, opts.remotes, opts.remoteManager, opts.onRemoteEnabled)
   registerSubagents(app, reg, opts.state)
   registerM8(app, reg, opts.state)
   registerPairQr(app, opts.pairing)

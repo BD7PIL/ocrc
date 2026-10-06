@@ -42,6 +42,8 @@ export interface WebTransportConfig {
   /** 0.26.0 remote host management routes. */
   remotes?: import('../../core/remotes.js').RemotesStore
   remoteManager?: import('../../core/remote-host.js').RemoteHostManager
+  /** 0.27: runtime remote registration (backend + tunnel + events, no restart). */
+  onRemoteEnabled?: (r: import('../../core/remotes.js').RemoteHost) => void
 }
 
 const CAPS: ChannelCapabilities = {

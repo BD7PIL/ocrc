@@ -24,6 +24,8 @@ import { makeAcpConnect, parseAcpCommand } from '../core/agent/acp-connect.js'
 import { createOpencodeBackend } from '../core/agent/opencode-backend.js'
 import { normalizeOpencodeEvent } from '../core/agent/opencode-normalizer.js'
 import { startGlobalEvents } from '../opencode/global-events.js'
+import { startRemoteEvents } from '../core/remote-events.js'
+import type { RemoteHost } from '../core/remotes.js'
 import type { OcEvent } from '../core/opencode-events.js'
 import { createLogger } from '../utils/logger.js'
 import { readFileSync } from 'node:fs'
@@ -126,6 +128,9 @@ export interface BuildHostBackendsDeps {
   /** Live busy/idle sink (web WS) — session.status events broadcast here so
    *  the composer shows 停止 for turns started outside the panel too. */
   statusSink?: { broadcast?: (frame: { sessionId: string; busy: boolean }) => void }
+  /** 0.27: runtime remote registration — the host forwards to the registry
+   *  (created after this builder, hence the callback indirection). */
+  onRegister?: (entry: RegisteredBackend) => void
 }
 
 export interface BuiltHostBackends {
@@ -135,7 +140,11 @@ export interface BuiltHostBackends {
    * receives raw opencode permission events to forward to the approval UI.
    * Returns a disposer that tears down all sources + spawned servers.
    */
-  wire(relay: RelayLike, push: PushLike, onOpencodePermission: (ev: OcEvent) => void): () => Promise<void>
+  wire(relay: RelayLike, push: PushLike, onOpencodePermission: (ev: OcEvent) => void): {
+    dispose(): Promise<void>
+    /** 0.27: register a runtime-enabled remote (backend + tunnel + event feed). */
+    registerRemoteBackend(r: RemoteHost): void
+  }
 }
 
 const PERMISSION_TYPES = new Set(['permission.asked', 'permission.updated', 'permission.replied'])
@@ -223,25 +232,32 @@ export async function buildHostBackends(specs: BackendSpec[], deps: BuildHostBac
 
   // SSH remote hosts — ported from the plugin entry (parity, 0.26.12): the
   // first-class topology must drive remotes exactly like the plugin does.
+  // 0.27: the factory is reused by wire()'s registerRemoteBackend — remotes
+  // enabled at runtime register WITHOUT a host restart (wart fix), and their
+  // /global/event SSE feeds the same dispatch as boot-time remotes.
+  const createRemoteBackend = async (r: RemoteHost): Promise<RegisteredBackend> => {
+    const localPort = await deps.remoteManager!.assignPort(r.id)
+    const headers = buildBasicHeaders('opencode', r.serverPassword)
+    const base = `http://127.0.0.1:${localPort}`
+    log.info(`remote backend ready: remote:${r.id} (${r.host}) via :${localPort}`)
+    return {
+      id: `remote:${r.id}`,
+      backend: createOpencodeBackend({
+        id: `remote:${r.id}`,
+        host: r.host,
+        remote: true,
+        baseUrl: base,
+        client: createOpencodeClient({ baseUrl: base, headers }) as never,
+        fetchImpl: (url: string, init?: RequestInit) => fetch(url, { ...init, headers: { ...(init?.headers ?? {}), ...headers } }),
+      }),
+    }
+  }
+
   if (deps.remotesStore && deps.remoteManager) {
     for (const r of deps.remotesStore.list()) {
       if (!r.enabled) continue
       try {
-        const localPort = await deps.remoteManager.assignPort(r.id)
-        const headers = buildBasicHeaders('opencode', r.serverPassword)
-        const base = `http://127.0.0.1:${localPort}`
-        backends.push({
-          id: `remote:${r.id}`,
-          backend: createOpencodeBackend({
-            id: `remote:${r.id}`,
-            host: r.host,
-            remote: true,
-            baseUrl: base,
-            client: createOpencodeClient({ baseUrl: base, headers }) as never,
-            fetchImpl: (url: string, init?: RequestInit) => fetch(url, { ...init, headers: { ...(init?.headers ?? {}), ...headers } }),
-          }),
-        })
-        log.info(`remote backend ready: remote:${r.id} (${r.host}) via :${localPort}`)
+        backends.push(await createRemoteBackend(r))
       } catch (err) {
         log.warn(`remote ${r.id} backend setup failed: ${(err as Error).message}`)
       }
@@ -254,6 +270,7 @@ export async function buildHostBackends(specs: BackendSpec[], deps: BuildHostBac
     backends,
     wire(relay, push, onOpencodePermission) {
       const disposers: Array<() => void> = []
+      const remoteEventHandles: Array<{ stop(): void }> = []
 
       // push.handleEvent is async — fire-and-forget, but never let a rejection
       // escape to the global guard.
@@ -274,32 +291,59 @@ export async function buildHostBackends(specs: BackendSpec[], deps: BuildHostBac
         disposers.push(off)
       }
 
-      // opencode backends: pull the global event SSE.
+      // opencode backends: pull the global event SSE. The dispatch pipeline is
+      // shared with runtime-registered remote backends (registerRemoteBackend).
+      const dispatchOpencodeEvent = (ev: OcEvent) => {
+        safePush(ev as never) // opencode events are already the shape push expects
+        if ((ev as { type?: string }).type === 'session.status') {
+          const p = (ev as { properties?: { sessionID?: string; status?: { type?: string } } }).properties
+          if (p?.sessionID) {
+            deps.statusSink?.broadcast?.({ sessionId: p.sessionID, busy: p.status?.type === 'busy' })
+            deps.state?.setSessionBusy?.(p.sessionID, p.status?.type === 'busy')
+          }
+        }
+        if (PERMISSION_TYPES.has((ev as { type?: string }).type ?? '')) { onOpencodePermission(ev as never); return }
+        const ae = normalizeOpencodeEvent(ev)
+        if (ae) relay.handleEvent(ae).catch((err) => log.error('relay.handleEvent failed', err as Error))
+      }
       for (const { client } of opencodeServers) {
-        const handle = startGlobalEvents({
-          client,
-          onEvent: (ev) => {
-            safePush(ev) // opencode events are already the shape push expects
-            if ((ev as { type?: string }).type === 'session.status') {
-              const p = (ev as { properties?: { sessionID?: string; status?: { type?: string } } }).properties
-              if (p?.sessionID) {
-                deps.statusSink?.broadcast?.({ sessionId: p.sessionID, busy: p.status?.type === 'busy' })
-                deps.state?.setSessionBusy?.(p.sessionID, p.status?.type === 'busy')
-              }
-            }
-            if (PERMISSION_TYPES.has(ev.type ?? '')) { onOpencodePermission(ev); return }
-            const ae = normalizeOpencodeEvent(ev)
-            if (ae) relay.handleEvent(ae).catch((err) => log.error('relay.handleEvent failed', err as Error))
-          },
-        })
+        const handle = startGlobalEvents({ client, onEvent: dispatchOpencodeEvent })
         disposers.push(() => handle.stop())
       }
 
-      return async () => {
-        for (const d of disposers) { try { d() } catch { /* noop */ } }
-        // Kill spawned ACP agent children so they don't outlive the host.
-        for (const c of acpConnects) { try { c.dispose() } catch { /* noop */ } }
-        for (const s of opencodeServers) await s.close()
+      // 0.27: runtime remote registration — backend + tunnel + event feed, no
+      // restart. Called by the web routes when a remote is enabled.
+      const registerRemoteBackend = (r: RemoteHost): void => {
+        if (backends.some((b) => b.id === `remote:${r.id}`)) return
+        void (async () => {
+          try {
+            const entry = await createRemoteBackend(r)
+            backends.push(entry)
+            deps.onRegister?.(entry)
+            await deps.remoteManager?.start(r.id)
+            const port = await deps.remoteManager!.assignPort(r.id)
+            remoteEventHandles.push(startRemoteEvents({
+              name: `remote:${r.id}`,
+              url: `http://127.0.0.1:${port}`,
+              headers: buildBasicHeaders('opencode', r.serverPassword),
+              dispatch: async (ev) => dispatchOpencodeEvent(ev as OcEvent),
+            }))
+            log.info(`remote backend registered at runtime: remote:${r.id}`)
+          } catch (err) {
+            log.warn(`remote ${r.id} dynamic registration failed: ${(err as Error).message}`)
+          }
+        })()
+      }
+
+      return {
+        dispose: async () => {
+          for (const d of disposers) { try { d() } catch { /* noop */ } }
+          for (const h of remoteEventHandles) { try { h.stop() } catch { /* noop */ } }
+          // Kill spawned ACP agent children so they don't outlive the host.
+          for (const c of acpConnects) { try { c.dispose() } catch { /* noop */ } }
+          for (const s of opencodeServers) await s.close()
+        },
+        registerRemoteBackend,
       }
     },
   }

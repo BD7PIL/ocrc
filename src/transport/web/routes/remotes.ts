@@ -10,7 +10,7 @@ import type { RemoteHostManager } from '../../../core/remote-host.js'
  * (same semantics as channels) — these routes manage the store and the live
  * tunnel/provision lifecycle.
  */
-export function registerRemotes(app: Hono, remotes?: RemotesStore, manager?: RemoteHostManager) {
+export function registerRemotes(app: Hono, remotes?: RemotesStore, manager?: RemoteHostManager, onRemoteEnabled?: (r: RemoteHost) => void) {
   if (!remotes || !manager) return
 
   app.get('/api/remotes', (c) => {
@@ -38,8 +38,12 @@ export function registerRemotes(app: Hono, remotes?: RemotesStore, manager?: Rem
     const body = (await c.req.json().catch(() => ({}))) as Partial<RemoteHost>
     const updated = remotes.update(c.req.param('id'), body)
     if (!updated) return c.json({ error: 'not found' }, 404)
-    // Live-effect the enabled toggle on the tunnel; registration waits for restart.
-    if (body.enabled === true) manager.start(updated.id)
+    // Live-effect the toggle: tunnel up AND register the backend at runtime
+    // (0.27 wart fix — registration used to wait for a host restart).
+    if (body.enabled === true) {
+      manager.start(updated.id)
+      onRemoteEnabled?.(updated)
+    }
     if (body.enabled === false) manager.stop(updated.id)
     return c.json({ remote: redactRemote(updated) })
   })
@@ -64,7 +68,8 @@ export function registerRemotes(app: Hono, remotes?: RemotesStore, manager?: Rem
   /** Provision opencode on the remote (official installer, version-pinned).
    *  Long-running: the panel polls GET /api/remotes for state + logTail. */
   app.post('/api/remotes/:id/provision', async (c) => {
-    const result = await manager.provision(c.req.param('id'))
+    const body = await c.req.json().catch(() => ({})) as { path?: 'auto' | 'push' | 'install' }
+    const result = await manager.provision(c.req.param('id'), body.path ?? 'auto')
     return c.json(result, result.ok ? 200 : 502)
   })
 

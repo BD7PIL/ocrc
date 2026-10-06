@@ -129,7 +129,8 @@ export const api = {
   setRemoteEnabled: (id: string, enabled: boolean) => jsonPatch<{ remote: RemoteRow }>(`/api/remotes/${id}`, { enabled }),
   deleteRemote: (id: string) => jsonPost<{ ok: boolean }>(`/api/remotes/${id}/delete`, {}),
   inspectRemote: (id: string) => jsonPost<{ inspection: Record<string, unknown> }>(`/api/remotes/${id}/inspect`, {}),
-  provisionRemote: (id: string) => jsonPost<{ ok: boolean; detail: string }>(`/api/remotes/${id}/provision`, {}),
+  provisionRemote: (id: string, path?: 'auto' | 'push' | 'install') =>
+    jsonPost<{ ok: boolean; detail: string }>(`/api/remotes/${id}/provision`, { path: path ?? 'auto' }),
   syncRemoteAuth: (id: string) => jsonPost<{ ok: boolean; detail: string }>(`/api/remotes/${id}/sync-auth`, {}),
   syncRemoteConfig: (id: string) => jsonPost<{ ok: boolean; detail: string }>(`/api/remotes/${id}/sync-config`, {}),
   subagents: (id: string) => jsonGet<{ subagents: SubagentRow[] }>(`/api/session/${id}/subagents`),

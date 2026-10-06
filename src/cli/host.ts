@@ -119,12 +119,18 @@ export async function main(): Promise<void> {
     remoteManager,
     statusSink,
     state,
+    onRegister: (entry) => registryRef?.registerBackend(entry),
   })
+  let registryRef: ReturnType<typeof createBackendRegistry> | undefined
   const registry = createBackendRegistry({
     backends: built.backends,
     state,
     primaryId: built.backends.find((b) => b.id === 'opencode')?.id,
   })
+  registryRef = registry
+  // Boot-time: bring every enabled remote's tunnel up (was missing on the
+  // host topology — plugin entry had ensureAll, host didn't).
+  void remoteManager.ensureAll()
 
   const relay = createRelay({
     cardBus,
@@ -192,7 +198,7 @@ export async function main(): Promise<void> {
       }
     }
   }
-  const disposeBackends = built.wire(relay, push, onOpencodePermission)
+  const wireHandle = built.wire(relay, push, onOpencodePermission)
 
   const transports: Transport[] = []
   if (telegramEnabled) {
@@ -241,6 +247,7 @@ export async function main(): Promise<void> {
       pairing,
       remotes: remotesStore,
       remoteManager,
+      onRemoteEnabled: (r) => wireHandle.registerRemoteBackend(r),
       telegramStatus: () => tgTransport?.status?.() ?? null,
       telegramMeta: {
         hasEnvToken: !!config.telegramBotToken,
@@ -259,8 +266,9 @@ export async function main(): Promise<void> {
     log.info('shutting down…')
     scheduler.stop()
     remoteManager.dispose()
+    void wireHandle.dispose()
     push.stop()
-    await disposeBackends()
+    await void wireHandle.dispose()
     await Promise.allSettled(transports.map((t) => t.stop()))
     // Flush debounced writes (100ms debounce would otherwise be lost on exit).
     try { await state.flush() } catch { /* best effort */ }

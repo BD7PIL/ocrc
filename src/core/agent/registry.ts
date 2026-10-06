@@ -28,6 +28,9 @@ export interface BackendRegistry {
   list(): BackendDescriptor[]
   /** Every registered backend, for fan-out (listSessions, onEvent wiring). */
   all(): RegisteredBackend[]
+  /** 0.27: dynamic backend registration (remote hosts enabled at runtime —
+   *  no host restart). Mutation is append-only; primary never changes. */
+  registerBackend(entry: RegisteredBackend): void
   get(id: string): AgentBackend | undefined
   has(id: string): boolean
   /** The primary backend — default owner of untagged sessions. */
@@ -59,6 +62,8 @@ export function singleBackendRegistry(backend: AgentBackend): BackendRegistry {
   return {
     list: () => [{ id: backend.id, capabilities: backend.capabilities }],
     all: () => [{ id: backend.id, backend }],
+    // single-backend registries are static: dynamic registration is a no-op
+    registerBackend: () => {},
     get: (id) => (id === backend.id ? backend : undefined),
     has: (id) => id === backend.id,
     primaryId: () => backend.id,
@@ -90,6 +95,11 @@ export function createBackendRegistry(opts: BackendRegistryOpts): BackendRegistr
   return {
     list: () => opts.backends.map((b) => ({ id: b.id, capabilities: b.backend.capabilities })),
     all: () => opts.backends.slice(),
+    registerBackend: (entry) => {
+      if (byId.has(entry.id)) return
+      byId.set(entry.id, entry.backend)
+      opts.backends.push(entry)
+    },
     get: (id) => byId.get(id),
     has: (id) => byId.has(id),
     primaryId: () => primary,

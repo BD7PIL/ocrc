@@ -14,6 +14,7 @@ import { useSessions } from '../../lib/stores/sessions.js'
 import { useUi } from '../../lib/stores/ui.js'
 import { TasksPanel, SubsPanel, SchedulesPanel, McpPanel, SkillsPanel } from './panels.js'
 import { FileBrowse, FileViewer, GitPanel, ToolOutput, SubagentTranscript } from './deep.js'
+import { BrowserPanel } from './BrowserPanel.js'
 
 export function SidePane() {
   const { tabs, activeId } = useSidePane()
@@ -118,6 +119,7 @@ function PaneContent({ tab }: { tab: PaneTab }) {
       case 'mcp': return <McpPanel />
       case 'skills': return <SkillsPanel />
       case 'files': return activeSessionId ? <FilesHome sessionId={activeSessionId} /> : <SessionGate what="文件" />
+      case 'browser': return <BrowserPanel />
       default: return null
     }
   }

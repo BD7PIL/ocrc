@@ -139,6 +139,11 @@ export const api = {
   getProjectMcp: (dir: string) => jsonGet<{ mcp: Record<string, Record<string, unknown>> }>(`/api/settings/project/mcp?dir=${encodeURIComponent(dir)}`),
   setProjectMcp: (dir: string, id: string, entry: Record<string, unknown> | null) =>
     jsonPost<{ ok: boolean; error?: string }>(`/api/settings/project/mcp`, { dir, id, entry }),
+  browserState: () => jsonGet<{ ok: boolean; url?: string; title?: string; screenshot?: string; error?: string }>('/api/browser/state'),
+  browserNavigate: (url: string) => jsonPost<{ ok: boolean; url?: string; error?: string }>('/api/browser/navigate', { url }),
+  browserClick: (xPct: number, yPct: number) => jsonPost<{ ok: boolean }>('/api/browser/click', { xPct, yPct }),
+  browserScroll: (dyPct: number) => jsonPost<{ ok: boolean }>('/api/browser/scroll', { dyPct }),
+  browserBack: () => jsonPost<{ ok: boolean }>('/api/browser/back', {}),
   getPolicy: (sessionId: string) => jsonGet<{ policy: 'default' | 'edit' | 'yolo' }>(`/api/session/${sessionId}/policy`),
   setPolicy: (sessionId: string, policy: 'default' | 'edit' | 'yolo') =>
     jsonPost<{ ok: boolean; policy: 'default' | 'edit' | 'yolo' }>(`/api/session/${sessionId}/policy`, { policy }),

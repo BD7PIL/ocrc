@@ -72,6 +72,12 @@ async function main() {
     return
   }
 
+  // 0.27 M7: MCP stdio server exposing the sidecar browser as engine tools.
+  if (cmd === 'mcp-browser') {
+    await import('./mcp-browser.js').then((m) => m.runMcpBrowser())
+    return
+  }
+
   if (cmd === 'start' || cmd === 'stop' || cmd === 'restart' || cmd === 'status' || cmd === 'restore') {
     await import('./service.js').then((m) => m.main(process.argv.slice(2)))
     return

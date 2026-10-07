@@ -39,6 +39,7 @@ import { registerPolicy } from './routes/policy.js'
 import { registerSettings } from './routes/settings.js'
 import { registerSettingsProject } from './routes/settings-project.js'
 import { registerSharePublic, registerShareAuthed } from './routes/share.js'
+import { registerBrowser } from './routes/browser.js'
 import type { Scheduler } from '../../core/scheduler.js'
 import { registerSuggestions } from './routes/suggestions.js'
 import { registerSchedules } from './routes/schedules.js'
@@ -159,9 +160,11 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerPolicy(app, opts.state)
   registerSettings(app, opts.settingsConfigDir)
   if (opts.shares) registerShareAuthed(app, opts.shares, reg)
+  registerBrowser(app)
   registerSettings(app, opts.settingsConfigDir)
   registerSettingsProject(app, dirname(opts.statePath ?? join(process.env.HOME ?? '', '.ocrc', 'state.json')))
   if (opts.shares) registerShareAuthed(app, opts.shares, reg)
+  registerBrowser(app)
   registerSuggestions(app, opts.state)
   registerSchedules(app, opts.scheduler)
   registerChannels(app, opts.channels, opts.telegramStatus, opts.telegramMeta)

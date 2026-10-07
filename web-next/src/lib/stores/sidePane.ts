@@ -4,7 +4,7 @@
 // persistence key (ocrc.sidePane.v1) match the old shell.
 import { create } from 'zustand'
 
-export type HomeId = 'tasks' | 'files' | 'subs' | 'skills' | 'schedules' | 'mcp'
+export type HomeId = 'tasks' | 'files' | 'subs' | 'skills' | 'schedules' | 'mcp' | 'browser'
 
 export type PaneTab =
   | { id: string; kind: 'home'; title: string; homeId: HomeId }
@@ -21,6 +21,7 @@ export const HOMES: Array<{ homeId: HomeId; title: string }> = [
   { homeId: 'skills', title: 'Skills' },
   { homeId: 'schedules', title: '定时任务' },
   { homeId: 'mcp', title: 'MCP' },
+  { homeId: 'browser', title: '浏览器' },
 ]
 const HOME_IDS = new Set(HOMES.map((h) => h.homeId))
 /** Pre-0.26.11 the schedules panel hid under a 'config' home — migrate. */

@@ -12,6 +12,7 @@ import { appSettingsSchema } from '@zcode/shared'
 import { createOcrcTaskService } from '../zcode-services/zcodeTaskService.js'
 import { createOcrcModelSelectionService } from '../zcode-services/modelSelectionService.js'
 import { createOcrcFileService } from '../zcode-services/fileService.js'
+import { createOcrcZcodeAgentService } from '../zcode-services/zcodeAgentService.js'
 
 const SUBSCRIBE_RE = /^(on[A-Z_]|onMessage|subscribe|add|listen|watch)/
 
@@ -106,6 +107,7 @@ export function createGhostAccessor(): IServiceAccessor {
     modelSelectionService: createOcrcModelSelectionService(),
     providerSettingsService: ocrcProviderSettingsService,
     fileService: createOcrcFileService(),
+    zcodeAgentService: createOcrcZcodeAgentService(),
     zcodeTaskService: createOcrcTaskService(),
   }
   return new Proxy(

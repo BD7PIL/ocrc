@@ -57,9 +57,9 @@
 - ⬜ 自动展开语义（composer empty + running）
 
 ## 6. 命令中心与快捷键
-- ⬜ Ctrl+K/Ctrl+P 命令面板（CommandCenterDialog + commandsService）
-- ⬜ 快捷键三层（bindings + 命令表 + IME 过滤）
-- ⬜ 快捷键提示（kbd 标签）
+- ✅ Ctrl+K 命令面板（CommandCenterDialog + commandsService：ocrc /api/commands 引擎命令）
+- ✅ 快捷键层（useShortcutBindings 注册；/z/ 路由隔离已断开旧面板快捷键）
+- ⬜ 快捷键提示（kbd 标签——待逐面板核对）
 
 ## 7. 右侧面板族
 - ✅ 面板骨架 + ✕ 关闭
@@ -71,8 +71,9 @@
 - ⬜ 终端页（🚫 ocrc 裁决不做）
 
 ## 8. 设置页族
-- ⬜ 设置主视图（Providers/模型/外观）
-- ⬜ SettingsSync（ocrc config 服务对接）
+- ✅ 设置主视图渲染（基础设置/常规/外观/模型设置/浏览器控制/键盘快捷键/Agent 能力/记忆 全分区）
+- ✅ settingService：appSettings 完整默认 + ocrc /api/settings 只读透传（形状有意不合并）
+- ⬜ 设置字段语义级对齐 ocrc（可写回项——N4+）
 - ⬜ MCP 管理（mcpSyncService）
 - ⬜ 技能管理（skillsService）
 - ⬜ 插件面（pluginsService——ocrc 无对应，占位说明）

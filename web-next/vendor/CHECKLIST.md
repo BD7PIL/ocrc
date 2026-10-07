@@ -78,10 +78,12 @@
 - ⬜ 技能管理（skillsService）
 - ⬜ 插件面（pluginsService——ocrc 无对应，占位说明）
 
-## 9. 通道与自动化（➕ N4 ocrc 域）
-- ➕ 自动化主视图（schedulesService → ocrc schedules）
-- ➕ BotsDialog（ocrc telegram channels）
-- ➕ 远程主机管理（ocrc remotes——ZCode 有 remote 概念可映射）
+## 9. 通道与自动化（N4）
+- ✅ 自动化主视图（offPeakTaskService → ocrc /api/schedules：list/create/pause/continue/delete 映射；空态忠实）
+- ✅ Bots 数据面（botsService getStatus/getConfig/listBots → ocrc /api/channels telegram 通道投影）
+- ⬜ Bots 写回（saveBot/deleteBot/testBot → ocrc channels 写入口——配置编辑暂在 rc.2 面板）
+- ⬜ 远程主机管理（ocrc remotes ↔ ZCode remote workspace——概念映射待 N4.x）
+- ⬜ 定时任务创建表单（createTask 已接，表单字段对齐待核对）
 
 ## 10. 分享与周边
 - ✅ 分享落地页路由（ShareLanding 已有独立实现）

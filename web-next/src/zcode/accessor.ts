@@ -15,6 +15,8 @@ import { createOcrcFileService } from '../zcode-services/fileService.js'
 import { createOcrcCommandsService } from '../zcode-services/commandsService.js'
 import { createOcrcZcodeAgentService } from '../zcode-services/zcodeAgentService.js'
 import { createOcrcZcodeSessionService } from '../zcode-services/zcodeSessionService.js'
+import { createOcrcBotsService } from '../zcode-services/botsService.js'
+import { createOcrcOffPeakTaskService } from '../zcode-services/offPeakTaskService.js'
 
 const SUBSCRIBE_RE = /^(on[A-Z_]|onMessage|subscribe|add|listen|watch)/
 
@@ -112,6 +114,8 @@ export function createGhostAccessor(): IServiceAccessor {
     commandsService: createOcrcCommandsService(),
     zcodeAgentService: createOcrcZcodeAgentService(),
     zcodeSessionService: createOcrcZcodeSessionService(),
+    botsService: createOcrcBotsService(),
+    offPeakTaskService: createOcrcOffPeakTaskService(),
     zcodeTaskService: createOcrcTaskService(),
   }
   return new Proxy(

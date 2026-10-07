@@ -9,6 +9,7 @@
 // 订阅类方法返回可 dispose 句柄。已填实的服务见 real map。
 import type { IServiceAccessor } from '@zcode/services'
 import { createOcrcTaskService } from '../zcode-services/zcodeTaskService.js'
+import { createOcrcModelSelectionService } from '../zcode-services/modelSelectionService.js'
 
 const SUBSCRIBE_RE = /^(on[A-Z_]|onMessage|subscribe|add|listen|watch)/
 
@@ -70,13 +71,7 @@ const ocrcOAuthService: any = {
   getActiveProvider: async () => null,
 }
 
-/** 模型选择视图：hydrated 空视图（启动门需要它落地）；N1.x 接 /api/models + /api/overrides。 */
-const ocrcModelSelectionService: any = {
-  onDidChange: () => () => {},
-  getView: async () => ({ revision: 0, providers: [] }),
-}
-
-/** Provider 设置视图：同上，空 hydrated 面。 */
+/** Provider 设置视图：空 hydrated 面（N3 设置页接入 /api/settings 时填实）。 */
 const ocrcProviderSettingsService: any = {
   onDidChange: () => () => {},
   getView: async () => ({ revision: 0, providers: [] }),
@@ -88,7 +83,7 @@ export function createGhostAccessor(): IServiceAccessor {
     settingService: minimalSettingService,
     onboardingRecordService: ocrcOnboardingService,
     oauthService: ocrcOAuthService,
-    modelSelectionService: ocrcModelSelectionService,
+    modelSelectionService: createOcrcModelSelectionService(),
     providerSettingsService: ocrcProviderSettingsService,
     zcodeTaskService: createOcrcTaskService(),
   }

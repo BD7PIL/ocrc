@@ -1,0 +1,67 @@
+// zcode-services/modelSelectionService.ts — ocrc-backed IModelSelectionService (N1).
+// /api/models（provider→models 目录）+ /api/overrides（下一轮模型覆盖）映射进
+// ZCode 的 ModelSelectionView。模型/Provider 的 config 对象按 UI 实际消费的
+// 字段宽松 cast（RegistryModelConfigObject 是深层 zod 类型，完整重造不划算）。
+import type { IModelSelectionService } from '@zcode/services'
+import type { ModelSelectionView } from '@zcode/provider'
+
+interface OcrcModel { id: string; name?: string; variants?: string[] }
+interface OcrcProvider { id: string; name?: string; models: OcrcModel[] }
+interface OcrcOverrides { model?: { providerID: string; modelID: string } | null; agent?: string }
+
+function token(): string {
+  try { return localStorage.getItem('ocrc.token') ?? '' } catch { return '' }
+}
+
+async function getJson<T>(path: string): Promise<T | null> {
+  try {
+    const res = await fetch(path, { headers: { Authorization: `Bearer ${token()}` } })
+    if (!res.ok) return null
+    return (await res.json()) as T
+  } catch {
+    return null
+  }
+}
+
+let revision = 0
+
+export function createOcrcModelSelectionService(): IModelSelectionService {
+  const listeners = new Set<() => void>()
+  return {
+    onDidChange: (listener: () => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    getView: async (): Promise<ModelSelectionView> => {
+      const [providers, overrides] = await Promise.all([
+        getJson<OcrcProvider[]>('/api/models'),
+        getJson<OcrcOverrides>('/api/overrides'),
+      ])
+      const list = providers ?? []
+      revision += 1
+      return {
+        revision,
+        providers: list.map((p) => ({
+          providerId: p.id,
+          providerName: p.name ?? p.id,
+          templateId: p.id,
+          config: {
+            providerId: p.id,
+            providerName: p.name ?? p.id,
+            models: Object.fromEntries((p.models ?? []).map((m) => [m.id, { displayName: m.name ?? m.id }])),
+          } as any,
+          models: (p.models ?? []).map((m) => ({
+            modelId: m.id,
+            config: {
+              displayName: m.name ?? m.id,
+              variants: m.variants ?? [],
+            } as any,
+          })),
+        })),
+        preferredSelection: overrides?.model
+          ? { providerID: overrides.model.providerID, modelID: overrides.model.modelID }
+          : undefined,
+      } as unknown as ModelSelectionView
+    },
+  } as unknown as IModelSelectionService
+}

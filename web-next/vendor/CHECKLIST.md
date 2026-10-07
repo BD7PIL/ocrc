@@ -103,3 +103,9 @@
 - ⬜ 移动端适配（断点/安全区）
 - ⬜ i18n 切换（zh-CN 已定）
 - ⬜ 性能预算（8.4k 模块分包/懒加载审查）
+
+## 12. 退役与 rc.3 执行清单（验收通过后按序执行）
+1. **切换默认落点**：web-next/src/App.tsx 路由翻转——`/` 直挂 ZCodeApp（懒加载），`/z/*` 保留为书签兼容别名；`/share/:code` 落地页保持在鉴权门外；旧控制台路由（/session/:id、/automations、/settings、/dev/tokens）移除挂载（ShellLayout/CommandCenter/NewSessionDialog/ChannelsDialog/PairGate 及 pages/ 成为死代码，可留待 rc.4 清理或一并删除）；旧面板的 WS boot/全局键盘在 `/` 不再挂载。
+2. **重建部署**：`npm run build:all` + `bash ~/bin/restart-ocrc.sh`，验证 `/`、`/z/`、`/share/:code` 三落点。
+3. **文档收口**：AGENTS.md 架构指向更新（/ 为 ZCode 壳）；CHECKLIST 第 12 节本清单勾掉。
+4. **打 rc.3**：package.json 版本 → rc.3，git tag，tag→CI OIDC 发布（既有通道）。

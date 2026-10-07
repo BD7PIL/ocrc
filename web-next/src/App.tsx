@@ -13,6 +13,7 @@ import { SessionPage } from './pages/SessionPage.js'
 import { AutomationsPage } from './pages/AutomationsPage.js'
 import { SettingsPage } from './pages/SettingsPage.js'
 import { TokenGallery } from './pages/TokenGallery.js'
+import { ShareLanding } from './pages/ShareLanding.js'
 import { bootConnection } from './lib/ws/boot.js'
 import { registerCommands } from '$lib/shortcuts/commands.js'
 import { useAppKeyboard } from './hooks/useAppKeyboard.js'
@@ -20,6 +21,9 @@ import { useAuthStore } from '$lib/auth.js'
 import { useUi } from './lib/stores/ui.js'
 
 export default function App() {
+  // 分享落地页在鉴权门外：分享码即能力凭证，未配对设备也能读
+  const shareMatch = typeof location !== 'undefined' ? location.pathname.match(/^\/share\/([A-Za-z0-9_-]+)\/?$/) : null
+
   const authStatus = useAuthStore((s) => s.status)
 
   useEffect(() => {
@@ -54,6 +58,10 @@ export default function App() {
   }
 
   const basename = typeof location !== 'undefined' && location.pathname.startsWith('/next') ? '/next' : ''
+  if (shareMatch) {
+    return <ShareLanding code={shareMatch[1]!} />
+  }
+
   return (
     <BrowserRouter basename={basename}>
       <Routes>

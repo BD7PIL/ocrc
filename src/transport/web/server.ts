@@ -38,6 +38,7 @@ import { registerRename } from './routes/rename.js'
 import { registerPolicy } from './routes/policy.js'
 import { registerSettings } from './routes/settings.js'
 import { registerSettingsProject } from './routes/settings-project.js'
+import { registerSharePublic, registerShareAuthed } from './routes/share.js'
 import type { Scheduler } from '../../core/scheduler.js'
 import { registerSuggestions } from './routes/suggestions.js'
 import { registerSchedules } from './routes/schedules.js'
@@ -74,6 +75,8 @@ export interface BuildServerOpts {
   settingsConfigDir?: string
   /** M5-2: presets/state dir (defaults inside the route). */
   statePath?: string
+  /** M6 分享: snapshot store (public GET + authed create). */
+  shares?: import('../../core/shares.js').SharesStore
 }
 
 export function buildServer(opts: BuildServerOpts): Hono {
@@ -89,6 +92,7 @@ export function buildServer(opts: BuildServerOpts): Hono {
   // pending token is the credential (5 min, single-use) and the payload never
   // includes channel credentials.
   registerPairExchange(app, opts.pairing)
+  if (opts.shares) registerSharePublic(app, opts.shares)
   registerPairOnboarding(app, { pairing: opts.pairing, channels: opts.channels, telegramStatus: opts.telegramStatus })
   app.use('/api/*', opts.auth.httpMiddleware())
   app.get('/api/me', (c) => {
@@ -154,9 +158,10 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerRename(app, reg, opts.state)
   registerPolicy(app, opts.state)
   registerSettings(app, opts.settingsConfigDir)
-  registerSettingsProject(app, dirname(opts.statePath ?? join(process.env.HOME ?? '', '.ocrc', 'state.json')))
+  if (opts.shares) registerShareAuthed(app, opts.shares, reg)
   registerSettings(app, opts.settingsConfigDir)
   registerSettingsProject(app, dirname(opts.statePath ?? join(process.env.HOME ?? '', '.ocrc', 'state.json')))
+  if (opts.shares) registerShareAuthed(app, opts.shares, reg)
   registerSuggestions(app, opts.state)
   registerSchedules(app, opts.scheduler)
   registerChannels(app, opts.channels, opts.telegramStatus, opts.telegramMeta)

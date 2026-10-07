@@ -16,6 +16,7 @@ import { startPushNotifications } from '../core/push.js'
 import { createScheduler } from '../core/scheduler.js'
 import { createChannelsStore } from '../core/channels.js'
 import { createRemotesStore } from '../core/remotes.js'
+import { createSharesStore } from '../core/shares.js'
 import { createRemoteHostManager } from '../core/remote-host.js'
 import { createPairingStore } from '../connectivity/pairing.js'
 import { loadOrCreateToken } from '../connectivity/auth/token.js'
@@ -100,6 +101,7 @@ export async function main(): Promise<void> {
   const acpStore = createAcpStore(join(dirname(config.statePath), 'acp-sessions.json'))
   const dataDir = dirname(config.statePath)
   const remotesStore = createRemotesStore(join(dataDir, 'remotes.json'))
+  const sharesStore = createSharesStore(dataDir)
   const statusSink: { broadcast?: (frame: { sessionId: string; busy: boolean }) => void } = {}
   const remoteManager = createRemoteHostManager({ store: remotesStore })
 
@@ -250,6 +252,7 @@ export async function main(): Promise<void> {
       onRemoteEnabled: (r) => wireHandle.registerRemoteBackend(r),
       settingsConfigDir: process.env.OPENCODE_CONFIG_DIR ?? join(process.env.HOME ?? '', '.config', 'opencode'),
       statePath: config.statePath,
+      shares: sharesStore,
       telegramStatus: () => tgTransport?.status?.() ?? null,
       telegramMeta: {
         hasEnvToken: !!config.telegramBotToken,

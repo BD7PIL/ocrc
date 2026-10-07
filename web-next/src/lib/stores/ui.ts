@@ -31,6 +31,8 @@ interface UiState {
   newSessionOpen: boolean
   channelsOpen: boolean
   composerEmpty: boolean
+  whiteboardOpen: boolean
+  splitSessionId: string | null
   activeSessionId: string | null
   setLeftPanel: (open: boolean) => void
   toggleLeftPanel: () => void
@@ -40,6 +42,8 @@ interface UiState {
   setNewSessionOpen: (open: boolean) => void
   setChannelsOpen: (open: boolean) => void
   setComposerEmpty: (empty: boolean) => void
+  setWhiteboardOpen: (open: boolean) => void
+  setSplitSessionId: (id: string | null) => void
   setActiveSession: (id: string | null) => void
 }
 
@@ -51,6 +55,8 @@ export const useUi = create<UiState>((set, get) => ({
   newSessionOpen: false,
   channelsOpen: false,
   composerEmpty: true,
+  whiteboardOpen: false,
+  splitSessionId: null,
   activeSessionId: null,
   setLeftPanel: (open) => { writeBool('ocrc.railOpen', open); set({ leftPanelOpen: open }) },
   toggleLeftPanel: () => get().setLeftPanel(!get().leftPanelOpen),
@@ -64,5 +70,7 @@ export const useUi = create<UiState>((set, get) => ({
   setNewSessionOpen: (open) => set({ newSessionOpen: open }),
   setChannelsOpen: (open) => set({ channelsOpen: open }),
   setComposerEmpty: (empty) => set({ composerEmpty: empty }),
+  setWhiteboardOpen: (open) => set({ whiteboardOpen: open }),
+  setSplitSessionId: (id) => set({ splitSessionId: id }),
   setActiveSession: (id) => set({ activeSessionId: id }),
 }))

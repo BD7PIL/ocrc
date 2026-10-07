@@ -48,6 +48,8 @@ export interface WebTransportConfig {
   settingsConfigDir?: string
   /** M5-2: presets/state dir. */
   statePath?: string
+  /** M6 分享: snapshot store (public GET + authed create). */
+  shares?: import('../../core/shares.js').SharesStore
 }
 
 const CAPS: ChannelCapabilities = {
@@ -85,6 +87,7 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         remoteManager: cfg.remoteManager,
         settingsConfigDir: cfg.settingsConfigDir,
         statePath: cfg.statePath,
+        shares: cfg.shares,
       })
 
       // Immutable hashed assets cache forever; everything else (above all

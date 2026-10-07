@@ -1,7 +1,8 @@
 // zcode-services/zcodeAgentService.ts — ocrc-backed zcodeAgentService v4 面 (N2).
-// helloConversationV4 = v4 会话通道握手（ConversationTimeline 打开任务时的第一步）。
-// 按上游 host 透传语义返回本地 hello；ocrc 的真实流增量由后续 WS 映射接入
-// （onDynamicStreamEvent/onConversationEvent 族，N2 后半）。
+// hello/握手 + 订阅三件套 + **初始 snapshot 通知**：subscribeConversationV4 ACK
+// 后异步取 ocrc 历史（cards → conversation rows），包成 v4 topic frame 经
+// onDynamicConversationFrame 的监听器同步下发一次 —— ConversationTimeline 的
+// assembler/decoder 由此渲染真实消息。发链（sendPrompt）在 zcodeTaskService。
 
 const V4_WIRE_PROTOCOL_VERSION = 3 as const
 
@@ -14,25 +15,169 @@ function uuid(): string {
   })
 }
 
+function token(): string {
+  try { return localStorage.getItem('ocrc.token') ?? '' } catch { return '' }
+}
+
+// ── ocrc 历史 → v4 conversation rows ──
+interface OcrcBlock { type: string; text?: string; tool?: string; args?: string; status?: string }
+interface OcrcCard { kind: string; text?: string; ts?: number; blocks?: OcrcBlock[]; meta?: { model?: string } }
+
+async function ocrcHistory(taskId: string): Promise<OcrcCard[]> {
+  try {
+    const res = await fetch(`/api/session/${taskId}?limit=200`, {
+      headers: { Authorization: `Bearer ${token()}` },
+    })
+    if (!res.ok) return []
+    return ((await res.json()) as { cards: OcrcCard[] }).cards ?? []
+  } catch {
+    return []
+  }
+}
+
+function buildRows(cards: OcrcCard[]): any[] {
+  const rows: any[] = []
+  let rowId = 1
+  let turn = 0
+  const base = () => ({
+    rowId: rowId,
+    turnId: `turn-${turn}`,
+    createdAt: Date.now(),
+    createdAtSeq: rowId,
+  })
+  for (const c of cards) {
+    if (c.kind === 'user') {
+      turn += 1
+      rows.push({ ...base(), kind: 'turnHeader', origin: 'userInput' })
+      rowId += 1
+      rows.push({ ...base(), kind: 'userInput', text: c.text ?? '' })
+      rowId += 1
+    } else if (c.kind === 'assistant' && c.blocks) {
+      for (const b of c.blocks) {
+        if (b.type === 'text') {
+          rows.push({ ...base(), kind: 'assistantText', text: b.text ?? '', state: 'complete', model: c.meta?.model })
+          rowId += 1
+        } else if (b.type === 'reasoning') {
+          rows.push({ ...base(), kind: 'reasoning', text: b.text ?? '', state: 'complete' })
+          rowId += 1
+        } else if (b.type === 'tool') {
+          rows.push({
+            ...base(),
+            kind: 'toolCall',
+            toolCallId: `tool-${rowId}`,
+            toolName: b.tool ?? 'tool',
+            status: b.status === 'error' ? 'error' : 'success',
+            inputText: (b.args ?? '').slice(0, 2000),
+          })
+          rowId += 1
+        }
+      }
+    }
+  }
+  return rows
+}
+
+// ── 通知通道：per-frame 监听器注册表 ──
+const frameListeners = new Set<(frame: any) => void>()
+
+async function emitConversationSnapshot(taskId: string, topic: string, subscriptionId: string): Promise<void> {
+  const cards = await ocrcHistory(taskId)
+  const rows = buildRows(cards)
+  const seq = rows.length
+  const frame = {
+    topic,
+    subscriptionId,
+    fromSeq: 0,
+    toSeq: seq,
+    sentAt: Date.now(),
+    payload: {
+      kind: 'snapshot' as const,
+      snapshot: {
+        protocolVersion: 1,
+        sessionId: taskId,
+        logEpoch: 'ocrc-1',
+        seq,
+        revision: 1,
+        control: {
+          phase: 'completedSuccess',
+          sessionEnded: true,
+          canStop: false,
+          stopState: 'idle',
+          stopTargetKind: 'unknown',
+          activeWorks: [],
+          lastError: null,
+          apiRetry: null,
+        },
+        availability: {
+          fork: { allowed: true },
+          compact: { allowed: true },
+          switchModelConfig: { allowed: true },
+          setFollowupMode: { allowed: true },
+          queueEdit: { allowed: true },
+          sendQueuedNow: { allowed: true },
+          pauseGoal: { allowed: true },
+          resumeGoal: { allowed: true },
+        },
+        inputRouting: { mode: 'startNow' },
+        config: { provider: '', model: '', thought: '', thoughtLevels: [], followupMode: 'queue' },
+        usage: { contextWindow: null, cumulative: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } },
+        queue: { items: [], autoDrain: true },
+        pendingInteractions: [],
+        pendingCommands: [],
+        backgroundWorks: [],
+        goal: null,
+        plan: null,
+        rows: { window: rows, totalCount: rows.length, firstRowId: rows[0]?.rowId ?? null },
+      },
+    },
+  }
+  console.info('[ocrc-trace] emitConversationSnapshot rows =', rows.length, 'listeners =', frameListeners.size)
+  if (!frameListeners.size) {
+    // transport 尚未挂 upstream——延时重试（挂载晚于 ACK 的时序差）
+    for (const delay of [300, 900, 2500, 5000]) {
+      setTimeout(() => {
+        console.info('[ocrc-trace] retry emit listeners =', frameListeners.size)
+        for (const l of frameListeners) {
+          try { l(frame) } catch { }
+        }
+      }, delay)
+    }
+    return
+  }
+  for (const l of frameListeners) {
+    try { l(frame) } catch (e) { console.info('[ocrc-trace] listener threw', String(e).slice(0, 200)) }
+  }
+}
+
 export function createOcrcZcodeAgentService(): any {
   const impl: Record<string, unknown> = {
-    // ── v4 conversation 订阅三件套：ACK-only 契约（初始 snapshot 走 post-
-    //    response 通知通道；ocrc 的通知流在 N2 后半接 WS 映射）──
-    async subscribeConversationV4(params: { topic?: string }) {
-      return {
-        ack: {
-          subscriptionId: `ocrc-sub-${uuid()}`,
-          mode: 'snapshot',
-          logEpoch: 'ocrc-1',
-          ...(params?.topic ? { topic: params.topic } : {}),
-        },
+    // ── v4 conversation 订阅三件套 + ACK 后异步下发初始 snapshot 通知 ──
+    async subscribeConversationV4(params: { topic?: string; sessionId?: string }) {
+      const ack = {
+        subscriptionId: `ocrc-sub-${uuid()}`,
+        mode: 'snapshot',
+        logEpoch: 'ocrc-1',
       }
+      const topic = params?.topic
+      const sessionId = params?.sessionId ?? topic?.split('/')?.pop()
+      console.info('[ocrc-trace] subscribeConversationV4 topic =', topic, 'sessionId =', sessionId)
+      if (topic && sessionId) {
+        // post-response owned notification：ACK 先回，snapshot 异步补发
+        void emitConversationSnapshot(sessionId, topic, ack.subscriptionId)
+      }
+      return { ack }
     },
     async resyncConversationV4() {
       return { ack: { subscriptionId: `ocrc-sub-${uuid()}`, mode: 'snapshot', logEpoch: 'ocrc-1' } }
     },
     async unsubscribeConversationV4() {
       return undefined
+    },
+    onDynamicConversationFrame(_workspace: unknown) {
+      return (listener: (frame: any) => void) => {
+        frameListeners.add(listener)
+        return () => frameListeners.delete(listener)
+      }
     },
     async helloConversationV4() {
       return {

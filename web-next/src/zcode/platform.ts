@@ -1,0 +1,115 @@
+// zcode/platform.ts — vendored from packages/web/src/main.tsx createWebPlatform
+// (Apache-2.0, ZCode). Web 平台层的合法 stub 集合——他们自己就这样跑 web 模式；
+// ocrc 的桌面级能力（选目录、终端、窗口控制）同样显式不可用。
+import type { IPlatformService, RemoteTarget, ServerRemoteInfo } from '@zcode/shared'
+
+export function createWebPlatform(): IPlatformService {
+  return {
+    canSelectFilePath: false,
+    selectDirectory: () => Promise.resolve(null),
+    selectFile: () => Promise.resolve(null),
+    selectFiles: () => Promise.resolve([]),
+    getPathForFile: () => null,
+    createTempTextAttachment: () =>
+      Promise.reject(new Error('Temporary text attachments require a desktop host')),
+    onRemoteConnectionLog: () => () => {},
+    onRemoteSessionClosed: () => () => {},
+    onBotRemoteWorkspaceReconnected: () => () => {},
+    activateOrSetWorkspace: () => Promise.resolve({ activated: false }),
+    connectRemote(_options: RemoteTarget) {
+      return Promise.resolve({
+        success: false,
+        error: `Remote connect is not supported in Web mode yet: ${_options.kind}`,
+      })
+    },
+    cancelPendingRemoteConnection: (_requestId?: string) => Promise.resolve(),
+    disposeRemoteSession: () => Promise.resolve(),
+    isDockerAvailable: () => Promise.resolve(false),
+    listWSLDistros: () => Promise.resolve([]),
+    listDockerContainers: () => Promise.resolve([]),
+    listSSHConfigAliases: () => Promise.resolve([]),
+    loadMcpFromUserDirectory: () => Promise.resolve({ servers: [] }),
+    saveMcpToUserDirectory: () =>
+      Promise.resolve({ success: false, error: 'MCP native directory management requires a desktop attachment' }),
+    migrateLegacyCommonMcp: () =>
+      Promise.resolve({ servers: {}, totalCount: 0, importedCount: 0, migratedCount: 0 } as any),
+    openExternal: (url: string) => {
+      window.open(url, '_blank', 'noopener,noreferrer')
+    },
+    openFeedback: async () => {},
+    openCommunity: async () => {},
+    canOpenCommunity: async () => false,
+    openInFileManager: () => Promise.resolve({ success: false, error: 'Not supported in web mode' }),
+    openExternalFile: () => Promise.resolve({ success: false, error: 'Not supported in web mode' }),
+    registerOAuthState: (_payload: unknown) => {},
+    onOAuthCallback: () => () => {},
+    onPaymentCallback: () => () => {},
+    onShareImport: () => () => {},
+    notifyRendererReady: () => {},
+    reportTelemetryEvent: async () => {},
+    reportArmsCustomEvent: () => Promise.resolve(),
+    showTaskNotification: (payload: { title: string; body: string }) => {
+      if (document.hasFocus()) return
+      if (typeof window.Notification === 'undefined' || window.Notification.permission !== 'granted') return
+      try {
+        new window.Notification(payload.title, { body: payload.body, silent: true })
+      } catch {
+        /* 浏览器通知不可用时静默忽略 */
+      }
+    },
+    syncWindowTabs: () => {},
+    syncWindowUnreadCount: () => {},
+    syncActiveTaskSession: () => {},
+    onFocusTab: () => () => {},
+    onNewTab: () => () => {},
+    onCloseActiveContextRequest: () => () => {},
+    onOpenBrowserUrl: () => () => {},
+    onNewTask: () => () => {},
+    onOpenWorkspace: () => () => {},
+    onWindowFullscreenChanged: () => () => {},
+    onTaskNotificationClick: () => () => {},
+    exportLogs: () => Promise.resolve({ success: false, error: 'Not supported in web mode' }),
+    captureWindowScreenshot: () => Promise.resolve(null),
+    importChromeBrowserData: (_options: unknown) =>
+      Promise.resolve({
+        cookies: { imported: 0, skipped: 0, failed: 0 },
+        localStorage: { originsImported: 0, originsSkipped: 0, originsFailed: 0, entriesMigrated: 0 } as any,
+        error: 'chrome_import_not_supported' as const,
+      }),
+    clearEmbeddedBrowserData: () =>
+      Promise.resolve({ success: true, cleared: { cookies: true, localStorage: true } } as any),
+    onUpdateReady: () => () => {},
+    onUpdateCheckResult: () => () => {},
+    onUpdateStateChanged: () => () => {},
+    getUpdateState: () => Promise.resolve({ kind: 'idle', enabled: true } as any),
+    downloadUpdate: () => Promise.resolve(),
+    cancelUpdateDownload: () => Promise.resolve(),
+    getDesktopSessionActivity: () => Promise.resolve({ runningAgentSessionCount: 0 }),
+    getDesktopZoomLevel: () => Promise.resolve({ zoomLevel: 0 }),
+    onDesktopZoomLevelChanged: () => () => {},
+    onPostUpdateReleaseNotes: () => () => {},
+    acknowledgePostUpdateReleaseNotes: () => Promise.resolve(),
+    skipUpdateVersion: () => Promise.resolve(),
+    quitAndInstallUpdate: () => Promise.resolve(),
+    getInstalledEditors: () => Promise.resolve([]),
+    openInEditor: () => Promise.resolve({ success: false, error: 'Not supported in web mode' }),
+    executeDesktopCommand: () => Promise.resolve(),
+    setApplicationLocale: (_locale: string) => Promise.resolve(),
+    setTitleBarTheme: () => Promise.resolve(),
+    getDeviceId: () => {
+      const nav = globalThis.navigator as Navigator & { platform?: string }
+      const parts = [
+        nav?.platform ?? '',
+        globalThis.screen?.width !== undefined ? String(globalThis.screen.width) : '',
+        globalThis.screen?.height !== undefined ? String(globalThis.screen.height) : '',
+        globalThis.screen?.colorDepth !== undefined ? String(globalThis.screen.colorDepth) : '',
+      ]
+      return parts.filter(Boolean).join('|')
+    },
+  } as unknown as IPlatformService
+}
+
+/** Server info the fork reports to Root — ocrc 没有 /api/server-info workspace 概念，先空。 */
+export function emptyServerInfo(): Partial<ServerRemoteInfo> {
+  return {}
+}

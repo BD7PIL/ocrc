@@ -18,7 +18,22 @@
     "types": ["vite/client", "node"],
     "paths": {
       "$lib/*": ["./src/lib/*"],
-      "$shared/*": ["../src/core/*"]
+      "$shared/*": ["../src/core/*"],
+      "@zcode/ui": ["./vendor/zcode/ui/src/index.ts"],
+      "@zcode/ui/*": ["./vendor/zcode/ui/src/*"],
+      "@zcode/shared": ["./vendor/zcode/shared/src/index.ts"],
+      "@zcode/shared/*": ["./vendor/zcode/shared/src/*"],
+      "@zcode/services": ["./vendor/zcode/services/src/index.ts"],
+      "@zcode/services/*": ["./vendor/zcode/services/src/*"],
+      "@zcode/provider": ["./vendor/zcode/provider/src/index.ts"],
+      "@zcode/provider/*": ["./vendor/zcode/provider/src/*"],
+      "@zcode/rpc": ["./vendor/zcode/rpc/src/index.ts"],
+      "@zcode/rpc/*": ["./vendor/zcode/rpc/src/*"],
+      "@zcode/zcode-cua": ["./vendor/zcode/cua/index.d.ts"],
+      "@zcode/zcode-cua/*": ["./vendor/zcode/cua/*"],
+      "@zcode/model-option-map": ["./vendor/zcode/model-option-map/src/index.ts"],
+      "@zcode/model-option-map/*": ["./vendor/zcode/model-option-map/src/*"],
+      "@/*": ["./vendor/zcode/ui/src/*"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts", "../src/core/structured-card.ts"]

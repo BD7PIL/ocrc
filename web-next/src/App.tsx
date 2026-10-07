@@ -1,7 +1,9 @@
 // App — the shell root: auth gate, connection boot, keyboard dispatch, the
 // three-pane layout with routes, and the global overlays (command center,
 // new-session dialog, PairGate).
-import { useEffect } from 'react'
+// N-series: `/z/*` mounts the vendored ZCode fork (see zcode/) in parallel —
+// `/` stays the rc.2 panel until the fork reaches parity.
+import { lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router'
 import { ShellLayout } from './components/shell/ShellLayout.js'
 import { CommandCenter } from './components/shell/CommandCenter.js'
@@ -19,6 +21,8 @@ import { registerCommands } from '$lib/shortcuts/commands.js'
 import { useAppKeyboard } from './hooks/useAppKeyboard.js'
 import { useAuthStore } from '$lib/auth.js'
 import { useUi } from './lib/stores/ui.js'
+
+const ZCodeApp = lazy(() => import('./zcode/ZCodeApp.js').then((m) => ({ default: m.ZCodeApp })))
 
 export default function App() {
   // 分享落地页在鉴权门外：分享码即能力凭证，未配对设备也能读
@@ -65,6 +69,8 @@ export default function App() {
   return (
     <BrowserRouter basename={basename}>
       <Routes>
+        {/* N-series fork: the real ZCode UI on ocrc services */}
+        <Route path="/z/*" element={<Suspense fallback={null}><ZCodeApp /></Suspense>} />
         <Route element={<ShellLayout />}>
           <Route path="/" element={<HomePage />} />
           <Route path="/session/:id" element={<SessionPage />} />

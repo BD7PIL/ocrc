@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { Settings as SettingsIcon, RefreshCw } from 'lucide-react'
 import { api } from '$lib/api/client.js'
 import { MappingCard, ProjectFilesCard, McpCard } from '../components/settings/ProjectCards.js'
+import { SkillsSourceCard } from '../components/settings/SkillsSourceCard.js'
 import type { ConfigSummary } from '$lib/api/types.js'
 
 export function SettingsPage() {
@@ -49,6 +50,7 @@ export function SettingsPage() {
           <MappingCard />
           <ProjectFilesCard />
           <McpCard />
+          <SkillsSourceCard />
           <RawEditor raw={summary.raw} onChanged={reload} />
         </>
       )}

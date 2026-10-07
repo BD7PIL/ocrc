@@ -318,3 +318,20 @@ table in README):
   `text-rendering: optimizeLegibility`, integer px sizes only, mono stack
   carries the CJK chain — the 0.26.22 发虚 fixes must not regress in
   web-next.
+
+## 1.0-rc 收官状态（2026-10-07）
+
+重建蓝图 M0–M8 全部落地（alpha.1 → 1.0.0-rc.1，17 个 alpha + rc）：
+
+- **web-next/ 成为唯一 Web 壳**（M4-3 退役切换，Svelte 壳已删除）。
+- **M5 尾巴已补**：技能源管理（源注册 + symlink 生效开关 + 名称冲突检测，
+  约定 = 源目录注册表 `~/.ocrc/skills-sources.json`，生效 =
+  `~/.config/opencode/skills/<name>` → symlink）。
+- **M7/M8**：侧车浏览器（CDP 复用 :9222 headless shell）+ MCP 工具
+  `ocrc mcp-browser`；通道域八件（runtime lock / offset journal / runtime
+  状态 sink / 命令策略+菜单同步 / 附件管道 / cron preDispatch / 媒体输出
+  相册 / 深命令）。
+- 遗留：Terminal 页签（产品裁决不做）、技能源跨机同步（未来）。
+
+验证基线：host vitest 601、web-next vitest 121、CDP 套件
+`scripts/cdp/m*.mjs` 13 套全绿、隔离栈 E2E 10/10 + 12/12 ×2。

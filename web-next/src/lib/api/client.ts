@@ -144,6 +144,13 @@ export const api = {
   browserClick: (xPct: number, yPct: number) => jsonPost<{ ok: boolean }>('/api/browser/click', { xPct, yPct }),
   browserScroll: (dyPct: number) => jsonPost<{ ok: boolean }>('/api/browser/scroll', { dyPct }),
   browserBack: () => jsonPost<{ ok: boolean }>('/api/browser/back', {}),
+  skillsManager: () => jsonGet<{ effectiveDir: string; sources: string[]; skills: Array<{ name: string; source: string; path: string; description?: string; enabled: boolean; conflict: boolean }>; conflicts: string[]; error?: string }>('/api/settings/skills-manager'),
+  addSkillsSource: (dir: string) =>
+    jsonPost<{ ok: boolean; sources: string[] }>('/api/settings/skills-manager/sources', { dir }),
+  removeSkillsSource: (dir: string) =>
+    jsonPost<{ ok: boolean; sources: string[] }>(`/api/settings/skills-manager/sources?remove=1`, { dir }),
+  toggleSkillSource: (name: string, source: string, enabled: boolean) =>
+    jsonPost<{ ok: boolean; error?: string }>('/api/settings/skills-manager/toggle', { name, source, enabled }),
   getPolicy: (sessionId: string) => jsonGet<{ policy: 'default' | 'edit' | 'yolo' }>(`/api/session/${sessionId}/policy`),
   setPolicy: (sessionId: string, policy: 'default' | 'edit' | 'yolo') =>
     jsonPost<{ ok: boolean; policy: 'default' | 'edit' | 'yolo' }>(`/api/session/${sessionId}/policy`, { policy }),

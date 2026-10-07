@@ -4,6 +4,8 @@ import {
   type ProviderPatch,
 } from '../../../core/settings-service.js'
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { scanSkills, readSources, writeSources, toggleSkill } from '../../../core/skills-manager.js'
 
 /**
  * 0.27 M5 设置域 routes. Every write validates + backs up + atomic-writes
@@ -44,6 +46,33 @@ export function registerSettings(app: Hono, configDir?: string) {
     } catch (err) {
       return c.json({ ok: false, error: (err as Error).message })
     }
+  })
+
+  // ── M5-tail 技能源管理（用户约定：源可注册，生效 = symlink 进
+  //    ~/.config/opencode/skills）────────────────────────────────────────
+  app.get('/api/settings/skills-manager', (c) => {
+    const stateDir = c.req.query('stateDir') ?? process.env.OCRC_STATE_DIR ?? join(process.env.HOME ?? '', '.ocrc')
+    try {
+      return c.json(scanSkills(stateDir, process.env.HOME ?? ''))
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 500)
+    }
+  })
+
+  app.post('/api/settings/skills-manager/sources', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { dir?: string; remove?: boolean }
+    if (!body.dir) return c.json({ error: 'dir required' }, 400)
+    const stateDir = c.req.query('stateDir') ?? process.env.OCRC_STATE_DIR ?? join(process.env.HOME ?? '', '.ocrc')
+    const cur = readSources(stateDir)
+    const next = body.remove ? cur.filter((d) => d !== body.dir) : [...new Set([...cur, body.dir])]
+    writeSources(stateDir, next)
+    return c.json({ ok: true, sources: next })
+  })
+
+  app.post('/api/settings/skills-manager/toggle', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { name?: string; source?: string; enabled?: boolean }
+    if (!body.name || !body.source || body.enabled == null) return c.json({ error: 'name, source, enabled required' }, 400)
+    return c.json(toggleSkill(process.env.HOME ?? '', body.name, body.source, body.enabled))
   })
 
   /** Pull a provider's /models list (OpenAI-shaped). */

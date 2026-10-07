@@ -12,6 +12,7 @@ import { appSettingsSchema } from '@zcode/shared'
 import { createOcrcTaskService } from '../zcode-services/zcodeTaskService.js'
 import { createOcrcModelSelectionService } from '../zcode-services/modelSelectionService.js'
 import { createOcrcFileService } from '../zcode-services/fileService.js'
+import { createOcrcCommandsService } from '../zcode-services/commandsService.js'
 import { createOcrcZcodeAgentService } from '../zcode-services/zcodeAgentService.js'
 import { createOcrcZcodeSessionService } from '../zcode-services/zcodeSessionService.js'
 
@@ -108,6 +109,7 @@ export function createGhostAccessor(): IServiceAccessor {
     modelSelectionService: createOcrcModelSelectionService(),
     providerSettingsService: ocrcProviderSettingsService,
     fileService: createOcrcFileService(),
+    commandsService: createOcrcCommandsService(),
     zcodeAgentService: createOcrcZcodeAgentService(),
     zcodeSessionService: createOcrcZcodeSessionService(),
     zcodeTaskService: createOcrcTaskService(),

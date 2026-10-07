@@ -27,14 +27,20 @@ const ZCodeApp = lazy(() => import('./zcode/ZCodeApp.js').then((m) => ({ default
 export default function App() {
   // 分享落地页在鉴权门外：分享码即能力凭证，未配对设备也能读
   const shareMatch = typeof location !== 'undefined' ? location.pathname.match(/^\/share\/([A-Za-z0-9_-]+)\/?$/) : null
+  // N 系列：/z/* 是 vendored ZCode fork 的专属路由——旧面板的全局键盘、
+  // 浮层与 WS 引导全部不挂载，避免两套快捷键互相截获（Ctrl+K 实测被旧
+  // 命令面板抢走）。
+  const isZRoute = typeof location !== 'undefined' && /\/z(\/|$)/.test(location.pathname)
 
   const authStatus = useAuthStore((s) => s.status)
 
   useEffect(() => {
+    if (isZRoute) return
     bootConnection()
-  }, [])
+  }, [isZRoute])
 
   useEffect(() => {
+    if (isZRoute) return
     registerCommands([
       { id: 'session.new', label: '新建任务', keys: 'Ctrl+N', run: () => useUi.getState().setNewSessionOpen(true) },
       { id: 'shell.search', label: '搜索', keys: 'Ctrl+K', run: () => useUi.getState().setPalette(true) },
@@ -49,11 +55,11 @@ export default function App() {
         },
       },
     ])
-  }, [])
+  }, [isZRoute])
 
-  useAppKeyboard()
+  if (!isZRoute) useAppKeyboard()
 
-  if (authStatus === 'booting') {
+  if (authStatus === 'booting' && !isZRoute) {
     return (
       <div className="flex h-full items-center justify-center" style={{ background: 'var(--bg)' }}>
         <span className="ocrc-pulse-dot inline-block size-3 rounded-full" style={{ background: 'var(--accent)' }} aria-label="启动中" />
@@ -80,10 +86,14 @@ export default function App() {
           <Route path="*" element={<HomePage />} />
         </Route>
       </Routes>
-      <CommandCenter />
-      <NewSessionDialog />
-      <ChannelsDialog />
-      {(authStatus === 'pairing' || authStatus === 'rejected') && <PairGate />}
+      {!isZRoute && (
+        <>
+          <CommandCenter />
+          <NewSessionDialog />
+          <ChannelsDialog />
+          {(authStatus === 'pairing' || authStatus === 'rejected') && <PairGate />}
+        </>
+      )}
     </BrowserRouter>
   )
 }

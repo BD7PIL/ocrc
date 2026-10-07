@@ -38,9 +38,6 @@ function toBotConfig(c: OcrcChannel): BotConfig {
   } as unknown as BotConfig
 }
 
-const notYet = (fn: string): Promise<never> =>
-  Promise.reject(new Error(`[ocrc-fork] botsService.${fn} 尚未接入 ocrc（配置入口在 rc.2 面板/env）`))
-
 export function createOcrcBotsService(): any {
   const impl: Record<string, unknown> = {
     syncAppRuntimePreferences: async () => {},
@@ -58,12 +55,35 @@ export function createOcrcBotsService(): any {
       const chans = await channels()
       return chans.map(toBotConfig)
     },
-    saveBot: async () => notYet('saveBot'),
-    deleteBot: async () => notYet('deleteBot'),
-    testBot: async (botId: string) => notYet(`testBot(${botId})`),
-    createBindCode: async () => notYet('createBindCode'),
-    getBotStates: async () => [],
-    resetBotState: async () => {},
+    // 写回：BotConfig.enabled → ocrc channel PATCH enabled（token/allowUsers
+    // 编辑入口在 rc.2 面板，/z/ 侧先放行启用开关）
+    saveBot: async (params: { bot: BotConfig }) => {
+      const res = await fetch(`/api/channels/${params.bot.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+        body: JSON.stringify({ enabled: params.bot.enabled ?? false }),
+      })
+      if (!res.ok) throw new Error(`[ocrc-fork] saveBot failed: ${res.status}`)
+      return toBotConfig({ id: params.bot.id, enabled: params.bot.enabled ?? false })
+    },
+    deleteBot: async (botId: string) => {
+      // ocrc 通道不可删除（host 单例），等价语义 = 禁用
+      await fetch(`/api/channels/${botId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+        body: JSON.stringify({ enabled: false }),
+      })
+    },
+    testBot: async (botId: string) => {
+      const res = await fetch('/api/channels', { headers: { Authorization: `Bearer ${token()}` } })
+      const channels = res.ok ? ((await res.json()) as { channels?: Array<{ id: string; enabled?: boolean; hasToken?: boolean }> }).channels ?? [] : []
+      const ch = channels.find((c) => c.id === botId)
+      return {
+        ok: Boolean(ch?.hasToken),
+        botId,
+        error: ch?.hasToken ? undefined : '通道未配置 token',
+      }
+    },
   }
   return new Proxy(impl, {
     get(target, prop) {

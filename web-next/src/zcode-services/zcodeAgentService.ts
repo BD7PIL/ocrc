@@ -197,6 +197,8 @@ export function createOcrcZcodeAgentService(): any {
       const sessionId = params?.sessionId
       const topic = sessionId ? `conversation/${sessionId}` : undefined
       console.info('[ocrc-trace] subscribeConversationV4 sessionId =', sessionId, 'topic =', topic)
+      // 已知余项（N2.x）：多轮会话打开偶发 recoveryFailed——已定位到 v4 快照
+      // 通知与恢复机制的交互，待 vendor store 插桩定位后修复。
       if (topic && sessionId) {
         subscriptions.set(ack.subscriptionId, { sessionId, topic })
         // post-response owned notification：ACK 先回，snapshot 异步补发

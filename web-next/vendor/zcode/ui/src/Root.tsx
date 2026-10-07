@@ -1073,17 +1073,22 @@ function RootInner({
             supportsEmbeddedBrowser={supportsEmbeddedBrowser}
           />
         )}
-        <ScopedErrorBoundary
-          scope="onboarding-dialog"
-          resetKeys={[workspaceShellIdentity?.trim() || workspaceShellPath]}
-          variant="silent"
-        >
-          <OnboardingDialog
-            workspacePath={workspaceShellPath || undefined}
-            workspaceIdentity={workspaceShellIdentity}
-            isDesktop={isDesktop}
-          />
-        </ScopedErrorBoundary>
+        {/* ocrc fork：onboarding 已由 accessor 的 onboardingRecordService 标记完成，
+            且该弹层的关闭/卸载转换在 prod 触发 hook 顺序崩溃（areHookInputsEqual
+            undefined deps）——整体摘除，不再挂载。 */}
+        {false && (
+          <ScopedErrorBoundary
+            scope="onboarding-dialog"
+            resetKeys={[workspaceShellIdentity?.trim() || workspaceShellPath]}
+            variant="silent"
+          >
+            <OnboardingDialog
+              workspacePath={workspaceShellPath || undefined}
+              workspaceIdentity={workspaceShellIdentity}
+              isDesktop={isDesktop}
+            />
+          </ScopedErrorBoundary>
+        )}
       </OccupationOnboarding>
     </RootShell>
   );

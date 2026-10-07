@@ -29,6 +29,7 @@
 ## 3. 会话时间线（N2 核心）
 - ✅ 任务视图打开 + 标题栏
 - ✅ **真实历史消息渲染**（v4 wire 通道：初始 snapshot 帧 → rows 渲染，ping/pong 实证）
+- ✅ **v4 恢复阶梯接通**（resync 如实回 resume/snapshot + 每订阅单调 logicalFrameOrdinal；升级恢复/强制快照路径由真实 store+assembler 回归测试覆盖——修复了间歇性 fault.subscription.recoveryFailed）
 - ⬜ markdown/代码块渲染（streamdown，shiki worker）
 - ⬜ 工具卡族（bash/edit/todo/read…ToolCallBlocks 渲染器族）
 - ⬜ 推理块折叠展示
@@ -81,7 +82,8 @@
 ## 9. 通道与自动化（N4）
 - ✅ 自动化主视图（offPeakTaskService → ocrc /api/schedules：list/create/pause/continue/delete 映射；空态忠实）
 - ✅ Bots 数据面（botsService getStatus/getConfig/listBots → ocrc /api/channels telegram 通道投影）
-- ⬜ Bots 写回（saveBot/deleteBot/testBot → ocrc channels 写入口——配置编辑暂在 rc.2 面板）
+- ✅ Bots 写回（saveBot/deleteBot → PATCH /api/channels/:id enabled；testBot → hasToken 检查；注册三件套未接）
+- ⬜ 已知余项：/z/ 每次页面加载持久化一个预热草稿会话，跨页加载不回收（页内 closeDeferredDraftSession 已实现但仅在 pane 替换草稿时触发）——候选：deferred 伪会话首发才落盘，或 host 侧空草稿回收（N5）
 - ⬜ 远程主机管理（ocrc remotes ↔ ZCode remote workspace——概念映射待 N4.x）
 - ⬜ 定时任务创建表单（createTask 已接，表单字段对齐待核对）
 

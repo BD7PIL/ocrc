@@ -84,8 +84,51 @@ function buildRows(cards: OcrcCard[]): any[] {
 const frameListeners = new Set<(frame: any) => void>()
 const subscriptions = new Map<string, { sessionId: string; topic: string }>()
 const lastSeqBySub = new Map<string, number>()
+// assembler 每 route 维护单调 ordinal tombstone（不淘汰）：同订阅第 N 个 logical
+// frame 的 ordinal 必须严格递增，旧 ordinal + 新 logicalFrameId 会触发
+// proto.frameAssemblyOrdinalConflict → recovery 阶梯 fail-closed。这就是此前
+// 多轮会话偶发 fault.subscription.recoveryFailed 的根因（recovery 帧固定 ordinal 1
+// 撞上已 settle 的 initial 帧）。
+const ordinalBySub = new Map<string, number>()
 
-async function emitConversationSnapshot(taskId: string, topic: string, subscriptionId: string, deliveryKind: 'initial' | 'recovery' | 'online', fromSeq = 0): Promise<void> {
+function nextOrdinal(subscriptionId: string): number {
+  const next = (ordinalBySub.get(subscriptionId) ?? 0) + 1
+  ordinalBySub.set(subscriptionId, next)
+  return next
+}
+
+/** 包一层 wire candidate 信封并下发给全部监听器（zod 自检不过则丢弃并记日志）。 */
+function deliverWire(
+  topic: string,
+  subscriptionId: string,
+  fromSeq: number,
+  toSeq: number,
+  payload: { kind: 'snapshot'; snapshot: unknown } | { kind: 'deltas'; deltas: unknown[] },
+  deliveryKind: 'initial' | 'recovery' | 'online',
+): void {
+  const frame = { topic, subscriptionId, fromSeq, toSeq, sentAt: Date.now(), payload }
+  const check = conversationTopicFrameSchema.safeParse(frame)
+  if (!check.success) {
+    console.info('[ocrc-trace] frame zod FAIL:', JSON.stringify(check.error.issues.slice(0, 6).map((i) => ({ path: i.path.join('.'), msg: i.message }))))
+    return
+  }
+  const wire = {
+    wireVersion: 3,
+    kind: 'complete' as const,
+    deliveryKind,
+    logicalFrameId: uuid(),
+    logicalFrameOrdinal: nextOrdinal(subscriptionId),
+    topic,
+    subscriptionId,
+    frame: check.data,
+  }
+  console.info('[ocrc-trace] wire candidate OK (' + deliveryKind + ') ordinal=' + wire.logicalFrameOrdinal + ', delivering to', frameListeners.size, 'listeners')
+  for (const l of frameListeners) {
+    try { l(wire) } catch (e) { console.info('[ocrc-trace] listener threw', String(e).slice(0, 200)) }
+  }
+}
+
+async function emitConversationSnapshot(taskId: string, topic: string, subscriptionId: string, deliveryKind: 'initial' | 'recovery' | 'online'): Promise<void> {
   const [cards, providers, overrides] = await Promise.all([
     ocrcHistory(taskId),
     fetch('/api/models', { headers: { Authorization: `Bearer ${token()}` } })
@@ -99,89 +142,64 @@ async function emitConversationSnapshot(taskId: string, topic: string, subscript
   const curModel = overrides.model?.modelID ?? providers.find((p) => p.id === curProvider)?.models?.[0]?.id ?? ''
   const curThought = (providers.find((p) => p.id === curProvider)?.models?.find((m) => m.id === curModel)?.variants ?? [])[0] ?? ''
   const rows = buildRows(cards)
-  const seq = fromSeq + rows.length
-  const frame = {
-    topic,
-    subscriptionId,
-    fromSeq,
-    toSeq: seq,
-    sentAt: Date.now(),
-    payload: {
-      kind: 'snapshot' as const,
-      snapshot: {
-        protocolVersion: 1,
-        sessionId: taskId,
-        logEpoch: 'ocrc-1',
-        seq,
-        revision: 1,
-        control: {
-          phase: 'completedSuccess',
-          sessionEnded: true,
-          canStop: false,
-          stopState: 'idle',
-          stopTargetKind: 'unknown',
-          activeWorks: [],
-          lastError: null,
-          apiRetry: null,
-        },
-        availability: {
-          fork: { allowed: true },
-          compact: { allowed: true },
-          switchModelConfig: { allowed: true },
-          setFollowupMode: { allowed: true },
-          queueEdit: { allowed: true },
-          sendQueuedNow: { allowed: true },
-          pauseGoal: { allowed: true },
-          resumeGoal: { allowed: true },
-        },
-        inputRouting: { mode: 'startNow' },
-        config: { provider: curProvider, model: curModel, thought: curThought, thoughtLevels: providers.find((p) => p.id === curProvider)?.models?.find((m) => m.id === curModel)?.variants ?? [], followupMode: 'queue' },
-        usage: { contextWindow: null, cumulative: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } },
-        queue: { items: [], autoDrain: true },
-        pendingInteractions: [],
-        pendingCommands: [],
-        backgroundWorks: [],
-        goal: null,
-        plan: null,
-        rows: { window: rows, totalCount: rows.length, firstRowId: rows[0]?.rowId ?? null },
+  const seq = rows.length
+  const payload = {
+    kind: 'snapshot' as const,
+    snapshot: {
+      protocolVersion: 1,
+      sessionId: taskId,
+      logEpoch: 'ocrc-1',
+      seq,
+      revision: 1,
+      control: {
+        phase: 'completedSuccess',
+        sessionEnded: true,
+        canStop: false,
+        stopState: 'idle',
+        stopTargetKind: 'unknown',
+        activeWorks: [],
+        lastError: null,
+        apiRetry: null,
       },
+      availability: {
+        fork: { allowed: true },
+        compact: { allowed: true },
+        switchModelConfig: { allowed: true },
+        setFollowupMode: { allowed: true },
+        queueEdit: { allowed: true },
+        sendQueuedNow: { allowed: true },
+        pauseGoal: { allowed: true },
+        resumeGoal: { allowed: true },
+      },
+      inputRouting: { mode: 'startNow' },
+      config: { provider: curProvider, model: curModel, thought: curThought, thoughtLevels: providers.find((p) => p.id === curProvider)?.models?.find((m) => m.id === curModel)?.variants ?? [], followupMode: 'queue' },
+      usage: { contextWindow: null, cumulative: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } },
+      queue: { items: [], autoDrain: true },
+      pendingInteractions: [],
+      pendingCommands: [],
+      backgroundWorks: [],
+      goal: null,
+      plan: null,
+      rows: { window: rows, totalCount: rows.length, firstRowId: rows[0]?.rowId ?? null },
     },
   }
   console.info('[ocrc-trace] emitConversationSnapshot rows =', rows.length, 'listeners =', frameListeners.size)
-  if (!frameListeners.size) {
-    // transport 尚未挂 upstream——延时重试（挂载晚于 ACK 的时序差）
-    for (const delay of [300, 900, 2500, 5000]) {
-      setTimeout(() => {
-        console.info('[ocrc-trace] retry emit listeners =', frameListeners.size)
-        for (const l of frameListeners) {
-          try { l(frame) } catch { }
-        }
-      }, delay)
-    }
-    return
-  }
-  const check = conversationTopicFrameSchema.safeParse(frame)
-  if (!check.success) {
-    console.info('[ocrc-trace] frame zod FAIL:', JSON.stringify(check.error.issues.slice(0, 6).map((i) => ({ path: i.path.join('.'), msg: i.message }))))
-    return
-  }
-  // onDynamicConversationFrame 下发的是 wire candidate 信封（deliveryKind 是
-  // publisher 权威标记；store 的 awaitingInitial 只被 initial 帧消费）
-  const wire = {
-    wireVersion: 3,
-    kind: 'complete' as const,
-    deliveryKind,
-    logicalFrameId: uuid(),
-    logicalFrameOrdinal: 1,
-    topic,
-    subscriptionId,
-    frame: check.data,
-  }
-  console.info('[ocrc-trace] wire candidate OK (' + deliveryKind + '), delivering to', frameListeners.size, 'listeners')
+  // 水位记账先于投递：retry 路径也要让后续 resync 拿到正确 base。
   lastSeqBySub.set(subscriptionId, seq)
-  for (const l of frameListeners) {
-    try { l(wire) } catch (e) { console.info('[ocrc-trace] listener threw', String(e).slice(0, 200)) }
+  if (!frameListeners.size) {
+    // transport 尚未挂 upstream——延时重试；成功投递一次后取消余下重试
+    // （重复投递同序号帧虽会被 assembler 去重，但不该依赖它兜底）。
+    let delivered = false
+    const attempt = () => {
+      if (delivered || !frameListeners.size) return
+      delivered = true
+      deliverWire(topic, subscriptionId, 0, seq, payload, deliveryKind)
+    }
+    for (const delay of [300, 900, 2500, 5000]) setTimeout(attempt, delay)
+    return
   }
+  // 协议约定 snapshot 帧 fromSeq 固定为 0；seq 权威在 payload.snapshot.seq。
+  deliverWire(topic, subscriptionId, 0, seq, payload, deliveryKind)
 }
 
 export function createOcrcZcodeAgentService(): any {
@@ -197,27 +215,55 @@ export function createOcrcZcodeAgentService(): any {
       const sessionId = params?.sessionId
       const topic = sessionId ? `conversation/${sessionId}` : undefined
       console.info('[ocrc-trace] subscribeConversationV4 sessionId =', sessionId, 'topic =', topic)
-      // 已知余项（N2.x）：多轮会话打开偶发 recoveryFailed——已定位到 v4 快照
-      // 通知与恢复机制的交互，待 vendor store 插桩定位后修复。
       if (topic && sessionId) {
         subscriptions.set(ack.subscriptionId, { sessionId, topic })
         // post-response owned notification：ACK 先回，snapshot 异步补发
-        void emitConversationSnapshot(sessionId, topic, ack.subscriptionId, 'initial', 0)
+        void emitConversationSnapshot(sessionId, topic, ack.subscriptionId, 'initial')
       }
       return { ack }
     },
-    // 恢复流程要求回显同一 subscriptionId（世代一致性），并对 forceSnapshot
-    // 重发一帧全新 snapshot（订阅登记里存有 sessionId/topic 映射）
-    async resyncConversationV4(params: { subscriptionId?: string; forceSnapshot?: boolean }) {
+    // 恢复阶梯（vendor 04-sync）：resync 带 base/forceSnapshot；ack mode 必须如实——
+    // resume = base 仍是当前水位（回一帧空增量收口 flight），snapshot = 全量重发。
+    // 升级中的 recovery（upgradePending）只有 ack=resume 才会再 force 一次；
+    // 如实回 mode 是阶梯正确运转的前提。
+    async resyncConversationV4(params: { subscriptionId?: string; base?: { logEpoch: string; seq: number } | null; forceSnapshot?: boolean }) {
       const subId = params?.subscriptionId
       const sub = subId ? subscriptions.get(subId) : undefined
-      console.info('[ocrc-trace] resyncConversationV4 subId =', subId, 'sub =', Boolean(sub))
-      // 续接已应用水位：fromSeq 必须等于 store 当前 seq，否则间隙规则整帧丢弃
-      if (sub && subId) void emitConversationSnapshot(sub.sessionId, sub.topic, subId, 'recovery', lastSeqBySub.get(subId) ?? 0)
-      return { ack: { subscriptionId: subId ?? `ocrc-sub-${uuid()}`, mode: 'snapshot', logEpoch: 'ocrc-1' } }
+      const lastSeq = subId ? lastSeqBySub.get(subId) : undefined
+      console.info('[ocrc-trace] resyncConversationV4 subId =', subId?.slice(-8), 'sub =', Boolean(sub), 'base =', JSON.stringify(params?.base ?? null), 'force =', Boolean(params?.forceSnapshot), 'lastSeq =', lastSeq)
+      if (!sub || !subId) {
+        // 未登记的订阅（世代/重启后残留）：notOwned 让 store fresh subscribe 自愈
+        throw new Error('fault.subscription.notOwned')
+      }
+      const baseSeq = params?.base?.seq
+      if (!params?.forceSnapshot && typeof baseSeq === 'number' && baseSeq === lastSeq) {
+        // base 仍是当前水位：resume 收口。空增量帧 (N,N] 走 store 的重复帧规则
+        // ——静默确认 recovery flight，不推进 seq。
+        deliverWire(sub.topic, subId, baseSeq, lastSeq, { kind: 'deltas', deltas: [] }, 'recovery')
+        return { ack: { subscriptionId: subId, mode: 'resume', logEpoch: 'ocrc-1' } }
+      }
+      void emitConversationSnapshot(sub.sessionId, sub.topic, subId, 'recovery')
+      return { ack: { subscriptionId: subId, mode: 'snapshot', logEpoch: 'ocrc-1' } }
     },
     async unsubscribeConversationV4() {
       return undefined
+    },
+    // 关闭/删除会话。expectedPersistence='deferred' 是预热草稿回收：仅当会话
+    // 仍无任何消息（未提升）才删，有内容的真实会话一律保留并返回 false。
+    async closeSession(params: { sessionId?: string; expectedPersistence?: 'deferred' | 'immediate' }) {
+      const sessionId = params?.sessionId
+      if (!sessionId) return false
+      if (params?.expectedPersistence === 'deferred') {
+        const cardCount = await ocrcHistory(sessionId)
+          .then((c) => c.length)
+          .catch(() => -1)
+        if (cardCount !== 0) return false
+      }
+      const res = await fetch(`/api/sessions/${sessionId}/delete`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token()}` },
+      }).catch(() => null)
+      return Boolean(res?.ok)
     },
     onDynamicConversationFrame(_workspace: unknown) {
       return (listener: (frame: any) => void) => {

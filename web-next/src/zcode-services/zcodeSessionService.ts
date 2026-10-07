@@ -205,7 +205,19 @@ export function createOcrcZcodeSessionService(): any {
       return { sessionId: created.id, title: '', mode: 'build', status: 'idle', createdAt: Date.now(), updatedAt: Date.now(), messages: [] }
     },
     closeSession: async () => {},
-    closeDeferredDraftSession: async () => false,
+    // 预热草稿回收：仅当会话无任何消息（未提升）才删；ocrc 的会话是持久转录，
+    // 有内容的会话必须保留（返回 false 让调用方走保留分支）。
+    closeDeferredDraftSession: async (params: { sessionId?: string }) => {
+      const sessionId = params?.sessionId
+      if (!sessionId) return false
+      const cards = await ocrcHistory(sessionId).catch(() => null as unknown as OcrcCard[] | null)
+      if (!cards || cards.length !== 0) return false
+      const res = await fetch(`/api/sessions/${sessionId}/delete`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token()}` },
+      }).catch(() => null)
+      return Boolean(res?.ok)
+    },
     promoteDeferredDraftSession: async () => {},
     setModel: async () => ({}),
     setThoughtLevel: async () => ({}),

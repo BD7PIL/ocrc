@@ -36,25 +36,35 @@ export function applyZCodeTheme(): void {
 export function ZCodeApp() {
   const [services] = useState(() => createGhostAccessor())
   const [platform] = useState(() => createWebPlatform())
-  const [intlReady, setIntlReady] = useState(false)
+  const [workspacePath, setWorkspacePath] = useState<string | undefined>(undefined)
+  const [settled, setSettled] = useState(false)
 
   useEffect(() => {
     applyZCodeTheme()
     setStreamClientId(generateMobileDeviceFingerprint())
-    // Root 首绘前的最短 settling——ghost 服务的 loading 态需要一帧
-    const t = setTimeout(() => setIntlReady(true), 0)
-    return () => clearTimeout(t)
+    // ocrc 没有 workspace 概念的服务——以最近会话的目录作为初始 workspace
+    // （ZCode 是 workspace 中心结构，Root 没有它就不渲染壳）。
+    const token = (() => { try { return localStorage.getItem('ocrc.token') ?? '' } catch { return '' } })()
+    fetch('/api/sessions', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((sessions: Array<{ directory?: string }>) => {
+        const dir = sessions.find((s) => s.directory)?.directory
+        if (dir) setWorkspacePath(dir)
+      })
+      .catch(() => {})
+      .finally(() => setSettled(true))
   }, [])
 
   return (
     <div className="h-dvh min-h-dvh w-screen bg-background text-foreground">
       <AppErrorBoundary>
         <ZCodeIntlProvider settingService={services.settingService} broadcastService={services.broadcastService}>
-          {intlReady && (
+          {settled && (
             <Suspense fallback={<div className="p-8 text-ui-sm text-foreground-subtle">ZCode fork loading…</div>}>
               <Root
                 services={services}
                 platform={platform}
+                initialWorkspaceAbsPath={workspacePath}
                 preferDirectoryBrowser
                 supportsEmbeddedBrowser={false}
                 allowRemoteWorkspace={false}

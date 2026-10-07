@@ -1,21 +1,25 @@
-// zcode/accessor.ts — N0 ghost IServiceAccessor.
-// ZCode 的 UI 全部经单一 IServiceAccessor（39 服务字段）取数。N0 用「幽灵服务」
-// 先让 Root/壳渲染：方法调用返回永不 resolve 的 Promise（组件停留加载态，绝不
-// 用 undefined 数据崩 canvas），订阅类方法返回可 dispose 句柄；只有
-// settingService 给最小真实现（intl/locale 引导需要）。N1+ 逐服务用 ocrc 的
-// REST/WS 填实。
+// zcode/accessor.ts — N0/N1 ghost IServiceAccessor.
+// ZCode 的 UI 全部经单一 IServiceAccessor（39 服务字段）取数。
+//
+// 幽灵策略（反直觉但对）：方法默认返回 **rejected** promise，而不是永不
+// resolve——Root 的启动门（isProviderStartupSyncPending 等）以「hydrate 完成
+// 或出错」放行，挂起的 promise 会让启动永远停在门内（实测：oauth 恢复、
+// modelSelection hydrate 双双卡死→白屏）。rejected 让门槛走 error 分支继续
+// 引导；未接 catch 的调用点以 unhandledrejection 现形，就是 N1 的接线清单。
+// 订阅类方法返回可 dispose 句柄。已填实的服务见 real map。
 import type { IServiceAccessor } from '@zcode/services'
+import { createOcrcTaskService } from '../zcode-services/zcodeTaskService.js'
 
 const SUBSCRIBE_RE = /^(on[A-Z_]|onMessage|subscribe|add|listen|watch)/
 
-function ghostMethod(name: string): any {
+function ghostMethod(service: string, name: string): any {
   return (..._args: unknown[]) => {
     if (SUBSCRIBE_RE.test(name)) {
       const un: any = () => {}
       un.dispose = () => {}
       return un
     }
-    return new Promise(() => {}) // never resolves → loading state, never garbage data
+    return Promise.reject(new Error(`[ocrc-fork] ${service}.${name} 尚未接入 ocrc`))
   }
 }
 
@@ -30,7 +34,7 @@ function ghostService(name: string, cache: Map<string, any>): any {
       const key = `m:${name}:${String(prop)}`
       let method = cache.get(key)
       if (!method) {
-        method = ghostMethod(String(prop))
+        method = ghostMethod(name, String(prop))
         cache.set(key, method)
       }
       return method
@@ -47,13 +51,52 @@ const minimalSettingService: any = {
   onChange: () => ({ dispose: () => {} }),
 }
 
+/** onboarding 完成：ocrc 用户不需要 ZCode 的首次引导。 */
+const ocrcOnboardingService: any = {
+  shouldOnboard: async () => false,
+  dismissOnboarding: async () => {},
+  appendRecord: async () => {},
+  claimAnonymousRecord: async () => {},
+  getLatestEntry: async () => null,
+  syncSettingsFromRecord: async () => null,
+}
+
+/** 登录态：ocrc 无 ZCode 账号体系——返回 ocrc 本地身份（复用面板已有的 token 鉴权）。 */
+const ocrcOAuthService: any = {
+  restoreCachedSessionState: async () => ({
+    status: 'authenticated',
+    userInfo: { id: 'ocrc-local', username: 'ocrc', displayName: 'ocrc' },
+  }),
+  getActiveProvider: async () => null,
+}
+
+/** 模型选择视图：hydrated 空视图（启动门需要它落地）；N1.x 接 /api/models + /api/overrides。 */
+const ocrcModelSelectionService: any = {
+  onDidChange: () => () => {},
+  getView: async () => ({ revision: 0, providers: [] }),
+}
+
+/** Provider 设置视图：同上，空 hydrated 面。 */
+const ocrcProviderSettingsService: any = {
+  onDidChange: () => () => {},
+  getView: async () => ({ revision: 0, providers: [] }),
+}
+
 export function createGhostAccessor(): IServiceAccessor {
   const cache = new Map<string, any>()
+  const real: Record<string, unknown> = {
+    settingService: minimalSettingService,
+    onboardingRecordService: ocrcOnboardingService,
+    oauthService: ocrcOAuthService,
+    modelSelectionService: ocrcModelSelectionService,
+    providerSettingsService: ocrcProviderSettingsService,
+    zcodeTaskService: createOcrcTaskService(),
+  }
   return new Proxy(
-    { settingService: minimalSettingService } as Record<string, unknown>,
+    real as Record<string, unknown>,
     {
       get(target, prop) {
-        if (prop === 'settingService') return target.settingService
+        if (prop in target) return target[prop as string]
         if (prop === 'then' || prop === 'toJSON') return undefined
         const key = String(prop)
         let svc = cache.get(key)

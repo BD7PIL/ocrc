@@ -65,6 +65,9 @@ export function ZCodeApp() {
                 services={services}
                 platform={platform}
                 initialWorkspaceAbsPath={workspacePath}
+                // ocrc 没有跨启动的 tab 持久化——关闭恢复机制，让
+                // hasCompletedInitialRestore 立即完成、initialWorkspace 引导生效
+                restoreSession={false}
                 preferDirectoryBrowser
                 supportsEmbeddedBrowser={false}
                 allowRemoteWorkspace={false}

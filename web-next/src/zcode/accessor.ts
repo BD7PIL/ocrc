@@ -8,6 +8,7 @@
 // 引导；未接 catch 的调用点以 unhandledrejection 现形，就是 N1 的接线清单。
 // 订阅类方法返回可 dispose 句柄。已填实的服务见 real map。
 import type { IServiceAccessor } from '@zcode/services'
+import { appSettingsSchema } from '@zcode/shared'
 import { createOcrcTaskService } from '../zcode-services/zcodeTaskService.js'
 import { createOcrcModelSelectionService } from '../zcode-services/modelSelectionService.js'
 import { createOcrcFileService } from '../zcode-services/fileService.js'
@@ -46,12 +47,28 @@ function ghostService(name: string, cache: Map<string, any>): any {
   return svc
 }
 
-/** Minimal real settingService — ZCodeIntlProvider blocks the whole shell on it. */
-const minimalSettingService: any = {
-  get: async () => ({ locale: 'zh-CN', localePreference: 'zh-CN' }),
-  update: async () => {},
-  onChange: () => ({ dispose: () => {} }),
-}
+/** settingService：用他们的 appSettingsSchema.parse({}) 出完整默认值——
+    向导/恢复门/主题等一切都读 settings，空对象会让各处退回「未完成」态。 */
+const minimalSettingService: any = (() => {
+  let current: any = {
+    ...appSettingsSchema.parse({}),
+    // providerFamilyDomain 缺省 → 登录门无条件打开（shouldOpenLoginEntry =
+    // !providerFamilyDomain || ...），壳永远停在欢迎页。ocrc 无账号体系，固定 zai。
+    providerFamilyDomain: 'zai',
+    locale: 'zh-CN',
+    localePreference: 'zh-CN',
+  }
+  return {
+    get: async () => current,
+    update: async (patch: any) => {
+      current = { ...current, ...(patch ?? {}) }
+      return current
+    },
+    onChange: () => ({ dispose: () => {} }),
+    updateDataBaseDir: async () => {},
+    ensureDefaultProject: async () => ({ path: '/home/demo/develop/opencode-plugin/ocrc', created: false }),
+  }
+})()
 
 /** onboarding 完成：ocrc 用户不需要 ZCode 的首次引导。 */
 const ocrcOnboardingService: any = {

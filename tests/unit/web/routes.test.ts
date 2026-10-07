@@ -7,6 +7,7 @@ function fakeState() {
   const costs = new Map<string, number>([['ses_a', 0.1], ['ses_b', 0.05]])
   return {
     getSessionCost: (id: string) => costs.get(id),
+    isSessionError: () => false,
     setSessionCost: vi.fn(),
     getLastSessionId: () => 'ses_a',
     getActiveAbort: (id: string) => id === 'ses_a' ? { abort: vi.fn() } as any : undefined,
@@ -136,6 +137,17 @@ describe('web routes', () => {
     const body = await res.json() as { cards: any[]; lastSeq: number }
     expect(body.cards[0].kind).toBe('user')
     expect(body.lastSeq).toBe(7)
+  })
+
+  it('GET /api/session/:id surfaces historyError when the engine read fails (never a lying empty)', async () => {
+    const backend = fakeBackend()
+    backend.getHistory.mockRejectedValue(new Error('engine history read failed: Session not found'))
+    const app = buildServer(baseOpts(fakeState(), backend))
+    const res = await app.request('/api/session/ses_a', undefined, LOOPBACK)
+    expect(res.status).toBe(200)
+    const body = await res.json() as { cards: any[]; historyError?: string }
+    expect(body.cards).toEqual([])
+    expect(body.historyError).toContain('Session not found')
   })
 
   it('POST /api/message accepts a prompt', async () => {

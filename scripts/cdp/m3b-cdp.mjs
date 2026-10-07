@@ -92,13 +92,28 @@ if (await toolRow.count()) {
 // CDP + headless_shell (needs Input.setInterceptDrags). Evidence instead:
 // (a) the dragstart handler fires live (logged), (b) reorderPaneTab logic is
 // pinned by the ported store unit tests (11/11).
-const dragFired = await page.evaluate(() => {
+// ensure ≥1 tab exists: earlier steps close every tab and leave the + menu in
+// an arbitrary state, so seed the persisted pane state BEFORE navigation and
+// reload into it (addInitScript ran already — a reload picks it up).
+if (!(await page.evaluate(() => !!document.querySelector('.pane-tabs > div[draggable="true"]')))) {
+  await page.evaluate(() => localStorage.setItem('ocrc.sidePane.v1', JSON.stringify({ tabs: [{ id: 'tasks', kind: 'home', title: '任务', homeId: 'tasks' }], activeId: 'tasks' })))
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(1200)
+  // inspector state is in-memory — reopen the pane after the reload
+  await page.evaluate(() => document.querySelector('main header button[title*="右栏"]')?.click())
+  await page.waitForTimeout(500)
+}
+const dragProbe = await page.evaluate(() => {
+  const strip = document.querySelector('.pane-tabs')
+  const kids = [...(strip?.children ?? [])].map((c) => ({ cls: (c.className || '').slice(0, 60), draggable: c.draggable }))
+  const wrap = strip?.querySelector(':scope > div')
   let fired = false
-  const wrap = document.querySelector('.pane-tabs > div')
   wrap?.addEventListener('dragstart', () => { fired = true }, { once: true })
   wrap?.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: new DataTransfer() }))
-  return fired && wrap?.draggable === true
+  return { stripFound: !!strip, kids, firstDraggable: wrap?.draggable ?? null, fired }
 })
+const dragFired = dragProbe.firstDraggable === true && dragProbe.fired
+if (!dragFired) console.log('drag probe detail:', JSON.stringify(dragProbe))
 check('tabs: drag wiring live (draggable + dragstart fires)', dragFired)
 
 // 6b. subagent transcript: subs panel row click → peek tab renders cards

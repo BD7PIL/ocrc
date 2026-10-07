@@ -364,6 +364,14 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
 
   async function getHistory(id: string, limit?: number, offset?: number): Promise<StructuredCard[]> {
     const res = await client.session.messages({ path: { id } })
+    // A failed read (busy/missing session on an adopted engine, v1→v2 engine
+    // migration) must THROW, not degrade to [] — an empty transcript that lies
+    // is worse than a visible error the client can retry.
+    if (res.error) {
+      const err = res.error as { data?: { message?: string }; message?: string }
+      const detail = err.data?.message ?? err.message ?? JSON.stringify(res.error).slice(0, 160)
+      throw new Error(`engine history read failed: ${detail}`)
+    }
     const messages = (res.data ?? []) as any[]
     return cardsFromMessages(id, messages, limit, offset)
   }

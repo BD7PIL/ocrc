@@ -36,6 +36,8 @@ export interface SessionSummary {
   deletions?: number
   /** Multi-backend: which backend owns this session (set by the aggregator). */
   backendId?: string
+  /** M9: last turn failed (error card seen, no user card since) — task-row red dot. */
+  error?: boolean
 }
 
 /** Normalized assistant-turn metadata for the final card. */

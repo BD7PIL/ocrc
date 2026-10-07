@@ -2,8 +2,10 @@
 // V4ComposerModeControls register): h-7 ghost chips with popup menus, warn
 // tint on the dangerous permission tier. Session-scoped APIs only (controls
 // setMode/setModel); effort/variant rides sendMessage at send time (M2-5).
+// M9 视觉复刻：ghost 药丸（无边框、hover:bg-hover）；菜单 = bg-popover +
+// shadow-md，项 = hover:bg-menu-hover / selected=bg-selected。
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, Gauge, Zap } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import { api } from '$lib/api/client.js'
 
 function useOutsideClose(open: boolean, close: () => void) {
@@ -27,17 +29,12 @@ function Chip({ label, warn, open, onClick, title }: { label: string; warn?: boo
       type="button"
       title={title}
       onClick={onClick}
-      className="flex h-7 shrink-0 items-center gap-1 rounded-[9px] px-2 transition-colors"
-      style={{
-        color: warn ? 'var(--warn)' : 'var(--text-2)',
-        border: `1px solid ${open ? 'var(--accent-line)' : 'var(--border)'}`,
-        background: open ? 'var(--bg-elev2)' : 'transparent',
-        fontSize: 'var(--ui-xs)',
-        maxWidth: 160,
-      }}
+      className={`flex h-7 max-w-40 shrink-0 items-center gap-1 rounded-lg px-2 text-ui-sm transition-colors ${
+        warn ? 'text-warning hover:bg-warning/10' : open ? 'bg-selected text-foreground' : 'text-foreground-subtle hover:bg-hover hover:text-foreground'
+      }`}
     >
       <span className="min-w-0 truncate">{label}</span>
-      <ChevronDown size={11} strokeWidth={2} className="shrink-0" />
+      <ChevronDown className="size-3 shrink-0" strokeWidth={2} />
     </button>
   )
 }
@@ -45,8 +42,7 @@ function Chip({ label, warn, open, onClick, title }: { label: string; warn?: boo
 function Menu({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="absolute bottom-9 left-0 z-[var(--z-popover)] w-52 rounded-[9px] p-1 ocrc-pop"
-      style={{ background: 'var(--bg-elev)', border: '1px solid var(--border)', boxShadow: 'var(--elev-panel)' }}
+      className="ocrc-pop absolute bottom-9 left-0 z-50 w-52 rounded-lg border border-border bg-popover p-1 shadow-md"
       role="listbox"
     >
       {children}
@@ -61,8 +57,9 @@ function MenuItem({ selected, onClick, children }: { selected?: boolean; onClick
       role="option"
       aria-selected={!!selected}
       onClick={onClick}
-      className="flex w-full items-center gap-2 rounded-[6px] px-2.5 py-1.5 text-left transition-colors"
-      style={{ background: selected ? 'var(--accent-2)' : 'transparent', color: selected ? 'var(--text)' : 'var(--text-2)', fontSize: 'var(--ui-sm)' }}
+      className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-ui-sm transition-colors ${
+        selected ? 'bg-selected text-foreground' : 'text-foreground-subtle hover:bg-menu-hover hover:text-foreground'
+      }`}
     >
       {children}
     </button>
@@ -106,10 +103,10 @@ export function ModeChip({ sessionId }: { sessionId: string }) {
           {(['plan', 'build', 'edit', 'yolo'] as Tier[]).map((t) => (
             <div key={t}>
               <MenuItem selected={tier === t} onClick={() => select(t)}>
-                <span style={{ color: t === 'yolo' ? 'var(--warn)' : undefined }}>{TIER_LABEL[t]}</span>
-                {t === 'yolo' && <span style={{ fontSize: 'var(--ui-2xs)', color: 'var(--text-4)' }}>自动放行全部审批</span>}
+                <span className={t === 'yolo' ? 'text-warning' : undefined}>{TIER_LABEL[t]}</span>
+                {t === 'yolo' && <span className="text-ui-2xs text-foreground-subtlest">自动放行全部审批</span>}
               </MenuItem>
-              {t === 'build' && <div className="mx-2.5 my-1 border-t" style={{ borderColor: 'var(--border-2)' }} />}
+              {t === 'build' && <div className="mx-2.5 my-1 border-t border-border/50" />}
             </div>
           ))}
         </Menu>
@@ -142,7 +139,7 @@ export function ModelChip({ sessionId }: { sessionId: string }) {
       <Chip label={label} open={open} onClick={() => setOpen((v) => !v)} title="会话模型" />
       {open && (
         <Menu>
-          {providers.length === 0 && <div className="px-2.5 py-1.5" style={{ color: 'var(--text-3)', fontSize: 'var(--ui-sm)' }}>暂无可选</div>}
+          {providers.length === 0 && <div className="px-2.5 py-1.5 text-ui-sm text-foreground-subtle">暂无可选</div>}
           {providers.map((p) => (
             <div key={p.id}>
               <div className="px-2.5 pt-1.5 label">{p.id}</div>
@@ -188,9 +185,7 @@ export function EffortChip({ variant, setVariant }: { variant: string | null; se
         <Menu>
           <MenuItem selected={variant === null} onClick={() => { setVariant(null); setOpen(false) }}>默认</MenuItem>
           {LEVELS.map((l) => (
-            <MenuItem key={l} selected={variant === l} onClick={() => { setVariant(l); setOpen(false) }}>
-              <Zap size={12} strokeWidth={1.75} /> {l}
-            </MenuItem>
+            <MenuItem key={l} selected={variant === l} onClick={() => { setVariant(l); setOpen(false) }}>{l}</MenuItem>
           ))}
         </Menu>
       )}
@@ -212,8 +207,7 @@ export function ContextChip({ usage }: { usage?: { used: number; max: number } }
     <div className="relative" ref={ref}>
       <button
         type="button"
-        className="flex h-7 shrink-0 items-center gap-1.5 rounded-[9px] px-1.5"
-        style={{ color: 'var(--text-3)', border: '1px solid var(--border)' }}
+        className="flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-1.5 text-foreground-subtle transition-colors hover:bg-hover hover:text-foreground"
         title="上下文占用"
         onClick={() => setOpen((v) => !v)}
       >
@@ -221,17 +215,16 @@ export function ContextChip({ usage }: { usage?: { used: number; max: number } }
           <circle cx="8" cy="8" r={R} fill="none" stroke="var(--border)" strokeWidth="2.5" />
           <circle
             cx="8" cy="8" r={R} fill="none"
-            stroke={pct > 0.9 ? 'var(--err)' : pct > 0.75 ? 'var(--warn)' : 'var(--accent)'}
+            stroke={pct > 0.9 ? 'var(--err)' : pct > 0.75 ? 'var(--warn)' : 'var(--info)'}
             strokeWidth="2.5" strokeLinecap="round"
             strokeDasharray={`${C * pct} ${C}`} transform="rotate(-90 8 8)"
           />
         </svg>
-        <Gauge size={0} className="hidden" />
-        <span className="mono" style={{ fontSize: 'var(--ui-2xs)' }}>{fmt(usedTokens)}</span>
+        <span className="mono text-ui-2xs">{fmt(usedTokens)}</span>
       </button>
       {open && (
         <Menu>
-          <div className="px-2.5 py-1.5" style={{ fontSize: 'var(--ui-xs)', color: 'var(--text-3)' }}>
+          <div className="px-2.5 py-1.5 text-ui-xs text-foreground-subtle">
             约 {usedTokens.toLocaleString()} / {MAX.toLocaleString()} tokens（{(pct * 100).toFixed(0)}%）
             <br />明细分解随 M3 右栏落地
           </div>

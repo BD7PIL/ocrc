@@ -43,17 +43,26 @@ export async function resyncViaRest(id: string): Promise<void> {
 
 /** View a session: load history if unseen, subscribe from the feed cursor,
  *  prune every other feed (only the viewed session is subscribed). */
-export async function viewSession(id: string): Promise<void> {
+export async function viewSession(id: string, opts: { force?: boolean } = {}): Promise<void> {
   viewedId = id
+  if (opts.force) loadedSessions.delete(id)
   if (!loadedSessions.has(id)) {
     loadedSessions.add(id)
-    try {
-      const { cards, lastSeq, busy } = await api.history(id)
-      useSessions.getState().setServerBusyKey(id, !!busy)
-      setHistory(id, cards, lastSeq)
-    } catch (err) {
-      console.warn('[boot] history load failed', err)
-      loadedSessions.delete(id)
+    // Adopted engines can fail a read transiently (busy engine, v1→v2 engine
+    // migration 404s). Retry once before surfacing the error banner.
+    type HistoryResult = { cards: any[]; lastSeq: number; busy?: boolean; hasMore?: boolean; historyError?: string }
+    let res: HistoryResult = await api.history(id).catch((err: Error) => ({ cards: [], lastSeq: 0, historyError: `历史加载失败：${err.message ?? '网络错误'}` }))
+    if (res.historyError) {
+      await new Promise((r) => setTimeout(r, 800))
+      const second: HistoryResult | { historyError: string } = await api.history(id).catch((err: Error) => ({ historyError: res.historyError ?? err.message }))
+      res = { ...res, ...(second as HistoryResult) }
+    }
+    const { cards, lastSeq, busy, historyError } = res
+    useSessions.getState().setServerBusyKey(id, !!busy)
+    setHistory(id, cards ?? [], lastSeq ?? 0, historyError)
+    if (historyError) {
+      console.warn('[boot] history load failed:', historyError)
+      loadedSessions.delete(id) // a later view/retry re-fetches
     }
   }
   const feed = feedOf(id)

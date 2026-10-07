@@ -148,6 +148,12 @@ export async function main(): Promise<void> {
     if ((card.kind === 'user' || card.kind === 'assistant') && 'sessionId' in card && card.sessionId) {
       acpStore.recordCard(card.sessionId, card, Date.now())
     }
+    // M9 error latch: an error card marks the session failed in the sidebar;
+    // the next user card (a fresh turn) clears it.
+    if ('sessionId' in card && card.sessionId) {
+      if (card.kind === 'error') state.setSessionError(card.sessionId, true)
+      else if (card.kind === 'user') state.setSessionError(card.sessionId, false)
+    }
   })
 
   // push needs a backend for the finish-summary history read; the primary backend

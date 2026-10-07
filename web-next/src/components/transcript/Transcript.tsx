@@ -4,6 +4,7 @@
 // 48px tolerance — follow only when the user is actually at the bottom).
 import { useEffect, useRef, useState } from 'react'
 import { api } from '$lib/api/client.js'
+import { viewSession } from '$lib/ws/boot.js'
 import type { StructuredCard } from '$lib/api/types.js'
 import { useFeeds, cardsOf, prependHistory, type SessionFeed } from '$lib/stores/feeds.js'
 import { CardView } from '../cards/CardView.js'
@@ -74,9 +75,29 @@ export function Transcript({ sessionId, feed, filter, busy = false }: { sessionI
 
   if (!feed) {
     return (
-      <div className="flex h-full items-center justify-center gap-1.5" style={{ color: 'var(--text-3)' }}>
+      <div className="flex h-full items-center justify-center gap-1.5 text-foreground-subtle">
         <span className="ocrc-pulse-dot size-1.5 rounded-full" style={{ background: 'var(--accent)' }} aria-hidden />
-        <span style={{ fontSize: 'var(--ui-sm)' }}>加载转写…</span>
+        <span className="text-ui-sm">加载转写…</span>
+      </div>
+    )
+  }
+
+  // History read failed (engine error, not an empty session) — say so and let
+  // the user retry; a silent empty transcript would be a lie.
+  if (feed.historyError && cards.length === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-6">
+        <div className="max-w-md rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-center text-ui-sm text-destructive">
+          历史加载失败：{feed.historyError}
+          <div className="mt-1 text-ui-2xs text-foreground-subtle">引擎读取未成功——可能是引擎忙碌或正在迁移，稍后重试通常可恢复</div>
+        </div>
+        <button
+          type="button"
+          className="h-8 rounded-lg bg-primary px-3 text-ui-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+          onClick={() => { void viewSession(sessionId, { force: true }) }}
+        >
+          重试
+        </button>
       </div>
     )
   }
@@ -87,12 +108,11 @@ export function Transcript({ sessionId, feed, filter, busy = false }: { sessionI
   return (
     <div className="relative min-h-0 flex-1">
     <div ref={scrollRef} className="h-full overflow-y-auto">
-      <div className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-4">
+      <div className="mx-auto flex max-w-3xl flex-col gap-1 py-4">
         {windowed && (
           <button
             type="button"
-            className="mx-auto rounded-full px-3 py-1"
-            style={{ border: '1px solid var(--border)', color: 'var(--text-3)', fontSize: 'var(--ui-xs)' }}
+            className="mx-auto rounded-full border border-border px-3 py-1 text-ui-xs text-foreground-subtle transition-colors hover:bg-hover hover:text-foreground"
             disabled={loadingOlder}
             onClick={() => void loadOlder()}
           >

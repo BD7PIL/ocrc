@@ -1,9 +1,9 @@
 // components/pane/SidePane.tsx — the right pane (ZCode SidePaneTabTrigger +
-// workspaceSidePane register): nothing permanently resident, every tab
+// AnimatedSidePanePanel register): nothing permanently resident, every tab
 // closable, idempotent ids, "+" menu reopens homes, drag reorders, empty
-// state is a launcher. Tab strip: 28px, flex 1_1_156px shrinking to 60px,
-// active = filled 10% ink block (never an underline), ✕ hover-revealed,
-// title mask-fade.
+// state is a launcher. M9 视觉复刻：48px 条（border-b border-border/50 发丝
+// 线、透明底）+ 28px rounded-lg 浮起药丸页签（active=bg-selected、hover=
+// bg-hover、✕ active 常驻/hover 显现、标题 mask 渐隐）——类串照抄 ZCode 实源。
 import { useRef, useState, useMemo } from 'react'
 import { Plus, X } from 'lucide-react'
 import {
@@ -23,9 +23,9 @@ export function SidePane() {
   const active = tabs.find((t) => t.id === activeId)
 
   return (
-    <div className="flex h-full flex-col" style={{ background: 'var(--bg-panel)', containerType: 'inline-size' }}>
-      {/* tab strip */}
-      <div className="pane-tabs flex h-7 shrink-0 items-stretch gap-px overflow-x-auto px-1 pt-1" style={{ scrollbarWidth: 'none' }}>
+    <div className="flex h-full flex-col bg-background">
+      {/* tab strip — ZCode TabsList：48px、底部发丝线、透明底 */}
+      <div className="pane-tabs flex h-12 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border/50 px-2">
         {tabs.map((t, i) => (
           <div
             key={t.id}
@@ -42,8 +42,7 @@ export function SidePane() {
         <div className="relative flex shrink-0 items-center">
           <button
             type="button"
-            className="flex h-6 w-6 items-center justify-center rounded-[6px]"
-            style={{ color: 'var(--text-3)' }}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-foreground-subtle transition-colors hover:text-foreground"
             title="打开面板"
             onClick={() => setPlusOpen((v) => !v)}
           >
@@ -51,15 +50,13 @@ export function SidePane() {
           </button>
           {plusOpen && (
             <div
-              className="absolute right-0 top-7 z-[var(--z-popover)] w-44 rounded-[9px] p-1 ocrc-pop"
-              style={{ background: 'var(--bg-elev)', border: '1px solid var(--border)', boxShadow: 'var(--elev-panel)' }}
+              className="ocrc-pop absolute right-0 top-7 z-50 w-44 rounded-lg border border-border bg-menu p-1 shadow-md"
             >
               {HOMES.map((h) => (
                 <button
                   key={h.homeId}
                   type="button"
-                  className="flex w-full items-center rounded-[6px] px-2.5 py-1.5 text-left transition-colors"
-                  style={{ fontSize: 'var(--ui-sm)', color: 'var(--text-2)' }}
+                  className="flex w-full items-center rounded-md px-2.5 py-1.5 text-left text-ui-sm text-foreground-subtle transition-colors hover:bg-menu-hover hover:text-foreground"
                   onClick={() => { openHome(h.homeId); setPlusOpen(false) }}
                 >
                   {h.title}
@@ -78,6 +75,9 @@ export function SidePane() {
   )
 }
 
+/** ZCode SidePaneTabTrigger：rounded-lg 浮起药丸；inactive hover=bg-hover，
+    active=bg-selected + text-foreground；✕ active 常驻、inactive hover 显现；
+    标题 mask 渐隐（--tab-fade-offset 随 ✕ 可见性放宽）。 */
 function TabTrigger({ tab, active, onActivate, onClose }: { tab: PaneTab; active: boolean; onActivate: () => void; onClose: () => void }) {
   return (
     <div
@@ -85,24 +85,26 @@ function TabTrigger({ tab, active, onActivate, onClose }: { tab: PaneTab; active
       aria-selected={active}
       tabIndex={0}
       onClick={onActivate}
-      onKeyDown={(e) => { if (e.key === 'Enter') onActivate() }}
-      className="pane-tab group relative flex min-w-[60px] cursor-pointer items-center overflow-hidden"
-      style={{
-        background: active ? 'color-mix(in srgb, var(--text) 10%, transparent)' : 'transparent',
-        borderRadius: '6px 6px 0 0',
-      }}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onActivate() } }}
+      className={`pane-tab group relative flex h-7 min-w-[60px] cursor-pointer items-center justify-start gap-1 overflow-hidden whitespace-nowrap rounded-lg border border-transparent px-1.5 pr-2 text-ui-base font-medium transition-all ${
+        active ? 'bg-selected text-foreground' : 'text-foreground-subtle hover:bg-hover hover:text-foreground'
+      }`}
     >
-      <span className="pane-tab-title min-w-0 flex-1 px-2.5" style={{ fontSize: 'var(--ui-xs)', color: active ? 'var(--text)' : 'var(--text-3)' }}>
+      <span
+        className="pane-tab-title min-w-0 flex-1 overflow-hidden"
+        style={{ ['--tab-fade-offset' as string]: active ? '1.25rem' : '0px' }}
+      >
         {tab.title}
       </span>
       <button
         type="button"
         aria-label="关闭页签"
-        className="pane-tab-x absolute right-1 flex h-4 w-4 items-center justify-center rounded-[4px]"
-        style={{ color: 'var(--text-3)', opacity: 0, pointerEvents: 'none' }}
+        className={`pane-tab-x absolute right-1 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-md text-foreground-subtle hover:text-foreground ${
+          active ? '' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
+        }`}
         onClick={(e) => { e.stopPropagation(); onClose() }}
       >
-        <X size={10} strokeWidth={2} />
+        <X className="size-3" strokeWidth={2} />
       </button>
     </div>
   )
@@ -135,7 +137,7 @@ function PaneContent({ tab }: { tab: PaneTab }) {
 
 function SessionGate({ what }: { what: string }) {
   return (
-    <p className="p-4 text-center" style={{ fontSize: 'var(--ui-sm)', color: 'var(--text-3)' }}>
+    <p className="p-4 text-center text-ui-sm text-foreground-subtle">
       {what}面板跟随当前会话——先在左栏选择一个会话
     </p>
   )
@@ -164,14 +166,13 @@ function Launcher() {
         <button
           key={h.homeId}
           type="button"
-          className="rounded-[9px] px-3 py-4 text-left transition-colors"
-          style={{ background: 'var(--bg-elev)', border: '1px solid var(--border-2)', color: 'var(--text-2)', fontSize: 'var(--ui-sm)' }}
+          className="rounded-lg border border-border bg-card px-3 py-4 text-left text-ui-sm text-foreground-subtle transition-colors hover:bg-menu-hover hover:text-foreground"
           onClick={() => openHome(h.homeId)}
         >
           {h.title}
         </button>
       ))}
-      <p className="col-span-2 mt-1 text-center" style={{ fontSize: 'var(--ui-2xs)', color: 'var(--text-4)' }}>
+      <p className="col-span-2 mt-1 text-center text-ui-2xs text-foreground-subtlest">
         右栏没有常驻内容——每个页签都可关闭，从这里或「+」重新打开
       </p>
     </div>

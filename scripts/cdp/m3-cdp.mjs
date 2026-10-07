@@ -22,7 +22,7 @@ await page.waitForTimeout(400)
 
 // 1. empty launcher (nothing resident)
 const launcherBtns = await page.locator('aside .grid button').count()
-check('pane: launcher grid (6 homes)', launcherBtns === 6, `${launcherBtns}`)
+check('pane: launcher grid (7 homes incl. skills)', launcherBtns === 7, `${launcherBtns}`)
 
 // 2. open 任务 home → tab strip shows 28px tab, active = filled block
 await page.getByRole('button', { name: '任务', exact: true }).click()

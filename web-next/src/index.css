@@ -1,6 +1,57 @@
 @import 'tailwindcss';
 @import './styles/theme.css';
 
+/* ═══════════════════════════════════════════════════════════════════════
+   Tailwind v4 @theme — ZCode 类词汇 → ocrc token 层（M9 真移植桥）。
+   移植件照抄 ZCode 的 bg-sidebar / text-foreground-subtle / border-border
+   等工具类，经此映射落到 theme.css 的 zai 值上；暗亮切换随 ocrc 契约
+   （data-theme + prefers-color-scheme）自动跟随。字阶 --text-ui-* 同 ZCode
+   @theme 寄存（calc 推导，挂 --ui-font-size 一等设置）。 */
+@theme {
+  --color-background: var(--bg);
+  --color-panel: var(--bg-panel);
+  --color-sidebar: var(--bg-sidebar);
+  --color-header: var(--bg-header);
+  --color-card: var(--bg-card);
+  --color-popover: var(--bg-popover);
+  --color-input: var(--bg-input);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-hover: var(--hover);
+  --color-selected: var(--selected);
+  --color-tab: var(--bg-tab);
+  --color-tab-active: var(--bg-tab-active);
+  --color-tag: var(--bg-tag);
+  --color-menu: var(--bg-menu);
+  --color-menu-hover: var(--bg-menu-hover);
+  --color-foreground: var(--text);
+  --color-foreground-subtle: var(--text-2);
+  --color-foreground-subtlest: var(--text-4);
+  --color-border: var(--border);
+  --color-border-hover: var(--border-hover);
+  --color-brand: var(--accent);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-ink);
+  --color-secondary: var(--bg-elev2);
+  --color-destructive: var(--err);
+  --color-success: var(--ok);
+  --color-warning: var(--warn);
+  --color-info: var(--info);
+  --color-idle-task: var(--idle-task);
+  --color-ask-surface: var(--ask-surface);
+  --color-ask-foreground: var(--ask-fg);
+  --color-confirm-surface: var(--confirm-surface);
+  --color-confirm-foreground: var(--confirm-fg);
+
+  --text-ui-xl: calc(var(--ui-font-size) + 4px);
+  --text-ui-lg: calc(var(--ui-font-size) + 2px);
+  --text-ui-base: var(--ui-font-size);
+  --text-ui-caption: calc(var(--ui-font-size) - 1px);
+  --text-ui-sm: calc(var(--ui-font-size) - 2px);
+  --text-ui-xs: calc(var(--ui-font-size) - 4px);
+  --text-ui-2xs: calc(var(--ui-font-size) - 5px);
+}
+
 /* M0 gallery demo button (real buttons come with the M1 shell) */
 .demo-btn {
   border: 1px solid var(--border);
@@ -33,12 +84,12 @@
 }
 .ocrc-pulse-dot { animation: ocrc-pulse 1.6s ease-in-out infinite; }
 
-/* cmdk command center (ZCode CommandCenterDialog register, ocrc-skinned) */
+/* cmdk command center (ZCode CommandCenterDialog register — zai 菜单皮肤) */
 .cmdk-overlay { background: var(--scrim); }
 .cmdk-root {
   position: fixed; left: 50%; top: 14vh; transform: translateX(-50%);
   width: min(92vw, 560px); z-index: var(--z-overlay);
-  background: var(--bg-elev); border: 1px solid var(--border);
+  background: var(--bg-popover); border: 1px solid var(--border);
   border-radius: var(--radius); box-shadow: var(--shadow-palette);
   overflow: hidden;
   animation: ocrc-pop var(--dur-2) var(--ease-out);
@@ -47,7 +98,7 @@
   width: 100%; padding: 12px 14px; background: transparent;
   border: none; outline: none; color: var(--text);
   font-size: var(--ui-base);
-  border-bottom: 1px solid var(--border-2);
+  border-bottom: 1px solid var(--border);
 }
 .cmdk-input::placeholder { color: var(--text-3); }
 .cmdk-list { max-height: min(52vh, 420px); overflow-y: auto; padding: 6px; }
@@ -62,18 +113,13 @@
   padding: 7px 10px; border-radius: var(--radius-xs);
   color: var(--text-2); font-size: var(--ui-sm); cursor: pointer;
 }
-.cmdk-item:hover, .cmdk-item[data-selected='true'] { background: var(--accent-2); color: var(--text); }
+.cmdk-item:hover, .cmdk-item[data-selected='true'] { background: var(--bg-menu-hover); color: var(--text); }
 .cmdk-kbd { margin-left: auto; font-family: var(--font-mono); font-size: var(--ui-2xs); color: var(--text-4); }
 
 /* ── M2 transcript ── */
 .cv-card { content-visibility: auto; contain-intrinsic-size: auto 72px; }
-.tool-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 4px 8px; border-radius: var(--radius-xs);
-  background: var(--bg-code); font-size: var(--ui-2xs);
-}
-.tool-row[data-status='running'] { border: 1px solid var(--accent-line); }
-.reasoning-blk { font-size: var(--ui-sm); color: var(--text-3); }
+/* ZCode 工具行：无底 inline 行（ToolSummaryRow register）——视觉由组件类承担 */
+.reasoning-blk { font-size: var(--ui-sm); color: var(--text-2); }
 .reasoning-blk summary { cursor: pointer; color: var(--text-3); font-size: var(--ui-xs); }
 
 /* markdown (scoped .md — port of the Svelte MarkdownView styles, compact) */
@@ -86,17 +132,15 @@
 .md li { margin: .15em 0; }
 .md code {
   font-family: var(--font-mono); font-size: .9em;
-  background: var(--bg-code); border: 1px solid var(--border-2);
-  border-radius: 4px; padding: .08em .35em;
+  background: var(--surface); border-radius: 4px; padding: .08em .35em;
 }
 .md pre {
   margin: 0 0 .6em; padding: 10px 12px; overflow-x: auto;
-  background: var(--bg-code); border: 1px solid var(--border-2);
-  border-radius: var(--radius-sm);
+  background: var(--surface); border-radius: var(--radius-sm);
 }
 .md pre code { background: none; border: none; padding: 0; font-size: var(--ui-sm); line-height: 1.5; }
 .md blockquote { margin: 0 0 .6em; padding: .1em 0 .1em .8em; border-left: 2px solid var(--border); color: var(--text-3); }
-.md a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.md a { color: var(--info); text-decoration: underline; text-underline-offset: 2px; }
 .md table { border-collapse: collapse; margin: 0 0 .6em; font-size: var(--ui-sm); }
 .md th, .md td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
 .md th { background: var(--bg-elev2); }
@@ -113,16 +157,17 @@
 .diff-lines.additions { background: color-mix(in srgb, var(--ok) 10%, transparent); color: var(--ok); }
 
 /* ── M3 SidePane (ZCode SidePaneTabTrigger register) ── */
-.pane-tabs { border-bottom: 1px solid var(--border-2); }
-.pane-tab { height: 28px; }
-.pane-tab-title {
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  mask-image: linear-gradient(to right, black calc(100% - 14px), transparent);
+.pane-tabs { scrollbar-width: none; }
+.pane-tabs::-webkit-scrollbar { display: none; }
+.pane-tab .pane-tab-title {
+  white-space: nowrap;
+  /* ZCode SidePaneTabItemContent：标题右缘渐隐；✕ 可见时渐隐起点左移。 */
+  mask-image: linear-gradient(to right, black calc(100% - var(--tab-fade-offset, 0px) - 0.5rem), transparent calc(100% - var(--tab-fade-offset, 0px)));
 }
 .pane-tab:hover .pane-tab-x, .pane-tab[aria-selected='true'] .pane-tab-x {
   opacity: 1 !important; pointer-events: auto !important;
 }
-.pane-tab:hover .pane-tab-title { mask-image: linear-gradient(to right, black calc(100% - 22px), transparent); }
+.pane-tab:hover .pane-tab-title { --tab-fade-offset: 1.25rem; }
 
 .diff-patch {
   font-family: var(--font-mono); font-size: var(--ui-2xs); line-height: 1.5;

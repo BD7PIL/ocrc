@@ -17,6 +17,9 @@ export interface SessionFeed {
   order: string[]
   byId: Record<string, StructuredCard>
   lastSeq: number
+  /** Last history read failed (engine error) — the transcript shows a retry
+   *  banner instead of a lying empty session. Cleared on a successful load. */
+  historyError?: string
   /** Identity of the CardBus that issued lastSeq — a mismatch on subscribe
    *  tells the server the client's seq belongs to a dead bus (host restart). */
   epoch?: string
@@ -247,10 +250,11 @@ function clearPendingDeltas(cardId: string) {
 }
 
 /** Replace a session's feed with historical cards (REST snapshot). */
-export function setHistory(sessionId: string, cards: StructuredCard[], lastSeq = 0) {
+export function setHistory(sessionId: string, cards: StructuredCard[], lastSeq = 0, historyError?: string) {
   useFeeds.setState((s) => {
     const feed = emptyFeed()
     feed.lastSeq = lastSeq
+    if (historyError) feed.historyError = historyError
     cards.forEach((c, i) => {
       const id = cardId(c, i)
       feed.order.push(id)

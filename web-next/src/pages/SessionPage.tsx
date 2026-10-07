@@ -69,21 +69,17 @@ function SessionPageInner({ id }: { id: string }) {
       <div className="flex h-full min-w-0 flex-1 flex-col">
         <StatusPanel sessionId={id} running={running} />
         <Transcript sessionId={id} feed={feed} filter={isPending} busy={running} />
-        <div
-          className="flex h-7 shrink-0 items-center gap-2 border-t px-4"
-          style={{ borderColor: 'var(--border-2)' }}
-        >
+        <div className="flex h-7 shrink-0 items-center gap-2 border-t border-border/50 px-4">
           <span
             className={`size-1.5 rounded-full ${running ? 'ocrc-pulse-dot' : ''}`}
-            style={{ background: running ? 'var(--accent)' : 'var(--ok)' }}
+            style={{ background: running ? 'var(--accent)' : s?.error ? 'var(--err)' : 'var(--ok)' }}
             aria-hidden
           />
-          <span style={{ fontSize: 'var(--ui-2xs)', color: 'var(--text-3)' }}>{running ? '运行中' : '空闲'}</span>
-          {s?.model && <span className="mono" style={{ fontSize: 'var(--ui-2xs)', color: 'var(--text-4)' }}>{s.model}</span>}
+          <span className={`text-ui-2xs ${s?.error && !running ? 'text-destructive' : 'text-foreground-subtle'}`}>{running ? '运行中' : s?.error ? '上次运行失败' : '空闲'}</span>
+          {s?.model && <span className="mono text-ui-2xs text-foreground-subtlest">{s.model}</span>}
           <button
             type="button"
-            className="ml-auto rounded-[6px] px-2 py-0.5"
-            style={{ fontSize: 'var(--ui-2xs)', color: 'var(--text-3)', border: '1px solid var(--border-2)' }}
+            className="ml-auto rounded-md px-2 py-0.5 text-ui-2xs text-foreground-subtle transition-colors hover:bg-hover hover:text-foreground"
             title="画板"
             onClick={() => setWhiteboardOpen(true)}
           >
@@ -91,12 +87,9 @@ function SessionPageInner({ id }: { id: string }) {
           </button>
           <button
             type="button"
-            className="rounded-[6px] px-2 py-0.5"
-            style={{
-              fontSize: 'var(--ui-2xs)',
-              color: splitSessionId ? 'var(--accent)' : 'var(--text-3)',
-              border: `1px solid ${splitSessionId ? 'var(--accent-line)' : 'var(--border-2)'}`,
-            }}
+            className={`rounded-md px-2 py-0.5 text-ui-2xs transition-colors ${
+              splitSessionId ? 'bg-selected text-foreground' : 'text-foreground-subtle hover:bg-hover hover:text-foreground'
+            }`}
             title="多会话分屏"
             onClick={() => setSplitSessionId(splitSessionId ? null : (list.find((x) => x.id !== id)?.id ?? null))}
           >
@@ -161,12 +154,12 @@ function SplitTranscript({ sessionId }: { sessionId: string }) {
   const cards = cardsOf(feed)
   return (
     <div data-split={sessionId} className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-4">
-        {!feed && <p style={{ fontSize: 'var(--ui-sm)', color: 'var(--text-3)' }}>加载分屏转写…</p>}
+      <div className="mx-auto flex max-w-3xl flex-col gap-1 px-4 py-4">
+        {!feed && <p className="text-ui-sm text-foreground-subtle">加载分屏转写…</p>}
         {cards.map((c) => (
           <div key={c.id} className="cv-card"><CardView card={c} /></div>
         ))}
-        {feed && cards.length === 0 && <p style={{ fontSize: 'var(--ui-sm)', color: 'var(--text-3)' }}>（空会话）</p>}
+        {feed && cards.length === 0 && <p className="text-ui-sm text-foreground-subtle">（空会话）</p>}
       </div>
     </div>
   )

@@ -54,4 +54,6 @@ export interface SessionSummary {
   deletions?: number
   /** Multi-backend: which backend owns this session. */
   backendId?: string
+  /** M9: last turn failed (error card seen, no user card since). */
+  error?: boolean
 }

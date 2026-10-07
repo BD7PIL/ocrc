@@ -1,7 +1,11 @@
 // components/cards/CardView.tsx — StructuredCard dispatch (M2 core set).
-// Interactive cards (approval/question) call the real APIs; the rich tool
-// renderers / md-toggle tool output arrive with the M3 right pane.
+// Interactive cards (approval/question) call the real APIs.
+// M9 视觉复刻（ZCode ConversationRowView v4 register）：assistant 正文无壳
+// 直排（w-full text-ui-base + hover 显现动作行）；用户气泡右对齐、
+// rounded-xl rounded-tr-xs + bg-surface 叠层；审批/提问走 zai interaction
+// 双 token（ask 深蓝面 / confirm 绿面）。
 import { memo, useState } from 'react'
+import { Loader2 } from 'lucide-react'
 import type { StructuredCard } from '$lib/api/types.js'
 import { api } from '$lib/api/client.js'
 import { useCurrentSessionId } from '../transcript/sessionContext.js'
@@ -11,30 +15,30 @@ import { Blocks } from './Blocks.js'
 export const CardView = memo(function CardView({ card }: { card: StructuredCard }) {
   switch (card.kind) {
     case 'user': return <UserCard card={card} />
-    case 'streaming': return <Shell><Blocks blocks={card.blocks} streaming /><StreamCaret /></Shell>
+    case 'streaming': return <AssistantShell><Blocks blocks={card.blocks} streaming /><StreamCaret /></AssistantShell>
     case 'assistant': return <AssistantCard card={card} />
     case 'thinking': return <ThinkingCard showStop={'showStop' in card ? card.showStop : false} />
-    case 'think-stream': return <Shell><p className="mono" style={{ color: 'var(--text-3)', fontSize: 'var(--ui-sm)' }}>思考…</p></Shell>
+    case 'think-stream': return <div className="flex items-center gap-2 px-4 py-1 text-ui-sm text-foreground-subtle"><Loader2 className="size-3.5 animate-spin" />思考…</div>
     case 'status': {
       const text = Object.entries(card.fields).map(([k, v]) => `${k}=${v}`).join(' · ')
-      return <p className="mono px-1 py-0.5" style={{ fontSize: 'var(--ui-xs)', color: 'var(--text-3)' }}>{text}</p>
+      return <p className="mono px-4 py-0.5 text-ui-xs text-foreground-subtlest">{text}</p>
     }
     case 'error': return (
-      <Shell tint="var(--err)">
-        <p style={{ color: 'var(--err)', fontSize: 'var(--ui-sm)' }}>{card.message}</p>
-      </Shell>
+      <div className="mx-0 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-ui-sm text-destructive">
+        {card.message}
+      </div>
     )
     case 'info': return (
-      <Shell>
-        <p style={{ fontSize: 'var(--ui-sm)', color: 'var(--text)' }}>{card.title}</p>
+      <div className="px-4 py-1 text-ui-base">
+        <p className="text-foreground">{card.title}</p>
         {card.sections.map((sec, i) => (
-          <div key={i} className="mt-1" style={{ fontSize: 'var(--ui-sm)', color: 'var(--text-2)' }}>
+          <div key={i} className="mt-1 text-ui-sm text-foreground-subtle">
             {sec.heading && <span className="label">{sec.heading}</span>}
             <p>{sec.body}</p>
-            {sec.code && <pre className="mono mt-1 overflow-x-auto rounded-[9px] p-2" style={{ background: 'var(--bg-code)', fontSize: 'var(--ui-2xs)' }}>{sec.code.content}</pre>}
+            {sec.code && <pre className="mono mt-1 overflow-x-auto rounded-lg bg-surface p-2.5 text-ui-2xs">{sec.code.content}</pre>}
           </div>
         ))}
-      </Shell>
+      </div>
     )
     case 'approval': return <ApprovalCard card={card} />
     case 'question': return <QuestionCard card={card} />
@@ -42,12 +46,10 @@ export const CardView = memo(function CardView({ card }: { card: StructuredCard 
   }
 })
 
-function Shell({ children, tint }: { children: React.ReactNode; tint?: string }) {
+/** ZCode assistant row：无壳直排 + group/assistant-row hover 动作行。 */
+function AssistantShell({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      className="max-w-[720px] rounded-[14px] px-4 py-3"
-      style={{ background: 'var(--bg-elev)', border: `1px solid ${tint ?? 'var(--border)'}` }}
-    >
+    <div className="group/assistant-row w-full text-ui-base">
       {children}
     </div>
   )
@@ -55,14 +57,14 @@ function Shell({ children, tint }: { children: React.ReactNode; tint?: string })
 
 function UserCard({ card }: { card: Extract<StructuredCard, { kind: 'user' }> }) {
   return (
-    <div className="flex">
+    <div className="flex flex-col items-end px-4 py-1">
       <div
-        className="max-w-[85%] rounded-[14px] rounded-tl-[4px] px-4 py-2.5"
-        style={{ background: 'var(--user-bubble)', border: '1px solid var(--bubbleline)' }}
+        className="flex max-w-full flex-col gap-2 rounded-xl rounded-tr-xs border border-border px-4 py-3 text-ui-base text-foreground"
+        style={{ background: 'var(--user-bubble)', maxWidth: 'min(100%, 36rem)' }}
       >
-        <p className="whitespace-pre-wrap" style={{ color: 'var(--user-ink)', fontSize: 'var(--ui-base)' }}>{card.text}</p>
+        <p className="whitespace-pre-wrap">{card.text}</p>
         {card.origin && card.origin !== 'web' && (
-          <p className="mono mt-1" style={{ fontSize: 'var(--ui-2xs)', color: 'var(--text-4)' }}>via {card.origin}</p>
+          <p className="mono mt-1 text-ui-2xs text-foreground-subtlest">via {card.origin}</p>
         )}
       </div>
     </div>
@@ -76,30 +78,29 @@ function AssistantCard({ card }: { card: Extract<StructuredCard, { kind: 'assist
     void navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
   }
   return (
-    <Shell>
+    <AssistantShell>
       <Blocks blocks={card.blocks} />
-      <div className="mt-2 flex items-center gap-3 border-t pt-2" style={{ borderColor: 'var(--border-2)' }}>
-        {card.meta?.model && <span className="mono" style={{ fontSize: 'var(--ui-2xs)', color: 'var(--text-4)' }}>{card.meta.model}</span>}
+      {/* hover 显现动作行（ZCode ConversationAssistantTextActions register） */}
+      <div className="mt-1 flex items-center gap-3 opacity-0 transition-opacity focus-within:opacity-100 group-hover/assistant-row:opacity-100">
+        {card.meta?.model && <span className="mono text-ui-2xs text-foreground-subtlest">{card.meta.model}</span>}
         {typeof card.meta?.cost === 'number' && card.meta.cost > 0 && (
-          <span className="mono" style={{ fontSize: 'var(--ui-2xs)', color: 'var(--text-4)' }}>${card.meta.cost.toFixed(4)}</span>
+          <span className="mono text-ui-2xs text-foreground-subtlest">${card.meta.cost.toFixed(4)}</span>
         )}
-        <button type="button" className="ml-auto" style={{ fontSize: 'var(--ui-2xs)', color: copied ? 'var(--ok)' : 'var(--text-3)' }} onClick={copy}>
-          {copied ? '已复制' : '复制'}
+        <button type="button" className="ml-auto text-ui-2xs text-foreground-subtle transition-colors hover:text-foreground" onClick={copy}>
+          {copied ? <span className="text-success">已复制</span> : '复制'}
         </button>
       </div>
-    </Shell>
+    </AssistantShell>
   )
 }
 
 function ThinkingCard({ showStop }: { showStop: boolean }) {
   return (
-    <Shell>
-      <div className="flex items-center gap-2">
-        <span className="ocrc-pulse-dot size-1.5 rounded-full" style={{ background: 'var(--accent)' }} aria-hidden />
-        <span style={{ fontSize: 'var(--ui-sm)', color: 'var(--text-3)' }}>思考中…</span>
-        {showStop && <StopButton />}
-      </div>
-    </Shell>
+    <div className="flex items-center gap-2 px-4 py-1">
+      <Loader2 className="size-3.5 animate-spin text-foreground-subtle" />
+      <span className="text-ui-sm text-foreground-subtle">思考中…</span>
+      {showStop && <StopButton />}
+    </div>
   )
 }
 
@@ -108,8 +109,7 @@ function StopButton() {
   return (
     <button
       type="button"
-      className="rounded-md px-2 py-0.5"
-      style={{ border: '1px solid var(--border)', color: 'var(--text-3)', fontSize: 'var(--ui-2xs)' }}
+      className="rounded-lg border border-border px-2 py-0.5 text-ui-2xs text-foreground-subtle transition-colors hover:bg-hover hover:text-foreground"
       onClick={() => { if (sessionId) void api.abort(sessionId) }}
     >
       停止
@@ -118,7 +118,7 @@ function StopButton() {
 }
 
 function StreamCaret() {
-  return <span className="ocrc-blink-dot inline-block h-4 w-2" style={{ background: 'var(--accent)' }} aria-hidden />
+  return <span className="ocrc-blink-dot inline-block h-4 w-2 align-middle" style={{ background: 'var(--accent)' }} aria-hidden />
 }
 
 function ApprovalCard({ card }: { card: Extract<StructuredCard, { kind: 'approval' }> }) {
@@ -129,25 +129,25 @@ function ApprovalCard({ card }: { card: Extract<StructuredCard, { kind: 'approva
     void api.approve(card.sessionId, card.requestId, d).catch(() => setDone(null))
   }
   return (
-    <Shell tint="var(--accent-line)">
-      <p style={{ fontSize: 'var(--ui-sm)', color: 'var(--text)' }}>{card.title}</p>
+    <div className="rounded-lg border p-3" style={{ background: 'var(--ask-surface)', borderColor: 'color-mix(in oklab, var(--ask-fg) 25%, transparent)' }}>
+      <p className="text-ui-sm" style={{ color: 'var(--ask-fg)' }}>{card.title}</p>
       {card.args != null && (
-        <pre className="mono mt-2 overflow-x-auto rounded-[9px] p-2" style={{ background: 'var(--bg-code)', fontSize: 'var(--ui-2xs)', color: 'var(--toolout)' }}>
+        <pre className="mono mt-2 overflow-x-auto rounded-lg bg-surface p-2.5 text-ui-2xs text-foreground-subtle">
           {typeof card.args === 'string' ? card.args : JSON.stringify(card.args, null, 2).slice(0, 600)}
         </pre>
       )}
       {done ? (
-        <p className="mt-2" style={{ fontSize: 'var(--ui-xs)', color: 'var(--text-3)' }}>
+        <p className="mt-2 rounded-lg px-2 py-1.5 text-ui-sm" style={{ background: 'var(--confirm-surface)', color: 'var(--confirm-fg)' }}>
           {done === 'reject' ? '已拒绝' : done === 'always' ? '已允许（本会话）' : '已允许（本次）'}
         </p>
       ) : (
         <div className="mt-3 flex gap-2">
-          <DecisionBtn label="仅此一次" onClick={() => decide('once')} />
-          <DecisionBtn label="本会话允许" onClick={() => decide('always')} />
-          <DecisionBtn label="拒绝" danger onClick={() => decide('reject')} />
+          <BtnPrimary label="仅此一次" onClick={() => decide('once')} />
+          <BtnOutline label="本会话允许" onClick={() => decide('always')} />
+          <BtnOutline label="拒绝" danger onClick={() => decide('reject')} />
         </div>
       )}
-    </Shell>
+    </div>
   )
 }
 
@@ -166,35 +166,46 @@ function QuestionCard({ card }: { card: Extract<StructuredCard, { kind: 'questio
     await api.rejectQuestion(card.sessionId, card.requestId).catch(() => setAnswered(null))
   }
   return (
-    <Shell tint="var(--accent-line)">
-      <p style={{ fontSize: 'var(--ui-sm)', color: 'var(--text)' }}>{q.question}</p>
+    <div className="rounded-lg border p-3" style={{ background: 'var(--ask-surface)', borderColor: 'color-mix(in oklab, var(--ask-fg) 25%, transparent)' }}>
+      <p className="text-ui-sm" style={{ color: 'var(--ask-fg)' }}>{q.question}</p>
       {answered ? (
-        <p className="mt-2" style={{ fontSize: 'var(--ui-xs)', color: 'var(--text-3)' }}>
+        <p className="mt-2 rounded-lg px-2 py-1.5 text-ui-sm" style={{ background: 'var(--confirm-surface)', color: 'var(--confirm-fg)' }}>
           {answered.length === 0 ? '已跳过' : `已回答：${answered[0]?.join('、')}`}
         </p>
       ) : (
         <div className="mt-3 flex flex-wrap gap-2">
           {q.options.map((o) => (
-            <DecisionBtn key={o.label} label={o.label} onClick={() => void pick(o.label)} />
+            <BtnOutline key={o.label} label={o.label} onClick={() => void pick(o.label)} />
           ))}
-          <DecisionBtn label="跳过" danger onClick={() => void reject()} />
+          <BtnOutline label="跳过" danger onClick={() => void reject()} />
         </div>
       )}
-    </Shell>
+    </div>
   )
 }
 
-function DecisionBtn({ label, onClick, danger }: { label: string; onClick: () => void; danger?: boolean }) {
+/* zai 按钮族（shadcn Button register：h-8 rounded-lg text-ui-sm font-medium） */
+function BtnPrimary({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button
       type="button"
-      className="rounded-[9px] px-3 py-1.5 transition-colors"
-      style={{
-        fontSize: 'var(--ui-sm)',
-        border: `1px solid ${danger ? 'var(--err)' : 'var(--accent-line)'}`,
-        color: danger ? 'var(--err)' : 'var(--text)',
-        background: 'transparent',
-      }}
+      className="h-8 rounded-lg bg-primary px-3 text-ui-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+      onClick={onClick}
+    >
+      {label}
+    </button>
+  )
+}
+
+function BtnOutline({ label, onClick, danger }: { label: string; onClick: () => void; danger?: boolean }) {
+  return (
+    <button
+      type="button"
+      className={`h-8 rounded-lg border px-3 text-ui-sm font-medium transition-colors ${
+        danger
+          ? 'border-destructive/30 text-destructive hover:bg-destructive/10'
+          : 'border-border text-foreground hover:bg-hover'
+      }`}
       onClick={onClick}
     >
       {label}

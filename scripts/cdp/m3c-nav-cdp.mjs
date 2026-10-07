@@ -21,12 +21,22 @@ await page.waitForTimeout(4500)
 const hist = (await Promise.all(sessions.slice(0, 8).map((s) =>
   page.request.get(`http://127.0.0.1:4099/api/session/${s.id}?limit=200`, { headers: { Authorization: `Bearer ${TOKEN}` } }).then((r) => r.json()).then((j) => ({ id: s.id, title: s.title, users: (j.cards ?? []).slice(-24).filter((c) => c.kind === 'user').length })).catch(() => null)
 ))).filter(Boolean)
-const rich = hist.find((h) => h.users >= 2)
+const rich = hist.filter((h) => h.users >= 2).sort((a, b) => b.users - a.users)[0]
 var target = rich ? rich : sessions[0]
 
-// 0. bring older turns (with user cards) into the window
+// 0. bring older turns (with user cards) into the window — long-tail sessions
+//    can bury early user turns deep, so keep expanding until ≥2 ticks render
 const chip = page.locator('button', { hasText: '加载更早消息' })
-if (await chip.count()) { await chip.click(); await page.waitForTimeout(3500) }
+// expand until ≥2 ticks AND the transcript actually overflows the viewport
+// (a sub-viewport transcript has nowhere to scroll — the jump check needs slack)
+const overflow = () => page.evaluate(() => {
+  const el = [...document.querySelectorAll('main .overflow-y-auto')].find((e) => e.scrollHeight > e.clientHeight + 50)
+  return !!el
+})
+for (let i = 0; i < 5 && ((await page.locator('.turn-tick').count()) < 2 || !(await overflow())) && await chip.count(); i++) {
+  await chip.click()
+  await page.waitForTimeout(3500)
+}
 
 // 1. ticks render, one per user turn in the visible window
 const ticks = await page.locator('.turn-tick').count()
@@ -40,11 +50,15 @@ const spread = Math.max(...tops) - Math.min(...tops)
 check('navigator: ticks spread vertically', spread > 40, `spread ${spread}px`)
 
 // 3. click a top-area tick → scrolls UP toward that turn
-const before = await page.evaluate(() => document.querySelector('main .overflow-y-auto')?.scrollTop ?? 0)
+const scrollerTop = () => page.evaluate(() => {
+  const el = [...document.querySelectorAll('main .overflow-y-auto')].find((e) => e.scrollHeight > e.clientHeight + 50)
+  return el?.scrollTop ?? 0
+})
+const before = await scrollerTop()
 const topTick = page.locator('.turn-tick').first()
 await topTick.click()
 await page.waitForTimeout(900)
-const after = await page.evaluate(() => document.querySelector('main .overflow-y-auto')?.scrollTop ?? 0)
+const after = await scrollerTop()
 check('navigator: click jumps to turn (scrolled up)', after < before, `${before} → ${after}`)
 
 // 4. screenshots

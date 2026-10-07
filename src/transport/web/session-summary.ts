@@ -24,7 +24,7 @@ export async function fetchSessionSummaries(
     }
     for (const s of rows) {
       registry.tag(s.id, id)
-      out.push({ ...s, backendId: id, cost: state.getSessionCost(s.id) ?? s.cost })
+      out.push({ ...s, backendId: id, cost: state.getSessionCost(s.id) ?? s.cost, error: state.isSessionError(s.id) })
     }
   }
   return out

@@ -27,10 +27,15 @@ await page.waitForTimeout(800)
 const curRows = await mapping.locator('.flex.items-center.gap-2.rounded-\\[6px\\]').count()
 check('mapping: current mapping rows (or empty note)', curRows >= 0, `${curRows}`)
 
-// ProjectFilesCard: overview rows for the selected project
+// ProjectFilesCard: overview rows for the selected project (rows render only
+// after the async overview fetch lands — poll for it)
 const files = page.locator('section', { hasText: '项目 .opencode/ 文件' }).first()
 check('files: card present', await files.isVisible())
-const agentsRow = await files.locator('button', { hasText: 'AGENTS.md' }).count()
+let agentsRow = 0
+try {
+  await files.locator('button', { hasText: 'AGENTS.md' }).first().waitFor({ state: 'visible', timeout: 8000 })
+  agentsRow = 1
+} catch { agentsRow = await files.locator('button', { hasText: 'AGENTS.md' }).count() }
 check('files: AGENTS.md row', agentsRow === 1)
 const opencodeRow = await files.locator('button', { hasText: 'opencode.jsonc' }).count()
 check('files: opencode.jsonc row', opencodeRow === 1)

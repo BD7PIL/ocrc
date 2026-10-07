@@ -202,6 +202,15 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
       onStreamDelta: (frame) => streamDeltaSink.broadcast?.(frame),
     })
 
+    // M9 error latch (parity with cli/host.ts): an error card marks the
+    // session failed in the sidebar; the next user card clears it.
+    cardBus.subscribeAll((card) => {
+      if ('sessionId' in card && card.sessionId) {
+        if (card.kind === 'error') state.setSessionError(card.sessionId, true)
+        else if (card.kind === 'user') state.setSessionError(card.sessionId, false)
+      }
+    })
+
     // P2b-M7: cross-channel scheduled prompts. Due schedules dispatch through
     // the same relay as any message; store persists at ~/.ocrc/schedules.json.
     const scheduler = createScheduler({

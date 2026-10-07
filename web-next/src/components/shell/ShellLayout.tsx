@@ -1,7 +1,8 @@
 // components/shell/ShellLayout.tsx — the three-pane shell (ZCode
 // WorkspaceShellLayout register): left rail (resizable, collapses fully away
 // per the ocrc fix#2 ruling — no residual gutter), center column with
-// sub-header, right pane container (tabs arrive in M3).
+// sub-header, right pane container. M9: chrome via ZCode class vocabulary
+// (bg-header / bg-panel / border-border) over the zai token layer.
 import { useRef } from 'react'
 import { Outlet } from 'react-router'
 import { PanelRight, SlidingPanelLeftHandle } from './icons.tsx'
@@ -32,12 +33,11 @@ export function ShellLayout() {
       {/* left rail — kept mounted so collapse animates (translate + negative
           margin, zero residual footprint); pointer-events none while hidden */}
       <aside
-        className="relative h-full shrink-0 overflow-hidden"
+        className="relative h-full shrink-0 overflow-hidden border-r border-border"
         style={{
           width: leftWidth,
           marginLeft: leftPanelOpen ? 0 : -leftWidth,
           transition: 'margin-left var(--dur-2) var(--ease-out)',
-          borderRight: '1px solid var(--border)',
           pointerEvents: leftPanelOpen ? 'auto' : 'none',
         }}
         aria-hidden={!leftPanelOpen}
@@ -59,35 +59,30 @@ export function ShellLayout() {
 
       {/* center column */}
       <main className="flex h-full min-w-0 flex-1 flex-col">
-        <header
-          className="flex h-11 shrink-0 items-center gap-2 border-b px-3"
-          style={{ background: 'var(--bg-panel)', borderColor: 'var(--border)' }}
-        >
+        <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-header px-3">
           {!leftPanelOpen && (
             <button
               type="button"
-              className="rounded-md p-1.5"
-              style={{ color: 'var(--text-3)' }}
+              className="rounded-md p-1.5 text-foreground-subtle transition-colors hover:text-foreground"
               title="展开左栏 (Ctrl+B)"
               onClick={toggleLeftPanel}
             >
               <SlidingPanelLeftHandle />
             </button>
           )}
-          <span className="min-w-0 truncate" style={{ fontSize: 'var(--ui-base)', color: 'var(--text)' }}>
+          <span className="min-w-0 truncate text-ui-base text-foreground">
             {active?.title || 'ocrc'}
           </span>
           {active?.directory && (
-            <span className="mono hidden truncate md:inline" style={{ fontSize: 'var(--ui-2xs)', color: 'var(--text-3)' }}>
+            <span className="mono hidden truncate text-ui-2xs text-foreground-subtle md:inline">
               {active.directory}
             </span>
           )}
           <button
             type="button"
-            className="ml-auto rounded-md p-1.5"
-            style={{ color: inspectorOpen ? 'var(--accent)' : 'var(--text-3)' }}
+            className={`ml-auto rounded-md p-1.5 transition-colors ${inspectorOpen ? 'text-foreground' : 'text-foreground-subtle hover:text-foreground'}`}
             aria-pressed={inspectorOpen}
-            title="右栏面板（M3）"
+            title="右栏面板"
             onClick={toggleInspector}
           >
             <PanelRight />
@@ -101,10 +96,7 @@ export function ShellLayout() {
 
       {/* right pane container — populated by the M3 SidePane tab family */}
       {inspectorOpen && (
-        <aside
-          className="h-full w-[40%] min-w-[320px] shrink-0 border-l"
-          style={{ background: 'var(--bg-panel)', borderColor: 'var(--border)' }}
-        >
+        <aside className="h-full w-[40%] min-w-[320px] shrink-0 border-l border-border bg-panel">
           <SidePane />
         </aside>
       )}

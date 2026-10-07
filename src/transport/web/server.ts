@@ -1,3 +1,4 @@
+import { dirname, join } from 'node:path'
 import { Hono } from 'hono'
 import type { BackendRegistry } from '../../core/agent/registry.js'
 import type { SessionState } from '../../core/state.js'
@@ -36,6 +37,7 @@ import { registerCommands } from './routes/commands.js'
 import { registerRename } from './routes/rename.js'
 import { registerPolicy } from './routes/policy.js'
 import { registerSettings } from './routes/settings.js'
+import { registerSettingsProject } from './routes/settings-project.js'
 import type { Scheduler } from '../../core/scheduler.js'
 import { registerSuggestions } from './routes/suggestions.js'
 import { registerSchedules } from './routes/schedules.js'
@@ -70,6 +72,8 @@ export interface BuildServerOpts {
   /** M5 设置域: dir containing the opencode global config (defaults inside
    *  the settings service to ~/.config/opencode). */
   settingsConfigDir?: string
+  /** M5-2: presets/state dir (defaults inside the route). */
+  statePath?: string
 }
 
 export function buildServer(opts: BuildServerOpts): Hono {
@@ -150,7 +154,9 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerRename(app, reg, opts.state)
   registerPolicy(app, opts.state)
   registerSettings(app, opts.settingsConfigDir)
+  registerSettingsProject(app, dirname(opts.statePath ?? join(process.env.HOME ?? '', '.ocrc', 'state.json')))
   registerSettings(app, opts.settingsConfigDir)
+  registerSettingsProject(app, dirname(opts.statePath ?? join(process.env.HOME ?? '', '.ocrc', 'state.json')))
   registerSuggestions(app, opts.state)
   registerSchedules(app, opts.scheduler)
   registerChannels(app, opts.channels, opts.telegramStatus, opts.telegramMeta)

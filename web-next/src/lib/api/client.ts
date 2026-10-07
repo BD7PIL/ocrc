@@ -1,4 +1,4 @@
-import type { StructuredCard, SessionSummary, ConfigSummary } from './types.js'
+import type { StructuredCard, SessionSummary, ConfigSummary, ProjectOverview } from './types.js'
 import { clearAuthReloadFlag } from '../auth-reload.js'
 import { onUnauthorized } from '../auth.js'
 import { getToken } from '../auth-token.js'
@@ -127,6 +127,18 @@ export const api = {
       return { error: (e as Error).message }
     }
   },
+  getProjectOverview: (dir: string) => jsonGet<ProjectOverview>(`/api/settings/project?dir=${encodeURIComponent(dir)}`),
+  getProjectFile: (dir: string, path: string) =>
+    jsonGet<{ ok: boolean; content: string }>(`/api/settings/project/file?dir=${encodeURIComponent(dir)}&path=${encodeURIComponent(path)}`),
+  putProjectFile: (dir: string, path: string, content: string) =>
+    jsonPut<{ ok: boolean; error?: string }>(`/api/settings/project/file`, { dir, path, content }),
+  getModelPresets: (dir: string) =>
+    jsonGet<{ current: Record<string, string>; presets: Record<string, Record<string, string>> }>(`/api/settings/model-presets?dir=${encodeURIComponent(dir)}`),
+  applyModelPreset: (dir: string, name: string, mapping: Record<string, string>) =>
+    jsonPost<{ ok: boolean; error?: string }>(`/api/settings/model-presets`, { dir, name, mapping }),
+  getProjectMcp: (dir: string) => jsonGet<{ mcp: Record<string, Record<string, unknown>> }>(`/api/settings/project/mcp?dir=${encodeURIComponent(dir)}`),
+  setProjectMcp: (dir: string, id: string, entry: Record<string, unknown> | null) =>
+    jsonPost<{ ok: boolean; error?: string }>(`/api/settings/project/mcp`, { dir, id, entry }),
   getPolicy: (sessionId: string) => jsonGet<{ policy: 'default' | 'edit' | 'yolo' }>(`/api/session/${sessionId}/policy`),
   setPolicy: (sessionId: string, policy: 'default' | 'edit' | 'yolo') =>
     jsonPost<{ ok: boolean; policy: 'default' | 'edit' | 'yolo' }>(`/api/session/${sessionId}/policy`, { policy }),

@@ -5,6 +5,10 @@ import type { IPlatformService, RemoteTarget, ServerRemoteInfo } from '@zcode/sh
 
 export function createWebPlatform(): IPlatformService {
   return {
+    // N5 裁决（2026-10-08 用户拍板）：/z/ 需要侧栏页脚的远程控制/bots 弹层入口，
+    // 但不能整体翻 isDesktop（会带出桌面缩放、窗框、更新器等 web 没有的 UX）。
+    // WorkspaceSidebarFooter 的触发器门控单独读这个能力位——桌面能力仍显式不可用。
+    webRemoteControlAvailable: true,
     canSelectFilePath: false,
     selectDirectory: () => Promise.resolve(null),
     selectFile: () => Promise.resolve(null),

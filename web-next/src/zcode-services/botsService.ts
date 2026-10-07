@@ -102,7 +102,12 @@ export function createOcrcBotsService(): any {
         botRuntime: [],
       }
     },
-    getConfig: async () => ({ version: 3, bots: [] }),
+    // BotsDialog 的列表读 getConfig().bots（不是 listBots）——必须投影同一份
+    // 通道数据，否则弹层永远「还没有配置机器人」。
+    getConfig: async () => {
+      const chans = await channels()
+      return { version: 3, bots: chans.map(toBotConfig).filter((b): b is BotConfig => b !== null) }
+    },
     listBots: async () => {
       const chans = await channels()
       return chans.map(toBotConfig).filter((b): b is BotConfig => b !== null)

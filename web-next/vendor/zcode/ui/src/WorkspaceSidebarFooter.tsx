@@ -371,7 +371,9 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
           </DropdownMenuContent>
         </DropdownMenu>
         <div className="flex shrink-0 items-center gap-1.5">
-          {isDesktop && workspacePath ? (
+          {/* ocrc fork (N5)：web 模式也需要远程控制/bots 弹层入口——platform 能力位
+              webRemoteControlAvailable 由宿主显式声明，不连带桌面缩放等 isDesktop UX。 */}
+          {(isDesktop || (platform as { webRemoteControlAvailable?: boolean }).webRemoteControlAvailable === true) && workspacePath ? (
             <WorkspaceWebRemoteControlTrigger
               workspacePath={workspacePath}
               workspaceIdentity={workspaceIdentity}

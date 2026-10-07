@@ -84,7 +84,7 @@
 - ✅ 自动化主视图（offPeakTaskService → ocrc /api/schedules：list/create/pause/continue/delete 映射；空态忠实）
 - ✅ Bots 数据面（botsService getStatus/getConfig/listBots → ocrc /api/channels 全通道投影：telegram/wechat/lark/dingtalk → provider telegram/weixin/feishu）
 - ✅ Bots 写回全量对齐·服务层（saveBot → PATCH /api/channels/:id：enabled + credentialValue→credentials.token（tg getMe 活校验）+ replyMode→replyGranularity + allowedWorkspaces→workspaces scope；deleteBot→enabled:false；testBot→hasToken+live；getBotStates→[] 防 BotsDialog 的 Promise.all 整体失败）
-- ⬜ Bots UI 面板（BotsDialog）在 /z/ 不可达——唯一入口在侧栏页脚远程控制触发器，被 `isDesktop` 门控（/z/ 平台桩默认 false）；整体翻 isDesktop 会连带桌面窗框/更新器/内嵌浏览器等桌面 UX，属 N5 裁决（候选：只给触发器开白名单，或 ocrc 自建 bot 设置分区）
+- ✅ Bots UI 面板（BotsDialog）已进 /z/（2026-10-08 裁决：保持 UI 效果下最小 vendor 补丁——WorkspaceSidebarFooter 触发器门控改读 platform 能力位 webRemoteControlAvailable（+1 行 + 注释），桌面缩放等 isDesktop UX 不连带）。弹层实证：通道列表（ocrc Telegram/wechat/lark）、BotFather token 保存（→ saveBot → getMe 活校验）、回复颗粒度、工作区范围、删除机器人全部可达；getConfig 已改为与 listBots 同源投影（此前空列表）
 - ✅ 预热草稿跨页回收（/z/ 引导后台清理历史遗留空草稿：默认标题「New session - 」+ 5 分钟不新鲜 + 0 消息三重守卫；改名/有内容/其他标签页新草稿不动。隔离栈实证：3 个陈旧空草稿清掉、带消息会话保留、当页新草稿豁免）
 - 🚫 Bots 注册三件套（feishu/weixin QR 扫码注册、createBindCode、webhook secret）——依赖 ZCode 自有 bot 服务端，ocrc 通道为凭证制（token/appId+appSecret 在 rc.2 面板或 env 配置）；如需 /z/ 内配置入口属产品裁决（「粘贴凭证」降级形态可行）。removeBotSecret 亦暂缺——ocrc PATCH 不能清空 credentials（空对象被路由丢弃），reset 会连通道配置一起重置，过猛
 - ⬜ 远程主机管理（ocrc remotes ↔ ZCode remote workspace——概念映射待 N5 裁决）

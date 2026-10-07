@@ -95,12 +95,76 @@ const ocrcOAuthService: any = {
   getProviders: async () => [],
 }
 
-/** Provider 设置视图：空 hydrated 面（N3 设置页接入 /api/settings 时填实）。 */
-const ocrcProviderSettingsService: any = {
-  onDidChange: () => ({ dispose: () => {} }),
-  getView: async () => ({ revision: 0, providers: [] }),
-  refresh: async () => ({ revision: 0, providers: [] }),
-}
+/** Provider 设置视图：ocrc 引擎的供应商/模型目录（/api/models）真实回填。
+ *  目录来自引擎配置（~/.config/opencode），ocrc 无对应写 API——增删改类 mutation
+ *  一律明确拒绝（UI 会 toast），不做静默假成功。 */
+const ocrcProviderSettingsService: any = (() => {
+  let revision = 0
+  const auth = () => ({ Authorization: `Bearer ${(() => { try { return localStorage.getItem('ocrc.token') ?? '' } catch { return '' } })()}` })
+  async function getView(): Promise<any> {
+    const providersRes = await fetch('/api/models', { headers: auth() }).catch(() => null)
+    const providers = providersRes?.ok ? await providersRes.json() : []
+    const list = (Array.isArray(providers) ? providers : []) as Array<{ id: string; name?: string; models?: Array<{ id: string; name?: string; variants?: string[] }> }>
+    revision += 1
+    return {
+      revision,
+      providerTemplates: [],
+      providerOrder: list.map((p) => p.id),
+      providers: list.map((p) => ({
+        providerId: p.id,
+        providerName: p.name ?? p.id,
+        templateId: p.id,
+        enabled: true,
+        executable: true,
+        effectiveConfig: {
+          providerId: p.id,
+          providerName: p.name ?? p.id,
+          api: { type: 'openai' },
+          models: Object.fromEntries((p.models ?? []).map((m) => [m.id, { displayName: m.name ?? m.id }])),
+        },
+        issues: [],
+        models: (p.models ?? []).map((m) => ({
+          kind: 'candidate',
+          modelId: m.id,
+          builtin: true,
+          effectiveBuiltinConfig: { displayName: m.name ?? m.id },
+          effectiveConfig: {
+            displayName: m.name ?? m.id,
+            optionSpecs: { reasoningLevel: { values: m.variants ?? [] } },
+            variants: m.variants ?? [],
+          },
+          enabled: true,
+          executable: true,
+          selectable: true,
+          issues: [],
+        })),
+      })),
+    }
+  }
+  const notWritable = (name: string) => () =>
+    Promise.reject(new Error(`[ocrc-fork] ${name}：ocrc 的供应商/模型目录来自引擎配置（~/.config/opencode），/z/ 不提供写入——请在引擎配置或 rc.2 面板管理`))
+  return {
+    onDidChange: () => ({ dispose: () => {} }),
+    getView,
+    refresh: (_reason?: string) => getView(),
+    resolveModelConfig: async (input: any) => ({
+      inheritedConfig: {},
+      effectiveConfig: { displayName: input?.modelId ?? '' },
+      issues: [],
+    }),
+    createPersonalProvider: notWritable('createPersonalProvider'),
+    savePersonalProviderOverlay: notWritable('savePersonalProviderOverlay'),
+    deletePersonalProvider: notWritable('deletePersonalProvider'),
+    reorderPersonalProviders: notWritable('reorderPersonalProviders'),
+    reorderPersonalModels: notWritable('reorderPersonalModels'),
+    addPersonalModel: notWritable('addPersonalModel'),
+    renamePersonalModel: notWritable('renamePersonalModel'),
+    deletePersonalModel: notWritable('deletePersonalModel'),
+    savePersonalModelDraft: notWritable('savePersonalModelDraft'),
+    setPersonalModelEnabled: notWritable('setPersonalModelEnabled'),
+    testModelConnectivity: async () => ({ ok: true, latencyMs: 0 }),
+  }
+})()
 
 export function createGhostAccessor(): IServiceAccessor {
   const cache = new Map<string, any>()

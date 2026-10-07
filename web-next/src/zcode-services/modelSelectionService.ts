@@ -64,6 +64,10 @@ export function createOcrcModelSelectionService(): IModelSelectionService {
           config: {
             providerId: p.id,
             providerName: p.name ?? p.id,
+            // composer 下拉的 supportsRegistryApiFormat 门要求 api.type 非空，
+            // 否则该 provider 的全部模型被过滤（用户看到空下拉只剩「管理模型」）。
+            // ocrc 的引擎模型全是 OpenAI 兼容面，占位 openai 即可通过门禁。
+            api: { type: 'openai' },
             models: Object.fromEntries((p.models ?? []).map((m) => [m.id, { displayName: m.name ?? m.id }])),
           } as any,
           models: (p.models ?? []).map((m) => ({

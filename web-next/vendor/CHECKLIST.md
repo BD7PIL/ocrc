@@ -46,6 +46,7 @@
 - ✅ 发送按钮
 - ✅ **sendPrompt 端到端**（composer → sendConversationCommandV4 → /api/message → 引擎回复落盘；流式增量上屏为后续增量映射项）
 - ✅ 模型门禁放行（modelSelection view 带 optionSpecs/effectiveSelection；readSession/快照 config 填真实 current 模型）
+- ✅ **模型配置打通**（2026-10-08 验收反馈修复）：①composer 模型下拉此前为空（只剩「管理模型」）——根因是 provider config 缺 api.type，被 supportsRegistryApiFormat 门整体过滤；现在 /z/ 的 provider 目录统一补 api:{type:"openai"} 占位（引擎模型全是 OpenAI 兼容面），12 个 provider 组 + 全部模型项正常列出、选中即 radix radio 生效。②设置→模型设置页此前空白（providerSettingsService 返回空 providers）——现以 ocrc 引擎目录真实回填（ProviderSettingsView 全形），供应商卡片/模型清单可见；增删改类 mutation 明确拒绝（目录属引擎配置 ~/.config/opencode，/z/ 不提供写入），不做假成功
 - ⬜ 停止生成（stopGeneration → /api/abort）
 - ⬜ @ 上下文选择（fileService 文件枚举）
 - ⬜ / 斜杠命令面板（commandsService）

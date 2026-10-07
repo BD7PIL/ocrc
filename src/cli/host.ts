@@ -29,6 +29,7 @@ import type { OcEvent } from '../core/opencode-events.js'
 // (AgentEvent wiring now lives in host-backends.ts)
 import { createTelegramTransport } from '../transport/telegram/index.js'
 import { createWebTransport } from '../transport/web/index.js'
+import { createOffPeakManager } from '../core/offpeak.js'
 import { selectAuthStrategy } from '../connectivity/auth/select.js'
 import type { Transport } from '../transport/interface.js'
 import { createLogger } from '../utils/logger.js'
@@ -175,6 +176,38 @@ export async function main(): Promise<void> {
     },
   })
   scheduler.start()
+  // N5 裁决③：闲时任务 = ZCode off-peak 取号语义（一次性工单，非 cron）。
+  // 派发复用 registry 建会话 + relay 发消息；模型选择经 state.setNextModel 在
+  // 派发前应到引擎（单并发 FIFO 下安全）；完成检测用 state 会话忙碌位。
+  const offpeakWindow = (() => {
+    const raw = process.env.OCRC_OFFPEAK_WINDOW ?? '00:00-08:00'
+    const m = /^([01]\d|2[0-3]):([0-5]\d)-([01]\d|2[0-3]):([0-5]\d)$/.exec(raw.trim())
+    return m ? { start: `${m[1]}:${m[2]}`, end: `${m[3]}:${m[4]}` } : { start: '00:00', end: '08:00' }
+  })()
+  const offpeak = createOffPeakManager({
+    path: join(dataDir, 'offpeak.json'),
+    window: offpeakWindow,
+    createSession: async (directory, title) => {
+      const backend = registry.active()
+      const { id } = await backend.createSession({ directory: directory ?? '', title })
+      registry.tag(id, backend.id)
+      return id
+    },
+    sendMessage: async (sessionId, text) => {
+      await relay({
+        userId: 'offpeak',
+        chatId: 'offpeak',
+        text,
+        messageId: `offpeak_${Date.now()}`,
+        sessionId,
+        origin: 'scheduler',
+      })
+    },
+    applyModelSelection: (m) => state.setNextModel(m),
+    applyApprovalPolicy: (sessionId, policy) => state.setSessionApprovalPolicy(sessionId, policy),
+    isSessionBusy: (id) => state.hasActiveGeneration(id) || state.isSessionBusy(id),
+  })
+  offpeak.start()
   const channels = createChannelsStore(join(dataDir, 'channels.json'))
   const pairing = createPairingStore(() => loadOrCreateToken({ token: config.webToken }))
 
@@ -260,6 +293,8 @@ export async function main(): Promise<void> {
       channels,
       pairing,
       remotes: remotesStore,
+      offpeak,
+      offpeakWindow,
       remoteManager,
       onRemoteEnabled: (r) => wireHandle.registerRemoteBackend(r),
       settingsConfigDir: process.env.OPENCODE_CONFIG_DIR ?? join(process.env.HOME ?? '', '.config', 'opencode'),

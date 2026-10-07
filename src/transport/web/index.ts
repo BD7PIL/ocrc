@@ -50,6 +50,9 @@ export interface WebTransportConfig {
   statePath?: string
   /** M6 分享: snapshot store (public GET + authed create). */
   shares?: import('../../core/shares.js').SharesStore
+  /** N5: off-peak 一次性工单管理器（ZCode off-peak 语义，非 cron）。 */
+  offpeak?: import('../../core/offpeak.js').OffPeakManager
+  offpeakWindow?: import('../../core/offpeak.js').OffPeakWindow
 }
 
 const CAPS: ChannelCapabilities = {
@@ -88,6 +91,8 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         settingsConfigDir: cfg.settingsConfigDir,
         statePath: cfg.statePath,
         shares: cfg.shares,
+        offpeak: cfg.offpeak,
+        offpeakWindow: cfg.offpeakWindow,
       })
 
       // Immutable hashed assets cache forever; everything else (above all

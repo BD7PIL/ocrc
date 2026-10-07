@@ -31,6 +31,7 @@ import { registerLogs } from './routes/logs.js'
 import { registerMcp } from './routes/mcp.js'
 import { registerCatalog } from './routes/catalog.js'
 import { registerOverrides } from './routes/overrides.js'
+import { registerOffPeak } from './routes/offpeak.js'
 import { registerWorkspaces } from './routes/workspaces.js'
 import { registerCreateSession } from './routes/create-session.js'
 import { registerCommands } from './routes/commands.js'
@@ -52,6 +53,8 @@ import type { PairingStore } from '../../connectivity/pairing.js'
 
 export interface BuildServerOpts {
   auth: AuthStrategy
+  offpeak?: import('../../core/offpeak.js').OffPeakManager
+  offpeakWindow?: import('../../core/offpeak.js').OffPeakWindow
   registry: BackendRegistry
   state: SessionState
   cardBus: CardBus
@@ -153,6 +156,7 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerMcp(app, reg)
   registerCatalog(app, reg)
   registerOverrides(app, opts.state)
+  if (opts.offpeak) registerOffPeak(app, opts.offpeak, opts.offpeakWindow ?? { start: '00:00', end: '08:00' })
   registerWorkspaces(app, reg)
   registerCreateSession(app, reg)
   registerCommands(app, reg, opts.state)

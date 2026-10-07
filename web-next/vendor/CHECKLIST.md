@@ -88,7 +88,7 @@
 - ✅ 预热草稿跨页回收（/z/ 引导后台清理历史遗留空草稿：默认标题「New session - 」+ 5 分钟不新鲜 + 0 消息三重守卫；改名/有内容/其他标签页新草稿不动。隔离栈实证：3 个陈旧空草稿清掉、带消息会话保留、当页新草稿豁免）
 - 🚫 Bots 注册三件套（feishu/weixin QR 扫码注册、createBindCode、webhook secret）——依赖 ZCode 自有 bot 服务端，ocrc 通道为凭证制（token/appId+appSecret 在 rc.2 面板或 env 配置）；如需 /z/ 内配置入口属产品裁决（「粘贴凭证」降级形态可行）。removeBotSecret 亦暂缺——ocrc PATCH 不能清空 credentials（空对象被路由丢弃），reset 会连通道配置一起重置，过猛
 - ⬜ 远程主机管理（ocrc remotes ↔ ZCode remote workspace——概念映射待 N5 裁决）
-- 🔶 定时任务创建表单字段核查结论（2026-10-08）：vendor ZCodeOffPeakTaskCreateParams = {title, prompt, permissionMode, modelSelection, workspacePath, boundSessionId?}，ocrc scheduler 仅支持 {name, prompt, spec: every|daily, enabled}。**已映射**：title→name、prompt→prompt、enabled。**无对应**（静默丢弃，不误写）：permissionMode/modelSelection（ocrc 定时派发走 host 默认模型）、workspacePath/boundSessionId（ocrc 无 per-schedule 工作区/会话绑定）。**语义差异（裁决项）**：ZCode off-peak 是「取号排队」一次性票态（queued/ready/active/expired/settled），ocrc schedules 是周期性 cron 提示（every/daily）——UI 票态语义与 ocrc 周期执行根本不同。如需对齐须先裁决：ocrc scheduler 增加 directory/model/mode 字段 + 派发语义改造（backend 功能项），或 /z/ 侧明确呈现为「周期任务」独立概念
+- ✅ 定时任务重做为 off-peak 取号语义（2026-10-08 裁决③：用户拍板「本来就不是 cron」）。新 ocrc 后端 `core/offpeak.ts`：一次性工单 queued→running→completed/failed（FIFO 单并发、低峰窗口 OCRC_OFFPEAK_WINDOW 默认 00:00-08:00、createSession+relay 派发、模型经 setNextModel 派发前应到引擎、permissionMode→审批策略 edit/yolo、完成检测用会话忙碌位）+ /api/offpeak CRUD。/z/ service 重接后状态机同形：实证「offpeak e2e probe」创建→派发新会话→引擎回复→已完成，闲时任务页全部分类/进行中/已完成/失败正常渲染。cron scheduler（TG 面板在用）未动，退役另行裁决
 
 ## 10. 分享与周边
 - ✅ 分享落地页路由（ShareLanding 已有独立实现）

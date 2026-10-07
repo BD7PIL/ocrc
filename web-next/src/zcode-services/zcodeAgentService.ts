@@ -4,6 +4,8 @@
 // onDynamicConversationFrame 的监听器同步下发一次 —— ConversationTimeline 的
 // assembler/decoder 由此渲染真实消息。发链（sendPrompt）在 zcodeTaskService。
 
+import { conversationTopicFrameSchema } from '@zcode/shared/zcode-protocol-v4/transport'
+
 const V4_WIRE_PROTOCOL_VERSION = 3 as const
 
 function uuid(): string {
@@ -48,9 +50,10 @@ function buildRows(cards: OcrcCard[]): any[] {
   for (const c of cards) {
     if (c.kind === 'user') {
       turn += 1
-      rows.push({ ...base(), kind: 'turnHeader', origin: 'userInput' })
+      const now = c.ts ?? Date.now()
+      rows.push({ ...base(), kind: 'turnHeader', origin: 'userInput', state: 'completedSuccess', startedAt: now })
       rowId += 1
-      rows.push({ ...base(), kind: 'userInput', text: c.text ?? '' })
+      rows.push({ ...base(), kind: 'userInput', origin: 'realUser', text: c.text ?? '' })
       rowId += 1
     } else if (c.kind === 'assistant' && c.blocks) {
       for (const b of c.blocks) {
@@ -77,17 +80,19 @@ function buildRows(cards: OcrcCard[]): any[] {
   return rows
 }
 
-// ── 通知通道：per-frame 监听器注册表 ──
+// ── 通知通道：per-frame 监听器注册表 + 订阅登记（resync 回显同一 subscriptionId）──
 const frameListeners = new Set<(frame: any) => void>()
+const subscriptions = new Map<string, { sessionId: string; topic: string }>()
+const lastSeqBySub = new Map<string, number>()
 
-async function emitConversationSnapshot(taskId: string, topic: string, subscriptionId: string): Promise<void> {
+async function emitConversationSnapshot(taskId: string, topic: string, subscriptionId: string, deliveryKind: 'initial' | 'recovery' | 'online', fromSeq = 0): Promise<void> {
   const cards = await ocrcHistory(taskId)
   const rows = buildRows(cards)
-  const seq = rows.length
+  const seq = fromSeq + rows.length
   const frame = {
     topic,
     subscriptionId,
-    fromSeq: 0,
+    fromSeq,
     toSeq: seq,
     sentAt: Date.now(),
     payload: {
@@ -144,31 +149,59 @@ async function emitConversationSnapshot(taskId: string, topic: string, subscript
     }
     return
   }
+  const check = conversationTopicFrameSchema.safeParse(frame)
+  if (!check.success) {
+    console.info('[ocrc-trace] frame zod FAIL:', JSON.stringify(check.error.issues.slice(0, 6).map((i) => ({ path: i.path.join('.'), msg: i.message }))))
+    return
+  }
+  // onDynamicConversationFrame 下发的是 wire candidate 信封（deliveryKind 是
+  // publisher 权威标记；store 的 awaitingInitial 只被 initial 帧消费）
+  const wire = {
+    wireVersion: 3,
+    kind: 'complete' as const,
+    deliveryKind,
+    logicalFrameId: uuid(),
+    logicalFrameOrdinal: 1,
+    topic,
+    subscriptionId,
+    frame: check.data,
+  }
+  console.info('[ocrc-trace] wire candidate OK (' + deliveryKind + '), delivering to', frameListeners.size, 'listeners')
+  lastSeqBySub.set(subscriptionId, seq)
   for (const l of frameListeners) {
-    try { l(frame) } catch (e) { console.info('[ocrc-trace] listener threw', String(e).slice(0, 200)) }
+    try { l(wire) } catch (e) { console.info('[ocrc-trace] listener threw', String(e).slice(0, 200)) }
   }
 }
 
 export function createOcrcZcodeAgentService(): any {
   const impl: Record<string, unknown> = {
     // ── v4 conversation 订阅三件套 + ACK 后异步下发初始 snapshot 通知 ──
-    async subscribeConversationV4(params: { topic?: string; sessionId?: string }) {
+    async subscribeConversationV4(params: { sessionId?: string; workspacePath?: string }) {
       const ack = {
         subscriptionId: `ocrc-sub-${uuid()}`,
         mode: 'snapshot',
         logEpoch: 'ocrc-1',
       }
-      const topic = params?.topic
-      const sessionId = params?.sessionId ?? topic?.split('/')?.pop()
-      console.info('[ocrc-trace] subscribeConversationV4 topic =', topic, 'sessionId =', sessionId)
+      // transport 不传 topic——topic 由会话侧构造：conversation/<sessionId>
+      const sessionId = params?.sessionId
+      const topic = sessionId ? `conversation/${sessionId}` : undefined
+      console.info('[ocrc-trace] subscribeConversationV4 sessionId =', sessionId, 'topic =', topic)
       if (topic && sessionId) {
+        subscriptions.set(ack.subscriptionId, { sessionId, topic })
         // post-response owned notification：ACK 先回，snapshot 异步补发
-        void emitConversationSnapshot(sessionId, topic, ack.subscriptionId)
+        void emitConversationSnapshot(sessionId, topic, ack.subscriptionId, 'initial', 0)
       }
       return { ack }
     },
-    async resyncConversationV4() {
-      return { ack: { subscriptionId: `ocrc-sub-${uuid()}`, mode: 'snapshot', logEpoch: 'ocrc-1' } }
+    // 恢复流程要求回显同一 subscriptionId（世代一致性），并对 forceSnapshot
+    // 重发一帧全新 snapshot（订阅登记里存有 sessionId/topic 映射）
+    async resyncConversationV4(params: { subscriptionId?: string; forceSnapshot?: boolean }) {
+      const subId = params?.subscriptionId
+      const sub = subId ? subscriptions.get(subId) : undefined
+      console.info('[ocrc-trace] resyncConversationV4 subId =', subId, 'sub =', Boolean(sub))
+      // 续接已应用水位：fromSeq 必须等于 store 当前 seq，否则间隙规则整帧丢弃
+      if (sub && subId) void emitConversationSnapshot(sub.sessionId, sub.topic, subId, 'recovery', lastSeqBySub.get(subId) ?? 0)
+      return { ack: { subscriptionId: subId ?? `ocrc-sub-${uuid()}`, mode: 'snapshot', logEpoch: 'ocrc-1' } }
     },
     async unsubscribeConversationV4() {
       return undefined

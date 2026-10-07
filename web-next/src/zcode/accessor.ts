@@ -13,6 +13,7 @@ import { createOcrcTaskService } from '../zcode-services/zcodeTaskService.js'
 import { createOcrcModelSelectionService } from '../zcode-services/modelSelectionService.js'
 import { createOcrcFileService } from '../zcode-services/fileService.js'
 import { createOcrcZcodeAgentService } from '../zcode-services/zcodeAgentService.js'
+import { createOcrcZcodeSessionService } from '../zcode-services/zcodeSessionService.js'
 
 const SUBSCRIBE_RE = /^(on[A-Z_]|onMessage|subscribe|add|listen|watch)/
 
@@ -108,6 +109,7 @@ export function createGhostAccessor(): IServiceAccessor {
     providerSettingsService: ocrcProviderSettingsService,
     fileService: createOcrcFileService(),
     zcodeAgentService: createOcrcZcodeAgentService(),
+    zcodeSessionService: createOcrcZcodeSessionService(),
     zcodeTaskService: createOcrcTaskService(),
   }
   return new Proxy(

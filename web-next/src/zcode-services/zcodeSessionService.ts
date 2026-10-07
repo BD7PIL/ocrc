@@ -124,7 +124,22 @@ export function createOcrcZcodeSessionService(): any {
       }))
     },
     readSession: async (params: { sessionId: string; workspacePath?: string }) => {
-      const [cards, sessions] = await Promise.all([ocrcHistory(params.sessionId), ocrcSessions()])
+      const [cards, sessions, overrides, models] = await Promise.all([
+        ocrcHistory(params.sessionId),
+        ocrcSessions(),
+        fetch('/api/overrides', { headers: { Authorization: `Bearer ${token()}` } })
+          .then((r) => r.json() as Promise<{ model?: { providerID: string; modelID: string } | null }>)
+          .catch(() => ({ model: null as { providerID: string; modelID: string } | null })),
+        fetch('/api/models', { headers: { Authorization: `Bearer ${token()}` } })
+          .then((r) => r.json() as Promise<Array<{ id: string; models: Array<{ id: string }> }>>)
+          .catch(() => [] as Array<{ id: string; models: Array<{ id: string }> }>),
+      ])
+      // overrides 为空时回退首选 provider 首个模型——composer 发送门禁吃
+      // settings.model.current，undefined = 发送按钮永久禁用。
+      const currentModel = overrides.model ?? (() => {
+        const p = models.find((x) => (x.models ?? []).length > 0)
+        return p ? { providerID: p.id, modelID: p.models[0].id } : undefined
+      })()
       const s = findSession(params.sessionId, sessions)
       const ws = workspaceOf(s)
       const messages = cardsToMessages(params.sessionId, cards)
@@ -142,7 +157,7 @@ export function createOcrcZcodeSessionService(): any {
           updatedAt: s?.lastActiveAt ?? Date.now(),
         },
         settings: {
-          model: { current: undefined, available: [], lastUsed: undefined },
+          model: { current: currentModel, available: [], lastUsed: currentModel },
           thoughtLevel: { enabled: false, available: [] },
           mode: { current: 'build' },
         },

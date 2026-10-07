@@ -86,7 +86,17 @@ const subscriptions = new Map<string, { sessionId: string; topic: string }>()
 const lastSeqBySub = new Map<string, number>()
 
 async function emitConversationSnapshot(taskId: string, topic: string, subscriptionId: string, deliveryKind: 'initial' | 'recovery' | 'online', fromSeq = 0): Promise<void> {
-  const cards = await ocrcHistory(taskId)
+  const [cards, providers, overrides] = await Promise.all([
+    ocrcHistory(taskId),
+    fetch('/api/models', { headers: { Authorization: `Bearer ${token()}` } })
+      .then((r) => r.json() as Promise<Array<{ id: string; models: Array<{ id: string; name?: string }> }>>)
+      .catch(() => [] as Array<{ id: string; models: Array<{ id: string; name?: string }> }>),
+    fetch('/api/overrides', { headers: { Authorization: `Bearer ${token()}` } })
+      .then((r) => r.json() as Promise<{ model?: { providerID: string; modelID: string } | null }>)
+      .catch(() => ({ model: null as { providerID: string; modelID: string } | null })),
+  ])
+  const curProvider = overrides.model?.providerID ?? providers.find((p) => (p.models ?? []).length > 0)?.id ?? ''
+  const curModel = overrides.model?.modelID ?? providers.find((p) => p.id === curProvider)?.models?.[0]?.id ?? ''
   const rows = buildRows(cards)
   const seq = fromSeq + rows.length
   const frame = {
@@ -124,7 +134,7 @@ async function emitConversationSnapshot(taskId: string, topic: string, subscript
           resumeGoal: { allowed: true },
         },
         inputRouting: { mode: 'startNow' },
-        config: { provider: '', model: '', thought: '', thoughtLevels: [], followupMode: 'queue' },
+        config: { provider: curProvider, model: curModel, thought: '', thoughtLevels: [], followupMode: 'queue' },
         usage: { contextWindow: null, cumulative: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } },
         queue: { items: [], autoDrain: true },
         pendingInteractions: [],
@@ -230,6 +240,83 @@ export function createOcrcZcodeAgentService(): any {
           workflowRunDeltas: false,
         },
         auth: {},
+      }
+    },
+    // v4 命令上行：sendText → ocrc /api/message；createSession → /api/create-session。
+    // ACK 立即回 accepted（引擎执行异步推进，delta 由流通道下发）。
+    async sendConversationCommandV4(params: { envelope: { commandId: string; type: string; sessionId?: string | null; payload: Record<string, unknown> } }) {
+      const { envelope } = params
+      const sessionId = envelope.sessionId ?? undefined
+      if (envelope.type === 'sendText') {
+        const text = String((envelope.payload as { text?: string }).text ?? '')
+        if (!sessionId) throw new Error('[ocrc-fork] sendText 缺 sessionId')
+        const res = await fetch('/api/message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+          body: JSON.stringify({ sessionId, text, clientId: envelope.commandId }),
+        })
+        if (!res.ok) {
+          return {
+            commandId: envelope.commandId,
+            status: 'failed',
+            reasonCode: 'ocrc_send_failed',
+            message: `POST /api/message ${res.status}`,
+            revisionAtDecision: 0,
+          }
+        }
+        return {
+          commandId: envelope.commandId,
+          status: 'accepted',
+          revisionAtDecision: 0,
+        }
+      }
+      if (envelope.type === 'createSession') {
+        const directory = (params as { workspacePath?: string }).workspacePath ?? '/home/demo/develop/opencode-plugin/ocrc'
+        const res = await fetch('/api/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+          body: JSON.stringify({ directory }),
+        })
+        if (!res.ok) {
+          return {
+            commandId: envelope.commandId,
+            status: 'failed',
+            reasonCode: 'ocrc_create_failed',
+            message: `POST /api/create-session ${res.status}`,
+            revisionAtDecision: 0,
+          }
+        }
+        const created = (await res.json()) as { id: string }
+        // firstInput.text = 草稿首条消息（createSession 携带 → turnHeader+userInput rows）
+        const firstText = String((envelope.payload as { firstInput?: { text?: string } }).firstInput?.text ?? '')
+        if (firstText) {
+          const mres = await fetch('/api/message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+            body: JSON.stringify({ sessionId: created.id, text: firstText, clientId: envelope.commandId }),
+          })
+          if (!mres.ok) {
+            return {
+              commandId: envelope.commandId,
+              status: 'failed',
+              reasonCode: 'ocrc_send_failed',
+              message: `POST /api/message ${mres.status}`,
+              revisionAtDecision: 0,
+            }
+          }
+        }
+        return {
+          commandId: envelope.commandId,
+          status: 'accepted',
+          revisionAtDecision: 0,
+          result: { type: 'createSession', sessionId: created.id },
+        }
+      }
+      return {
+        commandId: envelope.commandId,
+        status: 'rejected',
+        reasonCode: `ocrc_unwired_${envelope.type}`,
+        revisionAtDecision: 0,
       }
     },
     async initializeConversationV4(_rawClientHello: unknown) {

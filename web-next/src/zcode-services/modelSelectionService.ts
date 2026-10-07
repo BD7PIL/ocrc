@@ -40,8 +40,15 @@ export function createOcrcModelSelectionService(): IModelSelectionService {
       ])
       const list = providers ?? []
       revision += 1
+      // overrides 未设置时默认首选 provider 的首个模型——否则 composer 判定
+      // 「无可用模型」禁用发送（preferredSelection 是 effective 选择的来源）。
+      const firstWithModels = list.find((p) => (p.models ?? []).length > 0)
+      const preferred = overrides?.model ?? (firstWithModels
+        ? { providerID: firstWithModels.id, modelID: firstWithModels.models[0].id }
+        : undefined)
       return {
         revision,
+        preferredSelection: preferred,
         providers: list.map((p) => ({
           providerId: p.id,
           providerName: p.name ?? p.id,
@@ -59,9 +66,6 @@ export function createOcrcModelSelectionService(): IModelSelectionService {
             } as any,
           })),
         })),
-        preferredSelection: overrides?.model
-          ? { providerID: overrides.model.providerID, modelID: overrides.model.modelID }
-          : undefined,
       } as unknown as ModelSelectionView
     },
   } as unknown as IModelSelectionService

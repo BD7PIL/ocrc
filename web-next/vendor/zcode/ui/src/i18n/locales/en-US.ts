@@ -6346,6 +6346,7 @@ const enUS: Record<string, string> = {
   "taskGroup.cronGroupName": "Scheduled tasks",
   "workspace.openScheduledSettings": "Automations",
   "settings.automations.title": "Automations",
+  "settings.remotes.title": "Remote Hosts",
   "automations.breadcrumbLabel": "Automation path",
   "settings.automations.betaBadge": "Beta",
   "automations.noWorkspace": "Open a workspace to manage its scheduled tasks.",

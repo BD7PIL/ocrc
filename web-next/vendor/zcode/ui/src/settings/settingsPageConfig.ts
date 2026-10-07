@@ -11,6 +11,7 @@ import {
   BarChart3,
   Terminal,
   AlarmClock,
+  Globe,
   Anchor,
   Brain,
   Blocks,
@@ -115,6 +116,12 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     icon: AlarmClock,
     titleId: "settings.automations.title",
     titleBadgeId: "settings.automations.betaBadge",
+    groupId: "agentCapabilities",
+  },
+  {
+    id: "remotes",
+    icon: Globe,
+    titleId: "settings.remotes.title",
     groupId: "agentCapabilities",
   },
   {

@@ -6055,6 +6055,7 @@ const zhCN: Record<string, string> = {
   // Automations 同时包含定时任务和闲时任务，顶层入口不能误用其中一个子类型的名称。
   "workspace.openScheduledSettings": "自动化",
   "settings.automations.title": "自动化",
+  "settings.remotes.title": "远程主机",
   "automations.breadcrumbLabel": "自动化路径",
   "settings.automations.betaBadge": "Beta",
   "automations.noWorkspace": "打开一个工作区以管理它的定时任务。",

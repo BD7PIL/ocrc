@@ -87,7 +87,7 @@
 - ✅ Bots UI 面板（BotsDialog）已进 /z/（2026-10-08 裁决：保持 UI 效果下最小 vendor 补丁——WorkspaceSidebarFooter 触发器门控改读 platform 能力位 webRemoteControlAvailable（+1 行 + 注释），桌面缩放等 isDesktop UX 不连带）。弹层实证：通道列表（ocrc Telegram/wechat/lark）、BotFather token 保存（→ saveBot → getMe 活校验）、回复颗粒度、工作区范围、删除机器人全部可达；getConfig 已改为与 listBots 同源投影（此前空列表）
 - ✅ 预热草稿跨页回收（/z/ 引导后台清理历史遗留空草稿：默认标题「New session - 」+ 5 分钟不新鲜 + 0 消息三重守卫；改名/有内容/其他标签页新草稿不动。隔离栈实证：3 个陈旧空草稿清掉、带消息会话保留、当页新草稿豁免）
 - 🚫 Bots 注册三件套（feishu/weixin QR 扫码注册、createBindCode、webhook secret）——依赖 ZCode 自有 bot 服务端，ocrc 通道为凭证制（token/appId+appSecret 在 rc.2 面板或 env 配置）；如需 /z/ 内配置入口属产品裁决（「粘贴凭证」降级形态可行）。removeBotSecret 亦暂缺——ocrc PATCH 不能清空 credentials（空对象被路由丢弃），reset 会连通道配置一起重置，过猛
-- ⬜ 远程主机管理（ocrc remotes ↔ ZCode remote workspace——概念映射待 N5 裁决）
+- ✅ 远程主机管理（2026-10-08 裁决②：本期做映射，方向为 ocrc 语义原生进 /z/——ZCode 的桌面 SSH-connectRemote 语义浏览器客户端做不了，ocrc 的 host 侧隧道 + 远端引擎注册才是正确模型）。设置页新增「远程主机」分区（vendor 新增 RemotesSection + settingsNavigation/config/i18n 四点接线）：列表/状态（隧道本地端口）/启停（PATCH live 生效）/SSH 探测/删除/新增，全走 ocrc /api/remotes。启用远端后会话自动并入任务列表，/z/ 侧栏即见、流式同源
 - ✅ 定时任务重做为 off-peak 取号语义（2026-10-08 裁决③：用户拍板「本来就不是 cron」）。新 ocrc 后端 `core/offpeak.ts`：一次性工单 queued→running→completed/failed（FIFO 单并发、低峰窗口 OCRC_OFFPEAK_WINDOW 默认 00:00-08:00、createSession+relay 派发、模型经 setNextModel 派发前应到引擎、permissionMode→审批策略 edit/yolo、完成检测用会话忙碌位）+ /api/offpeak CRUD。/z/ service 重接后状态机同形：实证「offpeak e2e probe」创建→派发新会话→引擎回复→已完成，闲时任务页全部分类/进行中/已完成/失败正常渲染。cron scheduler（TG 面板在用）未动，退役另行裁决
 
 ## 10. 分享与周边

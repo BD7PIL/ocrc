@@ -131,14 +131,17 @@ export function createOcrcZcodeSessionService(): any {
           .then((r) => r.json() as Promise<{ model?: { providerID: string; modelID: string } | null }>)
           .catch(() => ({ model: null as { providerID: string; modelID: string } | null })),
         fetch('/api/models', { headers: { Authorization: `Bearer ${token()}` } })
-          .then((r) => r.json() as Promise<Array<{ id: string; models: Array<{ id: string }> }>>)
-          .catch(() => [] as Array<{ id: string; models: Array<{ id: string }> }>),
+          .then((r) => r.json() as Promise<Array<{ id: string; models: Array<{ id: string; variants?: string[] }> }>>)
+          .catch(() => [] as Array<{ id: string; models: Array<{ id: string; variants?: string[] }> }>),
       ])
       // overrides 为空时回退首选 provider 首个模型——composer 发送门禁吃
-      // settings.model.current，undefined = 发送按钮永久禁用。
+      // settings.model.current，undefined = 发送按钮永久禁用。options 带
+      // 首个档位（校验要求 reasoningLevel 存在且在 values 内）。
       const currentModel = overrides.model ?? (() => {
         const p = models.find((x) => (x.models ?? []).length > 0)
-        return p ? { providerID: p.id, modelID: p.models[0].id } : undefined
+        if (!p) return undefined
+        const m = p.models[0]
+        return { providerID: p.id, modelID: m.id, options: (m.variants ?? []).length ? { reasoningLevel: (m.variants as string[])[0] } : undefined }
       })()
       const s = findSession(params.sessionId, sessions)
       const ws = workspaceOf(s)

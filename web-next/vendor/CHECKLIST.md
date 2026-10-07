@@ -28,7 +28,7 @@
 
 ## 3. 会话时间线（N2 核心）
 - ✅ 任务视图打开 + 标题栏
-- ⬜ **真实历史消息渲染**（snapshot 通知 → rows：turnHeader/userInput/assistantText/reasoning/toolCall）
+- ✅ **真实历史消息渲染**（v4 wire 通道：初始 snapshot 帧 → rows 渲染，ping/pong 实证）
 - ⬜ markdown/代码块渲染（streamdown，shiki worker）
 - ⬜ 工具卡族（bash/edit/todo/read…ToolCallBlocks 渲染器族）
 - ⬜ 推理块折叠展示
@@ -42,7 +42,8 @@
 - ✅ 权限模式 chip（变更前确认）
 - ✅ 管理模型入口
 - ✅ 发送按钮
-- ⬜ **sendPrompt 端到端**（发送 → /api/message → 消息上屏 → 流式回复）
+- ✅ **sendPrompt 端到端**（composer → sendConversationCommandV4 → /api/message → 引擎回复落盘；流式增量上屏为后续增量映射项）
+- ✅ 模型门禁放行（modelSelection view 带 optionSpecs/effectiveSelection；readSession/快照 config 填真实 current 模型）
 - ⬜ 停止生成（stopGeneration → /api/abort）
 - ⬜ @ 上下文选择（fileService 文件枚举）
 - ⬜ / 斜杠命令面板（commandsService）

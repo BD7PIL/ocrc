@@ -89,14 +89,15 @@ async function emitConversationSnapshot(taskId: string, topic: string, subscript
   const [cards, providers, overrides] = await Promise.all([
     ocrcHistory(taskId),
     fetch('/api/models', { headers: { Authorization: `Bearer ${token()}` } })
-      .then((r) => r.json() as Promise<Array<{ id: string; models: Array<{ id: string; name?: string }> }>>)
-      .catch(() => [] as Array<{ id: string; models: Array<{ id: string; name?: string }> }>),
+      .then((r) => r.json() as Promise<Array<{ id: string; models: Array<{ id: string; name?: string; variants?: string[] }> }>>)
+      .catch(() => [] as Array<{ id: string; models: Array<{ id: string; name?: string; variants?: string[] }> }>),
     fetch('/api/overrides', { headers: { Authorization: `Bearer ${token()}` } })
       .then((r) => r.json() as Promise<{ model?: { providerID: string; modelID: string } | null }>)
       .catch(() => ({ model: null as { providerID: string; modelID: string } | null })),
   ])
   const curProvider = overrides.model?.providerID ?? providers.find((p) => (p.models ?? []).length > 0)?.id ?? ''
   const curModel = overrides.model?.modelID ?? providers.find((p) => p.id === curProvider)?.models?.[0]?.id ?? ''
+  const curThought = (providers.find((p) => p.id === curProvider)?.models?.find((m) => m.id === curModel)?.variants ?? [])[0] ?? ''
   const rows = buildRows(cards)
   const seq = fromSeq + rows.length
   const frame = {
@@ -134,7 +135,7 @@ async function emitConversationSnapshot(taskId: string, topic: string, subscript
           resumeGoal: { allowed: true },
         },
         inputRouting: { mode: 'startNow' },
-        config: { provider: curProvider, model: curModel, thought: '', thoughtLevels: [], followupMode: 'queue' },
+        config: { provider: curProvider, model: curModel, thought: curThought, thoughtLevels: providers.find((p) => p.id === curProvider)?.models?.find((m) => m.id === curModel)?.variants ?? [], followupMode: 'queue' },
         usage: { contextWindow: null, cumulative: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } },
         queue: { items: [], autoDrain: true },
         pendingInteractions: [],

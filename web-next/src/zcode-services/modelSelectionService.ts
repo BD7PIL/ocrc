@@ -46,8 +46,16 @@ export function createOcrcModelSelectionService(): IModelSelectionService {
       const preferred = overrides?.model ?? (firstWithModels
         ? { providerID: firstWithModels.id, modelID: firstWithModels.models[0].id }
         : undefined)
+      const preferredVariant = preferred ? (list.find((x) => x.id === preferred.providerID)?.models ?? []).find((m) => m.id === preferred.modelID)?.variants?.[0] : undefined
       return {
         revision,
+        effectiveSelection: preferred
+          ? {
+              providerId: preferred.providerID,
+              modelId: preferred.modelID,
+              options: preferredVariant ? { reasoningLevel: preferredVariant } : undefined,
+            }
+          : null,
         preferredSelection: preferred,
         providers: list.map((p) => ({
           providerId: p.id,
@@ -62,6 +70,8 @@ export function createOcrcModelSelectionService(): IModelSelectionService {
             modelId: m.id,
             config: {
               displayName: m.name ?? m.id,
+              // 校验入口 validateModelSelectionOptions 读 optionSpecs.reasoningLevel.values
+              optionSpecs: { reasoningLevel: { values: m.variants ?? [] } },
               variants: m.variants ?? [],
             } as any,
           })),

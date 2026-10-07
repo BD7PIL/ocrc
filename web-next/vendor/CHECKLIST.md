@@ -82,11 +82,13 @@
 
 ## 9. 通道与自动化（N4）
 - ✅ 自动化主视图（offPeakTaskService → ocrc /api/schedules：list/create/pause/continue/delete 映射；空态忠实）
-- ✅ Bots 数据面（botsService getStatus/getConfig/listBots → ocrc /api/channels telegram 通道投影）
-- ✅ Bots 写回（saveBot/deleteBot → PATCH /api/channels/:id enabled；testBot → hasToken 检查；注册三件套未接）
+- ✅ Bots 数据面（botsService getStatus/getConfig/listBots → ocrc /api/channels 全通道投影：telegram/wechat/lark/dingtalk → provider telegram/weixin/feishu）
+- ✅ Bots 写回全量对齐·服务层（saveBot → PATCH /api/channels/:id：enabled + credentialValue→credentials.token（tg getMe 活校验）+ replyMode→replyGranularity + allowedWorkspaces→workspaces scope；deleteBot→enabled:false；testBot→hasToken+live；getBotStates→[] 防 BotsDialog 的 Promise.all 整体失败）
+- ⬜ Bots UI 面板（BotsDialog）在 /z/ 不可达——唯一入口在侧栏页脚远程控制触发器，被 `isDesktop` 门控（/z/ 平台桩默认 false）；整体翻 isDesktop 会连带桌面窗框/更新器/内嵌浏览器等桌面 UX，属 N5 裁决（候选：只给触发器开白名单，或 ocrc 自建 bot 设置分区）
 - ⬜ 已知余项：/z/ 每次页面加载持久化一个预热草稿会话，跨页加载不回收（页内 closeDeferredDraftSession 已实现但仅在 pane 替换草稿时触发）——候选：deferred 伪会话首发才落盘，或 host 侧空草稿回收（N5）
-- ⬜ 远程主机管理（ocrc remotes ↔ ZCode remote workspace——概念映射待 N4.x）
-- ⬜ 定时任务创建表单（createTask 已接，表单字段对齐待核对）
+- 🚫 Bots 注册三件套（feishu/weixin QR 扫码注册、createBindCode、webhook secret）——依赖 ZCode 自有 bot 服务端，ocrc 通道为凭证制（token/appId+appSecret 在 rc.2 面板或 env 配置）；如需 /z/ 内配置入口属产品裁决（「粘贴凭证」降级形态可行）。removeBotSecret 亦暂缺——ocrc PATCH 不能清空 credentials（空对象被路由丢弃），reset 会连通道配置一起重置，过猛
+- ⬜ 远程主机管理（ocrc remotes ↔ ZCode remote workspace——概念映射待 N5 裁决）
+- 🔶 定时任务创建表单字段核查结论（2026-10-08）：vendor ZCodeOffPeakTaskCreateParams = {title, prompt, permissionMode, modelSelection, workspacePath, boundSessionId?}，ocrc scheduler 仅支持 {name, prompt, spec: every|daily, enabled}。**已映射**：title→name、prompt→prompt、enabled。**无对应**（静默丢弃，不误写）：permissionMode/modelSelection（ocrc 定时派发走 host 默认模型）、workspacePath/boundSessionId（ocrc 无 per-schedule 工作区/会话绑定）。**语义差异（裁决项）**：ZCode off-peak 是「取号排队」一次性票态（queued/ready/active/expired/settled），ocrc schedules 是周期性 cron 提示（every/daily）——UI 票态语义与 ocrc 周期执行根本不同。如需对齐须先裁决：ocrc scheduler 增加 directory/model/mode 字段 + 派发语义改造（backend 功能项），或 /z/ 侧明确呈现为「周期任务」独立概念
 
 ## 10. 分享与周边
 - ✅ 分享落地页路由（ShareLanding 已有独立实现）

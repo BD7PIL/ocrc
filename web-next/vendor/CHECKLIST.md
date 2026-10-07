@@ -30,6 +30,7 @@
 - ✅ 任务视图打开 + 标题栏
 - ✅ **真实历史消息渲染**（v4 wire 通道：初始 snapshot 帧 → rows 渲染，ping/pong 实证）
 - ✅ **v4 恢复阶梯接通**（resync 如实回 resume/snapshot + 每订阅单调 logicalFrameOrdinal；升级恢复/强制快照路径由真实 store+assembler 回归测试覆盖——修复了间歇性 fault.subscription.recoveryFailed）
+- ✅ **开回合流式增量上屏**（/ws card 事件 → rows 前缀 diff → row.appended/row.upserted online 增量；前缀失配回退全量 online snapshot。隔离栈实证：用户消息 1.5s 上屏、bash 工具卡随引擎执行逐步出现，全程无刷新）
 - ⬜ markdown/代码块渲染（streamdown，shiki worker）
 - ⬜ 工具卡族（bash/edit/todo/read…ToolCallBlocks 渲染器族）
 - ⬜ 推理块折叠展示

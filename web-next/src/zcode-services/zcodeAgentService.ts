@@ -41,31 +41,33 @@ function buildRows(cards: OcrcCard[]): any[] {
   const rows: any[] = []
   let rowId = 1
   let turn = 0
-  const base = () => ({
+  // 时间戳必须取卡片自身的 ts：live 路径按行内容 diff（row.upserted/row.appended），
+  // Date.now() 会让每次重建的 rows 全部不同，diff 退化成全量 upsert。
+  const base = (ts: number) => ({
     rowId: rowId,
     turnId: `turn-${turn}`,
-    createdAt: Date.now(),
+    createdAt: ts,
     createdAtSeq: rowId,
   })
   for (const c of cards) {
+    const ts = c.ts ?? 0
     if (c.kind === 'user') {
       turn += 1
-      const now = c.ts ?? Date.now()
-      rows.push({ ...base(), kind: 'turnHeader', origin: 'userInput', state: 'completedSuccess', startedAt: now })
+      rows.push({ ...base(ts), kind: 'turnHeader', origin: 'userInput', state: 'completedSuccess', startedAt: ts })
       rowId += 1
-      rows.push({ ...base(), kind: 'userInput', origin: 'realUser', text: c.text ?? '' })
+      rows.push({ ...base(ts), kind: 'userInput', origin: 'realUser', text: c.text ?? '' })
       rowId += 1
     } else if (c.kind === 'assistant' && c.blocks) {
       for (const b of c.blocks) {
         if (b.type === 'text') {
-          rows.push({ ...base(), kind: 'assistantText', text: b.text ?? '', state: 'complete', model: c.meta?.model })
+          rows.push({ ...base(ts), kind: 'assistantText', text: b.text ?? '', state: 'complete', model: c.meta?.model })
           rowId += 1
         } else if (b.type === 'reasoning') {
-          rows.push({ ...base(), kind: 'reasoning', text: b.text ?? '', state: 'complete' })
+          rows.push({ ...base(ts), kind: 'reasoning', text: b.text ?? '', state: 'complete' })
           rowId += 1
         } else if (b.type === 'tool') {
           rows.push({
-            ...base(),
+            ...base(ts),
             kind: 'toolCall',
             toolCallId: `tool-${rowId}`,
             toolName: b.tool ?? 'tool',
@@ -128,7 +130,13 @@ function deliverWire(
   }
 }
 
-async function emitConversationSnapshot(taskId: string, topic: string, subscriptionId: string, deliveryKind: 'initial' | 'recovery' | 'online'): Promise<void> {
+interface SnapshotBuild {
+  snapshot: Record<string, unknown>
+  seq: number
+  rows: any[]
+}
+
+async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
   const [cards, providers, overrides] = await Promise.all([
     ocrcHistory(taskId),
     fetch('/api/models', { headers: { Authorization: `Bearer ${token()}` } })
@@ -143,49 +151,53 @@ async function emitConversationSnapshot(taskId: string, topic: string, subscript
   const curThought = (providers.find((p) => p.id === curProvider)?.models?.find((m) => m.id === curModel)?.variants ?? [])[0] ?? ''
   const rows = buildRows(cards)
   const seq = rows.length
-  const payload = {
-    kind: 'snapshot' as const,
-    snapshot: {
-      protocolVersion: 1,
-      sessionId: taskId,
-      logEpoch: 'ocrc-1',
-      seq,
-      revision: 1,
-      control: {
-        phase: 'completedSuccess',
-        sessionEnded: true,
-        canStop: false,
-        stopState: 'idle',
-        stopTargetKind: 'unknown',
-        activeWorks: [],
-        lastError: null,
-        apiRetry: null,
-      },
-      availability: {
-        fork: { allowed: true },
-        compact: { allowed: true },
-        switchModelConfig: { allowed: true },
-        setFollowupMode: { allowed: true },
-        queueEdit: { allowed: true },
-        sendQueuedNow: { allowed: true },
-        pauseGoal: { allowed: true },
-        resumeGoal: { allowed: true },
-      },
-      inputRouting: { mode: 'startNow' },
-      config: { provider: curProvider, model: curModel, thought: curThought, thoughtLevels: providers.find((p) => p.id === curProvider)?.models?.find((m) => m.id === curModel)?.variants ?? [], followupMode: 'queue' },
-      usage: { contextWindow: null, cumulative: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } },
-      queue: { items: [], autoDrain: true },
-      pendingInteractions: [],
-      pendingCommands: [],
-      backgroundWorks: [],
-      goal: null,
-      plan: null,
-      rows: { window: rows, totalCount: rows.length, firstRowId: rows[0]?.rowId ?? null },
+  const snapshot = {
+    protocolVersion: 1,
+    sessionId: taskId,
+    logEpoch: 'ocrc-1',
+    seq,
+    revision: 1,
+    control: {
+      phase: 'completedSuccess',
+      sessionEnded: true,
+      canStop: false,
+      stopState: 'idle',
+      stopTargetKind: 'unknown',
+      activeWorks: [],
+      lastError: null,
+      apiRetry: null,
     },
+    availability: {
+      fork: { allowed: true },
+      compact: { allowed: true },
+      switchModelConfig: { allowed: true },
+      setFollowupMode: { allowed: true },
+      queueEdit: { allowed: true },
+      sendQueuedNow: { allowed: true },
+      pauseGoal: { allowed: true },
+      resumeGoal: { allowed: true },
+    },
+    inputRouting: { mode: 'startNow' },
+    config: { provider: curProvider, model: curModel, thought: curThought, thoughtLevels: providers.find((p) => p.id === curProvider)?.models?.find((m) => m.id === curModel)?.variants ?? [], followupMode: 'queue' },
+    usage: { contextWindow: null, cumulative: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } },
+    queue: { items: [], autoDrain: true },
+    pendingInteractions: [],
+    pendingCommands: [],
+    backgroundWorks: [],
+    goal: null,
+    plan: null,
+    rows: { window: rows, totalCount: rows.length, firstRowId: rows[0]?.rowId ?? null },
   }
+  return { snapshot, seq, rows }
+}
+
+async function emitConversationSnapshot(taskId: string, topic: string, subscriptionId: string, deliveryKind: 'initial' | 'recovery' | 'online'): Promise<void> {
+  const { snapshot, seq, rows } = await buildSnapshotPayload(taskId)
   console.info('[ocrc-trace] emitConversationSnapshot rows =', rows.length, 'listeners =', frameListeners.size)
-  // 水位记账先于投递：retry 路径也要让后续 resync 拿到正确 base。
+  // 水位/rows 记账先于投递：retry 路径与 live diff 都依赖这份基线。
   lastSeqBySub.set(subscriptionId, seq)
+  lastRowsBySession.set(taskId, rows)
+  const payload = { kind: 'snapshot' as const, snapshot }
   if (!frameListeners.size) {
     // transport 尚未挂 upstream——延时重试；成功投递一次后取消余下重试
     // （重复投递同序号帧虽会被 assembler 去重，但不该依赖它兜底）。
@@ -200,6 +212,121 @@ async function emitConversationSnapshot(taskId: string, topic: string, subscript
   }
   // 协议约定 snapshot 帧 fromSeq 固定为 0；seq 权威在 payload.snapshot.seq。
   deliverWire(topic, subscriptionId, 0, seq, payload, deliveryKind)
+}
+
+// ── N2 live：WS card 事件 → rows diff → online 增量/快照 ───────────────
+// ocrc wsHub（/ws?token=）广播 {type:'card'|'sdelta'|'session.status'}。这里按
+// 会话去抖后重取历史、重建 rows 并与上次基线 diff：尾部追加/行内容变化 →
+// row.appended/row.upserted 增量帧（seq 前进 1）；前缀失配或截断（fork/edit）→
+// 全量 online snapshot 收敛。全部走 nextOrdinal（单调契约，见 ordinalBySub 注释）。
+const lastRowsBySession = new Map<string, any[]>()
+const liveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const watchedSessions = new Set<string>()
+let liveWs: WebSocket | null = null
+let liveWsRetry: ReturnType<typeof setTimeout> | null = null
+
+/** rows 前缀 diff：返回增量 op 列表；前缀失配/截断返回 null（调用方回退全量快照）。 */
+function diffRows(prev: any[], next: any[]): Array<Record<string, unknown>> | null {
+  if (next.length < prev.length) return null
+  const upserts: Array<Record<string, unknown>> = []
+  const appends: Array<Record<string, unknown>> = []
+  for (let i = 0; i < next.length; i++) {
+    const p = prev[i]
+    const n = next[i]
+    if (p === undefined) {
+      appends.push({ op: 'row.appended', row: n })
+    } else if (JSON.stringify(p) !== JSON.stringify(n)) {
+      upserts.push({ op: 'row.upserted', row: n })
+    }
+  }
+  // 施加序：先 upsert（已存在 rowId 原位替换）后 append（落尾）。
+  return upserts.length + appends.length > 0 ? [...upserts, ...appends] : []
+}
+
+async function liveUpdate(sessionId: string): Promise<void> {
+  const subs = [...subscriptions.entries()].filter(([, s]) => s.sessionId === sessionId)
+  const prevRows = lastRowsBySession.get(sessionId)
+  if (!subs.length || !prevRows) return
+  const cards = await ocrcHistory(sessionId).catch(() => null)
+  if (!cards) return
+  const nextRows = buildRows(cards)
+  if (JSON.stringify(prevRows) === JSON.stringify(nextRows)) return
+  const deltas = diffRows(prevRows, nextRows)
+  lastRowsBySession.set(sessionId, nextRows)
+  for (const [subId, sub] of subs) {
+    const lastSeq = lastSeqBySub.get(subId) ?? 0
+    if (deltas) {
+      if (deltas.length === 0) continue
+      deliverWire(sub.topic, subId, lastSeq, lastSeq + 1, { kind: 'deltas', deltas }, 'online')
+      lastSeqBySub.set(subId, lastSeq + 1)
+    } else {
+      const { snapshot, seq } = await buildSnapshotPayload(sessionId)
+      deliverWire(sub.topic, subId, 0, seq, { kind: 'snapshot', snapshot }, 'online')
+      lastSeqBySub.set(subId, seq)
+    }
+  }
+}
+
+function scheduleLive(sessionId: string): void {
+  const existing = liveTimers.get(sessionId)
+  if (existing) clearTimeout(existing)
+  liveTimers.set(sessionId, setTimeout(() => {
+    liveTimers.delete(sessionId)
+    void liveUpdate(sessionId)
+  }, 400))
+}
+
+function liveWatch(sessionId: string): void {
+  watchedSessions.add(sessionId)
+  liveWsEnsure()
+  if (liveWs?.readyState === WebSocket.OPEN) {
+    try { liveWs.send(JSON.stringify({ type: 'subscribe', sessionId, sinceSeq: 0 })) } catch { /* 重连后重订阅 */ }
+  }
+}
+
+function liveUnwatch(sessionId: string): void {
+  watchedSessions.delete(sessionId)
+  lastRowsBySession.delete(sessionId)
+  if (liveWs?.readyState === WebSocket.OPEN) {
+    try { liveWs.send(JSON.stringify({ type: 'unsubscribe', sessionId })) } catch { /* noop */ }
+  }
+}
+
+function liveWsEnsure(): void {
+  if (liveWs && (liveWs.readyState === WebSocket.OPEN || liveWs.readyState === WebSocket.CONNECTING)) return
+  if (liveWsRetry) { clearTimeout(liveWsRetry); liveWsRetry = null }
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+  try {
+    liveWs = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token())}`)
+  } catch {
+    liveWsRetry = setTimeout(liveWsEnsure, 3000)
+    return
+  }
+  liveWs.onopen = () => {
+    // attach 时 wsHub 会推 hello；对每个受管会话显式订阅（sinceSeq 0 → 完整 replay，
+    // 首帧 replay 经 liveUpdate 的 rows diff 自然去重）。
+    for (const sessionId of watchedSessions) {
+      try { liveWs?.send(JSON.stringify({ type: 'subscribe', sessionId, sinceSeq: 0 })) } catch { /* noop */ }
+    }
+  }
+  liveWs.onmessage = (ev) => {
+    let msg: { type?: string; sessionId?: string; card?: { sessionId?: string } }
+    try {
+      msg = JSON.parse(typeof ev.data === 'string' ? ev.data : '') as typeof msg
+    } catch {
+      return
+    }
+    const sid = msg.sessionId ?? msg.card?.sessionId
+    if (!sid || !watchedSessions.has(sid)) return
+    if (msg.type === 'card' || msg.type === 'sdelta' || msg.type === 'session.status') scheduleLive(sid)
+  }
+  liveWs.onclose = () => {
+    liveWs = null
+    if (watchedSessions.size > 0) liveWsRetry = setTimeout(liveWsEnsure, 3000)
+  }
+  liveWs.onerror = () => {
+    try { liveWs?.close() } catch { /* onclose 接管重连 */ }
+  }
 }
 
 export function createOcrcZcodeAgentService(): any {
@@ -217,6 +344,7 @@ export function createOcrcZcodeAgentService(): any {
       console.info('[ocrc-trace] subscribeConversationV4 sessionId =', sessionId, 'topic =', topic)
       if (topic && sessionId) {
         subscriptions.set(ack.subscriptionId, { sessionId, topic })
+        liveWatch(sessionId)
         // post-response owned notification：ACK 先回，snapshot 异步补发
         void emitConversationSnapshot(sessionId, topic, ack.subscriptionId, 'initial')
       }
@@ -245,7 +373,16 @@ export function createOcrcZcodeAgentService(): any {
       void emitConversationSnapshot(sub.sessionId, sub.topic, subId, 'recovery')
       return { ack: { subscriptionId: subId, mode: 'snapshot', logEpoch: 'ocrc-1' } }
     },
-    async unsubscribeConversationV4() {
+    async unsubscribeConversationV4(params: { subscriptionId?: string }) {
+      const subId = params?.subscriptionId
+      if (!subId) return undefined
+      const sub = subscriptions.get(subId)
+      subscriptions.delete(subId)
+      lastSeqBySub.delete(subId)
+      // 该会话再无活跃订阅 → 停止 live watch 并释放 rows 基线
+      if (sub && ![...subscriptions.values()].some((s) => s.sessionId === sub.sessionId)) {
+        liveUnwatch(sub.sessionId)
+      }
       return undefined
     },
     // 关闭/删除会话。expectedPersistence='deferred' 是预热草稿回收：仅当会话

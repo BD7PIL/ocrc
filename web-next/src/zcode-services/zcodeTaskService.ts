@@ -10,7 +10,7 @@ import type {
   ZCodeGroupedTaskView,
   ZCodeGroupedTaskViewStructure,
 } from '@zcode/services'
-import type { ZCodeTaskMeta } from '@zcode/shared'
+import type { ZCodeTaskMeta, ZCodePersistedMessage } from '@zcode/shared'
 
 interface OcrcSessionSummary {
   id: string
@@ -45,6 +45,72 @@ function toMeta(s: OcrcSessionSummary): ZCodeTaskMeta {
     mode: 'build',
     model: s.model,
   } as ZCodeTaskMeta
+}
+
+// ── N2: snapshot 构建（ocrc cards → ZCodePersistedMessage[]）──
+interface OcrcBlock { type: string; text?: string; tool?: string; args?: string; status?: string; output?: unknown }
+interface OcrcCard { kind: string; text?: string; ts?: number; blocks?: OcrcBlock[]; meta?: { model?: string } }
+
+async function ocrcHistory(taskId: string, limit = 200): Promise<{ cards: OcrcCard[] }> {
+  const res = await fetch(`/api/session/${taskId}?limit=${limit}`, {
+    headers: { Authorization: `Bearer ${token()}` },
+  })
+  if (!res.ok) return { cards: [] }
+  return (await res.json()) as { cards: OcrcCard[] }
+}
+
+function cardToMessage(c: OcrcCard): ZCodePersistedMessage | null {
+  if (c.kind === 'user') {
+    return { role: 'user', content: c.text ?? '', timestamp: c.ts ?? Date.now() } as ZCodePersistedMessage
+  }
+  if (c.kind === 'assistant' && c.blocks) {
+    const parts: Array<{ type: 'content' | 'thought' | 'tool-call'; content?: string; toolIndex?: number }> = []
+    const tools: Array<Record<string, unknown>> = []
+    let thought = ''
+    const textChunks: string[] = []
+    for (const b of c.blocks) {
+      if (b.type === 'text') {
+        parts.push({ type: 'content', content: b.text })
+        textChunks.push(b.text ?? '')
+      } else if (b.type === 'reasoning') {
+        parts.push({ type: 'thought', content: b.text })
+        thought += b.text ?? ''
+      } else if (b.type === 'tool') {
+        parts.push({ type: 'tool-call', toolIndex: tools.length })
+        tools.push({
+          toolName: b.tool,
+          status: b.status === 'error' ? 'failed' : b.status === 'done' ? 'completed' : undefined,
+          input: b.args,
+          output: b.output,
+        })
+      }
+    }
+    return {
+      role: 'assistant',
+      content: textChunks.join('\n\n'),
+      timestamp: c.ts ?? Date.now(),
+      thought: thought || undefined,
+      model: c.meta?.model,
+      parts: parts as never,
+      tools: tools as never,
+    } as ZCodePersistedMessage
+  }
+  return null
+}
+
+async function buildSnapshot(params: { taskId: string; messageLimit?: number }): Promise<any> {
+  const { cards } = await ocrcHistory(params.taskId, params.messageLimit ?? 200)
+  const messages = cards.map(cardToMessage).filter((m): m is ZCodePersistedMessage => m !== null)
+  const sessions = await ocrcSessions()
+  const s = sessions.find((x) => x.id === params.taskId)
+  const meta = s
+    ? toMeta(s)
+    : ({ taskId: params.taskId, traceId: params.taskId, title: '(未命名)', workspacePath: '/', createdAt: Date.now(), updatedAt: Date.now(), mode: 'build' } as ZCodeTaskMeta)
+  return {
+    meta,
+    messages,
+    history: { truncatedBefore: false, totalMessages: messages.length },
+  }
 }
 
 function createExplicitTaskService(): IZCodeTaskService {
@@ -89,6 +155,35 @@ function createExplicitTaskService(): IZCodeTaskService {
     getTaskConfigOptions: async () => [],
     getTaskModelSelection: async () => null,
     getTaskTokenUsage: async () => null,
+    // ── N2: 打开任务 = 返回该会话 meta（ZCode 语义里 resume 即打开转写）──
+    resumeTask: async (params: { taskId: string }) => {
+      const sessions = await ocrcSessions()
+      const s = sessions.find((x) => x.id === params.taskId)
+      if (!s) throw new Error(`[ocrc-fork] resumeTask: task ${params.taskId} not found`)
+      return toMeta(s)
+    },
+    // ── N2: 会话核心 ──
+    getTaskSnapshot: async (params: { taskId: string; messageLimit?: number }) => buildSnapshot(params),
+    getTaskSnapshotWithEtag: async (params: { taskId: string; messageLimit?: number }) => ({
+      snapshot: await buildSnapshot(params),
+      etag: undefined,
+      notModified: false,
+    }),
+    sendPrompt: async (params: { taskId: string; content: string; clientId?: string }) => {
+      const res = await fetch('/api/message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+        body: JSON.stringify({ sessionId: params.taskId, text: params.content, clientId: params.clientId }),
+      })
+      if (!res.ok) throw new Error(`[ocrc-fork] send failed: ${res.status}`)
+    },
+    stopGeneration: async (params: { taskId: string }) => {
+      await fetch('/api/abort', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+        body: JSON.stringify({ sessionId: params.taskId }),
+      })
+    },
     renameTask: async () => {},
     setTaskPinned: async () => {},
     setTaskUnread: async () => {},

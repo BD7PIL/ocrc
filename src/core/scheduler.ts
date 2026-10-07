@@ -75,6 +75,9 @@ export interface SchedulerOptions {
   path: string
   /** Where due prompts go — typically the relay. */
   dispatch: (msg: IncomingMessage) => Promise<void>
+  /** M8 cron 先订阅防漏推: called synchronously BEFORE dispatch so the
+   *  panel/push engines have a buffered anchor for fast runs. */
+  preDispatch?: (msg: IncomingMessage) => void
   /** Tick override for tests (default 30s). */
   tickMs?: number
 }
@@ -140,6 +143,8 @@ export function createScheduler(opts: SchedulerOptions): Scheduler {
         messageId: `sched_${s.id}_${now.getTime()}`,
         origin: 'scheduler',
       }
+      opts.preDispatch?.(msg)
+      opts.preDispatch?.(msg)
       void opts.dispatch(msg).catch((err) => log.error(`dispatch failed for ${s.id}`, err as Error))
     }
     if (fired.length > 0) persist()
@@ -200,6 +205,8 @@ export function createScheduler(opts: SchedulerOptions): Scheduler {
         messageId: `sched_${s.id}_${now.getTime()}`,
         origin: 'scheduler',
       }
+      opts.preDispatch?.(msg)
+      opts.preDispatch?.(msg)
       void opts.dispatch(msg).catch((err) => log.error(`dispatch failed for ${s.id}`, err as Error))
       persist()
       return true

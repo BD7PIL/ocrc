@@ -36,7 +36,13 @@ import { t } from './i18n/index.js'
 import { registerHandlers } from './handlers.js'
 import type { PendingApproval, ApprovalResponse } from './handlers.js'
 import { esc } from './esc.js'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { createLogger } from '../../utils/logger.js'
+import { ocrcHome } from '../../utils/paths.js'
+import { InputFile } from 'grammy'
+import { acquireRuntimeLock, type RuntimeLock } from './runtime-lock.js'
+import { OffsetJournal, extractImageUrls, normalizeMediaKind } from './m8-journal.js'
 
 const log = createLogger('telegram')
 
@@ -98,6 +104,13 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
   let messageHandler: ((msg: IncomingMessage) => Promise<void>) | undefined
   /** True while grammY polling is live — surfaced via status() for the channels panel. */
   let pollingLive = false
+  // ── M8 通道域升级 ──
+  // Cross-process polling lock: a second ocrc process on the same token sees
+  // 'locked-out' in the channels panel instead of a 409 tug-of-war.
+  let runtimeLock: RuntimeLock | null = null
+  let runtimeState: { state: 'polling' | 'idle' | 'error' | 'locked-out'; detail?: string } = { state: 'idle' }
+  // Crash-safe offset journal: replays of already-processed updates are dropped.
+  let offsetJournal: OffsetJournal | null = null
   // Suggestion-chip tokens: callback ids → the chip text they send.
   const sugTokens = new Map<number, string>()
   // "Generating" is derived from the relay's per-session abort registry, not a
@@ -138,6 +151,17 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
     return { data: Buffer.from(await res.arrayBuffer()).toString('base64'), mimeType: 'image/jpeg' }
   }
 
+  // M8 offset journal: drop pre-crash replays before any handler runs.
+  bot.use(async (ctx, next) => {
+    const uid = (ctx.update as { update_id?: number } | undefined)?.update_id
+    if (typeof uid === 'number' && offsetJournal?.isReplay(uid)) {
+      log.info(`offset journal: dropping replayed update ${uid}`)
+      return
+    }
+    await next()
+    if (typeof uid === 'number') offsetJournal?.markProcessed(uid)
+  })
+
   bot.use(async (ctx, next) => {
     if (ctx.callbackQuery) return next()
     const m = ctx.message
@@ -158,6 +182,47 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
         log.warn('photo download failed', (err as Error).message)
         void ctx.reply(t('bot.photo_relay_failed')).catch(() => {})
         return
+      }
+    }
+
+    // M8 附件通用管道 (ZCode register): document/video/audio land on disk
+    // (20MB cap) and ride the prompt as a path note — the engine reads them
+    // from disk. Voice transcription is out of scope (PRODUCT.md ruling).
+    const genericMedia = normalizeMediaKind(
+      'document' in m ? 'document' : 'video' in m ? 'video' : 'audio' in m ? 'audio' : 'voice' in m ? 'voice' : '',
+    )
+    if (genericMedia && genericMedia !== 'photo') {
+      const media = ((m as unknown as Record<string, unknown>)[genericMedia] ?? (m as unknown as Record<string, unknown>).document) as
+        | { file_id?: string; file_name?: string; file_size?: number }
+        | undefined
+      if (media?.file_id) {
+        if ((media.file_size ?? 0) > 20 * 1024 * 1024) {
+          void ctx.reply('附件超过 20MB 上限，已忽略').catch(() => {})
+          return
+        }
+        try {
+          const file = await ctx.api.getFile(media.file_id)
+          if (!file.file_path) throw new Error('no file_path')
+          const res = await fetch(`https://api.telegram.org/file/bot${cfg.token}/${file.file_path}`)
+          if (!res.ok) throw new Error(`download ${res.status}`)
+          const buf = Buffer.from(await res.arrayBuffer())
+          const safeName = (media.file_name ?? `${genericMedia}-${Date.now()}`).replace(/[/\\]/g, '_')
+          const savedPath = join(ocrcHome(), 'attachments', `${Date.now()}-${safeName}`)
+          mkdirSync(dirname(savedPath), { recursive: true })
+          writeFileSync(savedPath, buf)
+          const note = `[附件 ${genericMedia}: ${safeName}（${(buf.length / 1024).toFixed(0)}KB），已保存到 ${savedPath}——需要时用文件工具读取]`
+          const caption = (m as { caption?: string }).caption
+          await next()
+          const target = targetSessionId()
+          if (target) {
+            void messageHandler?.({ sessionId: target, text: `${caption ? caption + '\n\n' : ''}${note}`, origin: 'telegram' } as never)
+          }
+          return
+        } catch (err) {
+          log.warn('generic attachment intake failed', (err as Error).message)
+          void ctx.reply('附件接收失败').catch(() => {})
+          return
+        }
       }
     }
 
@@ -523,6 +588,24 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
     async start(deps: TransportStartDeps) {
       const { cardBus } = deps
       cardBusRef = cardBus
+
+      // M8: cross-process polling lock — fail fast with a visible runtime
+      // state instead of the 409 tug-of-war.
+      runtimeLock = acquireRuntimeLock(join(ocrcHome(), 'tg-runtime.lock'))
+      if (!runtimeLock) {
+        runtimeState = { state: 'locked-out', detail: '另一 ocrc 进程正在轮询此 bot（runtime lock 被占）' }
+        log.error('bot runtime lock held by another process — transport stops')
+        throw new Error('bot runtime lock held by another process')
+      }
+      // M8: crash-safe offset journal (~/.ocrc/tg-offset.json).
+      offsetJournal = new OffsetJournal(join(ocrcHome(), 'tg-offset.json'))
+
+      // M8: BotFather 菜单同步 — the panel's command policy decides what
+      // pollers surface; on disable the menu is deleted.
+      try {
+        const menu = buildMainKeyboard(keyboardData) // touch keyboard data first
+        void menu
+      } catch { /* keyboard data optional */ }
       const chatId = String(cfg.allowedUserIds[0])
       streamingRenderer = new StreamingRenderer({ api: bot.api, chatId, granularity: () => cfg.channels?.()?.replyGranularity ?? 'detailed' })
       // Live tool card (0.26.6): the ported grinev modules finally on-line —
@@ -647,11 +730,67 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
         }
       })
 
+      // ── M8-2 grinev 媒体输出相册 ──
+      // Final assistant cards: extract image URLs from the finished text and
+      // deliver them as a photo album (cap 3) after the text message.
+      cardBusRef?.subscribeAll((card) => {
+        if (card.kind !== 'assistant') return
+        const text = card.blocks.filter((b) => b.type === 'text').map((b) => (b as { text: string }).text).join('\n\n')
+        const urls = extractImageUrls(text, 3)
+        if (urls.length === 0) return
+        void (async () => {
+          for (const u of urls) {
+            try {
+              const res = await fetch(u, { signal: AbortSignal.timeout(15_000) })
+              if (!res.ok) continue
+              const buf = Buffer.from(await res.arrayBuffer())
+              if (buf.length > 10 * 1024 * 1024) continue // Telegram photo cap
+              await bot.api.sendPhoto(chatId, new InputFile(buf, u.split('/').pop() ?? 'image.png'))
+            } catch (err) {
+              log.warn(`media output skipped for ${u}`, (err as Error).message)
+            }
+          }
+        })()
+      })
+
       // Deliver the persistent reply keyboard once per boot.
       await refreshKeyboardData().catch(() => {})
       await bot.api
         .sendMessage(chatId, t('boot.ready'), { reply_markup: buildMainKeyboard(keyboardData) })
         .catch((err) => log.warn('boot keyboard send failed', (err as Error).message))
+
+      // M8: BotFather 菜单同步 — surface the core command set (policy 'core')
+      // or the full handler set (policy 'all', default); 删除菜单 on explicit none.
+      const policy = (cfg.channels?.() as { commandPolicy?: string } | undefined)?.commandPolicy
+      try {
+        if (policy === 'none') {
+          await bot.api.deleteMyCommands().catch(() => {})
+        } else {
+          if (policy === 'core') {
+            await bot.api.setMyCommands([
+              { command: 'new', description: '新建会话' },
+              { command: 'sessions', description: '会话列表' },
+              { command: 'abort', description: '中止当前任务' },
+              { command: 'status', description: '状态' },
+            ])
+          } else {
+            await bot.api.setMyCommands([
+              { command: 'new', description: '新建会话' },
+              { command: 'sessions', description: '会话列表' },
+              { command: 'abort', description: '中止任务' },
+              { command: 'mode', description: '切换权限模式' },
+              { command: 'model', description: '切换模型' },
+              { command: 'todo', description: '待办列表' },
+              { command: 'files', description: '文件浏览' },
+              { command: 'status', description: '状态' },
+              { command: 'usage', description: 'Token 用量' },
+              { command: 'undo', description: '撤销上一轮' },
+            ])
+          }
+        }
+      } catch (err) {
+        log.warn('BotFather menu sync failed', (err as Error).message)
+      }
 
       const MAX_CONFLICT = 8
       const MAX_RETRIES = 10
@@ -668,6 +807,7 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
             const code = errorCodeOf(err)
             if (code === 409) {
               if (++conflictCount >= MAX_CONFLICT) {
+                runtimeState = { state: 'locked-out', detail: '409 冲突持续 — 另一实例在轮询此 token' }
                 log.error('FATAL: Telegram 409 conflict persisted — another instance is polling this bot token; transport stopped')
                 throw new Error('Telegram 409 persisted')
               }
@@ -695,6 +835,9 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
     async stop() {
       pollingLive = false
       toolBridge?.dispose()
+      runtimeLock?.release()
+      runtimeLock = null
+      runtimeState = { state: 'idle' }
       await bot.stop()
       clearInterval(approvalSweep)
     },
@@ -705,7 +848,12 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
       // never take the endpoint down with it.
       let username: string | undefined
       try { username = bot.botInfo?.username } catch { username = undefined }
-      return { connected: pollingLive, username }
+      // M8 runtime 状态 sink: locked-out/polling/error + detail feed the
+      // channels panel (ChannelsModal 通道状态) instead of a bare boolean.
+      const state = runtimeState.state === 'locked-out'
+        ? 'locked-out'
+        : pollingLive ? 'polling' : runtimeState.state
+      return { connected: pollingLive, username, runtime: { state, detail: runtimeState.detail } }
     },
     async send(_chatId, _card) {
       throw new Error('Transport.send not implemented for Telegram in v0.5.0')

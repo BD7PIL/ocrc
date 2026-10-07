@@ -43,7 +43,7 @@ function makeTransport(state: any) {
     { token: '123:abc', allowedUserIds: [1], backend: {} as any, state },
     { bot: fakeBot },
   )
-  const middlewares = uses.slice(0, 2)
+  const middlewares = uses.slice(0, 3)
   return { transport, middlewares, fakeBot }
 }
 
@@ -88,7 +88,7 @@ describe('per-session generation gate', () => {
     transport.onMessage(onMsg)
 
     const ctx = textCtx()
-    await middlewares[1](ctx, vi.fn())
+    await middlewares[2](ctx, vi.fn())
 
     expect(state.hasActiveGeneration).toHaveBeenCalledWith('ses_target')
     // Queued, not dropped: the relay serializes the turn, the user gets an ack.
@@ -108,7 +108,7 @@ describe('per-session generation gate', () => {
     transport.onMessage(onMsg)
 
     const ctx = textCtx()
-    await middlewares[1](ctx, vi.fn())
+    await middlewares[2](ctx, vi.fn())
 
     expect(onMsg).toHaveBeenCalledTimes(1)
     expect(onMsg.mock.calls[0][0]).toMatchObject({ text: 'hello', origin: 'telegram' })
@@ -126,7 +126,7 @@ describe('per-session generation gate', () => {
     transport.onMessage(onMsg)
 
     const ctx = textCtx()
-    await middlewares[1](ctx, vi.fn())
+    await middlewares[2](ctx, vi.fn())
 
     expect(state.hasActiveGeneration).toHaveBeenCalledWith('ses_full_abc12345')
     expect(onMsg).toHaveBeenCalledTimes(1)
@@ -143,7 +143,8 @@ describe('status() before init', () => {
       get() { throw new Error('Bot information unavailable!') },
     })
     expect(() => transport.status()).not.toThrow()
-    expect(transport.status()).toEqual({ connected: false, username: undefined })
+    // M8: status now carries the runtime 状态 sink (state + detail)
+    expect(transport.status()).toEqual({ connected: false, username: undefined, runtime: { state: 'idle', detail: undefined } })
   })
 })
 
@@ -176,7 +177,7 @@ describe('photo intake + caption routing', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const ctx = photoCtx()
-    await middlewares[1](ctx, vi.fn())
+    await middlewares[2](ctx, vi.fn())
 
     expect(ctx.api.getFile).toHaveBeenCalledWith('big')
     expect(fetchMock.mock.calls[0][0]).toContain('/file/bot123:abc/photos/big.jpg')
@@ -193,7 +194,7 @@ describe('photo intake + caption routing', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }))
 
     const ctx = photoCtx()
-    await middlewares[1](ctx, vi.fn())
+    await middlewares[2](ctx, vi.fn())
 
     expect(onMsg).not.toHaveBeenCalled()
     expect(String(ctx.reply.mock.calls[0][0])).toMatch(/图片接收失败/)
@@ -206,7 +207,7 @@ describe('photo intake + caption routing', () => {
     vi.stubGlobal('fetch', stubFetch())
 
     const ctx = photoCtx({ message: { photo: [{ file_id: 'big', width: 10, height: 10 }], caption: 'AGENT 🤖', message_id: 8 } })
-    await middlewares[1](ctx, vi.fn())
+    await middlewares[2](ctx, vi.fn())
 
     expect(onMsg).toHaveBeenCalledTimes(1)
     expect(onMsg.mock.calls[0][0].text).toBe('AGENT 🤖')

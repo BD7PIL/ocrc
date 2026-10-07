@@ -406,6 +406,73 @@ export function registerHandlers(deps: HandlersDeps): void {
     }
   })
 
+  // ── M8-2 session 深命令（grinev register）─────────────────────────────
+  // ── M8-2 session 深命令（grinev register）─────────────────────────────
+  const resolveTarget = (): string | undefined => {
+    const raw = deps.state.getPinnedSessionId() ?? deps.state.getLastSessionId()
+    return raw ? deps.state.normalizeSessionId(raw) : undefined
+  }
+  const lastAssistantMeta = async (sid: string) => {
+    const cards = await deps.backend.getHistory(sid, 12).catch(() => [])
+    return [...cards].reverse().find((c) => c.kind === 'assistant')?.meta
+  }
+  const previousUserMessageId = async (sid: string): Promise<string | undefined> => {
+    const cards = await deps.backend.getHistory(sid, 200).catch(() => [])
+    const userMsgIds: string[] = []
+    for (const c of cards) {
+      if (c.kind === 'user' && typeof (c as { messageId?: string }).messageId === 'string') {
+        userMsgIds.push((c as { messageId: string }).messageId)
+      }
+    }
+    return userMsgIds.length >= 2 ? userMsgIds[userMsgIds.length - 2] : undefined
+  }
+  const reply = (ctx: Context, text: string) => ctx.reply(text).catch(() => {})
+
+  deps.bot.command('undo', async (ctx: Context) => {
+    const sid = resolveTarget()
+    if (!sid || deps.isGenerating()) return void reply(ctx, '运行中 — 先 /abort 或等待完成')
+    const target = await previousUserMessageId(sid)
+    if (!target) return void reply(ctx, '没有可撤销的轮次')
+    await deps.backend.revertSession?.(sid, target).then(
+      () => reply(ctx, '已回退到上一轮之前（/redo 恢复）'),
+      (e: Error) => reply(ctx, `撤销失败: ${e.message}`),
+    )
+  })
+
+  deps.bot.command('redo', async (ctx: Context) => {
+    const sid = resolveTarget()
+    if (!sid) return void reply(ctx, '没有目标会话')
+    await deps.backend.unrevertSession?.(sid).then(
+      () => reply(ctx, '已恢复被撤销的轮次'),
+      (e: Error) => reply(ctx, `恢复失败: ${e.message}`),
+    )
+  })
+
+  deps.bot.command('compact', async (ctx: Context) => {
+    const sid = resolveTarget()
+    if (!sid) return void reply(ctx, '没有目标会话')
+    if (deps.isGenerating()) return void reply(ctx, '运行中 — 不能压缩')
+    await (deps.backend as { compact?: (id: string) => Promise<void> }).compact?.(sid).then(
+      () => reply(ctx, '已压缩上下文（summarize）'),
+      (e: Error) => reply(ctx, `压缩失败: ${e.message}`),
+    )
+  })
+
+  deps.bot.command('usage', async (ctx: Context) => {
+    const sid = resolveTarget()
+    if (!sid) return void reply(ctx, '没有目标会话')
+    const meta = await lastAssistantMeta(sid)
+    const t = meta?.tokens as { input?: number; output?: number; cache?: number } | undefined
+    if (!t) return void reply(ctx, '最近一轮没有 token 记录')
+    const fmt = (n?: number) => (n == null ? '-' : n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n))
+    await reply(ctx, [
+      `input ${fmt(t.input)}`,
+      `output ${fmt(t.output)}`,
+      t.cache != null ? `cache ${fmt(t.cache)}` : '',
+      meta?.cost != null ? `cost $${meta.cost.toFixed(4)}` : '',
+    ].filter(Boolean).join('\n'))
+  })
+
   deps.bot.command('current', async (ctx: Context) => {
     const last = deps.state.getLastSessionId()
     if (!last) {

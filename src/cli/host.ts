@@ -161,6 +161,12 @@ export async function main(): Promise<void> {
   const scheduler = createScheduler({
     path: join(dataDir, 'schedules.json'),
     dispatch: async (msg) => { await relay(msg) },
+    // M8 cron 先订阅防漏推: buffer a status anchor BEFORE the turn starts —
+    // fast runs always have a seq-cursor for the result push/panel.
+    preDispatch: (msg) => {
+      if (!msg.sessionId) return
+      cardBus.publish({ kind: 'status', sessionId: msg.sessionId, fields: { 自动化: '已触发（定时任务）' } })
+    },
   })
   scheduler.start()
   const channels = createChannelsStore(join(dataDir, 'channels.json'))

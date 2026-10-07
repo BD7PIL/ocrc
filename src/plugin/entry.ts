@@ -207,6 +207,9 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
     const scheduler = createScheduler({
       path: `${config.statePath.replace(/[^/]+$/, '')}schedules.json`,
       dispatch: async (msg) => { await relay(msg) },
+      preDispatch: (msg) => {
+        if (msg.sessionId) cardBus.publish({ kind: 'status', sessionId: msg.sessionId, fields: { 自动化: '已触发（定时任务）' } })
+      },
     })
     scheduler.start()
 

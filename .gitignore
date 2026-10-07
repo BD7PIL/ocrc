@@ -35,3 +35,4 @@ tsconfig.tsbuildinfo
 .pact/orchestrate/
 .zcode/
 .deep-memory/
+.omo/

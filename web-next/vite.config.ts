@@ -8,8 +8,13 @@ import { fileURLToPath, URL } from 'node:url'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   base: '/next/',
-  // vendor 树带 worker 使用（pdfjs/xterm 等）；代码分割构建必须 es 格式
-  worker: { format: 'es' },
+  // EL7 inotify 上限 8192——vendor 树 2000+ 文件直接打爆；dev 不 watch vendor
+  // （改 vendor 后重启 dev server 即可，生产构建不受影响）
+  server: { watch: { ignored: /vendor\// } },
+  // vendor 树带 worker 使用（pdfjs/xterm 等）；代码分割构建必须 es 格式。
+  // treeshake:false 修 @pierre/diffs：worker 入口依赖 import 后注册 message
+  // 监听，包声明漏 sideEffects 会让生产 worker 子构建被摇成 0B（握手超时）。
+  worker: { format: 'es', rollupOptions: { treeshake: false } },
   // 我们的 tsconfig 开了 verbatimModuleSyntax（tsc 类型检查用）；但 esbuild
   // 构建必须关掉它——vendor 源里有个别混合导入把 interface 写在值位置
   // （如 rpc/proxy-channel.ts 的 IDisposable），逐字保留会在运行时导入类型。

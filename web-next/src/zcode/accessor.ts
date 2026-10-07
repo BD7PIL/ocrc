@@ -10,6 +10,7 @@
 import type { IServiceAccessor } from '@zcode/services'
 import { createOcrcTaskService } from '../zcode-services/zcodeTaskService.js'
 import { createOcrcModelSelectionService } from '../zcode-services/modelSelectionService.js'
+import { createOcrcFileService } from '../zcode-services/fileService.js'
 
 const SUBSCRIBE_RE = /^(on[A-Z_]|onMessage|subscribe|add|listen|watch)/
 
@@ -69,12 +70,14 @@ const ocrcOAuthService: any = {
     userInfo: { id: 'ocrc-local', username: 'ocrc', displayName: 'ocrc' },
   }),
   getActiveProvider: async () => null,
+  getProviders: async () => [],
 }
 
 /** Provider 设置视图：空 hydrated 面（N3 设置页接入 /api/settings 时填实）。 */
 const ocrcProviderSettingsService: any = {
-  onDidChange: () => () => {},
+  onDidChange: () => ({ dispose: () => {} }),
   getView: async () => ({ revision: 0, providers: [] }),
+  refresh: async () => ({ revision: 0, providers: [] }),
 }
 
 export function createGhostAccessor(): IServiceAccessor {
@@ -85,6 +88,7 @@ export function createGhostAccessor(): IServiceAccessor {
     oauthService: ocrcOAuthService,
     modelSelectionService: createOcrcModelSelectionService(),
     providerSettingsService: ocrcProviderSettingsService,
+    fileService: createOcrcFileService(),
     zcodeTaskService: createOcrcTaskService(),
   }
   return new Proxy(

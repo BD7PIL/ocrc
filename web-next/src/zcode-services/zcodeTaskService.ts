@@ -100,7 +100,16 @@ function cardToMessage(c: OcrcCard): ZCodePersistedMessage | null {
 
 async function buildSnapshot(params: { taskId: string; messageLimit?: number }): Promise<any> {
   const { cards } = await ocrcHistory(params.taskId, params.messageLimit ?? 200)
-  const messages = cards.map(cardToMessage).filter((m): m is ZCodePersistedMessage => m !== null)
+  const messages = cards
+    .map(cardToMessage)
+    .filter((m): m is ZCodePersistedMessage => m !== null)
+    .map((m, i) => ({
+      // timeline 以 id 锚定；parts/tools 永为数组——UI 有无可选链的 .length 读取
+      id: `${params.taskId}:m${i}`,
+      parts: [],
+      tools: [],
+      ...m,
+    }))
   const sessions = await ocrcSessions()
   const s = sessions.find((x) => x.id === params.taskId)
   const meta = s
@@ -109,6 +118,12 @@ async function buildSnapshot(params: { taskId: string; messageLimit?: number }):
   return {
     meta,
     messages,
+    fileChanges: [],
+    turnCheckpoints: [],
+    pendingPermissions: [],
+    pendingElicitations: [],
+    plan: null,
+    todoGroups: null,
     history: { truncatedBefore: false, totalMessages: messages.length },
   }
 }

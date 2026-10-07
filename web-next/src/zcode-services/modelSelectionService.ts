@@ -28,9 +28,10 @@ let revision = 0
 export function createOcrcModelSelectionService(): IModelSelectionService {
   const listeners = new Set<() => void>()
   return {
+    // ZCode Event 契约（rpc foundation）：订阅返回 IDisposable 对象，不是裸函数
     onDidChange: (listener: () => void) => {
       listeners.add(listener)
-      return () => listeners.delete(listener)
+      return { dispose: () => listeners.delete(listener) }
     },
     getView: async (): Promise<ModelSelectionView> => {
       const [providers, overrides] = await Promise.all([

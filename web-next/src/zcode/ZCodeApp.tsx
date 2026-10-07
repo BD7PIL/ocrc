@@ -45,14 +45,30 @@ export function ZCodeApp() {
     // ocrc 没有 workspace 概念的服务——以最近会话的目录作为初始 workspace
     // （ZCode 是 workspace 中心结构，Root 没有它就不渲染壳）。
     const token = (() => { try { return localStorage.getItem('ocrc.token') ?? '' } catch { return '' } })()
-    fetch('/api/sessions', { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.json())
-      .then((sessions: Array<{ directory?: string }>) => {
-        const dir = sessions.find((s) => s.directory)?.directory
-        if (dir) setWorkspacePath(dir)
-      })
-      .catch(() => {})
-      .finally(() => setSettled(true))
+    const auth = { Authorization: `Bearer ${token}` }
+    void (async () => {
+      let sessions: Array<{ id: string; title?: string; lastActiveAt?: number; directory?: string }> = []
+      try {
+        sessions = await (await fetch('/api/sessions', { headers: auth })).json()
+      } catch { /* 列表拿不到就不选 workspace，壳走无初始目录分支 */ }
+      const dir = sessions.find((s) => s.directory)?.directory
+      if (dir) setWorkspacePath(dir)
+      setSettled(true)
+      // N5 跨页草稿回收（后台跑，不挡壳渲染）：shell 每次引导都会预热一个
+      // 「New session」草稿，跨页加载无人回收，侧栏无限累积。清掉历史遗留的
+      // 空草稿（三重守卫：默认标题 + 5 分钟不新鲜 + 0 消息——用户刚建的/
+      // 改名的不动）。本次加载自己的新草稿尚未创建，不受影响。
+      const staleCutoff = Date.now() - 5 * 60_000
+      for (const s of sessions) {
+        if (!/^New session - /.test(s.title ?? '')) continue
+        if ((s.lastActiveAt ?? 0) > staleCutoff) continue
+        try {
+          const history = await (await fetch(`/api/session/${s.id}?limit=1`, { headers: auth })).json()
+          if ((history?.cards ?? []).length > 0) continue
+          await fetch(`/api/sessions/${s.id}/delete`, { method: 'POST', headers: auth })
+        } catch { /* 单个失败不影响引导 */ }
+      }
+    })().catch(() => setSettled(true))
   }, [])
 
   return (

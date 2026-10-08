@@ -34,8 +34,13 @@
 - ✅ **真实历史消息渲染**（v4 wire 通道：初始 snapshot 帧 → rows 渲染，ping/pong 实证）
 - ✅ **v4 恢复阶梯接通**（resync 如实回 resume/snapshot + 每订阅单调 logicalFrameOrdinal；升级恢复/强制快照路径由真实 store+assembler 回归测试覆盖——修复了间歇性 fault.subscription.recoveryFailed）
 - ✅ **开回合流式增量上屏**（/ws card 事件 → rows 前缀 diff → row.appended/row.upserted online 增量；前缀失配回退全量 online snapshot。隔离栈实证：用户消息 1.5s 上屏、bash 工具卡随引擎执行逐步出现，全程无刷新）
-- 🔶 markdown/代码块渲染（streamdown，shiki worker）：行数据已就位，worker 生产构建
-  可用性待逐组核对（见批次 4）
+- ✅ **markdown/代码块渲染 + shiki 高亮（生产构建实证，N7-6）**：隔离栈生产 bundle 发
+  「用 python 写 hello world」→ 回复的 ```python 块渲染出语言标签 + 语法着色（关键字/
+  字符串/注释色分明，截图 /tmp/n7-render.png）——非 dev、非本地，真实产品构建。
+- ✅ **TurnNavigator**（右侧轮次刻度）：会话打开时随行数据出现（DOM 3 节点，N7-6 实测）。
+- 🔶 **推理块折叠**：链路就绪（reasoning 块 → reasoning 行映射 ✓，vendor Reasoning 折叠组件
+  在消费位）；**无数据可验**——当前引擎所有会话均无 reasoning 块（全库扫描 0 条）。等有
+  thinking 输出的会话出现后补一次人工复核，不造假数据。
 - ✅ **工具卡带真实输出**（N6 批次 2B）。此前工具行只有 toolName + 截断的 args，
   `output`/`display` 全空 → 卡片只显示"调用了什么"，不显示"做成了什么"。根因在
   数据层：事件流不带 `parts[].state.output`（引擎只在 REST 上给），行映射又只喂
@@ -188,7 +193,10 @@
 ## 6. 命令中心与快捷键
 - ✅ Ctrl+K 命令面板（CommandCenterDialog + commandsService：ocrc /api/commands 引擎命令）
 - ✅ 快捷键层（useShortcutBindings 注册；/z/ 路由隔离已断开旧面板快捷键）
-- ⬜ 快捷键提示（kbd 标签——待逐面板核对）
+- ✅ 快捷键提示：侧栏「新建任务 Ctrl+N」「搜索 Ctrl+K」可见（vendor 用 span 而非 <kbd> 标签，
+  意图即提示存在——N7-6 截图核对）
+- ✅ header 全要素：模型指示（composer 触发器）✓、分享入口 ✓（N7-2 接线后出现）、
+  搜索在侧栏（ZCode 信息架构即如此）
 
 ## 7. 右侧面板族
 - ✅ 面板骨架 + ✕ 关闭

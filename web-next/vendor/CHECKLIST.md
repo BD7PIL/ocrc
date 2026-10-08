@@ -20,7 +20,7 @@
 - ✅ 项目分组卡（折叠/展开/计数徽章）
 - ✅ 任务行（标题/时间/悬停删除/置顶钉）
 - ✅ 任务行点击 → 打开会话（v4 通道）
-- 🔶 任务行状态点（running 转圈/未读蓝点/错误红点）。未读蓝点与错误红点已通：
+- 🔶 任务行状态点（running 转圈已通；未读蓝点/错误红点见下）。未读蓝点与错误红点已通：
   unread 由 host state 覆盖（POST /api/sessions/:id/unread，后端硬编码 false 的那一层
   现在有真源），error 用既有 latch。running 转圈待 sessions-index 订阅接线（批次 2）。
 - ✅ 置顶分区（listPinnedTasks/listPinnedTaskIds + setTaskPinned 走 host state.pinnedTaskIds ——
@@ -48,8 +48,24 @@
 - ⬜ 推理块折叠展示
 - ⬜ 用户消息气泡 + 编辑/fork 动作
 - ⬜ 消息悬停动作（复制/反馈）
-- ⬜ 加载更早（rows 分页游标 conversationRowsRangeV4）
+- ✅ 加载更早（rows 分页游标 conversationRowsRangeV4）：按 rowId < beforeRowId 从完整历史
+  切尾部 limit 行——行号由 buildRows 顺序生成、历史不变即稳定，无需服务端游标。
 - ⬜ TurnNavigator（右侧轮次刻度）
+
+### N6 批次 2C 已接（2026-10-08）
+- ✅ **sessions-index 订阅三件套**：此前 `subscribeSessionsIndexV4` 走幽灵 → `await` 拿到函数
+  再取 `.ack` 直接 TypeError，侧栏永远只有静态列表。现在真 snapshot（`sessions-index/<workspaceId>`
+  五件套帧）+ 由 ws `session.status` 驱动的 `session.upserted` 增量（ocrc 的 /api/sessions 不带
+  busy，status 帧带 —— 本地维护）。隔离栈实证：侧栏 6 行、控制台零异常。
+- ✅ 跨窗口广播：web 端用原生 BroadcastChannel（send/onMessage）；claim 租约用 localStorage
+  + 过期时间（窗口崩溃不会永久占锁）。
+- ✅ 技能面：list ← /api/settings/skills-manager（源/启用/冲突真事实）、setEnabled ← toggle
+  （enable = symlink 进 ~/.config/opencode/skills）。内容编辑/删除/跨机同步如实拒绝 ——
+  ocrc 的技能生效模型是「源目录 + symlink」，没有 .zcode/skills 通用目录。
+- ✅ MCP 读取面：loadMcpFromUserDirectory / listWorkspaceMcpServerStatuses ← /api/mcp +
+  项目级 /api/settings/project/mcp。全局目录级写入如实拒绝（structured 写只有 provider 一族）。
+- ⬜ 附件管线（图片/文件上传）：web 端要走 File → attachmentBeginV4/ChunkV4/CommitV4 →
+  sendText.attachments 的整条链（ocrc 后端已支持 images[] base64），未接。
 
 ## 4. Composer（Lexical）
 - ✅ 富文本输入框挂载 + 占位文案

@@ -20,6 +20,9 @@ import { createOcrcOffPeakTaskService } from '../zcode-services/offPeakTaskServi
 import { createOcrcProviderSettingsService } from '../zcode-services/providerSettingsService.js'
 import { createOcrcGitService } from '../zcode-services/gitService.js'
 import { createOcrcSystemService } from '../zcode-services/systemService.js'
+import { createOcrcBroadcastService } from '../zcode-services/broadcastService.js'
+import { createOcrcSkillsService } from '../zcode-services/skillsService.js'
+import { createOcrcMcpSyncService } from '../zcode-services/mcpSyncService.js'
 import { ghostMethod, withGhosts } from '../zcode-services/ghost.js'
 
 // 同名服务/方法必须返回同一实例——Root 的 useMemo/useEffect 依赖
@@ -97,6 +100,9 @@ export function createGhostAccessor(): IServiceAccessor {
     fileService: createOcrcFileService(),
     gitService: createOcrcGitService(),
     systemService: createOcrcSystemService(),
+    broadcastService: createOcrcBroadcastService(),
+    skillsService: createOcrcSkillsService(),
+    mcpSyncService: createOcrcMcpSyncService(),
     commandsService: createOcrcCommandsService(),
     zcodeAgentService: createOcrcZcodeAgentService(),
     zcodeSessionService: createOcrcZcodeSessionService(),

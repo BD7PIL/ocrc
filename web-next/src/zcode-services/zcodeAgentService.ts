@@ -4,7 +4,8 @@
 // onDynamicConversationFrame 的监听器同步下发一次 —— ConversationTimeline 的
 // assembler/decoder 由此渲染真实消息。发链（sendPrompt）在 zcodeTaskService。
 
-import { conversationTopicFrameSchema } from '@zcode/shared/zcode-protocol-v4/transport'
+import { conversationTopicFrameSchema, sessionsIndexTopicFrameSchema } from '@zcode/shared/zcode-protocol-v4/transport'
+import { sessionsIndexTopic } from '@zcode/shared/zcode-protocol-v4'
 
 const V4_WIRE_PROTOCOL_VERSION = 3 as const
 
@@ -456,7 +457,11 @@ function liveWsEnsure(): void {
       return
     }
     const sid = msg.sessionId ?? msg.card?.sessionId
-    if (!sid || !watchedSessions.has(sid)) return
+    if (!sid) return
+    // 相位先于订阅范围更新：sessions-index 的订阅者要的是"任一会话的状态"，
+    // 不只是当前打开的会话（侧栏状态点）。
+    if (msg.type === 'session.status') publishIndexStatus(sid, (msg as { busy?: boolean }).busy === true)
+    if (!watchedSessions.has(sid)) return
     if (msg.type === 'card' || msg.type === 'sdelta' || msg.type === 'session.status') scheduleLive(sid)
   }
   liveWs.onclose = () => {
@@ -465,6 +470,108 @@ function liveWsEnsure(): void {
   }
   liveWs.onerror = () => {
     try { liveWs?.close() } catch { /* onclose 接管重连 */ }
+  }
+}
+
+// ── sessions-index 订阅（侧栏任务列表活性：相位点/标题/最后活动）──
+// 此前 subscribeSessionsIndexV4 走幽灵 → await 拿到函数再取 .ack 直接 TypeError，
+// 侧栏永远只有静态列表、没有运行中转圈/错误点。这里给它真 snapshot + 增量。
+// 相位来源：ocrc 的 /api/sessions 不带 busy，但 ws 的 session.status 帧带——
+// 本地维护 busyBySession，status 变化即向该 workspace 的订阅推 session.upserted。
+interface OcrcIndexSession { id: string; title?: string; lastActiveAt?: number; directory?: string; error?: boolean; unread?: boolean }
+const busyBySession = new Map<string, boolean>()
+const indexListeners = new Map<string, Set<(frame: any) => void>>()
+const indexSubs = new Map<string, { workspaceId: string; topic: string }>()
+const indexLastSeq = new Map<string, number>()
+
+function indexListenersFor(workspaceId: string): Set<(frame: any) => void> {
+  let set = indexListeners.get(workspaceId)
+  if (!set) { set = new Set(); indexListeners.set(workspaceId, set) }
+  return set
+}
+
+function toIndexSummary(s: OcrcIndexSession, workspaceId: string): Record<string, unknown> {
+  const busy = busyBySession.get(s.id) === true
+  const ts = s.lastActiveAt ?? Date.now()
+  return {
+    sessionId: s.id,
+    workspaceId,
+    title: s.title || '(未命名)',
+    phase: busy ? 'running' : s.error ? 'error' : 'completedSuccess',
+    sessionEnded: !busy,
+    hasBackgroundWork: false,
+    lastActivityAt: ts,
+    createdAt: ts,
+  }
+}
+
+async function buildIndexSnapshot(workspaceId: string): Promise<{ sessions: Array<Record<string, unknown>>; logEpoch: string } | null> {
+  try {
+    const res = await fetch('/api/sessions', { headers: { Authorization: `Bearer ${token()}` } })
+    if (!res.ok) return null
+    const sessions = (await res.json()) as OcrcIndexSession[]
+    return { sessions: sessions.map((x) => toIndexSummary(x, workspaceId)), logEpoch: 'ocrc-1' }
+  } catch { return null }
+}
+
+function indexFrameListenersFor(workspaceId: string): Set<(frame: any) => void> { return indexListenersFor(workspaceId) }
+
+function deliverIndexWire(
+  topic: string,
+  workspaceId: string,
+  subscriptionId: string,
+  fromSeq: number,
+  toSeq: number,
+  payload: { kind: 'snapshot'; snapshot: unknown } | { kind: 'deltas'; deltas: unknown[] },
+  deliveryKind: 'initial' | 'recovery' | 'online',
+): void {
+  const frame = { topic, subscriptionId, fromSeq, toSeq, sentAt: Date.now(), payload }
+  const check = sessionsIndexTopicFrameSchema.safeParse(frame)
+  if (!check.success) {
+    console.info('[ocrc-trace] index frame zod FAIL:', JSON.stringify(check.error.issues.slice(0, 6).map((i) => ({ path: i.path.join('.'), msg: i.message }))))
+    return
+  }
+  const wire = {
+    wireVersion: 3,
+    kind: 'complete' as const,
+    deliveryKind,
+    logicalFrameId: uuid(),
+    logicalFrameOrdinal: nextOrdinal(subscriptionId),
+    topic,
+    subscriptionId,
+    frame: check.data,
+  }
+  for (const l of indexFrameListenersFor(workspaceId)) {
+    try { l(wire) } catch { /* 单个监听器异常不影响其他订阅 */ }
+  }
+}
+
+async function emitIndexSnapshot(workspaceId: string, subscriptionId: string, topic: string, deliveryKind: 'initial' | 'recovery' | 'online'): Promise<void> {
+  const built = await buildIndexSnapshot(workspaceId)
+  if (!built) return
+  const seq = built.sessions.length
+  indexLastSeq.set(subscriptionId, seq)
+  deliverIndexWire(
+    topic, workspaceId, subscriptionId, 0, seq,
+    { kind: 'snapshot', snapshot: { protocolVersion: 1, workspaceId, logEpoch: built.logEpoch, sessions: built.sessions } },
+    deliveryKind,
+  )
+}
+
+/** session.status 帧 → 相位变化 → 给该 workspace 的订阅推一条 session.upserted。 */
+function publishIndexStatus(sessionId: string, busy: boolean): void {
+  const changed = busyBySession.get(sessionId) !== busy
+  busyBySession.set(sessionId, busy)
+  if (!changed) return
+  for (const [subId, sub] of indexSubs) {
+    void (async () => {
+      const built = await buildIndexSnapshot(sub.workspaceId)
+      const summary = built?.sessions.find((x: any) => x.sessionId === sessionId)
+      if (!summary) return
+      const lastSeq = indexLastSeq.get(subId) ?? 0
+      deliverIndexWire(sub.topic, sub.workspaceId, subId, lastSeq, lastSeq + 1, { kind: 'deltas', deltas: [{ op: 'session.upserted', session: summary }] }, 'online')
+      indexLastSeq.set(subId, lastSeq + 1)
+    })()
   }
 }
 
@@ -511,6 +618,65 @@ export function createOcrcZcodeAgentService(): any {
       }
       void emitConversationSnapshot(sub.sessionId, sub.topic, subId, 'recovery')
       return { ack: { subscriptionId: subId, mode: 'snapshot', logEpoch: 'ocrc-1' } }
+    },
+    // 「加载更早」：store 以窗口首行 rowId 作游标向更早分页。行号由 buildRows 从
+    // 完整历史顺序生成，只要历史不变就稳定（新消息只往尾部追加）——所以按
+    // rowId < beforeRowId 取尾部 limit 行即可，无需服务端游标。
+    async conversationRowsRangeV4(params: { sessionId: string; beforeRowId?: number; limit: number }) {
+      const cards = await ocrcHistory(params.sessionId)
+      const rows = buildRows(cards)
+      await enrichToolRows(rows, params.sessionId)
+      const before = params.beforeRowId
+      const earlier = before === undefined ? rows : rows.filter((r) => r.rowId < before)
+      const page = earlier.slice(Math.max(0, earlier.length - Math.max(1, params.limit)))
+      return {
+        rows: page,
+        atSeq: rows.length,
+        atRevision: 1,
+        atLogEpoch: 'ocrc-1',
+        // 还有更早的行 = 本次没取到的部分非空
+        hasMore: earlier.length > page.length,
+      }
+    },
+    // ── sessions-index 三件套（侧栏活性）──
+    async subscribeSessionsIndexV4(params: { workspacePath?: string; workspaceIdentity?: string }) {
+      const workspaceId = params?.workspaceIdentity?.trim() || params?.workspacePath || ''
+      const ack = { subscriptionId: `ocrc-idx-${uuid()}`, mode: 'snapshot', logEpoch: 'ocrc-1' }
+      if (!workspaceId) return { ack }
+      const topic = sessionsIndexTopic(workspaceId)
+      indexSubs.set(ack.subscriptionId, { workspaceId, topic })
+      void emitIndexSnapshot(workspaceId, ack.subscriptionId, topic, 'initial')
+      return { ack }
+    },
+    async resyncSessionsIndexV4(params: { subscriptionId?: string; base?: { logEpoch: string; seq: number } | null; forceSnapshot?: boolean }) {
+      const subId = params?.subscriptionId
+      const sub = subId ? indexSubs.get(subId) : undefined
+      if (!sub || !subId) throw new Error('fault.subscription.notOwned')
+      const lastSeq = indexLastSeq.get(subId)
+      const baseSeq = params?.base?.seq
+      if (!params?.forceSnapshot && typeof baseSeq === 'number' && baseSeq === lastSeq) {
+        deliverIndexWire(sub.topic, sub.workspaceId, subId, baseSeq, lastSeq, { kind: 'deltas', deltas: [] }, 'recovery')
+        return { ack: { subscriptionId: subId, mode: 'resume', logEpoch: 'ocrc-1' } }
+      }
+      void emitIndexSnapshot(sub.workspaceId, subId, sub.topic, 'recovery')
+      return { ack: { subscriptionId: subId, mode: 'snapshot', logEpoch: 'ocrc-1' } }
+    },
+    async unsubscribeSessionsIndexV4(params: { subscriptionId?: string }) {
+      const subId = params?.subscriptionId
+      if (!subId) return undefined
+      indexSubs.delete(subId)
+      indexLastSeq.delete(subId)
+      return undefined
+    },
+    /** 事件面：onDynamicXxx(workspace) 返回 Event，Event(listener) 返回 disposable
+     *  ——两种调用形状见 ghost.ts 的同名注释。 */
+    onDynamicSessionsIndexFrame(params: { workspacePath?: string; workspaceIdentity?: string }) {
+      const workspaceId = params?.workspaceIdentity?.trim() || params?.workspacePath || ''
+      return (listener: (frame: any) => void) => {
+        const set = indexListenersFor(workspaceId)
+        set.add(listener)
+        return { dispose: () => { set.delete(listener) } }
+      }
     },
     async unsubscribeConversationV4(params: { subscriptionId?: string }) {
       const subId = params?.subscriptionId

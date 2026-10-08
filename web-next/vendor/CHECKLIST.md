@@ -34,8 +34,17 @@
 - ✅ **真实历史消息渲染**（v4 wire 通道：初始 snapshot 帧 → rows 渲染，ping/pong 实证）
 - ✅ **v4 恢复阶梯接通**（resync 如实回 resume/snapshot + 每订阅单调 logicalFrameOrdinal；升级恢复/强制快照路径由真实 store+assembler 回归测试覆盖——修复了间歇性 fault.subscription.recoveryFailed）
 - ✅ **开回合流式增量上屏**（/ws card 事件 → rows 前缀 diff → row.appended/row.upserted online 增量；前缀失配回退全量 online snapshot。隔离栈实证：用户消息 1.5s 上屏、bash 工具卡随引擎执行逐步出现，全程无刷新）
-- ⬜ markdown/代码块渲染（streamdown，shiki worker）
-- ⬜ 工具卡族（bash/edit/todo/read…ToolCallBlocks 渲染器族）
+- 🔶 markdown/代码块渲染（streamdown，shiki worker）：行数据已就位，worker 生产构建
+  可用性待逐组核对（见批次 4）
+- ✅ **工具卡带真实输出**（N6 批次 2B）。此前工具行只有 toolName + 截断的 args，
+  `output`/`display` 全空 → 卡片只显示"调用了什么"，不显示"做成了什么"。根因在
+  数据层：事件流不带 `parts[].state.output`（引擎只在 REST 上给），行映射又只喂
+  `inputText`。现在按 messageId 回取 `/api/session/:id/message/:msgId`（5s TTL 缓存）、
+  把 bash 投影成 ZCode 的 `display.kind='bash_output'`（真 stdout，50k 截断），
+  其余工具给 `output.text`——**不臆造 file_diff**（edit/write 的 patch 不在工具结果里，
+  编一个 structuredPatch 就是假数据）。同时修 `status`：`running` 不再塌成 `success`
+  （此前执行中的工具当场显示已完成、没有转圈）。隔离栈实证：发「用 bash 执行 ls -la …」
+  → 卡片渲染出真实 stdout（截图 /tmp/n6-toolcard.png）。
 - ⬜ 推理块折叠展示
 - ⬜ 用户消息气泡 + 编辑/fork 动作
 - ⬜ 消息悬停动作（复制/反馈）
@@ -83,8 +92,18 @@
 
 ## 7. 右侧面板族
 - ✅ 面板骨架 + ✕ 关闭
-- ⬜ Git 面板（gitService → ocrc /api/vcs）
-- ⬜ 文件浏览器/查看器（fileService → ocrc /api/files）
+- 🔶 Git 面板（gitService）：只读面已通（N6 批次 2A）——host 侧 `GET /api/git`
+  给 repoRoot/ahead-behind/numstat/本地分支/identity（ocrc 原有 /api/vcs 是从引擎转手的
+  窄面，不够用），`GET /api/git/diff` 出差分。写操作（stage/commit/push/切分支）
+  留批次 3，此前如实拒绝。
+- ✅ 文件浏览器/查看器（fileService）：14 个方法全部接线（N6 批次 2A）——readdir/stat/
+  checkFilesExist ← /api/browse + 新增 POST /api/file-stat；readTextFile/readFileRange ←
+  /api/file-slice、/api/file-base64（引擎读文件拿不到二进制，host 自己读盘）；
+  searchWorkspaceFiles ← /api/files/search；listWorkspaceFiles* ← /api/files/index
+  （ZCode 的列式 packed 索引 1:1 兼容，type\trelativePath 转义规则照抄）。
+  路径一律经 containment 校验（safeResolve，符号链接感知）。`.zcodeignore` 不适用：
+  读接口给说明模板、写接口如实拒绝（ocrc 的文件索引由 host 内置规则决定，不写一个
+  没人读的文件假装生效）。
 - ⬜ 工具输出页（messageRaw）
 - ⬜ 子代理转写页
 - ⬜ 计划详情页

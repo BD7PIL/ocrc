@@ -22,7 +22,7 @@ function token(): string {
 }
 
 // ── ocrc 历史 → v4 conversation rows ──
-interface OcrcBlock { type: string; text?: string; tool?: string; args?: string; status?: string }
+interface OcrcBlock { type: string; text?: string; tool?: string; args?: string; status?: string; partId?: string; messageId?: string }
 interface OcrcCard { kind: string; text?: string; ts?: number; blocks?: OcrcBlock[]; meta?: { model?: string } }
 
 async function ocrcHistory(taskId: string): Promise<OcrcCard[]> {
@@ -34,6 +34,93 @@ async function ocrcHistory(taskId: string): Promise<OcrcCard[]> {
     return ((await res.json()) as { cards: OcrcCard[] }).cards ?? []
   } catch {
     return []
+  }
+}
+
+/** 单条工具输出进浏览器的上限（ZCode schema 上限 150k；行要参与 diff，
+ *  太大每次重建都做整串比较）。 */
+const MAX_TOOL_OUTPUT_CHARS = 50_000
+
+/** 工具结果的原始载体：/api/session/:id/message/:msgId 的 parts[].state。
+ *  事件流不带 state.output（引擎只在 REST 上给），所以工具卡要显示"做了什么"
+ *  必须回取一次原始消息。按 messageId 缓存，避免每轮重复拉。 */
+interface OcrcToolPart { id?: string; tool?: string; state?: { status?: string; input?: unknown; output?: unknown; metadata?: unknown; title?: string } }
+const rawMessageCache = new Map<string, { parts: Map<string, OcrcToolPart>; at: number }>()
+/** 短 TTL：流式中的工具结果会随后续帧变化，缓存太久会显示半截输出。 */
+const RAW_CACHE_TTL_MS = 5_000
+
+async function rawToolParts(sessionId: string, messageId: string): Promise<Map<string, OcrcToolPart>> {
+  const key = `${sessionId}:${messageId}`
+  const hit = rawMessageCache.get(key)
+  if (hit && Date.now() - hit.at < RAW_CACHE_TTL_MS) return hit.parts
+  const byId = new Map<string, OcrcToolPart>()
+  try {
+    const res = await fetch(`/api/session/${sessionId}/message/${messageId}`, {
+      headers: { Authorization: `Bearer ${token()}` },
+    })
+    if (res.ok) {
+      const body = (await res.json()) as { parts?: Array<OcrcToolPart & { type?: string }> }
+      for (const p of body.parts ?? []) {
+        if (p?.type === 'tool' && p.id) byId.set(p.id, p)
+      }
+    }
+  } catch { /* 拿不到就退化成无输出的卡片，不影响行渲染 */ }
+  rawMessageCache.set(key, { parts: byId, at: Date.now() })
+  return byId
+}
+
+/** 引擎的 tool part → ZCode 的 output/display。
+ *  - bash 有真 stdout → bash_output（ZCode 的 bash 专用渲染器）
+ *  - 其余工具给 output.text（通用渲染器），**不臆造 file_diff**：edit/write 的
+ *    patch 不在工具结果里，编一个 structuredPatch 就是假数据。 */
+function toolOutputFor(toolName: string, part: OcrcToolPart | undefined): { text: string; display?: Record<string, unknown> } | undefined {
+  if (!part?.state) return undefined
+  const st = part.state
+  const outText = typeof st.output === 'string' ? st.output : ''
+  if (!outText && st.status !== 'completed') return undefined
+  const meta = (st.metadata ?? {}) as Record<string, unknown>
+  const tool = toolName.toLowerCase()
+  if (tool === 'bash' || tool === 'bashoutput' || tool.includes('shell')) {
+    const command = ((st.input ?? {}) as { command?: string }).command ?? st.title ?? ''
+    const full = outText || (typeof meta.output === 'string' ? meta.output : '')
+    const capped = full.length > MAX_TOOL_OUTPUT_CHARS
+    const output = capped ? full.slice(0, MAX_TOOL_OUTPUT_CHARS) : full
+    return {
+      text: output,
+      display: {
+        kind: 'bash_output',
+        output,
+        truncated: meta.truncated === true || capped,
+        ...(command ? { title: command } : {}),
+      },
+    }
+  }
+  return { text: outText.length > MAX_TOOL_OUTPUT_CHARS ? outText.slice(0, MAX_TOOL_OUTPUT_CHARS) : outText }
+}
+
+/** 把工具块的输出补进行里（就地改 rows）。只对真的带 messageId + 工具块的消息回取。 */
+async function enrichToolRows(rows: any[], sessionId: string): Promise<void> {
+  const byMessage = new Map<string, any[]>()
+  for (const row of rows) {
+    if (row.kind !== 'toolCall' || !row.__messageId) continue
+    const list = byMessage.get(row.__messageId) ?? []
+    list.push(row)
+    byMessage.set(row.__messageId, list)
+  }
+  for (const [messageId, messageRows] of byMessage) {
+    const parts = await rawToolParts(sessionId, messageId)
+    for (const row of messageRows) {
+      const part = row.__partId ? parts.get(row.__partId) : undefined
+      const output = toolOutputFor(row.toolName, part)
+      row.input = part?.state?.input
+      if (output && output.text) row.output = output
+      else if (part?.state?.status) {
+        // 有终态但没有可显示输出：把状态如实带过去（不再把所有非 error 都当 success）
+        row.status = part.state.status === 'completed' ? 'success' : part.state.status === 'error' ? 'error' : 'running'
+      }
+      delete row.__messageId
+      delete row.__partId
+    }
   }
 }
 
@@ -69,10 +156,13 @@ function buildRows(cards: OcrcCard[]): any[] {
           rows.push({
             ...base(ts),
             kind: 'toolCall',
-            toolCallId: `tool-${rowId}`,
+            toolCallId: b.partId ? `tool-${b.partId}` : `tool-${rowId}`,
             toolName: b.tool ?? 'tool',
-            status: b.status === 'error' ? 'error' : 'success',
-            inputText: (b.args ?? '').slice(0, 2000),
+            // running 不再塌成 success：否则执行中的工具当场显示"已完成"，没有转圈。
+            status: b.status === 'error' ? 'error' : b.status === 'running' ? 'running' : 'success',
+            inputText: (b.args ?? '').slice(0, 4000),
+            __messageId: b.messageId,
+            __partId: b.partId,
           })
           rowId += 1
         }
@@ -150,6 +240,7 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
   const curModel = overrides.model?.modelID ?? providers.find((p) => p.id === curProvider)?.models?.[0]?.id ?? ''
   const curThought = (providers.find((p) => p.id === curProvider)?.models?.find((m) => m.id === curModel)?.variants ?? [])[0] ?? ''
   const rows = buildRows(cards)
+  await enrichToolRows(rows, taskId)
   const seq = rows.length
   const snapshot = {
     protocolVersion: 1,
@@ -250,6 +341,7 @@ async function liveUpdate(sessionId: string): Promise<void> {
   const cards = await ocrcHistory(sessionId).catch(() => null)
   if (!cards) return
   const nextRows = buildRows(cards)
+  await enrichToolRows(nextRows, sessionId)
   if (JSON.stringify(prevRows) === JSON.stringify(nextRows)) return
   const deltas = diffRows(prevRows, nextRows)
   lastRowsBySession.set(sessionId, nextRows)

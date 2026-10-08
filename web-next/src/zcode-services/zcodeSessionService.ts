@@ -112,7 +112,22 @@ export function createOcrcZcodeSessionService(): any {
       workspacePath: params?.workspacePath ?? '',
       identity: undefined,
     }),
-    readWorkspacePresentation: async () => ({ workspaces: [], recentProjects: [] }),
+    // 工作区呈现（ZCode 形状 = {workspace, mode, slashCommands}，不是 workspaces/recentProjects
+    // 列表——此前那个形状对不上，调用方读 workspace.workspacePath 会拿到 undefined）。
+    readWorkspacePresentation: async (params: { workspacePath?: string }) => {
+      const workspacePath = params?.workspacePath ?? ''
+      const commands = await fetch('/api/commands', { headers: { Authorization: `Bearer ${token()}` } })
+        .then((r) => (r.ok ? (r.json() as Promise<Array<{ name: string; description?: string }>>) : []))
+        .catch(() => [] as Array<{ name: string; description?: string }>)
+      return {
+        workspace: {
+          workspacePath: workspacePath || '/home/demo/develop/opencode-plugin/ocrc',
+          workspaceKey: workspacePath || '/home/demo/develop/opencode-plugin/ocrc',
+        },
+        mode: 'build',
+        slashCommands: commands.map((cmd) => ({ name: `/${cmd.name}`, description: cmd.description ?? '', source: 'custom' as const })),
+      }
+    },
     listSessions: async () => {
       const sessions = await ocrcSessions()
       return sessions.map((s) => ({

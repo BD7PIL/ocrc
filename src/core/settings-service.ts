@@ -33,6 +33,11 @@ export interface ProviderPatch {
   providerId: string
   /** Display name (opencode: provider.<id>.name). */
   name?: string
+  /** AI-SDK loader package. opencode REQUIRES npm for a config-defined provider:
+   *  an entry without it makes the whole provider registry come back empty
+   *  ("No providers are available" — every model, including built-ins, dies).
+   *  实测：{name} 裸条目 → 引擎全挂；{npm, models:{}} → 健康。 */
+  npm?: string
   baseURL?: string
   /** Write-only: absent = leave the stored key untouched. */
   apiKey?: string
@@ -143,6 +148,7 @@ export function patchProvider(path: string, patch: ProviderPatch): void {
   }
   const p = (providers[patch.providerId] ??= {})
   if (patch.name !== undefined) p.name = patch.name
+  if (patch.npm !== undefined) p.npm = patch.npm
   if (patch.baseURL !== undefined || patch.apiKey !== undefined) {
     const options = (p.options ??= {}) as Record<string, unknown>
     if (patch.baseURL !== undefined) options.baseURL = patch.baseURL

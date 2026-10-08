@@ -86,6 +86,8 @@ describe('writes go to the host config API', () => {
     expect(created.providerId).toBe('my-provider')
     const patch = calls.find((c) => c.url.includes('/provider'))
     expect(patch?.body).toMatchObject({ providerId: 'my-provider', name: 'My Provider', baseURL: 'https://mine.example/v1', apiKey: 'sk-new' })
+    // npm 是硬要求：缺了它引擎的供应商注册表整体变空（有实测记录，见 CHECKLIST）
+    expect(patch?.body.npm).toBe('@ai-sdk/openai-compatible')
     expect(created.view.providerOrder).toEqual(['alpha', 'beta'])
   })
 

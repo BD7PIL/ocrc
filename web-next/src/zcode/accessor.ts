@@ -18,6 +18,8 @@ import { createOcrcZcodeSessionService } from '../zcode-services/zcodeSessionSer
 import { createOcrcBotsService } from '../zcode-services/botsService.js'
 import { createOcrcOffPeakTaskService } from '../zcode-services/offPeakTaskService.js'
 import { createOcrcProviderSettingsService } from '../zcode-services/providerSettingsService.js'
+import { createOcrcGitService } from '../zcode-services/gitService.js'
+import { createOcrcSystemService } from '../zcode-services/systemService.js'
 import { ghostMethod, withGhosts } from '../zcode-services/ghost.js'
 
 // 同名服务/方法必须返回同一实例——Root 的 useMemo/useEffect 依赖
@@ -92,7 +94,9 @@ export function createGhostAccessor(): IServiceAccessor {
     oauthService: withGhosts('oauthService', ocrcOAuthService),
     modelSelectionService: createOcrcModelSelectionService(),
     providerSettingsService: createOcrcProviderSettingsService(),
-    fileService: withGhosts('fileService', createOcrcFileService()),
+    fileService: createOcrcFileService(),
+    gitService: createOcrcGitService(),
+    systemService: createOcrcSystemService(),
     commandsService: createOcrcCommandsService(),
     zcodeAgentService: createOcrcZcodeAgentService(),
     zcodeSessionService: createOcrcZcodeSessionService(),

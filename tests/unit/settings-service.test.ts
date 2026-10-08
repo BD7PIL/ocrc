@@ -36,6 +36,17 @@ describe('patchProvider', () => {
     expect(gamma?.hasKey).toBe(true)
   })
 
+  it('writes the npm loader — an entry without it empties the WHOLE provider registry', () => {
+    // 实测（隔离栈，2026-10-08）：provider.e2etest = {name} 或 {name,options:{}} 会让
+    // 引擎报 ProviderNoProvidersError，连内置免费模型一起消失；{npm, models:{}} 则健康。
+    // 所以 /z/ 创建供应商必须带 npm，这条钉住回归。
+    const path = tempConfig('{}')
+    patchProvider(path, { providerId: 'custom', name: '自定义', npm: '@ai-sdk/openai-compatible' })
+    const doc = JSON.parse(readFileSync(path, 'utf-8'))
+    expect(doc.provider.custom.npm).toBe('@ai-sdk/openai-compatible')
+    expect(doc.provider.custom.name).toBe('自定义')
+  })
+
   it('leaves the stored key untouched when apiKey is absent (write-only semantics)', () => {
     const path = tempConfig(BASE)
     patchProvider(path, { providerId: 'alpha', baseURL: 'https://alpha2.example/v1' })

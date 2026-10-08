@@ -1,5 +1,6 @@
 import type { Hono } from 'hono'
 import type { BackendRegistry } from '../../../core/agent/registry.js'
+import { gitDiff, gitInfo } from '../../../core/git-ops.js'
 
 /** 0.18 git pane data: branch + per-file working-tree status, and per-file
  *  patches. Proxied from the opencode server's /vcs endpoints (ocFetch).
@@ -21,6 +22,21 @@ export function registerVcs(app: Hono, reg: BackendRegistry) {
     const body = await backend.getVcsDiff(c.req.query('sessionId'), file)
     if (!body) return c.json({ error: 'unavailable' }, 404)
     return c.json(body)
+  })
+
+  // ── N6 Git 面板：host 侧 git（固定参数）给 /z/ 的 repoRoot / ahead-behind /
+  //    numstat / 本地分支 / identity。已有 /api/vcs 是从引擎转手的窄面，不够用。──
+  app.get('/api/git', async (c) => {
+    const directory = c.req.query('directory') ?? ''
+    if (!directory) return c.json({ error: 'directory required' }, 400)
+    return c.json(await gitInfo(directory))
+  })
+
+  app.get('/api/git/diff', async (c) => {
+    const directory = c.req.query('directory') ?? ''
+    const file = c.req.query('file') ?? ''
+    if (!directory || !file) return c.json({ error: 'directory and file required' }, 400)
+    return c.json(await gitDiff(directory, file, { staged: c.req.query('staged') === '1' }))
   })
 }
 

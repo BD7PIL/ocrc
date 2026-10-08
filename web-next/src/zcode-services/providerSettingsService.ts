@@ -31,6 +31,10 @@ interface OcrcRuntimeProvider { id: string; name?: string; models?: OcrcRuntimeM
 
 /** ZCode 的 apiFormat 枚举里与 ocrc 引擎（OpenAI 兼容面）对应的那一项。 */
 const API_TYPE = 'openai-chat-completions'
+/** opencode 对一个配置态 provider 的硬要求：没有 npm 的条目会让整个供应商注册表
+ *  变空（"No providers are available"，连内置模型一起死）。实测：{name} 裸条目
+ *  → 引擎全挂；{npm, models:{}} → 健康。所以创建时必须带上它。 */
+const AI_SDK_NPM = '@ai-sdk/openai-compatible'
 
 function token(): string {
   try { return localStorage.getItem('ocrc.token') ?? '' } catch { return '' }
@@ -214,6 +218,7 @@ export function createOcrcProviderSettingsService(): any {
       await post('/api/settings/opencode-config/provider', {
         providerId,
         name: providerName,
+        npm: AI_SDK_NPM,
         ...(typeof baseURL === 'string' && baseURL ? { baseURL } : {}),
         ...(typeof apiKey === 'string' && apiKey ? { apiKey } : {}),
       })

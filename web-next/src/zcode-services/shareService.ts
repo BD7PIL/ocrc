@@ -90,7 +90,10 @@ export function createOcrcShareService(): Record<string, any> {
       }
     },
 
-    onDynamicPublishProgress: (listener: (progress: any) => void) => {
+    /** 事件工厂形状：`onDynamicPublishProgress(operationId)` **返回 Event**，由调用方
+     *  再用 listener 订阅（UI 侧就是 `svc.onDynamicPublishProgress(op)(cb)`）。实现成
+     *  「直接收 listener」会在发布时抛 `... is not a function`（隔离栈实测）。 */
+    onDynamicPublishProgress: (_operationId: string) => (listener: (progress: any) => void) => {
       publishListeners.add(listener)
       return { dispose: () => { publishListeners.delete(listener) } }
     },

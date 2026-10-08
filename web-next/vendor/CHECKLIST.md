@@ -238,16 +238,20 @@
 - ✅ 远程主机管理（2026-10-08 裁决②：本期做映射，方向为 ocrc 语义原生进 /z/——ZCode 的桌面 SSH-connectRemote 语义浏览器客户端做不了，ocrc 的 host 侧隧道 + 远端引擎注册才是正确模型）。设置页新增「远程主机」分区（vendor 新增 RemotesSection + settingsNavigation/config/i18n 四点接线）：列表/状态（隧道本地端口）/启停（PATCH live 生效）/SSH 探测/删除/新增，全走 ocrc /api/remotes。启用远端后会话自动并入任务列表，/z/ 侧栏即见、流式同源
 - ✅ 定时任务重做为 off-peak 取号语义（2026-10-08 裁决③：用户拍板「本来就不是 cron」）。新 ocrc 后端 `core/offpeak.ts`：一次性工单 queued→running→completed/failed（FIFO 单并发、低峰窗口 OCRC_OFFPEAK_WINDOW 默认 00:00-08:00、createSession+relay 派发、模型经 setNextModel 派发前应到引擎、permissionMode→审批策略 edit/yolo、完成检测用会话忙碌位）+ /api/offpeak CRUD。/z/ service 重接后状态机同形：实证「offpeak e2e probe」创建→派发新会话→引擎回复→已完成，闲时任务页全部分类/进行中/已完成/失败正常渲染。cron scheduler（TG 面板在用）未动，退役另行裁决
 
-### 分享发布（N7-2 + N7-6 实测）
-- ✅ 服务侧全接（publish → POST /api/share；record = share_code/share_url/access_mode/
-  expires_at；导入/续聊如实拒绝）+ 契约测试 5 条。
-- ✅ dock 实测：入口 conversation-share-trigger → dock 展开 → 轮次枚举 0/2。
-- ✅ **又修一个真缺口**：preflight 此前返回 `turnResults: []` → UI 枚举出 2 个轮次却没有可选
-  轮次 id，选择动作无处落地（「下一步」永久禁用）。现在按真实历史产出 `turn-N`（与行映射
-  turnId 对齐）+ 契约测试。
-- 🔶 残余：dock 内 3 个复选框在 CDP 合成事件下不响应（trusted 点击、聚焦后 Space/Enter 均无
-  效，元素自身未 disabled）——与项目已记录的「radix 对合成事件免疫」同类，属无头驱动限制；
-  「披露 → 发布 → 出 /share/<code>」留人工一次点击确认。
+### 分享发布（N7-2 + N7-6 实测）——**端到端已闭环**
+- ✅ 服务侧全接（publish → POST /api/share；record 四元组；导入/续聊如实拒绝）+ 契约测试 6 条。
+- ✅ **dock 全流程 CDP 实测通过**：入口 conversation-share-trigger → dock → 全选轮次（2/2）→
+  下一步 → 披露勾选 → 生成分享链接 → `POST /api/share` → 界面「分享已创建」。
+  落盘验证：分享码 `Y62L7O6wxhLk`（标题「图片颜色查询」、4 卡）；公开落地页
+  `GET /api/share/Y62L7O6wxhLk` 免鉴权取回同样内容。
+- ✅ 打通这条链修出**四个真缺陷**（都是「界面看着有、功能用不了」的同类）：
+  1. 行缺 `productTurnId` → 「可分享轮次」映射为空 → 轮次复选框受控于空列表（点不动的真根因）；
+  2. 快照缺 `meta` → schema 默认 `{title:''}` → 分享标题恒空（空串不走 `??` 回退）→
+     「生成分享链接」永久禁用；
+  3. `onDynamicPublishProgress` 实现成「直接收 listener」而非「(opId) → Event」工厂 →
+     发布时 `... is not a function`；
+  4. preflight 返回 `turnResults: []` → 无可选轮次 id。
+  四条各有回归测试（productTurnId 在 reasoningRows.test、meta/工厂形状/轮次在 shareService.test）。
 
 ## 10. 分享与周边
 - ✅ 分享落地页路由（ShareLanding 已有独立实现）

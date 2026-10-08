@@ -180,6 +180,9 @@ function buildRows(cards: OcrcCard[]): any[] {
   const base = (ts: number) => ({
     rowId: rowId,
     turnId: `turn-${turn}`,
+    // canonical 产品轮次身份：分享的轮次选择（syncAvailableTurns 读 row.productTurnId）、
+    // 轮次级动作都靠它。不设 → 可分享轮次映射为空、选择控件受控于空列表（点不动的真根因）。
+    ...(turn > 0 ? { productTurnId: `turn-${turn}` } : {}),
     createdAt: ts,
     createdAtSeq: rowId,
   })
@@ -281,7 +284,11 @@ interface SnapshotBuild {
 }
 
 async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
-  const [cards, providers, overrides] = await Promise.all([
+  const [sessionTitle, cards, providers, overrides] = await Promise.all([
+    fetch('/api/sessions', { headers: { Authorization: `Bearer ${token()}` } })
+      .then((r) => (r.ok ? (r.json() as Promise<Array<{ id: string; title?: string }>>) : []))
+      .then((list) => list.find((x) => x.id === taskId)?.title ?? '')
+      .catch(() => ''),
     ocrcHistory(taskId),
     fetch('/api/models', { headers: { Authorization: `Bearer ${token()}` } })
       .then((r) => r.json() as Promise<Array<{ id: string; models: Array<{ id: string; name?: string; variants?: string[] }> }>>)
@@ -330,6 +337,9 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
     pendingInteractions: [],
     pendingCommands: [],
     backgroundWorks: [],
+    // meta.title：schema 默认值是空串，而空串不走 `??` 回退 —— 分享标题取
+    // snapshot.meta.title，缺它就恒为空 → 「生成分享链接」永久禁用（隔离栈实测根因）。
+    meta: { title: sessionTitle || 'ocrc 会话', titleSource: sessionTitle ? 'generated' as const : 'default' as const },
     goal: null,
     plan,
     ...(subagents ? { subagents } : {}),

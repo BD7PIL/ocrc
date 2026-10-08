@@ -59,3 +59,18 @@ describe('reasoning 行映射', () => {
     expect(rows.filter((r) => r.kind === 'reasoning')).toHaveLength(0)
   })
 })
+
+describe('行的 canonical 身份', () => {
+  it('每行带 productTurnId（分享轮次选择读它，缺了选择控件点不动）', async () => {
+    const rows = await rowsFrom([
+      { kind: 'user', text: '第一轮', ts: 1 },
+      { kind: 'assistant', ts: 2, blocks: [{ type: 'text', text: '答一' }] },
+      { kind: 'user', text: '第二轮', ts: 3 },
+      { kind: 'assistant', ts: 4, blocks: [{ type: 'text', text: '答二' }] },
+    ])
+    const turnIds = rows.map((r) => r.productTurnId).filter(Boolean)
+    expect(new Set(turnIds)).toEqual(new Set(['turn-1', 'turn-2']))
+    // 每一行都属于某个产品轮次（UI 按 row.productTurnId 建可分享轮次映射）
+    expect(rows.every((r) => typeof r.productTurnId === 'string' && r.productTurnId.length > 0)).toBe(true)
+  })
+})

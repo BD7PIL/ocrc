@@ -64,3 +64,21 @@ describe('capabilities / preflight', () => {
     expect(pre.turnResults.map((t: any) => t.productTurnId)).toEqual(['turn-1', 'turn-2', 'turn-3'])
   })
 })
+
+describe('事件工厂形状（真实缺陷回归）', () => {
+  it('onDynamicPublishProgress(operationId) 返回 Event，而不是 disposable', async () => {
+    // 隔离栈实测：实现成「直接收 listener」时，UI 侧
+    // `svc.onDynamicPublishProgress(op)(cb)` 会抛 `... is not a function`，
+    // 发布整条链在此断掉。这里钉住工厂形状。
+    const svc = createOcrcShareService()
+    const event = svc.onDynamicPublishProgress('op-1')
+    expect(typeof event).toBe('function')
+    const seen: unknown[] = []
+    const dispose = event((p: unknown) => seen.push(p))
+    expect(typeof dispose.dispose).toBe('function')
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ code: 'c', url: '/share/c' }) })))
+    await svc.publish(INPUT, 'op-1')
+    expect(seen.length).toBeGreaterThan(0)
+    dispose.dispose()
+  })
+})

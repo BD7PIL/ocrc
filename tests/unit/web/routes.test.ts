@@ -8,6 +8,8 @@ function fakeState() {
   return {
     getSessionCost: (id: string) => costs.get(id),
     isSessionError: () => false,
+    isSessionUnread: () => false,
+    isTaskPinned: () => false,
     setSessionCost: vi.fn(),
     getLastSessionId: () => 'ses_a',
     getActiveAbort: (id: string) => id === 'ses_a' ? { abort: vi.fn() } as any : undefined,

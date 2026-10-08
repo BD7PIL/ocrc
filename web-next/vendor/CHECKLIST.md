@@ -20,8 +20,11 @@
 - ✅ 项目分组卡（折叠/展开/计数徽章）
 - ✅ 任务行（标题/时间/悬停删除/置顶钉）
 - ✅ 任务行点击 → 打开会话（v4 通道）
-- ⬜ 任务行状态点（running 转圈/未读蓝点/错误红点——依赖流事件接线）
-- ⬜ 置顶分区（listPinnedTasks 空实现）
+- 🔶 任务行状态点（running 转圈/未读蓝点/错误红点）。未读蓝点与错误红点已通：
+  unread 由 host state 覆盖（POST /api/sessions/:id/unread，后端硬编码 false 的那一层
+  现在有真源），error 用既有 latch。running 转圈待 sessions-index 订阅接线（批次 2）。
+- ✅ 置顶分区（listPinnedTasks/listPinnedTaskIds + setTaskPinned 走 host state.pinnedTaskIds ——
+  与 TG 共用一份，不是浏览器本地偏好；注意它和 relay 的 pinnedSessionId 是两回事）
 - ⬜ 归档视图（archive 全家）
 - ⬜ 任务组（颜色/拖拽分组——grouped 结构空实现）
 - ✅ 时间线分区空态（conversation 工作区语义，忠实）
@@ -47,7 +50,21 @@
 - ✅ **sendPrompt 端到端**（composer → sendConversationCommandV4 → /api/message → 引擎回复落盘；流式增量上屏为后续增量映射项）
 - ✅ 模型门禁放行（modelSelection view 带 optionSpecs/effectiveSelection；readSession/快照 config 填真实 current 模型）
 - ✅ **模型配置打通**（2026-10-08 验收反馈修复）：①composer 模型下拉此前为空（只剩「管理模型」）——根因是 provider config 缺 api.type，被 supportsRegistryApiFormat 门整体过滤；现在 /z/ 的 provider 目录统一补 api:{type:"openai"} 占位（引擎模型全是 OpenAI 兼容面），12 个 provider 组 + 全部模型项正常列出、选中即 radix radio 生效。②设置→模型设置页此前空白（providerSettingsService 返回空 providers）——现以 ocrc 引擎目录真实回填（ProviderSettingsView 全形），供应商卡片/模型清单可见；增删改类 mutation 明确拒绝（目录属引擎配置 ~/.config/opencode，/z/ 不提供写入），不做假成功
-- ⬜ 停止生成（stopGeneration → /api/abort）
+- ✅ **模型配置可写打通**（2026-10-08 N6 批次 1，用户报「添加供应商失败」后修）：
+  providerSettingsService 的 10 个 mutation 全部接真后端——创建/写 key/写模型 →
+  `POST /api/settings/opencode-config/provider`（JSONC 校验 + .ocrc-bak 备份 + 原子写，
+  与旧 rc.2 面板同一条路径）、删除/重排 → `POST /api/settings/opencode-config/reorder`
+  与 patch 的 `delete:true`、连通性 → `POST /api/settings/test-provider`（key 不出 host）。
+  读侧改为**以配置文件为准**（/api/models 只补显示名与 variants），刚建、引擎尚未重载的
+  供应商立刻可见；`effectiveConfig.group='standard-personal'` 是设置页分区键，缺了会被整段过滤。
+  实证（隔离栈 CDP 全网迹）：创建自定义供应商 → `POST .../provider {providerId:'provider',
+  name:'新供应商'}` 200 → 导航出现「新供应商」→ 填 Base URL + API Key blur 落盘 → 磁盘配置
+  确含两者、GET 摘要只回 `sk-e…5678`。视图里的 keyHint 有写入侧拦截（含 '…' 的值不回写）。
+- ✅ **v4 写命令接线**（N6 批次 1）：switchModelConfig → /api/overrides（opencode 无会话级
+  切换，等价语义 = 下一轮覆盖）、switchCollaborationMode → /api/session/:id/policy、
+  renameSession/deleteSession → 既有路由；cancelBackgroundWork 等仍如实回
+  `ocrc_unwired_<type>`（不假装成功）。
+- ✅ 停止生成（stopGeneration → /api/abort；N6 批次 1 补上响应码检查——此前不看结果）
 - ⬜ @ 上下文选择（fileService 文件枚举）
 - ⬜ / 斜杠命令面板（commandsService）
 - ⬜ 模型选择器数据（modelSelection 真目录已接，选择写回 overrides）

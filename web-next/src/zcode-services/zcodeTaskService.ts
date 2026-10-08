@@ -11,6 +11,7 @@ import type {
   ZCodeGroupedTaskViewStructure,
 } from '@zcode/services'
 import type { ZCodeTaskMeta, ZCodePersistedMessage } from '@zcode/shared'
+import { withGhosts } from './ghost.js'
 
 interface OcrcSessionSummary {
   id: string
@@ -20,12 +21,23 @@ interface OcrcSessionSummary {
   model?: string
   unread?: boolean
   error?: boolean
+  pinned?: boolean
 }
-
-const SUBSCRIBE_RE = /^(on[A-Z_]|onMessage|subscribe|add|listen|watch)/
 
 function token(): string {
   try { return localStorage.getItem('ocrc.token') ?? '' } catch { return '' }
+}
+
+async function postJson(path: string, body: unknown): Promise<void> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+    body: JSON.stringify(body ?? {}),
+  }).catch((e) => { throw new Error(`${path} 网络失败：${(e as Error).message}`) })
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(`${path} ${res.status}${detail.error ? `：${detail.error}` : ''}`)
+  }
 }
 
 async function ocrcSessions(): Promise<OcrcSessionSummary[]> {
@@ -45,6 +57,69 @@ function toMeta(s: OcrcSessionSummary): ZCodeTaskMeta {
     mode: 'build',
     model: s.model,
   } as ZCodeTaskMeta
+}
+
+/** 写后回 meta：UI 会立刻读 meta.title（WorkspaceSidebarItem 等），不能回 undefined。 */
+function metaOf(taskId: string, sessions: OcrcSessionSummary[]): ZCodeTaskMeta {
+  const s = sessions.find((x) => x.id === taskId)
+  if (!s) throw new Error(`[ocrc-fork] task ${taskId} not found`)
+  return toMeta(s)
+}
+
+interface ModelSelectionLike {
+  providerId?: string
+  modelId?: string
+  options?: { reasoningLevel?: string }
+}
+
+interface OcrcModelProvider { id: string; name?: string; models?: Array<{ id: string; name?: string; variants?: string[] }> }
+
+/** 服务端权威 configOptions（模型/思考档位/协作模式）——setModel/setConfigOption 的
+ *  返回值形状，也是 getTaskConfigOptions 的数据源。 */
+async function configOptions(): Promise<Array<Record<string, unknown>>> {
+  const headers = { Authorization: `Bearer ${token()}` }
+  const [providersRes, overridesRes] = await Promise.all([
+    fetch('/api/models', { headers }).catch(() => null),
+    fetch('/api/overrides', { headers }).catch(() => null),
+  ])
+  const providers = providersRes?.ok ? ((await providersRes.json()) as OcrcModelProvider[]) : []
+  const overrides = overridesRes?.ok
+    ? ((await overridesRes.json()) as { model?: { providerID: string; modelID: string } | null; variant?: string | null })
+    : {}
+  const currentModel = overrides.model ? `${overrides.model.providerID}/${overrides.model.modelID}` : ''
+  const currentModelEntry = providers
+    .find((p) => p.id === overrides.model?.providerID)
+    ?.models?.find((m) => m.id === overrides.model?.modelID)
+  return [
+    {
+      id: 'model',
+      name: '模型',
+      category: 'model',
+      type: 'select',
+      currentValue: currentModel,
+      options: providers.flatMap((p) => (p.models ?? []).map((m) => ({ value: `${p.id}/${m.id}`, label: m.name ?? m.id }))),
+    },
+    {
+      id: 'thought_level',
+      name: '思考档位',
+      category: 'thought_level',
+      type: 'select',
+      currentValue: overrides.variant ?? '',
+      options: (currentModelEntry?.variants ?? []).map((v) => ({ value: v, label: v })),
+    },
+    {
+      id: 'mode',
+      name: '协作模式',
+      category: 'mode',
+      type: 'select',
+      currentValue: 'build',
+      options: [
+        { value: 'build', label: 'build' },
+        { value: 'edit', label: 'edit' },
+        { value: 'yolo', label: 'yolo' },
+      ],
+    },
+  ]
 }
 
 // ── N2: snapshot 构建（ocrc cards → ZCodePersistedMessage[]）──
@@ -139,7 +214,8 @@ function createExplicitTaskService(): IZCodeTaskService {
         .filter((s) => !params.workspacePath || norm(s.directory ?? '') === norm(params.workspacePath))
         .map(toMeta)
     },
-    listPinnedTasks: async (_params: { workspacePath: string }) => [], // N1.x：本地 pins 与 ZCode pinned 状态对齐后接入
+    listPinnedTasks: async (_params: { workspacePath: string }): Promise<ZCodeTaskMeta[]> =>
+      (await ocrcSessions()).filter((s) => s.pinned).map(toMeta),
     listTaskList: async (query: ZCodeTaskListQuery): Promise<ZCodeTaskListResult> => {
       const sessions = await ocrcSessions()
       const items = sessions
@@ -153,9 +229,8 @@ function createExplicitTaskService(): IZCodeTaskService {
       const limit = query.limit ?? items.length
       return { items: items.slice(0, limit), total: items.length, hasMore: items.length > limit }
     },
-    listPinnedTaskIds: async () => {
-      try { return JSON.parse(localStorage.getItem('ocrc.pins') ?? '[]') as string[] } catch { return [] }
-    },
+    // 置顶真相在 host（state.pinnedTaskIds）——TG 与 /z/ 共用同一份，不是浏览器本地偏好。
+    listPinnedTaskIds: async () => (await ocrcSessions()).filter((s) => s.pinned).map((s) => s.id),
     listDeletedTaskIds: async () => [],
     listGroupedTaskViewStructure: async () =>
       ({ groups: [], members: [], topLevelOrders: [] }) as ZCodeGroupedTaskViewStructure,
@@ -167,7 +242,7 @@ function createExplicitTaskService(): IZCodeTaskService {
       if (!s) throw new Error(`[ocrc-fork] task ${params.taskId} not found`)
       return toMeta(s)
     },
-    getTaskConfigOptions: async () => [],
+    getTaskConfigOptions: async () => configOptions(),
     getTaskModelSelection: async () => null,
     getTaskTokenUsage: async () => null,
     // ── N2: 打开任务 = 返回该会话 meta（ZCode 语义里 resume 即打开转写）──
@@ -193,37 +268,66 @@ function createExplicitTaskService(): IZCodeTaskService {
       if (!res.ok) throw new Error(`[ocrc-fork] send failed: ${res.status}`)
     },
     stopGeneration: async (params: { taskId: string }) => {
-      await fetch('/api/abort', {
+      const res = await fetch('/api/abort', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
         body: JSON.stringify({ sessionId: params.taskId }),
       })
+      // 此前不看响应码：中断失败（会话不存在/400）在 UI 上表现为"点了没反应"。
+      if (!res.ok) throw new Error(`[ocrc-fork] abort failed: ${res.status}`)
     },
-    renameTask: async () => {},
-    setTaskPinned: async () => {},
-    setTaskUnread: async () => {},
-    setMode: async () => {},
-    setModel: async () => {},
-    setConfigOption: async () => {},
+    // ── 写路径（N6 批次 1）：这些曾是静默 no-op——UI 拿到 undefined 后就去读
+    //    meta.title / 做缓存 mutation，假成功比报错更难查。现在全部真写并回 meta。 ──
+    renameTask: async (params: { taskId: string; title: string }): Promise<ZCodeTaskMeta> => {
+      await postJson(`/api/sessions/${params.taskId}/rename`, { title: params.title })
+      return metaOf(params.taskId, await ocrcSessions())
+    },
+    setTaskPinned: async (params: { taskId: string; pinned: boolean }): Promise<ZCodeTaskMeta> => {
+      await postJson(`/api/sessions/${params.taskId}/pin`, { pinned: params.pinned })
+      return metaOf(params.taskId, await ocrcSessions())
+    },
+    setTaskUnread: async (params: { taskId: string; unread: boolean }): Promise<ZCodeTaskMeta> => {
+      await postJson(`/api/sessions/${params.taskId}/unread`, { unread: params.unread })
+      return metaOf(params.taskId, await ocrcSessions())
+    },
+    /** 协作模式：ZCode 的 build/edit/plan/yolo ↔ ocrc 的审批策略（plan/build 归 default）。 */
+    setMode: async (params: { taskId: string; mode: string }): Promise<void> => {
+      const policy = params.mode === 'yolo' ? 'yolo' : params.mode === 'edit' ? 'edit' : 'default'
+      await postJson(`/api/session/${params.taskId}/policy`, { policy })
+    },
+    /** 模型切换：opencode 无会话级切换 → /api/overrides 的「下一轮覆盖」。 */
+    setModel: async (params: { taskId: string; modelSelection?: ModelSelectionLike }): Promise<unknown[]> => {
+      const sel = params.modelSelection
+      if (!sel?.providerId || !sel?.modelId) throw new Error('[ocrc-fork] setModel 需要完整 modelSelection')
+      await postJson('/api/overrides', {
+        model: { providerID: sel.providerId, modelID: sel.modelId },
+        variant: sel.options?.reasoningLevel ?? null,
+      })
+      return configOptions()
+    },
+    /** 其他 configOption（思考档位最常用）：thinking/reasoning → overrides.variant。 */
+    setConfigOption: async (params: { taskId: string; configId: string; value: string }): Promise<unknown[]> => {
+      if (params.configId === 'thought_level' || params.configId === 'reasoning_level') {
+        await postJson('/api/overrides', { variant: params.value || null })
+        return configOptions()
+      }
+      if (params.configId === 'mode') {
+        const policy = params.value === 'yolo' ? 'yolo' : params.value === 'edit' ? 'edit' : 'default'
+        await postJson(`/api/session/${params.taskId}/policy`, { policy })
+        return configOptions()
+      }
+      if (params.configId === 'model') {
+        const [providerId, modelId] = String(params.value).split('/')
+        if (!providerId || !modelId) throw new Error('[ocrc-fork] model 取值应为 provider/model')
+        await postJson('/api/overrides', { model: { providerID: providerId, modelID: modelId } })
+        return configOptions()
+      }
+      throw new Error(`[ocrc-fork] 未知 configOption：${params.configId}`)
+    },
   } as unknown as IZCodeTaskService
 }
 
 export function createOcrcTaskService(): IZCodeTaskService {
   const impl = createExplicitTaskService() as unknown as Record<string, unknown>
-  return new Proxy(impl, {
-    get(target, prop) {
-      if (prop in target) return target[prop as string]
-      if (prop === 'then' || prop === 'toJSON') return undefined
-      const name = String(prop)
-      if (SUBSCRIBE_RE.test(name)) {
-        return (_listener?: unknown) => {
-          const un: any = () => {}
-          un.dispose = () => {}
-          return un
-        }
-      }
-      return (..._args: unknown[]) =>
-        Promise.reject(new Error(`[ocrc-fork] zcodeTaskService.${name} 尚未接入 ocrc（N2）`))
-    },
-  }) as unknown as IZCodeTaskService
+  return withGhosts('zcodeTaskService', impl, '（N6 接线中）') as IZCodeTaskService
 }

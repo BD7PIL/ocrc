@@ -27,4 +27,22 @@ export function registerSessions(app: Hono, reg: BackendRegistry, state: Session
       return c.json({ ok: false, error: 'failed to delete session' }, 500)
     }
   })
+
+  /** /z/ sidebar bookmark. Distinct from the relay's routing pin. */
+  app.post('/api/sessions/:id/pin', async (c) => {
+    const id = state.normalizeSessionId(c.req.param('id'))
+    const body = await c.req.json().catch(() => ({})) as { pinned?: boolean }
+    if (typeof body.pinned !== 'boolean') return c.json({ error: 'pinned required' }, 400)
+    state.setTaskPinned(id, body.pinned)
+    return c.json({ ok: true, pinned: state.isTaskPinned(id), pinnedTaskIds: state.listPinnedTaskIds() })
+  })
+
+  /** /z/ sidebar unread dot (backends hardcode unread:false, so this is it). */
+  app.post('/api/sessions/:id/unread', async (c) => {
+    const id = state.normalizeSessionId(c.req.param('id'))
+    const body = await c.req.json().catch(() => ({})) as { unread?: boolean }
+    if (typeof body.unread !== 'boolean') return c.json({ error: 'unread required' }, 400)
+    state.setSessionUnread(id, body.unread)
+    return c.json({ ok: true, unread: state.isSessionUnread(id) })
+  })
 }

@@ -17,19 +17,8 @@ import { createOcrcZcodeAgentService } from '../zcode-services/zcodeAgentService
 import { createOcrcZcodeSessionService } from '../zcode-services/zcodeSessionService.js'
 import { createOcrcBotsService } from '../zcode-services/botsService.js'
 import { createOcrcOffPeakTaskService } from '../zcode-services/offPeakTaskService.js'
-
-const SUBSCRIBE_RE = /^(on[A-Z_]|onMessage|subscribe|add|listen|watch)/
-
-function ghostMethod(service: string, name: string): any {
-  return (..._args: unknown[]) => {
-    if (SUBSCRIBE_RE.test(name)) {
-      const un: any = () => {}
-      un.dispose = () => {}
-      return un
-    }
-    return Promise.reject(new Error(`[ocrc-fork] ${service}.${name} 尚未接入 ocrc`))
-  }
-}
+import { createOcrcProviderSettingsService } from '../zcode-services/providerSettingsService.js'
+import { ghostMethod, withGhosts } from '../zcode-services/ghost.js'
 
 // 同名服务/方法必须返回同一实例——Root 的 useMemo/useEffect 依赖
 // services.xxxService 的引用相等性，每次新建 ghost 会触发无限重渲染（#185）。
@@ -95,92 +84,24 @@ const ocrcOAuthService: any = {
   getProviders: async () => [],
 }
 
-/** Provider 设置视图：ocrc 引擎的供应商/模型目录（/api/models）真实回填。
- *  目录来自引擎配置（~/.config/opencode），ocrc 无对应写 API——增删改类 mutation
- *  一律明确拒绝（UI 会 toast），不做静默假成功。 */
-const ocrcProviderSettingsService: any = (() => {
-  let revision = 0
-  const auth = () => ({ Authorization: `Bearer ${(() => { try { return localStorage.getItem('ocrc.token') ?? '' } catch { return '' } })()}` })
-  async function getView(): Promise<any> {
-    const providersRes = await fetch('/api/models', { headers: auth() }).catch(() => null)
-    const providers = providersRes?.ok ? await providersRes.json() : []
-    const list = (Array.isArray(providers) ? providers : []) as Array<{ id: string; name?: string; models?: Array<{ id: string; name?: string; variants?: string[] }> }>
-    revision += 1
-    return {
-      revision,
-      providerTemplates: [],
-      providerOrder: list.map((p) => p.id),
-      providers: list.map((p) => ({
-        providerId: p.id,
-        providerName: p.name ?? p.id,
-        templateId: p.id,
-        enabled: true,
-        executable: true,
-        effectiveConfig: {
-          providerId: p.id,
-          providerName: p.name ?? p.id,
-          api: { type: 'openai' },
-          models: Object.fromEntries((p.models ?? []).map((m) => [m.id, { displayName: m.name ?? m.id }])),
-        },
-        issues: [],
-        models: (p.models ?? []).map((m) => ({
-          kind: 'candidate',
-          modelId: m.id,
-          builtin: true,
-          effectiveBuiltinConfig: { displayName: m.name ?? m.id },
-          effectiveConfig: {
-            displayName: m.name ?? m.id,
-            optionSpecs: { reasoningLevel: { values: m.variants ?? [] } },
-            variants: m.variants ?? [],
-          },
-          enabled: true,
-          executable: true,
-          selectable: true,
-          issues: [],
-        })),
-      })),
-    }
-  }
-  const notWritable = (name: string) => () =>
-    Promise.reject(new Error(`[ocrc-fork] ${name}：ocrc 的供应商/模型目录来自引擎配置（~/.config/opencode），/z/ 不提供写入——请在引擎配置或 rc.2 面板管理`))
-  return {
-    onDidChange: () => ({ dispose: () => {} }),
-    getView,
-    refresh: (_reason?: string) => getView(),
-    resolveModelConfig: async (input: any) => ({
-      inheritedConfig: {},
-      effectiveConfig: { displayName: input?.modelId ?? '' },
-      issues: [],
-    }),
-    createPersonalProvider: notWritable('createPersonalProvider'),
-    savePersonalProviderOverlay: notWritable('savePersonalProviderOverlay'),
-    deletePersonalProvider: notWritable('deletePersonalProvider'),
-    reorderPersonalProviders: notWritable('reorderPersonalProviders'),
-    reorderPersonalModels: notWritable('reorderPersonalModels'),
-    addPersonalModel: notWritable('addPersonalModel'),
-    renamePersonalModel: notWritable('renamePersonalModel'),
-    deletePersonalModel: notWritable('deletePersonalModel'),
-    savePersonalModelDraft: notWritable('savePersonalModelDraft'),
-    setPersonalModelEnabled: notWritable('setPersonalModelEnabled'),
-    testModelConnectivity: async () => ({ ok: true, latencyMs: 0 }),
-  }
-})()
-
 export function createGhostAccessor(): IServiceAccessor {
   const cache = new Map<string, any>()
   const real: Record<string, unknown> = {
-    settingService: minimalSettingService,
-    onboardingRecordService: ocrcOnboardingService,
-    oauthService: ocrcOAuthService,
+    settingService: withGhosts('settingService', minimalSettingService),
+    onboardingRecordService: withGhosts('onboardingRecordService', ocrcOnboardingService),
+    oauthService: withGhosts('oauthService', ocrcOAuthService),
     modelSelectionService: createOcrcModelSelectionService(),
-    providerSettingsService: ocrcProviderSettingsService,
-    fileService: createOcrcFileService(),
+    providerSettingsService: createOcrcProviderSettingsService(),
+    fileService: withGhosts('fileService', createOcrcFileService()),
     commandsService: createOcrcCommandsService(),
     zcodeAgentService: createOcrcZcodeAgentService(),
     zcodeSessionService: createOcrcZcodeSessionService(),
     botsService: createOcrcBotsService(),
     offPeakTaskService: createOcrcOffPeakTaskService(),
     zcodeTaskService: createOcrcTaskService(),
+    // CUA 是 ocrc 的产品裁决不做项（PRODUCT.md 第五条）：服务缺席让 UI 走隐藏
+    // 分支，而不是渲染一个权限查询必然失败的入口。接口里它本就是 optional。
+    cuaPermissionService: undefined,
   }
   return new Proxy(
     real as Record<string, unknown>,

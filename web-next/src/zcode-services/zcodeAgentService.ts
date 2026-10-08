@@ -468,7 +468,7 @@ export function createOcrcZcodeAgentService(): any {
             commandId: envelope.commandId,
             status: 'failed',
             reasonCode: 'ocrc_create_failed',
-            message: `POST /api/create-session ${res.status}`,
+            message: `POST /api/session ${res.status}`,
             revisionAtDecision: 0,
           }
         }
@@ -497,6 +497,62 @@ export function createOcrcZcodeAgentService(): any {
           revisionAtDecision: 0,
           result: { type: 'createSession', sessionId: created.id },
         }
+      }
+      if (envelope.type === 'switchModelConfig') {
+        // opencode 后端没有会话级模型切换（sessionControls=false）；ocrc 的等价
+        // 语义是「下一轮覆盖」——旧 rc.2 面板走的就是这条 /api/overrides。
+        const { provider, model, thought } = envelope.payload as { provider?: string; model?: string; thought?: string }
+        if (!provider || !model) {
+          return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_bad_payload', message: 'switchModelConfig 需要 provider+model', revisionAtDecision: 0 }
+        }
+        const res = await fetch('/api/overrides', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+          body: JSON.stringify({ model: { providerID: provider, modelID: model }, variant: thought || null }),
+        })
+        return res.ok
+          ? { commandId: envelope.commandId, status: 'accepted', revisionAtDecision: 0 }
+          : { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_switch_model_failed', message: `POST /api/overrides ${res.status}`, revisionAtDecision: 0 }
+      }
+      if (envelope.type === 'switchCollaborationMode') {
+        // ZCode 的 build/edit/plan/yolo ↔ ocrc 的审批策略（plan/build 是引擎原生
+        // 模式，落到 ocrc 的 default——策略层叠在 build 上）。
+        const mode = String((envelope.payload as { mode?: string }).mode ?? '')
+        if (!sessionId) {
+          return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_bad_payload', message: 'switchCollaborationMode 缺 sessionId', revisionAtDecision: 0 }
+        }
+        const policy = mode === 'yolo' ? 'yolo' : mode === 'edit' ? 'edit' : 'default'
+        const res = await fetch(`/api/session/${sessionId}/policy`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+          body: JSON.stringify({ policy }),
+        })
+        return res.ok
+          ? { commandId: envelope.commandId, status: 'accepted', revisionAtDecision: 0 }
+          : { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_switch_mode_failed', message: `POST /api/session/:id/policy ${res.status}`, revisionAtDecision: 0 }
+      }
+      if (envelope.type === 'renameSession' || envelope.type === 'deleteSession') {
+        if (!sessionId) {
+          return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_bad_payload', message: `${envelope.type} 缺 sessionId`, revisionAtDecision: 0 }
+        }
+        if (envelope.type === 'renameSession') {
+          const title = String((envelope.payload as { title?: string }).title ?? '')
+          const res = await fetch(`/api/sessions/${sessionId}/rename`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+            body: JSON.stringify({ title }),
+          })
+          return res.ok
+            ? { commandId: envelope.commandId, status: 'accepted', revisionAtDecision: 0 }
+            : { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_rename_failed', message: `POST /api/sessions/:id/rename ${res.status}`, revisionAtDecision: 0 }
+        }
+        const res = await fetch(`/api/sessions/${sessionId}/delete`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token()}` },
+        })
+        return res.ok
+          ? { commandId: envelope.commandId, status: 'accepted', revisionAtDecision: 0 }
+          : { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_delete_failed', message: `POST /api/sessions/:id/delete ${res.status}`, revisionAtDecision: 0 }
       }
       return {
         commandId: envelope.commandId,

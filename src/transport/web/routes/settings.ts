@@ -1,6 +1,7 @@
 import type { Hono } from 'hono'
 import {
-  fetchProviderModels, globalConfigPath, patchProvider, summarize, writeConfig,
+  fetchProviderModels, globalConfigPath, patchProvider, reorderConfig, summarize,
+  testProviderConnectivity, writeConfig,
   type ProviderPatch,
 } from '../../../core/settings-service.js'
 import { readFileSync } from 'node:fs'
@@ -85,6 +86,29 @@ export function registerSettings(app: Hono, configDir?: string) {
     } catch (err) {
       return c.json({ error: (err as Error).message }, 502)
     }
+  })
+
+  /** Reorder providers or one provider's models (file key order is the order). */
+  app.post('/api/settings/opencode-config/reorder', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as {
+      providerIds?: string[]; providerId?: string; modelIds?: string[]
+    }
+    if (!Array.isArray(body.providerIds) && !(body.providerId && Array.isArray(body.modelIds))) {
+      return c.json({ error: 'providerIds or providerId+modelIds required' }, 400)
+    }
+    try {
+      reorderConfig(path(), body)
+      return c.json({ ok: true })
+    } catch (err) {
+      return c.json({ ok: false, error: (err as Error).message })
+    }
+  })
+
+  /** Connectivity probe for a STORED provider — the key stays on the host. */
+  app.post('/api/settings/test-provider', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { providerId?: string }
+    if (!body.providerId) return c.json({ error: 'providerId required' }, 400)
+    return c.json(await testProviderConnectivity(path(), body.providerId))
   })
 }
 

@@ -20,6 +20,7 @@ export interface ConfigSummary {
   parsed: boolean
   providers: Array<{
     id: string
+    name?: string
     baseURL?: string
     hasKey: boolean
     keyHint?: string
@@ -30,11 +31,15 @@ export interface ConfigSummary {
 
 export interface ProviderPatch {
   providerId: string
+  /** Display name (opencode: provider.<id>.name). */
+  name?: string
   baseURL?: string
   /** Write-only: absent = leave the stored key untouched. */
   apiKey?: string
   /** Replaces the provider's models map (id → name + optional passthrough). */
   models?: Array<{ id: string; name?: string; [k: string]: unknown }>
+  /** true = remove the provider entry entirely (/z/ 的 deletePersonalProvider)。 */
+  delete?: boolean
 }
 
 export function globalConfigPath(configDir?: string): string {
@@ -100,6 +105,7 @@ export function summarize(raw: string, path: string): ConfigSummary {
     const models = Object.entries((p.models ?? {}) as Record<string, { name?: string }>).map(([mid, m]) => ({ id: mid, name: m?.name }))
     return {
       id,
+      name: typeof p.name === 'string' ? p.name : undefined,
       baseURL: typeof options.baseURL === 'string' ? options.baseURL : undefined,
       hasKey: !!key,
       keyHint: key ? keyHint(key) : undefined,
@@ -130,10 +136,19 @@ export function patchProvider(path: string, patch: ProviderPatch): void {
   if (!ok || !parsed) throw new Error('当前配置不是合法 JSONC — 请先用编辑器修复')
   const doc = parsed
   const providers = (doc.provider ??= {}) as Record<string, Record<string, unknown>>
+  if (patch.delete) {
+    delete providers[patch.providerId]
+    writeFileSyncRaw(path, `${JSON.stringify(doc, null, 2)}\n`)
+    return
+  }
   const p = (providers[patch.providerId] ??= {})
-  const options = (p.options ??= {}) as Record<string, unknown>
-  if (patch.baseURL !== undefined) options.baseURL = patch.baseURL
-  if (patch.apiKey !== undefined) options.apiKey = patch.apiKey
+  if (patch.name !== undefined) p.name = patch.name
+  if (patch.baseURL !== undefined || patch.apiKey !== undefined) {
+    const options = (p.options ??= {}) as Record<string, unknown>
+    if (patch.baseURL !== undefined) options.baseURL = patch.baseURL
+    // Write-only: absent = leave the stored key untouched.
+    if (patch.apiKey !== undefined) options.apiKey = patch.apiKey
+  }
   if (patch.models !== undefined) {
     const models: Record<string, unknown> = {}
     for (const m of patch.models) {
@@ -143,6 +158,59 @@ export function patchProvider(path: string, patch: ProviderPatch): void {
     p.models = models
   }
   writeFileSyncRaw(path, `${JSON.stringify(doc, null, 2)}\n`)
+}
+
+/** Reorder = rebuild the object's key order (JSON objects keep insertion order,
+ *  and the panel renders providers/models in file order). Ids absent from the
+ *  document are ignored; ids not listed keep their relative order at the end. */
+export function reorderConfig(
+  path: string,
+  input: { providerIds?: readonly string[]; providerId?: string; modelIds?: readonly string[] },
+): void {
+  const raw = existsSync(path) ? readFileSync(path, 'utf-8') : '{}'
+  const { ok, parsed } = parseConfig(raw)
+  if (!ok || !parsed) throw new Error('当前配置不是合法 JSONC — 请先用编辑器修复')
+  const doc = parsed
+  const providers = (doc.provider ?? {}) as Record<string, Record<string, unknown>>
+  const withRest = <T>(order: readonly string[] | undefined, source: Record<string, T>): Record<string, T> => {
+    if (!order?.length) return source
+    const out: Record<string, T> = {}
+    for (const id of order) if (id in source) out[id] = source[id]!
+    for (const [id, v] of Object.entries(source)) if (!(id in out)) out[id] = v
+    return out
+  }
+  if (input.providerIds?.length) doc.provider = withRest(input.providerIds, providers)
+  if (input.providerId && input.modelIds?.length) {
+    const p = providers[input.providerId]
+    if (p && p.models && typeof p.models === 'object') {
+      p.models = withRest(input.modelIds, p.models as Record<string, unknown>)
+    }
+  }
+  writeFileSyncRaw(path, `${JSON.stringify(doc, null, 2)}\n`)
+}
+
+/** Server-side connectivity probe for a stored provider: the API key never
+ *  leaves the host, so the browser cannot do this itself. GET <baseURL>/models
+ *  is the cheapest authenticated round-trip. */
+export async function testProviderConnectivity(
+  path: string,
+  providerId: string,
+): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
+  const started = Date.now()
+  const raw = existsSync(path) ? readFileSync(path, 'utf-8') : '{}'
+  const { ok, parsed } = parseConfig(raw)
+  if (!ok || !parsed) return { ok: false, latencyMs: 0, error: '配置不是合法 JSONC' }
+  const provider = ((parsed.provider ?? {}) as Record<string, Record<string, unknown>>)[providerId]
+  const options = (provider?.options ?? {}) as Record<string, unknown>
+  const baseURL = typeof options.baseURL === 'string' ? options.baseURL : ''
+  const apiKey = typeof options.apiKey === 'string' ? options.apiKey : ''
+  if (!baseURL) return { ok: false, latencyMs: 0, error: `供应商 ${providerId} 未配置 baseURL` }
+  try {
+    await fetchProviderModels(baseURL, apiKey || undefined)
+    return { ok: true, latencyMs: Date.now() - started }
+  } catch (err) {
+    return { ok: false, latencyMs: Date.now() - started, error: (err as Error).message }
+  }
 }
 
 /** Raw write without re-validation (patchProvider already parsed). */

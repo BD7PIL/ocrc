@@ -24,6 +24,12 @@ interface PersistedState {
    *  permission requests, 'yolo' auto-approves ALL of them (plan/build remain
    *  native engine modes; the policy layers on top of 'build'). */
   sessionApprovalPolicy?: Record<string, 'edit' | 'yolo'>
+  /** UI bookmarks (/z/ sidebar pinned section). NOT the same thing as
+   *  `pinnedSessionId`, which is the relay's routing target. */
+  pinnedTaskIds?: string[]
+  /** /z/ sidebar unread dots — sessions the user has not looked at yet. The
+   *  backends hardcode `unread:false`, so this is the only source of truth. */
+  unreadSessionIds?: string[]
 }
 
 export interface SessionState {
@@ -65,6 +71,13 @@ export interface SessionState {
   /** M9: last-turn-failed latch — error card sets it, next user card clears. */
   setSessionError(sessionId: string, hasError: boolean): void
   isSessionError(sessionId: string): boolean
+  /** /z/ sidebar bookmarks (order preserved; most recently pinned first). */
+  listPinnedTaskIds(): string[]
+  isTaskPinned(sessionId: string): boolean
+  setTaskPinned(sessionId: string, pinned: boolean): void
+  /** /z/ sidebar unread dots. */
+  isSessionUnread(sessionId: string): boolean
+  setSessionUnread(sessionId: string, unread: boolean): void
   getSessionCost(sessionId: string): number | undefined
   setSessionCost(sessionId: string, cost: number | undefined): void
   /** Multi-backend: the backend that owns a session (undefined → default). */
@@ -225,6 +238,16 @@ export function createFileBackedState(path: string): SessionState {
       if (cache.tuiSelectedSession === sid) { delete cache.tuiSelectedSession; dirty = true }
       if (cache.sessionBackends?.[sid]) { delete cache.sessionBackends[sid]; dirty = true }
       if (cache.sessionApprovalPolicy?.[sid]) { delete cache.sessionApprovalPolicy[sid]; dirty = true }
+      if (cache.pinnedTaskIds?.includes(sid)) {
+        cache.pinnedTaskIds = cache.pinnedTaskIds.filter((id) => id !== sid)
+        if (!cache.pinnedTaskIds.length) delete cache.pinnedTaskIds
+        dirty = true
+      }
+      if (cache.unreadSessionIds?.includes(sid)) {
+        cache.unreadSessionIds = cache.unreadSessionIds.filter((id) => id !== sid)
+        if (!cache.unreadSessionIds.length) delete cache.unreadSessionIds
+        dirty = true
+      }
       if (dirty) void persist()
       sessionError.delete(sid)
     },
@@ -232,6 +255,27 @@ export function createFileBackedState(path: string): SessionState {
     isSessionBusy: (sid) => sessionBusy.get(sid) === true,
     setSessionError: (sid, hasError) => { if (hasError) sessionError.set(sid, true); else sessionError.delete(sid) },
     isSessionError: (sid) => sessionError.get(sid) === true,
+    listPinnedTaskIds: () => [...(cache.pinnedTaskIds ?? [])],
+    isTaskPinned: (sid) => (cache.pinnedTaskIds ?? []).includes(sid),
+    setTaskPinned: (sid, pinned) => {
+      const current = cache.pinnedTaskIds ?? []
+      const next = pinned
+        ? [sid, ...current.filter((id) => id !== sid)]
+        : current.filter((id) => id !== sid)
+      if (next.length) cache.pinnedTaskIds = next
+      else delete cache.pinnedTaskIds
+      void persist()
+    },
+    isSessionUnread: (sid) => (cache.unreadSessionIds ?? []).includes(sid),
+    setSessionUnread: (sid, unread) => {
+      const current = cache.unreadSessionIds ?? []
+      const next = unread
+        ? (current.includes(sid) ? current : [...current, sid])
+        : current.filter((id) => id !== sid)
+      if (next.length) cache.unreadSessionIds = next
+      else delete cache.unreadSessionIds
+      void persist()
+    },
     getSessionCost: (sid) => sessionCosts.get(sid),
     setSessionCost: (sid, cost) => {
       if (cost === undefined) sessionCosts.delete(sid)

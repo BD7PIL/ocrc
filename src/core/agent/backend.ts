@@ -38,6 +38,8 @@ export interface SessionSummary {
   backendId?: string
   /** M9: last turn failed (error card seen, no user card since) — task-row red dot. */
   error?: boolean
+  /** /z/ sidebar bookmark (OCRC state overlay; backends leave it undefined). */
+  pinned?: boolean
 }
 
 /** Normalized assistant-turn metadata for the final card. */

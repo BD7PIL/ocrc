@@ -24,7 +24,16 @@ export async function fetchSessionSummaries(
     }
     for (const s of rows) {
       registry.tag(s.id, id)
-      out.push({ ...s, backendId: id, cost: state.getSessionCost(s.id) ?? s.cost, error: state.isSessionError(s.id) })
+      out.push({
+        ...s,
+        backendId: id,
+        cost: state.getSessionCost(s.id) ?? s.cost,
+        error: state.isSessionError(s.id),
+        // The backends hardcode unread:false and have no pin concept — OCRC state
+        // is the only source for the /z/ sidebar's unread dot and pinned section.
+        unread: state.isSessionUnread(s.id) || s.unread,
+        pinned: state.isTaskPinned(s.id),
+      })
     }
   }
   return out

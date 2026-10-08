@@ -2,6 +2,7 @@
 // 主会话时间线的数据入口：readSession/readSessionMessages 把 ocrc 历史 cards
 // 映射成 ZCode 会话状态快照（ZCodeSessionStateSnapshot 族）。形状深（zod strict
 // 嵌套），构造时以「UI 实际读取的字段」为准逐个填充；未接方法走兜底代理。
+import { withGhosts } from './ghost.js'
 
 interface OcrcSessionSummary {
   id: string
@@ -15,8 +16,6 @@ interface OcrcSessionSummary {
 
 interface OcrcBlock { type: string; text?: string; tool?: string; args?: string; status?: string }
 interface OcrcCard { kind: string; text?: string; ts?: number; blocks?: OcrcBlock[]; meta?: { model?: string } }
-
-const SUBSCRIBE_RE = /^(on[A-Z_]|onMessage|subscribe|add|listen|watch)/
 
 function token(): string {
   try { return localStorage.getItem('ocrc.token') ?? '' } catch { return '' }
@@ -218,25 +217,40 @@ export function createOcrcZcodeSessionService(): any {
       }).catch(() => null)
       return Boolean(res?.ok)
     },
-    promoteDeferredDraftSession: async () => {},
-    setModel: async () => ({}),
-    setThoughtLevel: async () => ({}),
-    setMode: async () => ({}),
-  }
-  return new Proxy(impl, {
-    get(target, prop) {
-      if (prop in target) return target[prop as string]
-      if (prop === 'then' || prop === 'toJSON') return undefined
-      const name = String(prop)
-      if (SUBSCRIBE_RE.test(name)) {
-        return (_listener?: unknown) => {
-          const un: any = () => {}
-          un.dispose = () => {}
-          return un
-        }
-      }
-      return (..._args: unknown[]) =>
-        Promise.reject(new Error(`[ocrc-fork] zcodeSessionService.${name} 尚未接入 ocrc`))
+    // 草稿提升：ocrc 的会话创建即持久化，没有「延迟草稿」两段式——首条消息
+    // 落盘后会话就已在列表里。这里只需回权威快照（调用方据此刷新投影）。
+    promoteDeferredDraftSession: async (params: { sessionId?: string }) =>
+      (impl.readSession as any)({ sessionId: params?.sessionId ?? '' }),
+    // ── 写路径（N6 批次 1）：曾是 `async () => ({})` 的静默假成功 ──
+    setModel: async (params: { sessionId: string; model: { providerId: string; modelId: string; options?: { reasoningLevel?: string } } }) => {
+      if (!params?.model?.providerId || !params?.model?.modelId) throw new Error('[ocrc-fork] setModel 需要完整 modelSelection')
+      await postJson('/api/overrides', {
+        model: { providerID: params.model.providerId, modelID: params.model.modelId },
+        variant: params.model.options?.reasoningLevel ?? null,
+      })
+      return (impl.readSession as any)({ sessionId: params.sessionId })
     },
-  })
+    setThoughtLevel: async (params: { sessionId: string; thoughtLevel?: string }) => {
+      await postJson('/api/overrides', { variant: params?.thoughtLevel || null })
+      return (impl.readSession as any)({ sessionId: params.sessionId })
+    },
+    setMode: async (params: { sessionId: string; mode?: string }) => {
+      const policy = params?.mode === 'yolo' ? 'yolo' : params?.mode === 'edit' ? 'edit' : 'default'
+      await postJson(`/api/session/${params.sessionId}/policy`, { policy })
+      return (impl.readSession as any)({ sessionId: params.sessionId })
+    },
+  }
+  return withGhosts('zcodeSessionService', impl)
+}
+
+async function postJson(path: string, body: unknown): Promise<void> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+    body: JSON.stringify(body ?? {}),
+  }).catch((e) => { throw new Error(`${path} 网络失败：${(e as Error).message}`) })
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(`${path} ${res.status}${detail.error ? `：${detail.error}` : ''}`)
+  }
 }

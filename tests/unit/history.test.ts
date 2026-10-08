@@ -72,6 +72,34 @@ describe('messageToCards', () => {
     expect(mk('running')).toBe('running')
     expect(mk('pending')).toBe('running')
   })
+
+  // Regression: /api/session rebuilds transcripts through this path, and it
+  // used to drop every `reasoning` part — so `/z/` (and the web console) lost
+  // a turn's thinking the moment history was re-read from the engine, even
+  // though the engine stores it. The final card must carry the concatenation
+  // in thinkingText (same shape the live relay publishes) while blocks stay
+  // reasoning-free for TG's plain renderers.
+  it('carries reasoning parts as thinkingText, keeping them off blocks', () => {
+    const cards = messageToCards('ses_1', {
+      role: 'assistant',
+      parts: [
+        { type: 'reasoning', text: 'thought A' },
+        { type: 'text', text: 'answer' },
+        { type: 'reasoning', text: ' thought B' },
+      ],
+    })
+    const c = cards[0] as any
+    expect(c.thinkingText).toBe('thought A thought B')
+    expect(c.blocks.map((b: any) => b.type)).toEqual(['text'])
+  })
+
+  it('omits thinkingText when the turn produced no reasoning', () => {
+    const cards = messageToCards('ses_1', {
+      role: 'assistant',
+      parts: [{ type: 'reasoning', text: '   ' }, { type: 'text', text: 'plain' }],
+    })
+    expect((cards[0] as any).thinkingText).toBeUndefined()
+  })
 })
 
 describe('summarizeToolArgs', () => {

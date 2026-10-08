@@ -45,9 +45,18 @@ export function messageToCards(sessionId: string, msg: any): StructuredCard[] {
 
   if (role === 'assistant') {
     const blocks: ContentBlock[] = []
+    // The engine stores each thinking chunk as its own `reasoning` part. The
+    // final card keeps reasoning off `blocks` (TG/plain renderers only see
+    // text/tool) and carries the concatenation as `thinkingText` — the same
+    // shape the live relay publishes, so a rebuilt transcript shows finished
+    // turns' thinking exactly like streamed ones did.
+    let thinkingText = ''
     for (const part of parts) {
       if (part.type === 'text' && typeof part.text === 'string') {
         blocks.push({ type: 'text', text: part.text })
+      }
+      if (part.type === 'reasoning' && typeof part.text === 'string') {
+        thinkingText += part.text
       }
       if (part.type === 'tool' && typeof part.tool === 'string') {
         const status = part.state?.status ?? 'running'
@@ -84,6 +93,7 @@ export function messageToCards(sessionId: string, msg: any): StructuredCard[] {
       messageId: typeof info.id === 'string' ? info.id : undefined,
       blocks,
       meta,
+      thinkingText: thinkingText.trim() || undefined,
     }]
   }
 

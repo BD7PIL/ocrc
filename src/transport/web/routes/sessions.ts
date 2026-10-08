@@ -19,8 +19,14 @@ export function registerSessions(app: Hono, reg: BackendRegistry, state: Session
 
   app.post('/api/sessions/:id/delete', async (c) => {
     const id = state.normalizeSessionId(c.req.param('id'))
+    const backend = reg.forSession(id)
     try {
-      await reg.forSession(id).deleteSession(id)
+      // 引擎对不存在的 id 也回成功（实测），于是客户端拿到 {ok:true} 却什么都没删——
+      // 这类静默成功会掩盖客户端 bug。先如实判存在性。
+      if (!(await backend.hasSession(id))) {
+        return c.json({ ok: false, error: 'session not found' }, 404)
+      }
+      await backend.deleteSession(id)
       return c.json({ ok: true })
     } catch (e) {
       log.warn(`delete session ${id} failed: ${(e as Error).message}`)

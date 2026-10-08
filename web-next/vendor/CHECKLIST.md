@@ -53,6 +53,16 @@
 - ⬜ TurnNavigator（右侧轮次刻度）
 
 ### 已修缺陷（N6 过程中实测）
+- ✅ **远端主机启用后不注册**（`src/transport/web/index.ts`）：host 传了 `onRemoteEnabled`、
+  server 也消费它，中间这层 buildServer 调用却漏传——表现为「面板里启用远端 → 隧道起来了，
+  但后端要重启才出现」。已补上转发（代码级修复；实机验证需要一台 remote）。
+- ✅ **model-presets 的 current 恒为 {}**（`server.ts`）：`registerSettingsProject` 的第三个参数
+  `globalConfigRaw` 是 getter，调用点只传了两个 → `readMapping(undefined, …)`。现在传 getter
+  每次读盘。实证：往隔离栈全局配置写 `agent.sisyphus.model` → 端点立刻回
+  `{"current":{"sisyphus":"deepseek/deepseek-v4.1-flash"}}`（修复前恒为 {}）。
+- ✅ **删除不存在的会话返回成功**（`routes/sessions.ts`）：引擎对未知 id 也回成功，客户端拿到
+  `{ok:true}` 却什么都没删。现在先 `hasSession` 判存在：未知 id → 404
+  `{"ok":false,"error":"session not found"}`，真实会话 → 200。两者均在隔离栈实测。
 - ✅ **/z/ 无凭证时渲染空黑壳**（2026-10-08 用户实测「打不开」的第二例）：该 origin 的
   localStorage 里没有 token 时，每个 API 都是 401，壳拿不到 workspace 就渲染出一个
   空黑 div——零线索。现在 ZCodeApp 引导时显式检测 401/403 并渲染**凭证门**（说明 + 粘贴框

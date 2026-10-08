@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { Hono } from 'hono'
 import type { BackendRegistry } from '../../core/agent/registry.js'
@@ -39,6 +40,7 @@ import { registerRename } from './routes/rename.js'
 import { registerPolicy } from './routes/policy.js'
 import { registerSettings } from './routes/settings.js'
 import { registerSettingsProject } from './routes/settings-project.js'
+import { globalConfigPath } from '../../core/settings-service.js'
 import { registerSharePublic, registerShareAuthed } from './routes/share.js'
 import { registerBrowser } from './routes/browser.js'
 import type { Scheduler } from '../../core/scheduler.js'
@@ -166,7 +168,19 @@ export function buildServer(opts: BuildServerOpts): Hono {
   if (opts.shares) registerShareAuthed(app, opts.shares, reg)
   registerBrowser(app)
   registerSettings(app, opts.settingsConfigDir)
-  registerSettingsProject(app, dirname(opts.statePath ?? join(process.env.HOME ?? '', '.ocrc', 'state.json')))
+  // globalConfigRaw 是三参——此前漏传，导致 /api/settings/model-presets 的 current 恒为 {}。
+  // 用 getter（每次读取时取盘），避免把启动瞬间的配置快照固化。
+  registerSettingsProject(
+    app,
+    dirname(opts.statePath ?? join(process.env.HOME ?? '', '.ocrc', 'state.json')),
+    () => {
+      try {
+        return readFileSync(globalConfigPath(opts.settingsConfigDir), 'utf-8')
+      } catch {
+        return undefined
+      }
+    },
+  )
   if (opts.shares) registerShareAuthed(app, opts.shares, reg)
   registerBrowser(app)
   registerSuggestions(app, opts.state)

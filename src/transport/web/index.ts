@@ -92,6 +92,9 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         pairing: cfg.pairing,
         remotes: cfg.remotes,
         remoteManager: cfg.remoteManager,
+        // 此前这一行缺失：host 传了 onRemoteEnabled，server 也消费它，中间这层却把它
+        // 丢了 —— 结果是「面板里启用远端主机 → 隧道起来 → 但后端直到重启才注册」。
+        onRemoteEnabled: cfg.onRemoteEnabled,
         settingsConfigDir: cfg.settingsConfigDir,
         statePath: cfg.statePath,
         shares: cfg.shares,

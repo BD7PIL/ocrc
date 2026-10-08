@@ -6,6 +6,7 @@
 
 import { conversationTopicFrameSchema, sessionsIndexTopicFrameSchema } from '@zcode/shared/zcode-protocol-v4/transport'
 import { sessionsIndexTopic } from '@zcode/shared/zcode-protocol-v4'
+import { dropAttachmentBytes, putAttachmentBlob, releaseWebFile, resolveWebFile, takeAttachmentBytes, toBase64 } from './webAttachments.js'
 
 const V4_WIRE_PROTOCOL_VERSION = 3 as const
 
@@ -638,6 +639,48 @@ export function createOcrcZcodeAgentService(): any {
         hasMore: earlier.length > page.length,
       }
     },
+    // ── V4 附件上传家族（N7-1）：内存暂存，commit 后以 ocrc-att:// 引用发给 sendText ──
+    // 校验和只用于服务端去重；ocrc 是单进程内存暂存，不做跨上传去重，直接收。
+    async attachmentBeginV4(params: { uploadId: string; sessionId: string; fileName: string; mime: string; totalBytes: number; totalChunks: number }) {
+      if (!params?.uploadId || !params.sessionId) throw new Error('fault.attachment.invalidParams')
+      if ((params.totalBytes ?? 0) > 20 * 1024 * 1024) throw new Error('proto.payloadTooLarge')
+      return { uploadId: params.uploadId, state: 'staging' as const, nextChunkIndex: 0 }
+    },
+    async attachmentChunkV4(params: { uploadId: string; sessionId: string; chunkIndex: number; dataBase64: string }) {
+      if (!params?.uploadId) throw new Error('fault.attachment.invalidParams')
+      const bin = atob(params.dataBase64 ?? '')
+      const bytes = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+      const prev = takeAttachmentBytes(params.uploadId)
+      const merged = new Blob([prev ?? new Blob([]), bytes])
+      // 回写同一 id（take 不删除；putAttachmentBlob 会加前缀，这里手动维护裸 id）
+      putAttachmentBlob(params.uploadId, merged)
+      dropAttachmentBytes(params.uploadId)
+      return { uploadId: params.uploadId, nextChunkIndex: params.chunkIndex + 1 }
+    },
+    async attachmentCommitV4(params: { uploadId: string; sessionId: string }) {
+      const blob = takeAttachmentBytes(params?.uploadId ?? '')
+      if (!blob) throw new Error('fault.attachment.unknownUpload')
+      const ref = putAttachmentBlob(params.uploadId, blob)
+      return { ref }
+    },
+    async attachmentAbortV4(params: { uploadId: string }) {
+      if (params?.uploadId) dropAttachmentBytes(params.uploadId)
+      return {}
+    },
+    /** staged 字节的回读（预览/补传）；ref 必须是本页 commit 出来的。 */
+    async attachmentReadV4(params: { ref: string; offset?: number; limit?: number }) {
+      const blob = resolveWebFile(params?.ref ?? '')
+      if (!blob) throw new Error('fault.attachment.unknownRef')
+      const buf = new Uint8Array(await blob.arrayBuffer())
+      const start = Math.max(0, Math.min(params?.offset ?? 0, buf.length))
+      const end = params?.limit ? Math.min(buf.length, start + params.limit) : buf.length
+      let bin = ''
+      for (let i = start; i < end; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, Math.min(i + 0x8000, end)))
+      const mime = (blob as Blob).type || 'application/octet-stream'
+      return { dataBase64: btoa(bin), mediaType: mime, totalBytes: buf.byteLength, offset: start, truncated: false }
+    },
+
     // ── sessions-index 三件套（侧栏活性）──
     async subscribeSessionsIndexV4(params: { workspacePath?: string; workspaceIdentity?: string }) {
       const workspaceId = params?.workspaceIdentity?.trim() || params?.workspacePath || ''
@@ -741,11 +784,27 @@ export function createOcrcZcodeAgentService(): any {
       if (envelope.type === 'sendText') {
         const text = String((envelope.payload as { text?: string }).text ?? '')
         if (!sessionId) throw new Error('[ocrc-fork] sendText 缺 sessionId')
+        // 附件：web 端选图/拖图时 platform 把 File 存进寄存表、ref 以
+        // ocrc-webfile:// 透传到这里——解析回字节转成 /api/message 的 images[]。
+        // 引擎侧只收图片；其余类型在此如实拒绝（不是静默丢弃）。
+        const rawAttachments = (envelope.payload as { attachments?: Array<{ ref?: string; fileName?: string }> }).attachments ?? []
+        const images: Array<{ data: string; mimeType: string }> = []
+        for (const att of rawAttachments) {
+          const file = att?.ref ? resolveWebFile(att.ref) : undefined
+          if (!file) {
+            return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_attachment_unsupported', message: `附件 ${att?.fileName ?? att?.ref ?? ''} 不是本页选择的图片（ocrc 发送通道当前仅支持图片）`, revisionAtDecision: 0 }
+          }
+          if (!/^image\//.test(file.type)) {
+            return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_attachment_unsupported', message: `附件 ${att?.fileName ?? file.type} 不是图片——ocrc 发送通道当前仅支持图片`, revisionAtDecision: 0 }
+          }
+          images.push({ data: await toBase64(file), mimeType: file.type })
+        }
         const res = await fetch('/api/message', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
-          body: JSON.stringify({ sessionId, text, clientId: envelope.commandId }),
+          body: JSON.stringify({ sessionId, text, clientId: envelope.commandId, ...(images.length ? { images } : {}) }),
         })
+        if (res.ok) for (const att of rawAttachments) releaseWebFile(String(att?.ref ?? ''))
         if (!res.ok) {
           return {
             commandId: envelope.commandId,

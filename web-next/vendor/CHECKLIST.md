@@ -52,7 +52,21 @@
   切尾部 limit 行——行号由 buildRows 顺序生成、历史不变即稳定，无需服务端游标。
 - ⬜ TurnNavigator（右侧轮次刻度）
 
-### 已知缺陷（待立项整改，输入见 docs/perf-remediation-brief.md）
+### N7 逐项（2026-10-08 开工，接 N6）
+- ✅ **附件管线**（N7-1）：composer「+」→ 附件菜单 → 文件选择器（platform.selectFile/selectFiles
+  用真 `<input type=file>`）→ **getPathForFile 返回 ocrc-webfile:// 句柄** → composer 的本地
+  零拷贝链路把句柄原样放进 sendText.attachments[].ref → 发送时解析回字节转成
+  /api/message 的 images[]。上传家族（attachmentBeginV4/ChunkV4/CommitV4/AbortV4/ReadV4）
+  同步做真（内存暂存 + ocrc-att:// 引用），target 未注册的竞态窗口也能走通。
+  **这个设计特意绕开了 crypto.subtle**：零拷贝路径不算校验和，局域网 http 源（非安全上下文）
+  上附件照常可用——vendor 的上传事务在那种源上第一步就会抛 checksumUnavailable（未打补丁，
+  非零拷贝路径如拖放大文件仍受此限，见下）。非图片附件如实拒绝（ocrc 发送通道仅支持图片）。
+  实证（隔离栈 4199，CDP 拦截文件选择器塞真 PNG）：芯片就绪无重试、POST /api/message 带
+  images[]（base64 与塞入文件一致）、引擎收到图（免费模型不支持视觉属模型能力，非管线）。
+- 🔶 拖放大文件路径仍受 vendor 校验和限制：拖放 → addAttachmentFiles(file) 无 localPath 时走
+  serialize+V4 上传 → checksum 用 crypto.subtle → 非安全上下文抛 checksumUnavailable。
+  若要解锁需最小 vendor 补丁（纯 JS sha256 回退，登记 PATCHES.md）——待产品裁决。
+- ⬜ 停止生成
 - 🔶 **性能：/z/ 整体卡顿**（2026-10-08 用户实测「几乎无法使用」，已决定立项整改）。已观察证据：
   loopback 28.8MB/6s、热路径全量重建+全量对比（每事件 O(N)）、工具卡回取、getView 双请求风暴。
   整改期间会话面热路径**冻结新功能**（详见简报的边界条款）。

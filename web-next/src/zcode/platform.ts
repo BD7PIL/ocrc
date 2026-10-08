@@ -2,6 +2,39 @@
 // (Apache-2.0, ZCode). Web 平台层的合法 stub 集合——他们自己就这样跑 web 模式；
 // ocrc 的桌面级能力（选目录、终端、窗口控制）同样显式不可用。
 import type { IPlatformService, RemoteTarget, ServerRemoteInfo } from '@zcode/shared'
+import { putWebFile } from '../zcode-services/webAttachments.js'
+
+/** web 端的「选文件」：没有本地路径，就发**句柄**。ZCode 的桌面链路把
+ *  getPathForFile/selectFiles 的返回值当路径引用零拷贝透传到
+ *  sendText.attachments[].ref（不触发 V4 上传，也就不碰 crypto.subtle 校验和——
+ *  局域网 http 源上那个 API 不存在）；发送时 zcodeAgentService 用同一个寄存表
+ *  把句柄解析回字节。 */
+function pickFiles(multiple: boolean): Promise<string[]> {
+  return new Promise((resolve) => {
+    if (typeof document === 'undefined') return resolve([])
+    const input = document.createElement('input')
+    input.type = 'file'
+    if (multiple) input.multiple = true
+    input.style.display = 'none'
+    document.body.appendChild(input)
+    let settled = false
+    const finish = (files: FileList | null) => {
+      if (settled) return
+      settled = true
+      input.remove()
+      const out: string[] = []
+      for (const file of files ?? []) {
+        if (/^image\//.test(file.type)) out.push(putWebFile(file))
+        // 非图片：ocrc 的发送通道（/api/message）只接受图片附件；这里不收，
+        // 让「+」按钮对 pdf/文本给出「没反应不如给说法」——由门/提示承载。
+      }
+      resolve(out)
+    }
+    input.addEventListener('change', () => finish(input.files))
+    input.addEventListener('cancel', () => finish(null))
+    input.click()
+  })
+}
 
 export function createWebPlatform(): IPlatformService {
   return {
@@ -11,9 +44,9 @@ export function createWebPlatform(): IPlatformService {
     webRemoteControlAvailable: true,
     canSelectFilePath: false,
     selectDirectory: () => Promise.resolve(null),
-    selectFile: () => Promise.resolve(null),
-    selectFiles: () => Promise.resolve([]),
-    getPathForFile: () => null,
+    selectFile: async () => (await pickFiles(false))[0] ?? null,
+    selectFiles: async () => await pickFiles(true),
+    getPathForFile: (file: File) => (/^image\//.test(file.type) ? putWebFile(file) : null),
     createTempTextAttachment: () =>
       Promise.reject(new Error('Temporary text attachments require a desktop host')),
     onRemoteConnectionLog: () => () => {},

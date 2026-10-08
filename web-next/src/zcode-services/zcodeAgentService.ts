@@ -37,6 +37,51 @@ async function ocrcHistory(taskId: string): Promise<OcrcCard[]> {
   }
 }
 
+// 状态面板（PlanHud）的两块数据：ocrc 早就有 REST 面（/todo、/subagents），
+// 只是快照里一直写 null——面板因此永远是空的。opencode 的 todo 是 snake_case
+// status，ZCode 要 camelCase inProgress。
+interface OcrcTodo { id?: string; content?: string; status?: string; priority?: string }
+async function conversationPlan(sessionId: string): Promise<{ items: Array<{ id: string; content: string; status: string }>; updatedAt: number } | null> {
+  try {
+    const res = await fetch(`/api/session/${sessionId}/todo`, { headers: { Authorization: `Bearer ${token()}` } })
+    if (!res.ok) return null
+    const todos = (await res.json()) as OcrcTodo[]
+    if (!Array.isArray(todos) || !todos.length) return null
+    return {
+      items: todos.map((t, i) => ({
+        id: t.id ?? `todo-${i}`,
+        content: t.content ?? '',
+        status: t.status === 'in_progress' ? 'inProgress' : t.status === 'completed' ? 'completed' : 'pending',
+      })),
+      updatedAt: Date.now(),
+    }
+  } catch { return null }
+}
+
+interface OcrcSubagent { id: string; title?: string; done?: number; total?: number; busy?: boolean }
+async function conversationSubagents(sessionId: string): Promise<{ revision: number; childSessionIds: string[]; running: Array<Record<string, unknown>>; endedTotal: number } | undefined> {
+  try {
+    const res = await fetch(`/api/session/${sessionId}/subagents`, { headers: { Authorization: `Bearer ${token()}` } })
+    if (!res.ok) return undefined
+    const body = (await res.json()) as { subagents?: OcrcSubagent[] }
+    const subs = body.subagents ?? []
+    if (!subs.length) return undefined
+    const running = subs.filter((x) => x.busy || (x.total ?? 0) > (x.done ?? 0))
+    return {
+      revision: 1,
+      childSessionIds: subs.map((x) => x.id),
+      running: running.map((x) => ({
+        childSessionId: x.id,
+        subagentType: 'task',
+        title: x.title ?? x.id,
+        summary: x.total ? `${x.done ?? 0}/${x.total}` : undefined,
+        status: x.busy ? 'running' : 'waiting',
+      })),
+      endedTotal: subs.length - running.length,
+    }
+  } catch { return undefined }
+}
+
 /** 单条工具输出进浏览器的上限（ZCode schema 上限 150k；行要参与 diff，
  *  太大每次重建都做整串比较）。 */
 const MAX_TOOL_OUTPUT_CHARS = 50_000
@@ -239,6 +284,7 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
   const curProvider = overrides.model?.providerID ?? providers.find((p) => (p.models ?? []).length > 0)?.id ?? ''
   const curModel = overrides.model?.modelID ?? providers.find((p) => p.id === curProvider)?.models?.[0]?.id ?? ''
   const curThought = (providers.find((p) => p.id === curProvider)?.models?.find((m) => m.id === curModel)?.variants ?? [])[0] ?? ''
+  const [plan, subagents] = await Promise.all([conversationPlan(taskId), conversationSubagents(taskId)])
   const rows = buildRows(cards)
   await enrichToolRows(rows, taskId)
   const seq = rows.length
@@ -276,7 +322,8 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
     pendingCommands: [],
     backgroundWorks: [],
     goal: null,
-    plan: null,
+    plan,
+    ...(subagents ? { subagents } : {}),
     rows: { window: rows, totalCount: rows.length, firstRowId: rows[0]?.rowId ?? null },
   }
   return { snapshot, seq, rows }

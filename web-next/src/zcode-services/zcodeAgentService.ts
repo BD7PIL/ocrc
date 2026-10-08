@@ -25,7 +25,7 @@ function token(): string {
 
 // ── ocrc 历史 → v4 conversation rows ──
 interface OcrcBlock { type: string; text?: string; tool?: string; args?: string; status?: string; partId?: string; messageId?: string }
-interface OcrcCard { kind: string; text?: string; ts?: number; blocks?: OcrcBlock[]; meta?: { model?: string } }
+interface OcrcCard { kind: string; text?: string; ts?: number; blocks?: OcrcBlock[]; meta?: { model?: string }; thinkingText?: string }
 
 async function ocrcHistory(taskId: string): Promise<OcrcCard[]> {
   try {
@@ -192,6 +192,13 @@ function buildRows(cards: OcrcCard[]): any[] {
       rows.push({ ...base(ts), kind: 'userInput', origin: 'realUser', text: c.text ?? '' })
       rowId += 1
     } else if (c.kind === 'assistant' && c.blocks) {
+      // 定稿卡片的 blocks 是 reasoning-free（TG/纯文本渲染器不该看到思考），思考被收进
+      // 卡片的 thinkingText。此前桥接层只映射 blocks → 回合结束、卡片定稿后 /z/ 里的
+      // 推理块就消失了（流式期有、定稿后没了）。补一条 reasoning 行。
+      if (c.thinkingText && !c.blocks.some((b) => b.type === 'reasoning')) {
+        rows.push({ ...base(ts), kind: 'reasoning', text: c.thinkingText, state: 'complete' })
+        rowId += 1
+      }
       for (const b of c.blocks) {
         if (b.type === 'text') {
           rows.push({ ...base(ts), kind: 'assistantText', text: b.text ?? '', state: 'complete', model: c.meta?.model })

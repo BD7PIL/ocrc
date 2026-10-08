@@ -38,9 +38,12 @@
   「用 python 写 hello world」→ 回复的 ```python 块渲染出语言标签 + 语法着色（关键字/
   字符串/注释色分明，截图 /tmp/n7-render.png）——非 dev、非本地，真实产品构建。
 - ✅ **TurnNavigator**（右侧轮次刻度）：会话打开时随行数据出现（DOM 3 节点，N7-6 实测）。
-- 🔶 **推理块折叠**：链路就绪（reasoning 块 → reasoning 行映射 ✓，vendor Reasoning 折叠组件
-  在消费位）；**无数据可验**——当前引擎所有会话均无 reasoning 块（全库扫描 0 条）。等有
-  thinking 输出的会话出现后补一次人工复核，不造假数据。
+- ✅ **推理块映射补全（发现真缺口并修复）**：后端本就采集推理（normalizer 收 reasoning part →
+  流式卡片 blocks 带 live thinking；回合定稿时收进卡片 `thinkingText`，blocks 保持
+  reasoning-free 以免 TG/纯文本渲染器看到思考）。但桥接层**只映射 blocks** → 回合定稿、
+  卡片落盘后 /z/ 的推理块消失（流式期有、之后没了）。现在 `thinkingText` 也映射成 reasoning
+  行（顺序与流式期一致：推理在正文前）；契约测试 3 条（定稿出行/不与流式块重复/无思考不造空行）。
+  **实机复核仍待**有 reasoning 输出的会话（两个引擎全库扫描 0 条）——不造假数据。
 - ✅ **工具卡带真实输出**（N6 批次 2B）。此前工具行只有 toolName + 截断的 args，
   `output`/`display` 全空 → 卡片只显示"调用了什么"，不显示"做成了什么"。根因在
   数据层：事件流不带 `parts[].state.output`（引擎只在 REST 上给），行映射又只喂
@@ -234,6 +237,17 @@
 - 🚫 Bots 注册三件套（feishu/weixin QR 扫码注册、createBindCode、webhook secret）——依赖 ZCode 自有 bot 服务端，ocrc 通道为凭证制（token/appId+appSecret 在 rc.2 面板或 env 配置）；如需 /z/ 内配置入口属产品裁决（「粘贴凭证」降级形态可行）。removeBotSecret 亦暂缺——ocrc PATCH 不能清空 credentials（空对象被路由丢弃），reset 会连通道配置一起重置，过猛
 - ✅ 远程主机管理（2026-10-08 裁决②：本期做映射，方向为 ocrc 语义原生进 /z/——ZCode 的桌面 SSH-connectRemote 语义浏览器客户端做不了，ocrc 的 host 侧隧道 + 远端引擎注册才是正确模型）。设置页新增「远程主机」分区（vendor 新增 RemotesSection + settingsNavigation/config/i18n 四点接线）：列表/状态（隧道本地端口）/启停（PATCH live 生效）/SSH 探测/删除/新增，全走 ocrc /api/remotes。启用远端后会话自动并入任务列表，/z/ 侧栏即见、流式同源
 - ✅ 定时任务重做为 off-peak 取号语义（2026-10-08 裁决③：用户拍板「本来就不是 cron」）。新 ocrc 后端 `core/offpeak.ts`：一次性工单 queued→running→completed/failed（FIFO 单并发、低峰窗口 OCRC_OFFPEAK_WINDOW 默认 00:00-08:00、createSession+relay 派发、模型经 setNextModel 派发前应到引擎、permissionMode→审批策略 edit/yolo、完成检测用会话忙碌位）+ /api/offpeak CRUD。/z/ service 重接后状态机同形：实证「offpeak e2e probe」创建→派发新会话→引擎回复→已完成，闲时任务页全部分类/进行中/已完成/失败正常渲染。cron scheduler（TG 面板在用）未动，退役另行裁决
+
+### 分享发布（N7-2 + N7-6 实测）
+- ✅ 服务侧全接（publish → POST /api/share；record = share_code/share_url/access_mode/
+  expires_at；导入/续聊如实拒绝）+ 契约测试 5 条。
+- ✅ dock 实测：入口 conversation-share-trigger → dock 展开 → 轮次枚举 0/2。
+- ✅ **又修一个真缺口**：preflight 此前返回 `turnResults: []` → UI 枚举出 2 个轮次却没有可选
+  轮次 id，选择动作无处落地（「下一步」永久禁用）。现在按真实历史产出 `turn-N`（与行映射
+  turnId 对齐）+ 契约测试。
+- 🔶 残余：dock 内 3 个复选框在 CDP 合成事件下不响应（trusted 点击、聚焦后 Space/Enter 均无
+  效，元素自身未 disabled）——与项目已记录的「radix 对合成事件免疫」同类，属无头驱动限制；
+  「披露 → 发布 → 出 /share/<code>」留人工一次点击确认。
 
 ## 10. 分享与周边
 - ✅ 分享落地页路由（ShareLanding 已有独立实现）

@@ -54,4 +54,13 @@ describe('capabilities / preflight', () => {
     const pre = await svc.preflight({ sessionId: 'ses_a', selection: INPUT.selection })
     expect(pre.blockingIssues).toEqual([])
   })
+
+  it('preflight 按真实历史产出可选轮次（id 与行映射的 turn-N 对齐）', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ cards: [{ kind: 'user' }, { kind: 'assistant' }, { kind: 'user' }, { kind: 'assistant' }, { kind: 'user' }] }),
+    })))
+    const pre = await createOcrcShareService().preflight({ sessionId: 'ses_a', selection: INPUT.selection })
+    expect(pre.turnResults.map((t: any) => t.productTurnId)).toEqual(['turn-1', 'turn-2', 'turn-3'])
+  })
 })

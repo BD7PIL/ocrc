@@ -36,17 +36,34 @@ export function createOcrcShareService(): Record<string, any> {
       allowed_artifacts: [],
     }),
 
-    preflight: async (_input: { sessionId?: string }) => ({
-      revision: 1,
-      logEpoch: 'ocrc-1',
-      capabilitiesFingerprint: 'ocrc-share-v1',
-      blockingIssues: [],
-      skippableWarnings: [],
-      deferredIssues: [],
-      supportedArtifactTypes: [],
-      // ocrc 没有 product turns：整份转录一个结果物
-      turnResults: [],
-    }),
+    /** 轮次预检：dock 从行里枚举出「可选轮次」，但选择动作要靠这里的 productTurnId 落地
+     *  ——此前返回空数组 → 复选框点了没反应、「下一步」永远灰（隔离栈实测）。turnId 必须
+     *  与行映射的 `turn-N` 对齐（buildRows 的顺序编号）。 */
+    preflight: async (input: { sessionId?: string }) => {
+      const turns: Array<{ productTurnId: string; blockingIssues: never[]; skippableWarnings: never[]; deferredIssues: never[] }> = []
+      if (input?.sessionId) {
+        const res = await fetch(`/api/session/${input.sessionId}?limit=200`, { headers: auth() }).catch(() => null)
+        if (res?.ok) {
+          const body = (await res.json()) as { cards?: Array<{ kind?: string }> }
+          let turn = 0
+          for (const c of body.cards ?? []) {
+            if (c?.kind !== 'user') continue
+            turn += 1
+            turns.push({ productTurnId: `turn-${turn}`, blockingIssues: [], skippableWarnings: [], deferredIssues: [] })
+          }
+        }
+      }
+      return {
+        revision: 1,
+        logEpoch: 'ocrc-1',
+        capabilitiesFingerprint: 'ocrc-share-v1',
+        blockingIssues: [],
+        skippableWarnings: [],
+        deferredIssues: [],
+        supportedArtifactTypes: [],
+        turnResults: turns,
+      }
+    },
 
     publish: async (input: { sessionId: string; title: string }) => {
       for (const l of publishListeners) {

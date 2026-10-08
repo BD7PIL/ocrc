@@ -59,17 +59,25 @@ export default function App() {
 
   if (!isZRoute) useAppKeyboard()
 
-  if (authStatus === 'booting' && !isZRoute) {
+  const basename = typeof location !== 'undefined' && location.pathname.startsWith('/next') ? '/next' : ''
+  // 分享落地页在鉴权门外：分享码即能力凭证，未配对设备也能读
+  if (shareMatch) {
+    return <ShareLanding code={shareMatch[1]!} />
+  }
+
+  // 鉴权门对两个壳是**同一个**：/z/ 此前自己造了一套「粘 token」的门，和旧壳的
+  // 配对协议（#pair= 一次性令牌 / QR）机制与视觉都不同——一套产品两套凭证体验是错的。
+  // 现在 / 与 /z/* 都走 lib/auth.ts 的状态机 + 同一个 PairGate；`#token=` 采纳、
+  // `#pair=` 换取、401 降级全在同一处（模块初始化时执行，与路由无关）。
+  if (authStatus === 'booting') {
     return (
       <div className="flex h-full items-center justify-center" style={{ background: 'var(--bg)' }}>
         <span className="ocrc-pulse-dot inline-block size-3 rounded-full" style={{ background: 'var(--accent)' }} aria-label="启动中" />
       </div>
     )
   }
-
-  const basename = typeof location !== 'undefined' && location.pathname.startsWith('/next') ? '/next' : ''
-  if (shareMatch) {
-    return <ShareLanding code={shareMatch[1]!} />
+  if (authStatus === 'pairing' || authStatus === 'rejected') {
+    return <PairGate />
   }
 
   return (
@@ -91,7 +99,6 @@ export default function App() {
           <CommandCenter />
           <NewSessionDialog />
           <ChannelsDialog />
-          {(authStatus === 'pairing' || authStatus === 'rejected') && <PairGate />}
         </>
       )}
     </BrowserRouter>

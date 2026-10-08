@@ -53,6 +53,15 @@
 - ⬜ TurnNavigator（右侧轮次刻度）
 
 ### N7 逐项（2026-10-08 开工，接 N6）
+- 🚫 **工作区文件写（N7-4）——核实后不做**：vendor UI 没有「保存文件到工作区」的消费方
+  （全库仅 `platform.saveFile` 用于把图片/PDF 导出到用户本机，另一回事）。建端点 = 无主
+  攻击面，违反不做清单纪律。证据：vendor 全库 grep writeTextFile/saveFile/writeFile 无
+  工作区写入调用。
+- ✅ **归档语义**（N7-5）：state 增 `archivedSessionIds` 槽位 + `POST /api/sessions/:id/archive`
+  （{archived:bool}），SessionSummary 覆盖 `archived` 标记；前端 archiveTask/unarchiveTask/
+  listArchivedTasks/archiveStaleTasks（ZCode 语义：只归档非 pinned/非未读/非 error 的超期
+  任务）/archiveWorkspaceTasks/deleteArchivedTask(s) 全接；默认任务列表隐藏已归档。
+  隔离栈实测：archive → 列表标记 true → unarchive → 全部还原 false。
 - ✅ **git 写操作**（N7-3）：host 侧 `POST /api/git/{stage,discard,commit,push,branch}`——全部
   固定参数 execFile（无 shell、无字符串拼接），路径白名单校验（拒绝 `..`、绝对路径、注入字符），
   分支名按引用规则白名单校验。未跟踪文件的 discard = 删除（`git rm` 不认未跟踪，走 fs 删除，

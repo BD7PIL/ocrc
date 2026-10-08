@@ -33,6 +33,7 @@ export async function fetchSessionSummaries(
         // is the only source for the /z/ sidebar's unread dot and pinned section.
         unread: state.isSessionUnread(s.id) || s.unread,
         pinned: state.isTaskPinned(s.id),
+        archived: state.isSessionArchived(s.id),
       })
     }
   }

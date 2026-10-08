@@ -19,7 +19,7 @@ function makeBackend(summaries: any[], sessions: any[] = []) {
   return { backend, deleted }
 }
 
-const state = { getSessionCost: () => 0, isSessionError: () => false, isSessionUnread: () => false, isTaskPinned: () => false } as unknown as SessionState
+const state = { getSessionCost: () => 0, isSessionError: () => false, isSessionUnread: () => false, isTaskPinned: () => false, isSessionArchived: () => false } as unknown as SessionState
 const flush = () => new Promise((r) => setTimeout(r, 0))
 
 describe('fetchSessionSummaries', () => {
@@ -37,7 +37,7 @@ describe('fetchSessionSummaries', () => {
   })
 
   it('cost from state overrides summary cost', async () => {
-    const costState = { getSessionCost: (id: string) => id === 'x' ? 0.5 : undefined, isSessionError: () => false, isSessionUnread: () => false, isTaskPinned: () => false } as unknown as SessionState
+    const costState = { getSessionCost: (id: string) => id === 'x' ? 0.5 : undefined, isSessionError: () => false, isSessionUnread: () => false, isTaskPinned: () => false, isSessionArchived: () => false } as unknown as SessionState
     const summaries = [{ id: 'x', title: 'X', lastActiveAt: 1, unread: false, cost: 0.1 }]
     const { backend } = makeBackend(summaries)
     const out = await fetchSessionSummaries(singleBackendRegistry(backend), costState)
@@ -45,7 +45,7 @@ describe('fetchSessionSummaries', () => {
   })
 
   it('M9: error latch surfaces as summary.error', async () => {
-    const errorState = { getSessionCost: () => undefined, isSessionError: (id: string) => id === 'bad', isSessionUnread: () => false, isTaskPinned: () => false } as unknown as SessionState
+    const errorState = { getSessionCost: () => undefined, isSessionError: (id: string) => id === 'bad', isSessionUnread: () => false, isTaskPinned: () => false, isSessionArchived: () => false } as unknown as SessionState
     const summaries = [
       { id: 'bad', title: 'Bad', lastActiveAt: 1, unread: false },
       { id: 'good', title: 'Good', lastActiveAt: 2, unread: false },

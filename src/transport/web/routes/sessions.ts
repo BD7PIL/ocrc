@@ -43,6 +43,15 @@ export function registerSessions(app: Hono, reg: BackendRegistry, state: Session
     return c.json({ ok: true, pinned: state.isTaskPinned(id), pinnedTaskIds: state.listPinnedTaskIds() })
   })
 
+  /** /z/ archived tasks: hide from the default list, restorable. */
+  app.post('/api/sessions/:id/archive', async (c) => {
+    const id = state.normalizeSessionId(c.req.param('id'))
+    const body = await c.req.json().catch(() => ({})) as { archived?: boolean }
+    if (typeof body.archived !== 'boolean') return c.json({ error: 'archived required' }, 400)
+    state.setSessionArchived(id, body.archived)
+    return c.json({ ok: true, archived: state.isSessionArchived(id) })
+  })
+
   /** /z/ sidebar unread dot (backends hardcode unread:false, so this is it). */
   app.post('/api/sessions/:id/unread', async (c) => {
     const id = state.normalizeSessionId(c.req.param('id'))

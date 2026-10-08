@@ -22,6 +22,7 @@ interface OcrcSessionSummary {
   unread?: boolean
   error?: boolean
   pinned?: boolean
+  archived?: boolean
 }
 
 function token(): string {
@@ -218,13 +219,11 @@ function createExplicitTaskService(): IZCodeTaskService {
       (await ocrcSessions()).filter((s) => s.pinned).map(toMeta),
     listTaskList: async (query: ZCodeTaskListQuery): Promise<ZCodeTaskListResult> => {
       const sessions = await ocrcSessions()
-      const items = sessions
+      // 过滤在 summary 层做（archived 标记在 session 上，meta 里没有）
+      const scoped = sessions.filter((s) => (query.kind === 'archived' ? s.archived === true : s.archived !== true))
+      const items = scoped
         .map(toMeta)
-        .filter((m) => {
-          if (query.kind === 'archived') return false // ocrc 本地归档 N1.x 接入
-          if (query.search) return m.title.toLowerCase().includes(query.search.toLowerCase())
-          return true
-        })
+        .filter((m) => (query.search ? m.title.toLowerCase().includes(query.search.toLowerCase()) : true))
         .sort((a, b) => (query.sortBy === 'created' ? b.createdAt - a.createdAt : b.updatedAt - a.updatedAt))
       const limit = query.limit ?? items.length
       return { items: items.slice(0, limit), total: items.length, hasMore: items.length > limit }
@@ -235,7 +234,55 @@ function createExplicitTaskService(): IZCodeTaskService {
     listGroupedTaskViewStructure: async () =>
       ({ groups: [], members: [], topLevelOrders: [] }) as ZCodeGroupedTaskViewStructure,
     applyGroupedTaskViewOrder: async () => ({ nodes: [] }) as ZCodeGroupedTaskView,
-    listArchivedTasks: async () => ({ items: [], total: 0, hasMore: false }),
+    listArchivedTasks: async (_params: { workspacePath: string }): Promise<ZCodeTaskMeta[]> =>
+      (await ocrcSessions()).filter((s) => s.archived).map(toMeta),
+    /** ZCode 语义：只归档已完成（非 busy/非 error 即视为完成）、无未读、非 pinned 的超期任务。 */
+    archiveStaleTasks: async (params: { workspacePath?: string; olderThanDays: number }): Promise<ZCodeTaskMeta[]> => {
+      const cutoff = Date.now() - Math.max(1, params.olderThanDays) * 86_400_000
+      const stale = (await ocrcSessions()).filter((s) =>
+        !s.archived && !s.pinned && !s.unread && !s.error && (s.lastActiveAt || 0) < cutoff)
+      for (const s of stale) {
+        await postJson(`/api/sessions/${s.id}/archive`, { archived: true })
+      }
+      return stale.map(toMeta)
+    },
+    archiveWorkspaceTasks: async (params: { workspacePath?: string }): Promise<ZCodeTaskMeta[]> => {
+      const norm = (p: string) => p.replace(/\/+$/, '')
+      const inWorkspace = (await ocrcSessions()).filter((s) =>
+        !s.archived && params.workspacePath && norm(s.directory ?? '') === norm(params.workspacePath))
+      for (const s of inWorkspace) {
+        await postJson(`/api/sessions/${s.id}/archive`, { archived: true })
+      }
+      return inWorkspace.map(toMeta)
+    },
+    archiveTask: async (params: { taskId: string }): Promise<ZCodeTaskMeta> => {
+      await postJson(`/api/sessions/${params.taskId}/archive`, { archived: true })
+      return metaOf(params.taskId, await ocrcSessions())
+    },
+    unarchiveTask: async (params: { taskId: string }): Promise<ZCodeTaskMeta> => {
+      await postJson(`/api/sessions/${params.taskId}/archive`, { archived: false })
+      return metaOf(params.taskId, await ocrcSessions())
+    },
+    deleteArchivedTask: async (params: { taskId: string }): Promise<boolean> => {
+      const res = await fetch(`/api/sessions/${params.taskId}/delete`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token()}` },
+      }).catch(() => null)
+      return Boolean(res?.ok)
+    },
+    deleteArchivedTasks: async (params: { taskIds: string[] }): Promise<Record<string, unknown>> => {
+      const failedTaskIds: string[] = []
+      for (const id of [...new Set(params.taskIds)]) {
+        const res = await fetch(`/api/sessions/${id}/delete`, {
+          method: 'POST', headers: { Authorization: `Bearer ${token()}` },
+        }).catch(() => null)
+        if (!res?.ok) failedTaskIds.push(id)
+      }
+      return {
+        deletedTaskIds: params.taskIds.filter((id) => !failedTaskIds.includes(id)),
+        skippedTaskIds: [],
+        failedTaskIds,
+      }
+    },
     getTaskMeta: async (params: { taskId: string }) => {
       const sessions = await ocrcSessions()
       const s = sessions.find((x) => x.id === params.taskId)

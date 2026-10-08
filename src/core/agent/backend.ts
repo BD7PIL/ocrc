@@ -40,6 +40,8 @@ export interface SessionSummary {
   error?: boolean
   /** /z/ sidebar bookmark (OCRC state overlay; backends leave it undefined). */
   pinned?: boolean
+  /** /z/ archived tasks (OCRC state overlay). */
+  archived?: boolean
 }
 
 /** Normalized assistant-turn metadata for the final card. */

@@ -10,6 +10,7 @@ function fakeState() {
     isSessionError: () => false,
     isSessionUnread: () => false,
     isTaskPinned: () => false,
+    isSessionArchived: () => false,
     setSessionCost: vi.fn(),
     getLastSessionId: () => 'ses_a',
     getActiveAbort: (id: string) => id === 'ses_a' ? { abort: vi.fn() } as any : undefined,

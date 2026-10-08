@@ -30,6 +30,8 @@ interface PersistedState {
   /** /z/ sidebar unread dots — sessions the user has not looked at yet. The
    *  backends hardcode `unread:false`, so this is the only source of truth. */
   unreadSessionIds?: string[]
+  /** /z/ archived tasks (ZCode 语义：归档 = 从默认列表隐藏，可恢复/可删）。 */
+  archivedSessionIds?: string[]
 }
 
 export interface SessionState {
@@ -78,6 +80,10 @@ export interface SessionState {
   /** /z/ sidebar unread dots. */
   isSessionUnread(sessionId: string): boolean
   setSessionUnread(sessionId: string, unread: boolean): void
+  /** /z/ archived tasks. */
+  listArchivedSessionIds(): string[]
+  isSessionArchived(sessionId: string): boolean
+  setSessionArchived(sessionId: string, archived: boolean): void
   getSessionCost(sessionId: string): number | undefined
   setSessionCost(sessionId: string, cost: number | undefined): void
   /** Multi-backend: the backend that owns a session (undefined → default). */
@@ -248,6 +254,11 @@ export function createFileBackedState(path: string): SessionState {
         if (!cache.unreadSessionIds.length) delete cache.unreadSessionIds
         dirty = true
       }
+      if (cache.archivedSessionIds?.includes(sid)) {
+        cache.archivedSessionIds = cache.archivedSessionIds.filter((id) => id !== sid)
+        if (!cache.archivedSessionIds.length) delete cache.archivedSessionIds
+        dirty = true
+      }
       if (dirty) void persist()
       sessionError.delete(sid)
     },
@@ -274,6 +285,17 @@ export function createFileBackedState(path: string): SessionState {
         : current.filter((id) => id !== sid)
       if (next.length) cache.unreadSessionIds = next
       else delete cache.unreadSessionIds
+      void persist()
+    },
+    listArchivedSessionIds: () => [...(cache.archivedSessionIds ?? [])],
+    isSessionArchived: (sid) => (cache.archivedSessionIds ?? []).includes(sid),
+    setSessionArchived: (sid, archived) => {
+      const current = cache.archivedSessionIds ?? []
+      const next = archived
+        ? (current.includes(sid) ? current : [...current, sid])
+        : current.filter((id) => id !== sid)
+      if (next.length) cache.archivedSessionIds = next
+      else delete cache.archivedSessionIds
       void persist()
     },
     getSessionCost: (sid) => sessionCosts.get(sid),

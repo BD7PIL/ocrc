@@ -52,6 +52,15 @@
   切尾部 limit 行——行号由 buildRows 顺序生成、历史不变即稳定，无需服务端游标。
 - ⬜ TurnNavigator（右侧轮次刻度）
 
+### 已修缺陷（N6 过程中实测）
+- ✅ **重建 web 后 /z/ 白屏**（2026-10-08 用户实测「打不开」）：host 把 index.html 在启动时
+  读一次缓存，重建后仍发旧 index——它引用的 chunk 哈希已被新构建替换，浏览器拿到
+  text/html 当模块脚本（MIME 强校验拒绝）→ 整页白屏。修法：index.html 按 mtime 失效
+  （`src/transport/web/index.ts`，`/` 与 `/next/*` 两处），重建即时生效、不再需要重启 host。
+- ✅ 同一根因的另一半：`restart-ocrc.sh` 会连带杀掉隔离栈，重启后需单独拉起 4199。
+- ✅ 隔离栈启动命令必须带 `OCRC_BACKENDS=opencode`：缺了它活跃后端是 ACP/kimi（未安装）
+  → 引擎永远起不来、/z/ 空白（此前文档里的命令漏了这项）。
+
 ### N6 批次 2C 已接（2026-10-08）
 - ✅ **sessions-index 订阅三件套**：此前 `subscribeSessionsIndexV4` 走幽灵 → `await` 拿到函数
   再取 `.ack` 直接 TypeError，侧栏永远只有静态列表。现在真 snapshot（`sessions-index/<workspaceId>`

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { serve, type ServerType } from '@hono/node-server'
 import { WebSocketServer } from 'ws'
@@ -59,6 +59,10 @@ const CAPS: ChannelCapabilities = {
   edit: true, maxMessageLength: Number.POSITIVE_INFINITY,
   buttons: true, richText: true, streaming: true,
 }
+
+/** index.html 的 mtime 缓存（模块级：每进程一个 web transport）。 */
+let indexHtmlCache: { mtimeMs: number; html: string } | null = null
+let nextIndexCache: { mtimeMs: number; html: string } | null = null
 
 export function createWebTransport(cfg: WebTransportConfig): Transport {
   let messageHandler: ((msg: IncomingMessage) => Promise<void>) | undefined
@@ -139,8 +143,20 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         }))
         // SPA fallback inside the next shell — navigation-style paths only,
         // never a missed asset (same rationale as the legacy fallback below).
-        const nextIndexHtml = readFileSync(join(nextRoot!, 'index.html'), 'utf-8')
-        app.get('/next/*', (c) => c.html(nextIndexHtml))
+        // 同一个重建失效问题：/next/* 的 SPA 回落也必须读当前 index。
+        const nextIndexPath = join(nextRoot!, 'index.html')
+        const readNextIndex = (): string => {
+          try {
+            const st = statSync(nextIndexPath)
+            if (!nextIndexCache || nextIndexCache.mtimeMs !== st.mtimeMs) {
+              nextIndexCache = { mtimeMs: st.mtimeMs, html: readFileSync(nextIndexPath, 'utf-8') }
+            }
+            return nextIndexCache.html
+          } catch {
+            return nextIndexCache?.html ?? ''
+          }
+        }
+        app.get('/next/*', (c) => c.html(readNextIndex()))
       }
 
       app.use('/*', serveStatic({ root: cfg.staticRoot }))
@@ -153,13 +169,25 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
       // index.html, the browser sees text/html where it expects JS and the
       // whole module graph silently stalls.
       const indexHtmlPath = join(cfg.staticRoot, 'index.html')
-      // Read once at startup — the previous per-request readFileSync put a
-      // synchronous disk hit on every unmatched GET.
-      const indexHtml = readFileSync(indexHtmlPath, 'utf-8')
+      // index.html 必须跟着重建走：此前只在启动时读一次，于是「重建 web 但没重启
+      // host」会一直发旧 index——它引用的 chunk 已被新构建的哈希替换，浏览器拿到
+      // text/html 当模块脚本（MIME 强校验拒绝执行）→ 整个页面白屏。2026-10-08 实际
+      // 踩了两次。按 mtime 失效即可：命中时不碰磁盘，重建后立即生效。
+      const readIndexHtml = (): string => {
+        try {
+          const st = statSync(indexHtmlPath)
+          if (!indexHtmlCache || indexHtmlCache.mtimeMs !== st.mtimeMs) {
+            indexHtmlCache = { mtimeMs: st.mtimeMs, html: readFileSync(indexHtmlPath, 'utf-8') }
+          }
+          return indexHtmlCache.html
+        } catch {
+          return indexHtmlCache?.html ?? ''
+        }
+      }
       app.get('*', (c) => {
         const path = c.req.path
         if (path.startsWith('/api/') || path === '/ws') return c.notFound()
-        return c.html(indexHtml)
+        return c.html(readIndexHtml())
       })
 
       // serve() returns immediately and bind errors (EADDRINUSE, EACCES) only

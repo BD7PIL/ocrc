@@ -5,6 +5,8 @@
  * 写操作（stage/commit/push/branch 切换）在批次 3 落地，这里只读。
  */
 import { execFile } from 'node:child_process'
+import { unlink } from 'node:fs/promises'
+import { join } from 'node:path'
 
 export interface GitFileChange {
   path: string
@@ -133,4 +135,68 @@ export async function gitDiff(workspacePath: string, path: string, opts: { stage
   if (patch === null) return { patch: null, availability: 'error' }
   if (!patch.trim()) return { patch: null, availability: 'no-changes' }
   return { patch, availability: 'available' }
+}
+
+// ── 写操作（N7-3）。全部走固定参数 execFile（无 shell、无字符串拼接）；
+//    路径必须是仓库内相对路径，越界一律拒绝。push 依赖用户自己的凭证配置。 ──
+
+const SAFE_PATH = /^(?!\/)(?!\.\.)[\w.\-/@+]{1,500}$/
+
+function assertSafePaths(paths: readonly string[]): void {
+  if (!paths.length) throw new Error('paths required')
+  for (const p of paths) {
+    if (!SAFE_PATH.test(p) || p.includes('..')) throw new Error(`非法路径：${p}`)
+  }
+}
+
+export async function gitStage(
+  cwd: string,
+  paths: readonly string[],
+  staged: boolean,
+): Promise<void> {
+  assertSafePaths(paths)
+  const args = staged ? ['add', '--'] : ['reset', '--']
+  await run(cwd, [...args, ...paths])
+}
+
+export async function gitDiscard(cwd: string, paths: readonly string[]): Promise<void> {
+  assertSafePaths(paths)
+  const status = await run(cwd, ['status', '--porcelain=v1'])
+  const untracked = new Set(
+    status.split('\n').filter((l) => l.startsWith('??')).map((l) => l.slice(3).trim()),
+  )
+  const tracked = paths.filter((p) => !untracked.has(p))
+  const unlisted = paths.filter((p) => untracked.has(p))
+  if (tracked.length) await run(cwd, ['checkout', '--', ...tracked])
+  // 未跟踪文件的 discard 语义 = 删除（ZCode 一致）。`git rm` 只认已跟踪文件，
+  // 所以未跟踪的走 fs 删除；路径已过 assertSafePaths，且只删 git 确认过未跟踪的那几个。
+  for (const p of unlisted) {
+    try { await unlink(join(cwd, p)) } catch { /* 已不存在 = 目标状态已达成 */ }
+  }
+}
+
+export async function gitCommit(cwd: string, message: string, paths?: readonly string[]): Promise<{ commit: string; output?: string }> {
+  if (!message.trim()) throw new Error('commit message required')
+  if (message.includes('\0')) throw new Error('commit message 含非法字符')
+  if (paths?.length) await gitStage(cwd, paths, true)
+  const out = await run(cwd, ['commit', '-m', message])
+  const commit = (await tryRun(cwd, ['rev-parse', '--short', 'HEAD']))?.trim() ?? ''
+  return { commit, output: out.trim().split('\n')[0] ?? '' }
+}
+
+export async function gitPush(cwd: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await run(cwd, ['push'])
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: (err as Error).message.split('\n')[0] }
+  }
+}
+
+export async function gitSwitchBranch(cwd: string, branch: string, create: boolean): Promise<void> {
+  // 分支名走引用规则白名单：拒绝空白/~/^/:/?/*/[/\\ 与 ..，防引用歧义。
+  if (!/^(?!\/)(?!\.\.)[^\s~^:?*\[\\]{1,200}$/.test(branch) || branch.endsWith('.lock') || branch.includes('..')) {
+    throw new Error(`非法分支名：${branch}`)
+  }
+  await run(cwd, create ? ['checkout', '-b', branch] : ['checkout', branch])
 }

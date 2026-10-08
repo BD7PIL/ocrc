@@ -1,6 +1,6 @@
 import type { Hono } from 'hono'
 import type { BackendRegistry } from '../../../core/agent/registry.js'
-import { gitDiff, gitInfo } from '../../../core/git-ops.js'
+import { gitCommit, gitDiscard, gitDiff, gitInfo, gitPush, gitStage, gitSwitchBranch } from '../../../core/git-ops.js'
 
 /** 0.18 git pane data: branch + per-file working-tree status, and per-file
  *  patches. Proxied from the opencode server's /vcs endpoints (ocFetch).
@@ -38,6 +38,47 @@ export function registerVcs(app: Hono, reg: BackendRegistry) {
     if (!directory || !file) return c.json({ error: 'directory and file required' }, 400)
     return c.json(await gitDiff(directory, file, { staged: c.req.query('staged') === '1' }))
   })
+
+  // ── N7-3 git 写操作（ZCode Git 面板的 stage/commit/discard/push/branch）──
+  const gitWrite = <B extends { directory?: string }, R>(fn: (directory: string, body: B) => R | Promise<R>) =>
+    async (c: any) => {
+      const body = (await c.req.json().catch(() => ({}))) as B & { directory?: string }
+      if (!body?.directory) return c.json({ error: 'directory required' }, 400)
+      try {
+        return c.json(await fn(body.directory, body))
+      } catch (err) {
+        return c.json({ ok: false, error: (err as Error).message }, 400)
+      }
+    }
+
+  app.post('/api/git/stage', gitWrite<{ directory: string; paths: string[]; staged?: boolean }, { ok: boolean }>(
+    async (directory, body) => {
+      await gitStage(directory, body.paths ?? [], body.staged !== false)
+      return { ok: true }
+    },
+  ))
+  app.post('/api/git/discard', gitWrite<{ directory: string; paths: string[] }, { ok: boolean }>(
+    async (directory, body) => {
+      await gitDiscard(directory, body.paths ?? [])
+      return { ok: true }
+    },
+  ))
+  app.post('/api/git/commit', gitWrite<{ directory: string; message: string; paths?: string[] }, { ok: boolean; commit: string; output?: string }>(
+    async (directory, body) => {
+      const out = await gitCommit(directory, body.message ?? '', body.paths)
+      return { ok: true, ...out }
+    },
+  ))
+  app.post('/api/git/push', gitWrite<{ directory: string }, { ok: boolean; error?: string }>(
+    async (directory) => await gitPush(directory),
+  ))
+  app.post('/api/git/branch', gitWrite<{ directory: string; branch: string; create?: boolean }, { ok: boolean }>(
+    async (directory, body) => {
+      if (!body.branch) return { ok: false, error: 'branch required' }
+      await gitSwitchBranch(directory, body.branch, body.create === true)
+      return { ok: true }
+    },
+  ))
 }
 
 /** Session revert / unrevert + state (0.22). Separate file-level routes so the

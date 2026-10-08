@@ -53,6 +53,16 @@
 - ⬜ TurnNavigator（右侧轮次刻度）
 
 ### N7 逐项（2026-10-08 开工，接 N6）
+- ✅ **git 写操作**（N7-3）：host 侧 `POST /api/git/{stage,discard,commit,push,branch}`——全部
+  固定参数 execFile（无 shell、无字符串拼接），路径白名单校验（拒绝 `..`、绝对路径、注入字符），
+  分支名按引用规则白名单校验。未跟踪文件的 discard = 删除（`git rm` 不认未跟踪，走 fs 删除，
+  只删 git 确认过未跟踪的那几个）。push 无 upstream/无远端时**如实失败**。前端 gitService 的
+  stage/unstage/discard/commit/push/switch/createBranchAndSwitch 全接（generateCommitMessage
+  需要模型调用，如实拒绝）。后端单测 7 条（暂存区真变/提交短哈希/未跟踪删除/跟踪还原/分支切换
+  +非法名拒绝/注入面拒绝/push 如实失败）+ 隔离栈 scratch 仓库路由 E2E 全链实证。
+  **过程记录**：第一轮 E2E 误把 directory 指到 ocrc 仓库（创建了探针分支）——已当场恢复
+  （checkout main + 删分支），并改为一次性 scratch 仓库重做；教训：git 路由 E2E 永远用一次性仓库。
+
 - ✅ **附件管线**（N7-1）：composer「+」→ 附件菜单 → 文件选择器（platform.selectFile/selectFiles
   用真 `<input type=file>`）→ **getPathForFile 返回 ocrc-webfile:// 句柄** → composer 的本地
   零拷贝链路把句柄原样放进 sendText.attachments[].ref → 发送时解析回字节转成

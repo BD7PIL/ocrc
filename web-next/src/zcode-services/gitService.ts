@@ -45,6 +45,24 @@ const EMPTY: OcrcGitInfo = {
   branches: [], identity: { userName: null, userEmail: null }, changes: [],
 }
 
+async function postGit<T = any>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(path, { method: 'POST', headers: auth(), body: JSON.stringify(body ?? {}) }).catch((e) => {
+    throw new Error(`${path} 网络失败：${(e as Error).message}`)
+  })
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(detail.error ?? `${path} ${res.status}`)
+  }
+  return (await res.json()) as T
+}
+
+/** UI 传来的路径可能是绝对路径（GitFileChange.path）——host 只收仓库相对路径。 */
+function relPaths(paths: readonly string[]): string[] {
+  return paths
+    .map((p) => p.replace(/\\/g, '/'))
+    .map((p) => (p.startsWith('/') ? p.split('/').slice(-1)[0] === p ? p : p.split('/').slice(-2).join('/') : p))
+}
+
 async function info(workspacePath: string): Promise<OcrcGitInfo> {
   if (!workspacePath) return EMPTY
   return getJson<OcrcGitInfo>(`/api/git?directory=${encodeURIComponent(workspacePath)}`, EMPTY)
@@ -68,6 +86,25 @@ export function createOcrcGitService(): Record<string, any> {
     const fresh = await info(workspacePath)
     cached.set(workspacePath, fresh)
     return fresh
+  }
+
+  const refreshSummary = async (workspacePath: string) => {
+    cached.delete(workspacePath)
+    const i = await infoCached(workspacePath)
+    return {
+      workspacePath,
+      repoRoot: i.repoRoot,
+      workspaceInRepoPath: i.workspaceInRepoPath,
+      autoRefreshWatchPaths: i.repoRoot ? [{ path: `${i.repoRoot}/.git` }] : [],
+      branchName: i.branchName,
+      trackingBranchName: i.trackingBranchName,
+      headRefType: 'branch',
+      ahead: i.ahead,
+      behind: i.behind,
+      isDirty: i.isDirty,
+      isGitAvailable: i.isGitAvailable,
+      isRepository: i.isRepository,
+    }
   }
 
   return withGhosts('gitService', {
@@ -153,14 +190,48 @@ export function createOcrcGitService(): Record<string, any> {
       return { isRepository: i.isRepository, isGitAvailable: i.isGitAvailable }
     },
 
-    // 写操作留批次 3（host 侧 git 写要连同 capabilities 门控一起做）。
-    stagePaths: async () => { throw new Error('[ocrc-fork] git 写操作（stage）尚未接入 ocrc（N6 批次 3）') },
-    unstagePaths: async () => { throw new Error('[ocrc-fork] git 写操作（unstage）尚未接入 ocrc（N6 批次 3）') },
-    discardPaths: async () => { throw new Error('[ocrc-fork] git 写操作（discard）尚未接入 ocrc（N6 批次 3）') },
-    commit: async () => { throw new Error('[ocrc-fork] git 写操作（commit）尚未接入 ocrc（N6 批次 3）') },
-    push: async () => { throw new Error('[ocrc-fork] git 写操作（push）尚未接入 ocrc（N6 批次 3）') },
-    switchBranch: async () => { throw new Error('[ocrc-fork] git 写操作（switchBranch）尚未接入 ocrc（N6 批次 3）') },
-    createBranchAndSwitch: async () => { throw new Error('[ocrc-fork] git 写操作（createBranch）尚未接入 ocrc（N6 批次 3）') },
-    generateCommitMessage: async () => { throw new Error('[ocrc-fork] git 写操作（generateCommitMessage）尚未接入 ocrc（N6 批次 3）') },
+    // ── 写操作（N7-3）：host 侧固定参数 git，路径白名单校验（无 shell 面）。──
+    stagePaths: async (params: { workspacePath: string; paths: string[] }) => {
+      await postGit('/api/git/stage', { directory: params.workspacePath, paths: relPaths(params.paths) })
+      cached.delete(params.workspacePath)
+      return refreshSummary(params.workspacePath)
+    },
+    unstagePaths: async (params: { workspacePath: string; paths: string[] }) => {
+      await postGit('/api/git/stage', { directory: params.workspacePath, paths: relPaths(params.paths), staged: false })
+      cached.delete(params.workspacePath)
+      return refreshSummary(params.workspacePath)
+    },
+    discardPaths: async (params: { workspacePath: string; paths: string[] }) => {
+      await postGit('/api/git/discard', { directory: params.workspacePath, paths: relPaths(params.paths) })
+      cached.delete(params.workspacePath)
+      return refreshSummary(params.workspacePath)
+    },
+    commit: async (params: { workspacePath: string; message: string; paths?: string[] }) => {
+      const out = await postGit<{ commit: string }>('/api/git/commit', {
+        directory: params.workspacePath, message: params.message, paths: params.paths ? relPaths(params.paths) : undefined,
+      })
+      cached.delete(params.workspacePath)
+      const i = await infoCached(params.workspacePath)
+      return { commitHash: out.commit, summary: { workspacePath: params.workspacePath, repoRoot: i.repoRoot, branchName: i.branchName, isDirty: i.isDirty } }
+    },
+    push: async (params: { workspacePath: string }) => {
+      const out = await postGit<{ ok: boolean; error?: string }>('/api/git/push', { directory: params.workspacePath })
+      if (!out.ok) throw new Error(out.error ?? 'push failed')
+      cached.delete(params.workspacePath)
+      const i = await infoCached(params.workspacePath)
+      return { branchName: i.branchName, trackingBranchName: i.trackingBranchName, setUpstream: false }
+    },
+    switchBranch: async (params: { workspacePath: string; targetBranchName: string }) => {
+      await postGit('/api/git/branch', { directory: params.workspacePath, branch: params.targetBranchName, create: false })
+      cached.delete(params.workspacePath)
+      return refreshSummary(params.workspacePath)
+    },
+    createBranchAndSwitch: async (params: { workspacePath: string; branchName: string }) => {
+      await postGit('/api/git/branch', { directory: params.workspacePath, branch: params.branchName, create: true })
+      cached.delete(params.workspacePath)
+      return refreshSummary(params.workspacePath)
+    },
+    // 提交信息生成需要一次模型调用（ZCode 走它的 agent）；ocrc 侧不做静默代写。
+    generateCommitMessage: async () => { throw new Error('[ocrc-fork] 生成提交信息需要模型调用，/z/ 暂未接（可直接手写提交说明）') },
   })
 }

@@ -256,9 +256,18 @@
   入口打开目录（隔离栈实测：「已结束 · 1 / n8-5 subagent probe / 已完成 / 20分」）。
   **附带 vendor 补丁 #5**：上游自认 endedSubagentCount 没进 hasContent → 只剩历史的
   会话整块面板返回 null、目录入口不可达；补一行条件（PATCHES.md #5）。
-- 🔶 计划详情页：数据路径已通（父会话投影 + `row.input` 带 plan markdown）；**触发依赖
-  该轮使用了 plan/switch-mode 工具**，未在真实会话中命中（同类问题：卡片"打开"态要求
-  参数含 markdown）。待有真实 plan 工具调用的会话复核。
+- ✅ 计划详情页（2026-10-09 补齐并实测）：**核实** opencode 的 plan agent 没有
+  ExitPlanMode 工具（只用 bash/glob/grep/question + 正文 Markdown），而 vendor 的计划面族
+  （时间线计划卡、状态面板「计划」目录、计划详情侧页）全以 `toolName==='ExitPlanMode'` 的
+  行做锚点。桥接做法：① plan 回合（卡 meta.agent==='plan'）的产出正文投影成 ExitPlanMode
+  行（toolCallId 前缀 `plan-` 标明投影、markdown 放 input.plan）；② 实现
+  `conversationPlansV4` RPC（目录数据源，rowId 降序）；③ composer 选「计划」时
+  payload.planEnabled=true → `/api/message` 带 `agent:'plan'`（引擎原生 plan agent），
+  新增 per-message agent 通道（优先于 TG 的一次性 nextAgent 槽）。隔离栈实测：plan 回合
+  552 字计划 → 时间线出计划卡（「查看完整计划」）→ 状态面板「计划」目录 4 项（标题取
+  markdown 首行）→ 点开 `plan-detail:…:plan-msg_…` 侧页渲染全文。
+  已知取舍：plan 回合的正文同时以消息行 + 计划卡出现（同一文本两处可见）；澄清性提问
+  回合也会成计划条目（不做文本嗅探过滤）。
 - ⬜ 终端页（🚫 ocrc 裁决不做）
 
 ## 8. 设置页族

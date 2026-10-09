@@ -219,7 +219,9 @@ const messageRoles = new Map<string, Map<string, string>>()
     deps.state.setActiveAbort(provisionalKey, ac)
 
     try {
-      const nextAgent = deps.state.getNextAgent()
+      // Per-message agent (msg.agent, set by /z/ when 计划 mode is on) wins over
+      // the host's one-shot nextAgent (TG /agent) — same precedence as variant.
+      const nextAgent = msg.agent ?? deps.state.getNextAgent()
       const nextModel = deps.state.getNextModel()
       const nextVariant = deps.state.getNextVariant()
 

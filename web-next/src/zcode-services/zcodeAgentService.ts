@@ -25,7 +25,7 @@ function token(): string {
 
 // ── ocrc 历史 → v4 conversation rows ──
 interface OcrcBlock { type: string; text?: string; tool?: string; args?: string; status?: string; partId?: string; messageId?: string }
-interface OcrcCard { kind: string; text?: string; ts?: number; blocks?: OcrcBlock[]; meta?: { model?: string }; thinkingText?: string; messageId?: string }
+interface OcrcCard { kind: string; text?: string; ts?: number; blocks?: OcrcBlock[]; meta?: { model?: string; agent?: string }; thinkingText?: string; messageId?: string }
 
 async function ocrcHistory(taskId: string): Promise<OcrcCard[]> {
   try {
@@ -343,8 +343,10 @@ function buildRows(cards: OcrcCard[]): any[] {
       if (c.thinkingText && !c.blocks.some((b) => b.type === 'reasoning')) {
         rows.push({ ...base(ts, identity, 'thinking', c.messageId), kind: 'reasoning', text: c.thinkingText, state: 'complete' })
       }
+      let cardText = ''
       for (const b of c.blocks) {
         if (b.type === 'text') {
+          cardText += b.text ?? ''
           rows.push({ ...base(ts, identity, `text-${textI++}`, c.messageId), kind: 'assistantText', text: b.text ?? '', state: 'complete', model: c.meta?.model, ...feedbackFor(c.messageId) })
         } else if (b.type === 'reasoning') {
           rows.push({ ...base(ts, identity, `reasoning-${reasoningI++}`, c.messageId), kind: 'reasoning', text: b.text ?? '', state: 'complete' })
@@ -363,6 +365,27 @@ function buildRows(cards: OcrcCard[]): any[] {
             __partId: b.partId,
           })
         }
+      }
+      // ── 计划投影（ExitPlanMode 行）─────────────────────────────────
+      // 核实：opencode 的 plan agent **没有** ExitPlanMode 工具（实测该 agent 只用
+      // bash/glob/grep/question + 正文 Markdown）；而 vendor 的计划面族——时间线计划卡
+      // （toolIdentity 归 switch-mode family）、状态面板「计划」目录、计划详情侧页——
+      // 全部以 `toolName === 'ExitPlanMode'` 的行作锚点。把 plan 回合的产出正文投影成
+      // 该形状，计划才有可审阅的落点（卡片可点开详情侧页）。
+      // toolCallId 前缀 `plan-` 标明这是 ocrc 的投影、不是引擎的工具调用；不伪造
+      // 工具执行——status 固定 success（回合已定稿），markdown 放在 input.plan
+      // （vendor extractPlanToolCallContent 的读取键）。
+      if (c.meta?.agent === 'plan' && cardText.trim()) {
+        const planText = cardText.trim()
+        rows.push({
+          ...base(ts, identity, 'exitplan', c.messageId),
+          kind: 'toolCall',
+          toolCallId: `plan-${c.messageId ?? identity}`,
+          toolName: 'ExitPlanMode',
+          status: 'success',
+          input: { plan: planText },
+          inputText: JSON.stringify({ plan: planText }),
+        })
       }
     }
   }
@@ -829,6 +852,19 @@ export function createOcrcZcodeAgentService(): any {
         hasMore: earlier.length > page.length,
       }
     },
+    // 计划目录（状态面板「计划」区 + 计划详情侧页的目录源）。vendor 的
+    // v4ConversationPlansResultSchema：plans = 当前分支终态 ExitPlanMode 行、rowId 降序
+    // （最新优先），atLogEpoch 必须与快照一致（store 用它对账，不匹配整体丢弃）。
+    // 数据与时间线计划卡同源——同一份 buildRows 结果过滤，不另开一条取数路径。
+    async conversationPlansV4(params: { sessionId: string }) {
+      const cards = await ocrcHistory(params.sessionId)
+      const rows = buildRows(cards)
+      const plans = rows
+        .filter((r) => r.kind === 'toolCall' && r.toolName === 'ExitPlanMode' &&
+          (r.status === 'success' || r.status === 'error' || r.status === 'cancelled'))
+        .sort((a, b) => b.rowId - a.rowId)
+      return { plans, atSeq: rows.length, atLogEpoch: 'ocrc-1' }
+    },
     // 子代理目录页（右侧面板）：读 /api/session/:id/subagents 并组装 vendor 的
     // ZCodeSessionSubagentsResult。此前整条方法缺失 → Proxy 兜底 reject →
     // 目录页 ended 段显示「无法加载子智能体目录」。
@@ -1028,10 +1064,19 @@ export function createOcrcZcodeAgentService(): any {
           }
           images.push({ data: await toBase64(file), mimeType: file.type })
         }
+        // 计划模式（composer 选「计划」时 payload.planEnabled=true，见 vendor
+        // execution-state.ts：mode 会被归一成 build，plan 只体现在 planEnabled）。
+        // ocrc 的等价物 = 引擎原生 plan agent（只读规划、不落改动），按消息下发
+        // ——不动 host 的全局 nextAgent（那是 TG /agent 的一次性槽，会跨会话泄漏）。
+        const planEnabled = (envelope.payload as { planEnabled?: boolean }).planEnabled === true
         const res = await fetch('/api/message', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
-          body: JSON.stringify({ sessionId, text, clientId: envelope.commandId, ...(images.length ? { images } : {}) }),
+          body: JSON.stringify({
+            sessionId, text, clientId: envelope.commandId,
+            ...(planEnabled ? { agent: 'plan' } : {}),
+            ...(images.length ? { images } : {}),
+          }),
         })
         if (res.ok) for (const att of rawAttachments) releaseWebFile(String(att?.ref ?? ''))
         if (!res.ok) {

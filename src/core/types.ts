@@ -27,6 +27,13 @@ export interface IncomingMessage {
    *  sets it per message; undefined = provider default. */
   variant?: string
   /**
+   * Per-message engine agent override (e.g. "plan"). /z/ sets it when the
+   * composer's 计划 mode is on (payload.planEnabled) — the engine's native
+   * plan agent is the honest equivalent of ZCode's plan mode. Undefined =
+   * fall back to the host's one-shot nextAgent (TG /agent), then default.
+   */
+  agent?: string
+  /**
    * Which transport the message came from. Used so a transport can avoid
    * echoing the user's own message back to them (e.g. Telegram already shows it).
    */

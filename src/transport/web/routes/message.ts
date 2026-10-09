@@ -11,7 +11,7 @@ export function registerMessage(
   reg?: BackendRegistry,
 ) {
   app.post('/api/message', async (c) => {
-    const body = await c.req.json().catch(() => ({})) as { sessionId?: string; text?: string; clientId?: string; variant?: string; images?: Array<{ data?: string; mimeType?: string }> }
+    const body = await c.req.json().catch(() => ({})) as { sessionId?: string; text?: string; clientId?: string; variant?: string; agent?: string; images?: Array<{ data?: string; mimeType?: string }> }
     const images = Array.isArray(body.images)
       ? body.images.filter((i): i is { data: string; mimeType: string } => !!i && typeof i.data === 'string' && typeof i.mimeType === 'string')
       : []
@@ -33,6 +33,8 @@ export function registerMessage(
       // so web and Telegram can converse with different sessions independently.
       sessionId: typeof body.sessionId === 'string' && body.sessionId ? body.sessionId : undefined,
       variant: typeof body.variant === 'string' && body.variant ? body.variant : undefined,
+      // Per-message agent override (/z/ 计划模式 → 引擎原生 plan agent)。
+      agent: typeof body.agent === 'string' && body.agent ? body.agent : undefined,
       origin: 'web',
     }
     void onMessage(msg).catch((e) => log.warn(`onMessage handler rejected: ${(e as Error).message}`))

@@ -24,6 +24,7 @@ import { createOcrcBroadcastService } from '../zcode-services/broadcastService.j
 import { createOcrcSkillsService } from '../zcode-services/skillsService.js'
 import { createOcrcMcpSyncService } from '../zcode-services/mcpSyncService.js'
 import { createOcrcShareService } from '../zcode-services/shareService.js'
+import { createOcrcPluginsManagementService } from '../zcode-services/pluginsManagementService.js'
 import { ghostMethod, withGhosts } from '../zcode-services/ghost.js'
 
 // 同名服务/方法必须返回同一实例——Root 的 useMemo/useEffect 依赖
@@ -111,6 +112,9 @@ export function createGhostAccessor(): IServiceAccessor {
     botsService: createOcrcBotsService(),
     offPeakTaskService: createOcrcOffPeakTaskService(),
     zcodeTaskService: createOcrcTaskService(),
+    // N11-2 插件面：读侧映射 opencode.json 的 plugin 数组；marketplace/安装等
+    // mutation 由 withGhosts 如实拒绝（PRODUCT.md 裁决：插件市场不做）。
+    pluginManagementService: createOcrcPluginsManagementService(),
     // CUA 是 ocrc 的产品裁决不做项（PRODUCT.md 第五条）：服务缺席让 UI 走隐藏
     // 分支，而不是渲染一个权限查询必然失败的入口。接口里它本就是 optional。
     cuaPermissionService: undefined,

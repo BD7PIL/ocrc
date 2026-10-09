@@ -6,6 +6,8 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import { AppErrorBoundary, ZCodeIntlProvider, generateMobileDeviceFingerprint, setStreamClientId } from '@zcode/ui'
 // ZCode 原生样式表（独立 Tailwind 入口：自带 source 扫描域 + zai 双主题）。
 import '../../vendor/zcode/ui/src/styles.css'
+// N8-7：移动端壳层适配（安全区 + 触屏 16px 输入字号），ocrc 侧覆盖、不动 vendor。
+import './zcode-mobile.css'
 import { onUnauthorized } from '$lib/auth.js'
 import { createGhostAccessor } from './accessor.js'
 import { createWebPlatform } from './platform.js'
@@ -83,7 +85,7 @@ export function ZCodeApp() {
   }, [])
 
   return (
-    <div className="h-dvh min-h-dvh w-screen bg-background text-foreground">
+    <div className="zcode-shell-root h-dvh min-h-dvh w-screen bg-background text-foreground">
       <AppErrorBoundary>
         <ZCodeIntlProvider settingService={services.settingService} broadcastService={services.broadcastService}>
           {settled && (

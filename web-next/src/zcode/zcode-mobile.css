@@ -1,0 +1,21 @@
+/* N8-7 移动端壳层适配 —— 只动 ocrc 侧（零 vendor 改动），保持 vendor 可重放。
+ *
+ * 1) 安全区：index.html 已设 `viewport-fit=cover`，但无人消费 inset ——
+ *    刘海/Home 指示条会压住内容。根容器加 padding 即可（桌面 inset=0，无影响）。
+ * 2) iOS 聚焦自动缩放：可编辑控件字号 < 16px 时 Safari 会把整页放大。
+ *    composer 用 text-ui-base(14px)，触屏指针下统一提到 16px。 */
+.zcode-shell-root {
+  padding-top: env(safe-area-inset-top);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+}
+
+@media (pointer: coarse) {
+  [contenteditable='true'],
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}

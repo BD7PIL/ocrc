@@ -127,12 +127,22 @@ N5 已有：一次性工单 / 低峰窗口 FIFO / 审批模式映射 / 模型选
 - 跨 ticket resume（失败/取消后可重排）
 - **与 goal 组合**：闲时任务可携带 goal，跑完自动验收（这是两个能力的乘数）
 
-## 4. workflow 最小形态（第三优先，spike 通过后再设计）
+## 4. workflow：全量落地（2026-10-10 改判，取代本节旧的「最小形态」）
 
-- **目标**：点亮 vendor 工作流卡的最小可信子集——**单会话、多步、带人工审批点**。
-- **明确不做**：完整 dwf 编排（actors/nodes/phases/reports 全量 schema）、host 原生并行 runner
-  （那是重造 ZCode CLI，旧裁决维持）。
-- **触发条件**：goal + 闲时两项 spike 通过后再设计——不预先承诺形态。
+goal + 闲时两项 spike 已通过（见 [n12-spike-record.md](n12-spike-record.md)），本节从
+「最小形态、不预先承诺」改判为**全量落地计划 P0–P5**（用户裁决：要 agent 效果最好、
+最可靠、最可控、最完整的方案，时间不限）：
+
+- **引擎**：直接 vendor 上游 ZCode 的 `dynamic-workflow` + `dynamic-workflow-runtime`
+  （Apache-2.0；两包 src 对 `@zcode` 零 import，依赖仅 `typescript` + node 内建）——
+  自研编排执行引擎仍然**不做**（旧裁决维持）。
+- **工具面**：官方 `tool` 钩子把 `CreateWorkflow` 等挂进引擎，模型原生作者。
+- **状态/调度/journal/审批/并发/预算**：全在 host。
+- **前置（P0）**：插件与 host 共存的 ATTACHED 模式——今天装插件会和 host 双冲突，
+  因为 host 从不取锁、插件非 primary 时连工具都不注册。
+  P0 第一步的实测结论见 [workflow-p0-tool-registration.md](workflow-p0-tool-registration.md)。
+
+**明确不做（维持）**：host 原生 workflow runner（自研编排执行引擎）。
 
 ## 5. PRODUCT.md 条文修订（精确措辞）
 
@@ -162,7 +172,8 @@ N5 已有：一次性工单 / 低峰窗口 FIFO / 审批模式映射 / 模型选
 - 引擎的 autocontinue（压缩后 synthetic continue，**默认开**）：发生在 turn 内部，与 idle 后的
   goal 循环**串行共存，无需抑制**；但必须防重入（同一 idle 只触发一次续跑，用 run 记账）。
 - 上游 verifier fail-open 我们**不照抄**（§2.3 delta）——代价是坏 JSON 时更常停，用通知兜底。
-- 开放项：**workflow 是否保留在欠账清单**（可砍，砍掉则 §4 整节删除）；PRODUCT 措辞定稿。
+- 开放项：~~workflow 是否保留在欠账清单~~ → **已裁决：保留，按 §4 的全量计划 P0–P5 推进**；
+  PRODUCT 措辞定稿见 P5 交付物（机制在引擎内（仅官方钩子）、状态与调度在 host）。
 
 ## 附录：opencode 钩子清单（1.18.34 类型面，1.18.32 二进制核实）
 

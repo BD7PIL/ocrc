@@ -65,6 +65,8 @@ export interface TelegramConfig {
   channels?: () => ChannelBot | undefined
   /** M11 pending-token pairing store — /pair issues a short-lived token. */
   pairing?: PairingStore
+  /** N12 session goals — /goal is hidden without it. */
+  goalManager?: import('../../core/goal.js').GoalManager
 }
 
 const CAPS: ChannelCapabilities = {
@@ -546,6 +548,7 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
     scheduler: cfg.scheduler,
     channels: cfg.channels,
     pairing: cfg.pairing,
+    goalManager: cfg.goalManager,
   })
 
   // Error catch-all — grammY wraps handler errors in BotError (err.error).

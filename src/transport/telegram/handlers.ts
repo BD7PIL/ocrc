@@ -4,6 +4,8 @@ import { inlineKeyboard, btn, type TgBtn } from './ui.js'
 import type { Scheduler } from '../../core/scheduler.js'
 import type { ChannelBot, WorkspaceScope } from '../../core/channels.js'
 import type { PairingStore } from '../../connectivity/pairing.js'
+import type { GoalManager } from '../../core/goal.js'
+import { MAX_ITERATIONS } from '../../core/goal.js'
 import type { AgentBackend, AgentInfo, ModelProvider, SkillInfo } from '../../core/agent/backend.js'
 import type { SessionState } from '../../core/state.js'
 import type { CardBus } from '../../core/card-bus.js'
@@ -37,6 +39,8 @@ export interface HandlersDeps {
   channels?: () => ChannelBot | undefined
   /** M11 pending-token pairing store — /pair issues a short-lived token. */
   pairing?: PairingStore
+  /** N12 session goals (optional; /goal is hidden without it). */
+  goalManager?: GoalManager
 }
 
 /** M9 工作区访问范围: filter the workspace list per the tg-default bot scope. */
@@ -567,6 +571,7 @@ export function registerHandlers(deps: HandlersDeps): void {
         '  /version    Bot version + uptime',
         '  /workspaces List/switch workspaces',
         '  /new        New session in active workspace',
+        '  /goal       Session goal (set/pause/resume/clear/status)',
         '  /help       This message',
         '',
         'Send any text to relay it into opencode.',
@@ -1071,6 +1076,105 @@ export function registerHandlers(deps: HandlersDeps): void {
     await renderTasks(ctx)
   })
 
+  // ── N12 goal 命令（ZCode 目标循环，宿主侧）──────────────────────────
+  // 循环本体在 host（src/core/goal.ts）：回合末验收 → 通过/续跑/停机。这里只是
+  // 命令面 + 状态卡。验收中的瞬时态由 manager.isVerifying 提供。
+  const goalStatusLabel = (status: string, verifying: boolean): string => {
+    if (verifying) return '🔍 验收中'
+    switch (status) {
+      case 'active': return '🎯 进行中'
+      case 'paused': return '⏸ 已暂停'
+      case 'budget_limited': return '💰 预算用尽'
+      case 'complete': return '✅ 已完成'
+      default: return status
+    }
+  }
+
+  const renderGoal = async (ctx: Context, sidOverride?: string) => {
+    const manager = deps.goalManager
+    if (!manager) return void reply(ctx, '目标功能未启用')
+    const sid = sidOverride ?? resolveTarget()
+    if (!sid) return void reply(ctx, '没有可用的会话 — 先 /session 或发一条消息')
+    const goal = manager.status(sid)
+    if (!goal) {
+      await ctx.reply(
+        ['<b>🎯 Goal</b>', '', '当前会话没有目标。', '', '用法：<code>/goal &lt;目标描述&gt;</code>'].join('\n'),
+        { parse_mode: 'HTML' },
+      )
+      return
+    }
+    const verifying = manager.isVerifying(sid)
+    const lines = [
+      '<b>🎯 Goal</b>',
+      '',
+      `<b>${esc(goal.objective)}</b>`,
+      '',
+      `状态：${goalStatusLabel(goal.status, verifying)}`,
+      `迭代：${goal.iteration}/${MAX_ITERATIONS}`,
+      `用量：${goal.tokensUsed} tokens${goal.tokenBudget != null ? ` / ${goal.tokenBudget}` : ''}  ·  ${goal.timeUsedSeconds}s`,
+    ]
+    const last = [...goal.verifications].reverse().find((v) => v.reason)
+    if (last) {
+      lines.push('', `<i>最近验收：${esc(last.reason ?? '')}</i>`)
+      if (last.nextAction) lines.push(`<i>下一步：${esc(last.nextAction)}</i>`)
+    }
+    const rows: Array<Array<TgBtn>> = []
+    if (goal.status === 'active') rows.push([btn('⏸ 暂停', `goal:pause:${sid}`), btn('🗑 清除', `goal:clear:${sid}`)])
+    else if (goal.status === 'complete') rows.push([btn('🗑 清除', `goal:clear:${sid}`)])
+    else rows.push([btn('▶ 继续', `goal:resume:${sid}`), btn('🗑 清除', `goal:clear:${sid}`)])
+    await ctx.reply(lines.join('\n'), { parse_mode: 'HTML', ...inlineKeyboard(rows) })
+  }
+
+  deps.bot.command('goal', async (ctx: Context) => {
+    const manager = deps.goalManager
+    if (!manager) return void reply(ctx, '目标功能未启用')
+    const raw = ((ctx.match as string | undefined) ?? '').trim()
+    if (!raw) return void renderGoal(ctx)
+    const parts = raw.split(/\s+/)
+    const verb = parts[0].toLowerCase()
+    const sid = resolveTarget()
+    if (verb === 'status') return void renderGoal(ctx)
+    if (!sid) return void reply(ctx, '没有可用的会话 — 先 /session 或发一条消息')
+    if (verb === 'pause' || verb === 'resume' || verb === 'clear') {
+      if (verb === 'clear') {
+        manager.clear(sid)
+        await reply(ctx, '已清除目标')
+      } else {
+        const res = verb === 'pause' ? manager.pause(sid) : manager.resume(sid)
+        if (!res.ok) {
+          await reply(ctx, res.error === 'plan_mode' ? '计划模式下不能继续目标 — 先 /mode 切回 build'
+            : res.error === 'no_goal' ? '当前会话没有目标'
+            : verb === 'pause' ? '目标不在进行中' : '目标不在暂停态')
+        }
+      }
+      return void renderGoal(ctx)
+    }
+    // set（`/goal set <目标>` 或 `/goal <目标>`）
+    const objective = (verb === 'set' ? parts.slice(1).join(' ') : raw).trim()
+    const res = manager.set(sid, objective)
+    if (!res.ok) {
+      await reply(ctx, res.error === 'plan_mode' ? '计划模式下不能设置目标 — 先 /mode 切回 build' : '目标描述不能为空')
+      return
+    }
+    await reply(ctx, `🎯 目标已设置，开始执行：\n<b>${esc(objective)}</b>`)
+    await renderGoal(ctx)
+  })
+
+  deps.bot.callbackQuery(/^goal:(pause|resume|clear):(.+)$/, async (ctx) => {
+    const manager = deps.goalManager
+    if (!manager) { await ctx.answerCallbackQuery('目标功能未启用'); return }
+    const action = ctx.match![1]
+    const sid = ctx.match![2]
+    if (action === 'clear') {
+      manager.clear(sid)
+      await ctx.answerCallbackQuery('已清除目标')
+    } else {
+      const res = action === 'pause' ? manager.pause(sid) : manager.resume(sid)
+      await ctx.answerCallbackQuery(res.ok ? (action === 'pause' ? '已暂停' : '已继续') : '当前状态不允许该操作')
+    }
+    await renderGoal(ctx, sid)
+  })
+
   const commands = [
     { command: 'start', description: 'Handshake and health' },
     { command: 'status', description: 'Server + last session' },
@@ -1101,6 +1205,7 @@ export function registerHandlers(deps: HandlersDeps): void {
     { command: 'subs', description: 'List subagents of the session' },
     { command: 'mode', description: 'Switch the session mode (build/plan…)' },
     { command: 'cleanup', description: 'Delete finished subagent sessions' },
+    { command: 'goal', description: 'Session goal: set/pause/resume/clear/status' },
     { command: 'help', description: 'Show help' },
   ]
 

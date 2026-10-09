@@ -287,6 +287,9 @@ export async function main(): Promise<void> {
       state,
       baseUrl: '',
       tgChunkSoftLimit: config.tgChunkSoftLimit,
+      // N12: /goal works from Telegram too — the loop itself is host-side, so
+      // the bot is just another command surface over the same record.
+      goalManager,
     })
     tgTransport.onMessage(relay)
     transports.push(tgTransport)

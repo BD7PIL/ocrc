@@ -232,6 +232,19 @@ export function buildVerifierPrompt(
   return lines.join('\n')
 }
 
+/** The continuation turn's text. Line 1 is a short human display line (the /z/
+ *  bridge folds the prompt body into a disclosure under it), then the full
+ *  prompt the model receives. The display line exists so the bridge never has
+ *  to parse English prose out of the prompt to label the turn. */
+export function continuationText(
+  goal: Pick<GoalRecord, 'objective' | 'tokenBudget' | 'tokensUsed' | 'timeUsedSeconds'>,
+  verdict?: Pick<VerificationVerdict, 'nextAction' | 'reason'> | null,
+): string {
+  const next = verdict?.nextAction?.trim()
+  const display = next || (goal.objective.split('\n')[0] ?? '').trim() || '目标续跑'
+  return `${CONTINUATION_PREFIX} ${display}\n\n${buildContinuationPrompt(goal, verdict ?? null)}`
+}
+
 /** Which gate stopped the loop — surfaced in the notification. */
 export type GoalGate = 'iteration_cap' | 'stall'
 
@@ -459,7 +472,7 @@ export function createGoalManager(deps: GoalDeps): GoalManager {
     })!
     emit(sessionId, updated)
 
-    const text = `${CONTINUATION_PREFIX}\n${buildContinuationPrompt(updated, verdict)}`
+    const text = continuationText(updated, verdict)
     try {
       await deps.dispatch({
         userId: 'ocrc-goal',
@@ -503,7 +516,7 @@ export function createGoalManager(deps: GoalDeps): GoalManager {
       void deps.dispatch({
         userId: 'ocrc-goal',
         chatId: 'ocrc-goal',
-        text: `${CONTINUATION_PREFIX}\n${buildContinuationPrompt(goal, null)}`,
+        text: continuationText(goal, null),
         messageId: `goal_${goal.targetId}_1`,
         sessionId: sid,
         origin: 'goalContinuation',

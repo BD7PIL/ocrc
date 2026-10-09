@@ -7,6 +7,9 @@
 import { conversationTopicFrameSchema, sessionsIndexTopicFrameSchema } from '@zcode/shared/zcode-protocol-v4/transport'
 import { sessionsIndexTopic } from '@zcode/shared/zcode-protocol-v4'
 import { dropAttachmentBytes, putAttachmentBlob, releaseWebFile, resolveWebFile, takeAttachmentBytes, toBase64 } from './webAttachments.js'
+import {
+  projectGoal, projectGoalAvailability, type GoalProjection, type OcrcGoalRecord,
+} from './goalProjection.js'
 
 const V4_WIRE_PROTOCOL_VERSION = 3 as const
 
@@ -25,7 +28,7 @@ function token(): string {
 
 // ── ocrc 历史 → v4 conversation rows ──
 interface OcrcBlock { type: string; text?: string; tool?: string; args?: string; status?: string; partId?: string; messageId?: string }
-interface OcrcCard { kind: string; text?: string; ts?: number; blocks?: OcrcBlock[]; meta?: { model?: string; agent?: string }; thinkingText?: string; messageId?: string }
+interface OcrcCard { kind: string; text?: string; ts?: number; blocks?: OcrcBlock[]; meta?: { model?: string; agent?: string }; thinkingText?: string; messageId?: string; origin?: string }
 
 async function ocrcHistory(taskId: string): Promise<OcrcCard[]> {
   try {
@@ -305,9 +308,87 @@ function feedbackFor(entityId?: string): { feedback?: 'like' | 'dislike' } {
   } catch { return {} }
 }
 
-function buildRows(cards: OcrcCard[]): any[] {
+// ── N12 goal 面 ─────────────────────────────────────────────────────
+// 权威记录在 host（GET /api/session/:id/goal），ws `goal` 帧推变化。这里只做两件
+// 事：① 把 host 的四态投影成 vendor 六态（goalProjection.ts）；② 把每轮验收落成
+// timelineMarker 行（必须带 lane='turnTailBoundary'，否则会被折进「已工作」折叠组）。
+const GOAL_CONTINUATION_PREFIX = '[ocrc-goal-continuation]'
+
+/** 会话 goal 缓存：记录 + verifying + 验收锚点（iteration → 锚定的 rowId）。 */
+interface GoalUi { goal: OcrcGoalRecord | null; verifying: boolean; anchors: Map<number, number> }
+const goalUiBySession = new Map<string, GoalUi>()
+
+function goalUi(sessionId: string): GoalUi {
+  let ui = goalUiBySession.get(sessionId)
+  if (!ui) { ui = { goal: null, verifying: false, anchors: new Map() }; goalUiBySession.set(sessionId, ui) }
+  return ui
+}
+
+async function fetchGoal(sessionId: string): Promise<GoalUi> {
+  const ui = goalUi(sessionId)
+  try {
+    const res = await fetch(`/api/session/${encodeURIComponent(sessionId)}/goal`, { headers: { Authorization: `Bearer ${token()}` } })
+    if (res.ok) {
+      const body = (await res.json()) as { goal?: OcrcGoalRecord | null; verifying?: boolean }
+      ui.goal = body.goal ?? null
+      ui.verifying = body.verifying === true
+    }
+  } catch { /* 拉不到沿用缓存——goal 面降级，不阻断会话渲染 */ }
+  return ui
+}
+
+/** 续跑轮的可见文本：首行是短展示行，提示词正文折进 epilogue 披露（vendor 的
+ *  splitUserInputEpilogue 语义）。非续跑卡返回 null。 */
+function goalContinuationView(raw: string): { text: string; epilogueStart?: number } | null {
+  if (!raw.startsWith(GOAL_CONTINUATION_PREFIX)) return null
+  const rest = raw.slice(GOAL_CONTINUATION_PREFIX.length).replace(/^\s+/, '').replace(/\s+$/, '')
+  const nl = rest.indexOf('\n')
+  const display = (nl === -1 ? rest : rest.slice(0, nl)).trim()
+  return display ? { text: rest, epilogueStart: display.length } : { text: rest }
+}
+
+/** 会话可用性（snapshot 与 state.updated 共用同一份，避免两处漂移）：
+ *  非 goal 项恒 true（ocrc 不做这些门），goal 两项按投影态派生。 */
+function availabilityState(goalStatus: GoalProjection['status'] | null) {
+  return {
+    fork: { allowed: true as const },
+    compact: { allowed: true as const },
+    switchModelConfig: { allowed: true as const },
+    setFollowupMode: { allowed: true as const },
+    queueEdit: { allowed: true as const },
+    sendQueuedNow: { allowed: true as const },
+    ...projectGoalAvailability(goalStatus),
+  }
+}
+
+function isGoalContinuationCard(c: OcrcCard): boolean {
+  return c.origin === 'goalContinuation' || (c.text ?? '').startsWith(GOAL_CONTINUATION_PREFIX)
+}
+
+/** goalVerify marker 行。rowId 按 (targetId, iteration) 键控：running 与终态同 id，
+ *  终态 upsert 覆盖 running —— 与 vendor 的 lifecycleKey upsert 同构。 */
+function goalVerifyRows(goal: GoalProjection, verifying: boolean): Array<{ iteration: number; row: any }> {
+  const mk = (iteration: number, outcome: string, detail?: string) => ({
+    rowId: stableRowId(`goalVerify|${goal.targetId}|${iteration}`),
+    entityId: `goalVerify:${goal.targetId}:${iteration}`,
+    createdAt: goal.verifications.find((v) => v.iteration === iteration)?.at ?? Date.now(),
+    kind: 'timelineMarker',
+    lane: 'turnTailBoundary',
+    marker: { type: 'goalVerify', iteration, outcome, ...(detail ? { detail } : {}) },
+  })
+  const out = goal.verifications.map((v) => ({ iteration: v.iteration, row: mk(v.iteration, v.outcome, v.reason) }))
+  if (verifying && !goal.verifications.some((v) => v.iteration === goal.iteration)) {
+    out.push({ iteration: goal.iteration, row: mk(goal.iteration, 'running') })
+  }
+  return out
+}
+
+function buildRows(cards: OcrcCard[], goalArg?: GoalUi): any[] {
   const rows: any[] = []
   let turn = 0
+  // 续跑轮的起始行下标（第 k 个续跑轮 → continuationStarts[k-1]）：冷启动时用它
+  // 把第 N 轮的验收 marker 钉在「第 N+1 轮开始之前」，即第 N 轮的轮尾。
+  const continuationStarts: number[] = []
   // 时间戳必须取卡片自身的 ts：live 路径按行内容 diff（row.upserted/row.appended），
   // Date.now() 会让每次重建的 rows 全部不同，diff 退化成全量 upsert。
   // rowId 由内容身份派生（见 stableRowId）；turnId 维持 `turn-N` 计数——vendor 用它
@@ -332,8 +413,25 @@ function buildRows(cards: OcrcCard[]): any[] {
     if (c.kind === 'user') {
       turn += 1
       const identity = cardIdentity(c, ci)
-      rows.push({ ...base(ts, identity, 'header'), kind: 'turnHeader', origin: 'userInput', state: 'completedSuccess', startedAt: ts })
-      rows.push({ ...base(ts, identity, 'input', c.messageId), kind: 'userInput', origin: 'realUser', text: c.text ?? '' })
+      // 续跑轮：origin='goalContinuation' 让 vendor 把它排除在「真实用户输入」之外
+      // （轮次导航/分享/输入投影都只认 realUser），气泡正文只显示短展示行，整段
+      // 提示词折进 epilogue 披露。这样既看得到「目标又跑了一轮」，也没有幽灵气泡。
+      const cont = isGoalContinuationCard(c) ? goalContinuationView(c.text ?? '') : null
+      if (cont) continuationStarts.push(rows.length)
+      rows.push({
+        ...base(ts, identity, 'header'),
+        kind: 'turnHeader',
+        origin: cont ? 'goalContinuation' : 'userInput',
+        state: 'completedSuccess',
+        startedAt: ts,
+      })
+      rows.push({
+        ...base(ts, identity, 'input', c.messageId),
+        kind: 'userInput',
+        origin: cont ? 'goalContinuation' : 'realUser',
+        text: cont ? cont.text : (c.text ?? ''),
+        ...(cont?.epilogueStart !== undefined ? { epilogueStart: cont.epilogueStart } : {}),
+      })
     } else if (c.kind === 'assistant' && c.blocks) {
       const identity = cardIdentity(c, ci)
       // 定稿卡片的 blocks 是 reasoning-free（TG/纯文本渲染器不该看到思考），思考被收进
@@ -389,7 +487,54 @@ function buildRows(cards: OcrcCard[]): any[] {
       }
     }
   }
+  insertGoalVerifyRows(rows, continuationStarts, goalArg)
   return rows
+}
+
+/** 把 goalVerify marker 行插到各自轮尾。锚点优先级：① 实时锚（ws goal 帧到达时
+ *  记的行尾）；② 冷启动回落（第 N+1 个续跑轮起始行的前一行）；③ 都无 → 落尾。
+ *  锚点行的 turnId/createdAtSeq 复制给 marker，让它与所在轮同组、时序单调。 */
+function insertGoalVerifyRows(rows: any[], continuationStarts: number[], goalArg?: GoalUi): void {
+  if (!goalArg?.goal) return
+  const projected = projectGoal(goalArg.goal, goalArg.verifying, goalArg.anchors)
+  const markers = goalVerifyRows(projected, goalArg.verifying)
+  if (!markers.length) return
+  const anchorOf = (iteration: number): number | undefined => {
+    const live = goalArg.anchors.get(iteration)
+    if (live !== undefined) return live
+    const nextStart = continuationStarts[iteration]
+    if (nextStart !== undefined && nextStart > 0) return rows[nextStart - 1]!.rowId
+    return undefined
+  }
+  const groups = new Map<number | 'tail', any[]>()
+  for (const m of markers) {
+    const key = anchorOf(m.iteration) ?? 'tail'
+    const list = groups.get(key) ?? []
+    list.push(m.row)
+    groups.set(key, list)
+  }
+  // 落尾的 marker 没有锚行可复制身份，就用末行的（rowBaseFields 要求 turnId/
+  // createdAtSeq 在场——缺了整帧会被 zod 丢掉，goal 面直接不出现）。
+  const last = rows[rows.length - 1]
+  let tailSeq = (last?.createdAtSeq ?? 0) + 1
+  const stamp = (m: any, r: any) => {
+    m.turnId = r?.turnId ?? 'turn-1'
+    if (r?.productTurnId) m.productTurnId = r.productTurnId
+    m.createdAtSeq = r ? r.createdAtSeq : tailSeq++
+  }
+  const out: any[] = []
+  for (const r of rows) {
+    out.push(r)
+    const g = groups.get(r.rowId)
+    if (!g) continue
+    for (const m of g) { stamp(m, r); out.push(m) }
+    groups.delete(r.rowId)
+  }
+  const tail = groups.get('tail')
+  if (tail) for (const m of tail) { stamp(m, last); out.push(m) }
+  // 锚点已消费但锚行不在（历史被截断）→ 也落尾，宁可位置略偏也不丢 marker。
+  for (const [k, g] of groups) if (k !== 'tail') for (const m of g) { stamp(m, last); out.push(m) }
+  rows.splice(0, rows.length, ...out)
 }
 
 // ── 通知通道：per-frame 监听器注册表 + 订阅登记（resync 回显同一 subscriptionId）──
@@ -463,12 +608,16 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
   const curProvider = overrides.model?.providerID ?? providers.find((p) => (p.models ?? []).length > 0)?.id ?? ''
   const curModel = overrides.model?.modelID ?? providers.find((p) => p.id === curProvider)?.models?.[0]?.id ?? ''
   const curThought = (providers.find((p) => p.id === curProvider)?.models?.find((m) => m.id === curModel)?.variants ?? [])[0] ?? ''
-  const [plan, subagents] = await Promise.all([conversationPlan(taskId), conversationSubagents(taskId)])
+  const [plan, subagents, goalUiState] = await Promise.all([
+    conversationPlan(taskId),
+    conversationSubagents(taskId),
+    fetchGoal(taskId),
+  ])
   console.info(
     '[ocrc-trace] snapshot subagents =',
     subagents ? `children=${subagents.childSessionIds.length} running=${subagents.running.length} ended=${subagents.endedTotal}` : '(none)',
   )
-  const rows = buildRows(cards)
+  const rows = buildRows(cards, goalUiState)
   // 必须在 enrichToolRows 之前收集：富化结束时会把 __messageId/__partId 删掉
   // （那是行内实现细节），而 backgroundWorks 的 workId 正需要它们。
   const backgroundWorks = collectBackgroundWorks(rows)
@@ -490,16 +639,9 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
       lastError: null,
       apiRetry: null,
     },
-    availability: {
-      fork: { allowed: true },
-      compact: { allowed: true },
-      switchModelConfig: { allowed: true },
-      setFollowupMode: { allowed: true },
-      queueEdit: { allowed: true },
-      sendQueuedNow: { allowed: true },
-      pauseGoal: { allowed: true },
-      resumeGoal: { allowed: true },
-    },
+    // goal 门对齐 vendor projection-state.ts：pause 只在目标可续时开，resume 只在
+    // paused 时开；无 goal 时带 noGoalToPause/Resume 原因码（驱动禁用态 tooltip）。
+    availability: availabilityState(goalUiState.goal ? projectGoal(goalUiState.goal, goalUiState.verifying, goalUiState.anchors).status : null),
     inputRouting: { mode: 'startNow' },
     config: { provider: curProvider, model: curModel, thought: curThought, thoughtLevels: providers.find((p) => p.id === curProvider)?.models?.find((m) => m.id === curModel)?.variants ?? [], followupMode: 'queue' },
     usage: { contextWindow: null, cumulative: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } },
@@ -510,7 +652,7 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
     // meta.title：schema 默认值是空串，而空串不走 `??` 回退 —— 分享标题取
     // snapshot.meta.title，缺它就恒为空 → 「生成分享链接」永久禁用（隔离栈实测根因）。
     meta: { title: sessionTitle || 'ocrc 会话', titleSource: sessionTitle ? 'generated' as const : 'default' as const },
-    goal: null,
+    goal: goalUiState.goal ? projectGoal(goalUiState.goal, goalUiState.verifying, goalUiState.anchors) : null,
     plan,
     ...(subagents ? { subagents } : {}),
     rows: { window: rows, totalCount: rows.length, firstRowId: rows[0]?.rowId ?? null },
@@ -593,13 +735,45 @@ function diffRows(prev: any[], next: any[]): Array<Record<string, unknown>> | nu
   return upserts.length + appends.length > 0 ? [...upserts, ...appends] : []
 }
 
+/** goal 帧落缓存：更新记录 + 把每轮验收锚到「帧到达时的行尾」（验收发生在回合末，
+ *  此刻的行尾就是那一轮的轮尾），再推 state.updated 并触发一次 rows 收敛。
+ *  verifying 的两拍（开始/终态）都会走这里，所以 running marker 能被终态 upsert。 */
+function applyGoalFrame(sessionId: string, frame: { goal?: OcrcGoalRecord | null; verifying?: boolean }): void {
+  const ui = goalUi(sessionId)
+  ui.goal = frame.goal ?? null
+  ui.verifying = frame.verifying === true
+  if (!ui.goal) ui.anchors.clear()
+  const tail = lastRowsBySession.get(sessionId)?.slice(-1)[0]?.rowId
+  if (ui.goal && tail !== undefined) {
+    for (const v of ui.goal.verifications) if (!ui.anchors.has(v.iteration)) ui.anchors.set(v.iteration, tail)
+    if (ui.verifying && !ui.anchors.has(ui.goal.iteration)) ui.anchors.set(ui.goal.iteration, tail)
+  }
+  goalUiBySession.set(sessionId, ui)
+  publishGoalState(sessionId, ui)
+  scheduleLive(sessionId)
+}
+
+/** state.updated：goal + 完整 availability 一次补丁（delta.ts 的 statePatchSchema；
+ *  availability 是整键替换，所以必须带齐八个键）。 */
+function publishGoalState(sessionId: string, ui: GoalUi): void {
+  const subs = [...subscriptions.entries()].filter(([, s]) => s.sessionId === sessionId)
+  if (!subs.length) return
+  const goal = ui.goal ? projectGoal(ui.goal, ui.verifying, ui.anchors) : null
+  const patch = { goal, availability: availabilityState(goal?.status ?? null) }
+  for (const [subId, sub] of subs) {
+    const lastSeq = lastSeqBySub.get(subId) ?? 0
+    deliverWire(sub.topic, subId, lastSeq, lastSeq + 1, { kind: 'deltas', deltas: [{ op: 'state.updated', patch }] }, 'online')
+    lastSeqBySub.set(subId, lastSeq + 1)
+  }
+}
+
 async function liveUpdate(sessionId: string): Promise<void> {
   const subs = [...subscriptions.entries()].filter(([, s]) => s.sessionId === sessionId)
   const prevRows = lastRowsBySession.get(sessionId)
   if (!subs.length || !prevRows) return
   const cards = await ocrcHistory(sessionId).catch(() => null)
   if (!cards) return
-  const nextRows = buildRows(cards)
+  const nextRows = buildRows(cards, goalUi(sessionId))
   await enrichToolRows(nextRows, sessionId)
   const deltas = diffRows(prevRows, nextRows)
   // diff 空即不发：此前用整行 stringify 判等守卫，浅比较版直接以 deltas.length 为准。
@@ -676,6 +850,9 @@ function liveWsEnsure(): void {
     // 不只是当前打开的会话（侧栏状态点）。
     if (msg.type === 'session.status') publishIndexStatus(sid, (msg as { busy?: boolean }).busy === true)
     if (!watchedSessions.has(sid)) return
+    // goal 帧：先落缓存（含把每轮验收锚到当前行尾），再推 state.updated 让 goal 面
+    // 与 availability 立刻刷新；rows 侧由 scheduleLive 的 diff 补上 marker 行。
+    if (msg.type === 'goal') { applyGoalFrame(sid, msg as { goal?: OcrcGoalRecord | null; verifying?: boolean }); return }
     if (msg.type === 'card' || msg.type === 'sdelta' || msg.type === 'session.status') scheduleLive(sid)
   }
   liveWs.onclose = () => {
@@ -1093,6 +1270,51 @@ export function createOcrcZcodeAgentService(): any {
           status: 'accepted',
           revisionAtDecision: 0,
         }
+      }
+      // ── N12 goal 命令 ──
+      // vendor 侧：/goal <目标> → sendGoalCommand{text}；/goal resume → resumeGoal；
+      // 横幅按钮 → pauseGoal/resumeGoal。三者都落 host 的 POST /api/goal。
+      // ACK 只回 accepted —— goal 面的刷新不靠 ACK，靠 ws `goal` 帧 → state.updated
+      // （与上游「投影态由事件驱动」同一路子）。
+      if (envelope.type === 'sendGoalCommand') {
+        if (!sessionId) throw new Error('[ocrc-fork] sendGoalCommand 缺 sessionId')
+        const objective = String((envelope.payload as { text?: string }).text ?? '').trim()
+        if (!objective) {
+          return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_bad_payload', message: 'sendGoalCommand 需要非空 text', revisionAtDecision: 0 }
+        }
+        const res = await fetch('/api/goal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+          body: JSON.stringify({ action: 'set', sessionId, objective }),
+        })
+        if (!res.ok) {
+          const detail = await res.json().catch(() => ({})) as { error?: string }
+          return {
+            commandId: envelope.commandId, status: 'failed',
+            reasonCode: detail.error === 'plan_mode' ? 'ocrc_goal_plan_mode' : `ocrc_goal_set_failed`,
+            message: `POST /api/goal set ${res.status}${detail.error ? ` (${detail.error})` : ''}`,
+            revisionAtDecision: 0,
+          }
+        }
+        return { commandId: envelope.commandId, status: 'accepted', revisionAtDecision: 0 }
+      }
+      if (envelope.type === 'pauseGoal' || envelope.type === 'resumeGoal') {
+        if (!sessionId) throw new Error(`[ocrc-fork] ${envelope.type} 缺 sessionId`)
+        const action = envelope.type === 'pauseGoal' ? 'pause' : 'resume'
+        const res = await fetch('/api/goal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+          body: JSON.stringify({ action, sessionId }),
+        })
+        if (!res.ok) {
+          const detail = await res.json().catch(() => ({})) as { error?: string }
+          return {
+            commandId: envelope.commandId, status: 'failed', reasonCode: `ocrc_goal_${action}_failed`,
+            message: `POST /api/goal ${action} ${res.status}${detail.error ? ` (${detail.error})` : ''}`,
+            revisionAtDecision: 0,
+          }
+        }
+        return { commandId: envelope.commandId, status: 'accepted', revisionAtDecision: 0 }
       }
       if (envelope.type === 'createSession') {
         const directory = (params as { workspacePath?: string }).workspacePath ?? '/home/demo/develop/opencode-plugin/ocrc'

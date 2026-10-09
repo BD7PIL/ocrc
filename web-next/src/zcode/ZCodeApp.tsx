@@ -40,6 +40,10 @@ export function ZCodeApp() {
   const [services] = useState(() => createGhostAccessor())
   const [platform] = useState(() => createWebPlatform())
   const [workspacePath, setWorkspacePath] = useState<string | undefined>(undefined)
+  // ?session= 深链：引导时直接激活指定会话（需要同时给对 workspace 才会被 Root 接住）。
+  const [initialSessionId] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get('session') ?? undefined } catch { return undefined }
+  })
   const [settled, setSettled] = useState(false)
 
   useEffect(() => {
@@ -64,7 +68,9 @@ export function ZCodeApp() {
         }
         sessions = (await res.json()) as typeof sessions
       } catch { /* 列表拿不到就不选 workspace，壳走无初始目录分支 */ }
-      const dir = sessions.find((s) => s.directory)?.directory
+      // 深链会话优先以其目录为初始 workspace；否则取最近会话的目录。
+      const deep = initialSessionId ? sessions.find((s) => s.id === initialSessionId) : undefined
+      const dir = deep?.directory ?? sessions.find((s) => s.directory)?.directory
       if (dir) setWorkspacePath(dir)
       setSettled(true)
       // N5 跨页草稿回收（后台跑，不挡壳渲染）：shell 每次引导都会预热一个
@@ -94,6 +100,7 @@ export function ZCodeApp() {
                 services={services}
                 platform={platform}
                 initialWorkspaceAbsPath={workspacePath}
+                initialTaskId={initialSessionId}
                 // ocrc 没有跨启动的 tab 持久化——关闭恢复机制，让
                 // hasCompletedInitialRestore 立即完成、initialWorkspace 引导生效
                 restoreSession={false}

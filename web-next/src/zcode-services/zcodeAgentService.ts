@@ -25,7 +25,7 @@ function token(): string {
 
 // ── ocrc 历史 → v4 conversation rows ──
 interface OcrcBlock { type: string; text?: string; tool?: string; args?: string; status?: string; partId?: string; messageId?: string }
-interface OcrcCard { kind: string; text?: string; ts?: number; blocks?: OcrcBlock[]; meta?: { model?: string }; thinkingText?: string }
+interface OcrcCard { kind: string; text?: string; ts?: number; blocks?: OcrcBlock[]; meta?: { model?: string }; thinkingText?: string; messageId?: string }
 
 async function ocrcHistory(taskId: string): Promise<OcrcCard[]> {
   try {
@@ -253,49 +253,79 @@ async function enrichToolRows(rows: any[], sessionId: string): Promise<void> {
   }
 }
 
+// ── N9-1 行身份内容寻址 ─────────────────────────────────────────────
+// rowId 从前的语义是「扁平列表里的位置序号」：任何中间插入（流式中块增长、
+// 工具行后新出文本行）都会让后续所有行 rowId 位移，vendor 按 rowId 键控的
+// upsert 把它们当「删+增」，这正是重复渲染的机制。改为**内容寻址**：rowId =
+// 稳定身份（卡片 messageId + 块 partId/kind 序）的确定性哈希，新内容才拿新
+// rowId，流式增长只 upsert 末行。哈希取 FNV-1a 32 位再乘位宽展开——同会话内
+// 碰撞概率可忽略；全序仍由数组顺序承载，rowId 只作身份键。
+function stableRowId(identity: string): number {
+  let h = 0x811c9dc5
+  for (let i = 0; i < identity.length; i++) {
+    h ^= identity.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  // 32 位无符号 → 正 int31（vendor rowId: z.number()；非负 int 才能进 range API）。
+  return h >>> 1
+}
+
+/** 内容寻址 rowId 的身份串：卡片 messageId（缺省退 ts+kind——旧引擎消息无 id 时的
+ *  兜底，只要同会话内唯一即可）+ 行在卡内的稳定序。 */
+function cardIdentity(c: OcrcCard, index: number): string {
+  return c.messageId ?? `${c.ts ?? 0}:${c.kind}:${index}`
+}
+
 function buildRows(cards: OcrcCard[]): any[] {
   const rows: any[] = []
-  let rowId = 1
   let turn = 0
   // 时间戳必须取卡片自身的 ts：live 路径按行内容 diff（row.upserted/row.appended），
   // Date.now() 会让每次重建的 rows 全部不同，diff 退化成全量 upsert。
-  const base = (ts: number) => ({
-    rowId: rowId,
+  // rowId 由内容身份派生（见 stableRowId）；turnId 维持 `turn-N` 计数——vendor 用它
+  // 作 turn 聚合键，不解析数字。
+  const base = (ts: number, identity: string, kindTag: string, entityId?: string) => ({
+    rowId: stableRowId(`${identity}|${kindTag}`),
     turnId: `turn-${turn}`,
-    // canonical 产品轮次身份：分享的轮次选择（syncAvailableTurns 读 row.productTurnId）、
-    // 轮次级动作都靠它。不设 → 可分享轮次映射为空、选择控件受控于空列表（点不动的真根因）。
     ...(turn > 0 ? { productTurnId: `turn-${turn}` } : {}),
+    ...(entityId ? { entityId } : {}),
     createdAt: ts,
-    createdAtSeq: rowId,
+    // createdAtSeq 曾等于位置 rowId；现在给单调行计数（vendor 只把它当时间戳用）。
+    createdAtSeq: rows.length + 1,
   })
-  for (const c of cards) {
+  for (let ci = 0; ci < cards.length; ci++) {
+    const c = cards[ci]!
     const ts = c.ts ?? 0
+    // 块身份按 kind 计数（卡内第 n 个 text/reasoning/tool），不用扁单位序——
+    // 否则定稿补插的 thinking 行会把后续 text 块身份挤位，重演 rowId 位移。
+    let textI = 0
+    let reasoningI = 0
+    let toolI = 0
     if (c.kind === 'user') {
       turn += 1
-      rows.push({ ...base(ts), kind: 'turnHeader', origin: 'userInput', state: 'completedSuccess', startedAt: ts })
-      rowId += 1
-      rows.push({ ...base(ts), kind: 'userInput', origin: 'realUser', text: c.text ?? '' })
-      rowId += 1
+      const identity = cardIdentity(c, ci)
+      rows.push({ ...base(ts, identity, 'header'), kind: 'turnHeader', origin: 'userInput', state: 'completedSuccess', startedAt: ts })
+      rows.push({ ...base(ts, identity, 'input', c.messageId), kind: 'userInput', origin: 'realUser', text: c.text ?? '' })
     } else if (c.kind === 'assistant' && c.blocks) {
+      const identity = cardIdentity(c, ci)
       // 定稿卡片的 blocks 是 reasoning-free（TG/纯文本渲染器不该看到思考），思考被收进
       // 卡片的 thinkingText。此前桥接层只映射 blocks → 回合结束、卡片定稿后 /z/ 里的
-      // 推理块就消失了（流式期有、定稿后没了）。补一条 reasoning 行。
+      // 推理块就消失了（流式期有、定稿后没了）。补一条 reasoning 行。固定 tag
+      // `thinking`（每卡至多一条合成行），不占 text/reasoning 计数。
       if (c.thinkingText && !c.blocks.some((b) => b.type === 'reasoning')) {
-        rows.push({ ...base(ts), kind: 'reasoning', text: c.thinkingText, state: 'complete' })
-        rowId += 1
+        rows.push({ ...base(ts, identity, 'thinking', c.messageId), kind: 'reasoning', text: c.thinkingText, state: 'complete' })
       }
       for (const b of c.blocks) {
         if (b.type === 'text') {
-          rows.push({ ...base(ts), kind: 'assistantText', text: b.text ?? '', state: 'complete', model: c.meta?.model })
-          rowId += 1
+          rows.push({ ...base(ts, identity, `text-${textI++}`, c.messageId), kind: 'assistantText', text: b.text ?? '', state: 'complete', model: c.meta?.model })
         } else if (b.type === 'reasoning') {
-          rows.push({ ...base(ts), kind: 'reasoning', text: b.text ?? '', state: 'complete' })
-          rowId += 1
+          rows.push({ ...base(ts, identity, `reasoning-${reasoningI++}`, c.messageId), kind: 'reasoning', text: b.text ?? '', state: 'complete' })
         } else if (b.type === 'tool') {
+          // 身份优先块自身 partId；无 partId 的旧引擎块退 kind 内序 `raw-N`
+          // （按 tool 块计数，与有无 partId 无关——否则混块序列在两次重建间跳号）。
           rows.push({
-            ...base(ts),
+            ...base(ts, identity, `tool-${b.partId ?? `raw-${toolI++}`}`),
             kind: 'toolCall',
-            toolCallId: b.partId ? `tool-${b.partId}` : `tool-${rowId}`,
+            toolCallId: b.partId ? `tool-${b.partId}` : `tool-${toolI}`,
             toolName: b.tool ?? 'tool',
             // running 不再塌成 success：否则执行中的工具当场显示"已完成"，没有转圈。
             status: b.status === 'error' ? 'error' : b.status === 'running' ? 'running' : 'success',
@@ -303,7 +333,6 @@ function buildRows(cards: OcrcCard[]): any[] {
             __messageId: b.messageId,
             __partId: b.partId,
           })
-          rowId += 1
         }
       }
     }
@@ -471,18 +500,41 @@ const watchedSessions = new Set<string>()
 let liveWs: WebSocket | null = null
 let liveWsRetry: ReturnType<typeof setTimeout> | null = null
 
+/** rows diff（N9-1 键控版）：rowId 现在是内容身份——同位置 rowId 不同 =
+ *  中间插入/删除（协议无 row.inserted，键控补丁表达不了）→ null 全量收敛。
+ *  行内容对比用按键浅比较，不再 JSON.stringify 整行——工具 output 可到 50k，
+ *  整行序列化是热路径上第二处 O(N×size) 开销。 */
+const ROW_DIFF_KEYS = ['kind', 'text', 'state', 'status', 'toolCallId', 'toolName', 'inputText', 'entityId', 'feedback', 'model', 'turnId'] as const
+
+function rowShallowEqual(p: any, n: any): boolean {
+  if (p === n) return true
+  if (!p || !n || p.kind !== n.kind) return false
+  for (const k of ROW_DIFF_KEYS) {
+    if ((p as any)[k] !== (n as any)[k]) return false
+  }
+  // output 只比 text（display 对象每轮重建引用都不同，比 text 即可）。
+  const po = p.output, no = n.output
+  if ((po === undefined) !== (no === undefined)) return false
+  if (po && no && po.text !== no.text) return false
+  return true
+}
+
 /** rows 前缀 diff：返回增量 op 列表；前缀失配/截断返回 null（调用方回退全量快照）。 */
 function diffRows(prev: any[], next: any[]): Array<Record<string, unknown>> | null {
   if (next.length < prev.length) return null
+  const n = Math.min(prev.length, next.length)
+  for (let i = 0; i < n; i++) {
+    if (prev[i]!.rowId !== next[i]!.rowId) return null
+  }
   const upserts: Array<Record<string, unknown>> = []
   const appends: Array<Record<string, unknown>> = []
   for (let i = 0; i < next.length; i++) {
     const p = prev[i]
-    const n = next[i]
+    const nr = next[i]!
     if (p === undefined) {
-      appends.push({ op: 'row.appended', row: n })
-    } else if (JSON.stringify(p) !== JSON.stringify(n)) {
-      upserts.push({ op: 'row.upserted', row: n })
+      appends.push({ op: 'row.appended', row: nr })
+    } else if (!rowShallowEqual(p, nr)) {
+      upserts.push({ op: 'row.upserted', row: nr })
     }
   }
   // 施加序：先 upsert（已存在 rowId 原位替换）后 append（落尾）。
@@ -497,8 +549,9 @@ async function liveUpdate(sessionId: string): Promise<void> {
   if (!cards) return
   const nextRows = buildRows(cards)
   await enrichToolRows(nextRows, sessionId)
-  if (JSON.stringify(prevRows) === JSON.stringify(nextRows)) return
   const deltas = diffRows(prevRows, nextRows)
+  // diff 空即不发：此前用整行 stringify 判等守卫，浅比较版直接以 deltas.length 为准。
+  if (deltas && deltas.length === 0) return
   lastRowsBySession.set(sessionId, nextRows)
   for (const [subId, sub] of subs) {
     const lastSeq = lastSeqBySub.get(subId) ?? 0

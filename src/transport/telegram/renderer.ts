@@ -194,7 +194,9 @@ export class TelegramSessionRenderer {
         // The user already sees their own message in the Telegram chat — don't
         // echo it back. Still show prompts that originated elsewhere (e.g. web),
         // so a Telegram observer sees what was asked from another surface.
-        if (card.origin === 'telegram') return
+        // Goal continuations are synthetic model-only turns: /z/ shows them as a
+        // goal bubble, Telegram stays quiet (the goal info cards carry the news).
+        if (card.origin === 'telegram' || card.origin === 'goalContinuation') return
         const userText = card.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         await this.sendTimed(`<i>${userText.slice(0, 200)}${userText.length > 200 ? '…' : ''}</i>`, { parse_mode: 'HTML' })
         return

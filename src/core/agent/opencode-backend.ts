@@ -171,6 +171,56 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     }
   }
 
+  /**
+   * One-shot prompt in a throwaway child session (goal verifier). Same
+   * raw-fetch shape as suggestFollowUps — POST /session (with parentID so the
+   * child is attached to the source conversation), POST /session/:id/message
+   * (synchronous: the response IS the assistant message), DELETE the child.
+   * `tools` rides the prompt body's per-request tool map so the verifier can be
+   * denied write-class tools. Returns undefined on any failure (fail-closed
+   * callers decide what that means).
+   */
+  async function promptOnce(
+    sessionId: string,
+    text: string,
+    opts?: { parentID?: string; tools?: Record<string, boolean>; timeoutMs?: number; title?: string },
+  ): Promise<string | undefined> {
+    if (!baseUrl) return undefined
+    let tmpId: string | undefined
+    try {
+      const created = await xfetch(`${baseUrl}/session`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          title: opts?.title ?? 'ocrc-oneshot',
+          ...(opts?.parentID ? { parentID: opts.parentID } : {}),
+        }),
+      })
+      if (!created.ok) { log.warn(`promptOnce: session create failed (${created.status})`); return undefined }
+      tmpId = ((await created.json()) as any)?.id
+      if (!tmpId) { log.warn('promptOnce: session create returned no id'); return undefined }
+      markEphemeralSession(tmpId)
+      const res = await xfetch(`${baseUrl}/session/${encodeURIComponent(tmpId)}/message`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          parts: [{ type: 'text', text }],
+          ...(opts?.tools ? { tools: opts.tools } : {}),
+        }),
+        signal: AbortSignal.timeout(opts?.timeoutMs ?? 60_000),
+      })
+      if (!res.ok) { log.warn(`promptOnce: prompt failed (${res.status})`); return undefined }
+      const body = (await res.json()) as any
+      const parts = (body?.parts ?? body?.info?.parts ?? []) as Array<{ type?: string; text?: string }>
+      return parts.filter((p) => p.type === 'text').map((p) => p.text ?? '').join('')
+    } catch (err) {
+      log.warn(`promptOnce failed: ${(err as Error).message}`)
+      return undefined
+    } finally {
+      if (tmpId) { try { await xfetch(`${baseUrl}/session/${encodeURIComponent(tmpId)}`, { method: 'DELETE' }) } catch { /* best effort */ } }
+    }
+  }
+
   async function abort(id: string): Promise<void> {
     try {
       await client.session.abort({ path: { id } })
@@ -815,5 +865,6 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     resolvePermission,
     selectTuiSession,
     suggestFollowUps,
+    promptOnce,
   }
 }

@@ -22,10 +22,11 @@ export interface GoalVerification {
   nextAction?: string
 }
 
-/** 一轮迭代的待办快照（验收证据的一部分，也是 UI 的 iterations 投影）。 */
+/** 一轮迭代的待办快照。items 用 vendor 的 planItem 形状（`{id, content, status}`）
+ *  —— goal 摘要面板按它算每轮完成度，字符串数组对不上投影。 */
 export interface GoalIteration {
   iteration: number
-  items: string[]
+  items: Array<{ id: string; content: string; status: 'pending' | 'inProgress' | 'completed' }>
   updatedAt: number
 }
 

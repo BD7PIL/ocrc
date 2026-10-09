@@ -141,7 +141,7 @@ describe('SessionState', () => {
       tokensUsed: 1234,
       timeUsedSeconds: 42,
       verifications: [{ iteration: 1, outcome: 'notSatisfied' as const, at: 1000, nextAction: '修 A' }],
-      iterations: [{ iteration: 1, items: ['A'], updatedAt: 1000 }],
+      iterations: [{ iteration: 1, items: [{ id: 't1', content: 'A', status: 'completed' as const }], updatedAt: 1000 }],
     })
 
     it('round-trips a goal through the state file', async () => {

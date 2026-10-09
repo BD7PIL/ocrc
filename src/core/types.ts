@@ -36,8 +36,10 @@ export interface IncomingMessage {
   /**
    * Which transport the message came from. Used so a transport can avoid
    * echoing the user's own message back to them (e.g. Telegram already shows it).
+   * 'goalContinuation' is the goal loop's synthetic continuation turn — visible
+   * in /z/ as the vendor's goalContinuation origin, suppressed in Telegram.
    */
-  origin?: 'telegram' | 'web' | 'scheduler' | 'lark' | 'dingtalk' | 'wecom'
+  origin?: 'telegram' | 'web' | 'scheduler' | 'lark' | 'dingtalk' | 'wecom' | 'goalContinuation'
   /** Image attachments (base64 `data` + `mimeType`) for backends with imageInput. */
   images?: Array<{ data: string; mimeType: string }>
 }

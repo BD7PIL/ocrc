@@ -264,7 +264,10 @@
   没有 `.zcode/skills` 通用目录，删除动用户源文件不属于面板（文案见 skillsService.ts）。
   UI 上唯一会露出的拒绝是 deleteSkill（SkillsSection 错误横幅）。这个拒绝是**对的**，
   维持现状。
-- ⬜ 插件面（pluginsService——ocrc 无对应，占位说明）
+- ✅ 插件面读侧（N11-2：pluginsManagementService 映射引擎 opencode.json 的 `plugin` 数组 →
+  设置页「已安装」真数据，enabled 如实；marketplace/安装/卸载等 mutation 如实拒绝——
+  PRODUCT.md 2026-10-07 裁决"插件市场不做"，文案注明真相源=编辑 opencode.json + 重启引擎；
+  getPluginReferenceCatalog 诚实空 catalog——ocrc 的 sendText 通道不携带插件引用语义）
 
 ## 9. 通道与自动化（N4）
 - ✅ 自动化主视图（offPeakTaskService → ocrc /api/schedules：list/create/pause/continue/delete 映射；空态忠实）
@@ -295,8 +298,12 @@
 - ✅ 分享落地页路由（ShareLanding 已有独立实现）
 - ✅ conversationShareService（N7-2 端到端闭环：全选 → 披露 → 生成分享链接 → POST /api/share
   → 公开落地页免鉴权取回同内容；四个集成缺陷已修并有回归测试，详见「分享发布」节）
-- ⬜ 白板（WhiteboardPane ➕ N4）
-- ⬜ 画中画浏览器（EmbeddedBrowserPane ➕ N4 / ocrc sidecar browser）
+- ✅ 白板（N11-1，PATCHES #6：解注释 `+` 菜单画板入口；vendor store 纯内存零 fetch，
+  刷新即失——PRODUCT.md「纯前端」口径内；「添加到对话区」= window CustomEvent →
+  composer PNG 附件 → 既有 sendText 通道，隔离栈实测全链路通（画线→添加→`画板 1.png` 入 composer））
+- 🚫 画中画浏览器（EmbeddedBrowserPane）——**关闭项，不立项**：PRODUCT.md 列为 M7 级工程
+  （host 侧车无头浏览器 + WS 流化 + MCP 工具挂引擎），体量独立立项；ocrc 已有
+  `registerBrowser` 路由雏形与 `src/cli/mcp-browser.ts`，届时接。本期入口保持关闭。
 
 ## 11. 全局底座
 - ✅ zai 双主题（暗/亮切换）

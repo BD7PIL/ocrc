@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  patchMcpEntry,
   patchProvider,
   reorderConfig,
   testProviderConnectivity,
@@ -117,5 +118,50 @@ describe('testProviderConnectivity', () => {
     const out = await testProviderConnectivity(path, 'bare')
     expect(out.ok).toBe(false)
     expect(out.error).toContain('baseURL')
+  })
+})
+
+describe('patchMcpEntry', () => {
+  const WITH_MCP = JSON.stringify({
+    provider: { alpha: { name: 'Alpha' } },
+    mcp: { existing: { type: 'remote', url: 'https://old.example/mcp', enabled: true } },
+  }, null, 2)
+
+  it('upserts a valid entry and keeps unrelated keys + the other MCP entries', () => {
+    const path = tempConfig(WITH_MCP)
+    patchMcpEntry(path, { id: 'ctx7', entry: { type: 'remote', url: 'https://mcp.example/sse' } })
+    const doc = JSON.parse(readFileSync(path, 'utf-8'))
+    expect(doc.mcp.ctx7).toEqual({ type: 'remote', url: 'https://mcp.example/sse' })
+    expect(doc.mcp.existing).toMatchObject({ url: 'https://old.example/mcp', enabled: true })
+    expect(doc.provider.alpha.name).toBe('Alpha')
+  })
+
+  it('validates the entry shape the engine fail-fasts on (type / command / url)', () => {
+    const path = tempConfig(WITH_MCP)
+    expect(() => patchMcpEntry(path, { id: 'bad', entry: { command: ['npx', 'x'] } })).toThrow(/type/)
+    expect(() => patchMcpEntry(path, { id: 'bad', entry: { type: 'local' } })).toThrow(/command/)
+    expect(() => patchMcpEntry(path, { id: 'bad', entry: { type: 'remote' } })).toThrow(/url/)
+    // nothing was written on the failed attempts
+    expect(JSON.parse(readFileSync(path, 'utf-8')).mcp.bad).toBeUndefined()
+  })
+
+  it('deletes an entry and leaves a backup of the previous file', () => {
+    const path = tempConfig(WITH_MCP)
+    patchMcpEntry(path, { id: 'existing', delete: true })
+    const doc = JSON.parse(readFileSync(path, 'utf-8'))
+    expect(doc.mcp.existing).toBeUndefined()
+    expect(readFileSync(`${path}.ocrc-bak`, 'utf-8')).toBe(WITH_MCP)
+  })
+
+  it('toggles enabled only on an existing entry (no bare {enabled} stubs)', () => {
+    const path = tempConfig(WITH_MCP)
+    patchMcpEntry(path, { id: 'existing', enabled: false })
+    expect(JSON.parse(readFileSync(path, 'utf-8')).mcp.existing.enabled).toBe(false)
+    expect(() => patchMcpEntry(path, { id: 'ghost', enabled: true })).toThrow(/不存在/)
+  })
+
+  it('refuses to patch a config that is not valid JSONC', () => {
+    const path = tempConfig('{ // broken')
+    expect(() => patchMcpEntry(path, { id: 'x', entry: { type: 'remote', url: 'https://x' } })).toThrow(/JSONC/)
   })
 })

@@ -1,13 +1,31 @@
-// zcode-services/mcpSyncService.ts — ocrc-backed IMcpSyncService（N6 批次 2C）。
+// zcode-services/mcpSyncService.ts — ocrc-backed IMcpSyncService（N6 批次 2C；N8-3 接上写）。
 //
-// ocrc 的 MCP 面：`GET /api/mcp`（引擎配置里的 MCP 服务器，带 configured/disabled 状态）
-// 与项目级 CRUD（`GET/POST /api/settings/project/mcp`）。读侧全接；写「用户目录级」
-// 需要改全局 opencode 配置，ocrc 的 structured 写只有 provider 一族——如实拒绝，
-// 让设置页用项目级入口（那是 ocrc 支持的语义）。
+// ocrc 的 MCP 面：`GET /api/mcp`（引擎配置里的 MCP 服务器）+ 项目级 CRUD
+// （`GET/POST /api/settings/project/mcp`）+ 用户级结构化写
+// （`POST /api/settings/opencode-config/mcp`，N8-3）。读列表会并上全局配置里
+// 已写、引擎尚未重载的条目——opencode 不热重载配置，不并的话写入在界面上
+// 看起来「没保存」。
 import { withGhosts } from './ghost.js'
+import { saveMcpToUserDirectory } from './mcpWrite.js'
 
 interface OcrcMcpServer { name: string; type?: string; status?: string }
 interface OcrcProjectMcp { mcp?: Record<string, Record<string, unknown>> }
+interface OcrcGlobalMcp { mcp?: Record<string, Record<string, unknown>> }
+
+/** 引擎可见条目 → ZCode 记录，再补上只在全局配置里、引擎还没重载的条目。 */
+function mergeUserMcp(servers: OcrcMcpServer[], globalMcp: OcrcGlobalMcp): Array<Record<string, unknown>> {
+  const seen = new Set(servers.map((s) => s.name))
+  const out = servers.map((s) => toRecord(s, 'user'))
+  for (const [name, entry] of Object.entries(globalMcp.mcp ?? {})) {
+    if (seen.has(name)) continue
+    out.push(toRecord({
+      name,
+      type: (entry as { type?: string })?.type,
+      status: (entry as { enabled?: boolean })?.enabled === false ? 'disabled' : 'configured',
+    }, 'user'))
+  }
+  return out
+}
 
 function token(): string {
   try { return localStorage.getItem('ocrc.token') ?? '' } catch { return '' }
@@ -41,31 +59,49 @@ function toRecord(s: OcrcMcpServer, scope: 'user' | 'project', projectPath?: str
 
 export function createOcrcMcpSyncService(): Record<string, any> {
   return withGhosts('mcpSyncService', {
+    /** 用户级 MCP：引擎可见列表 + 全局配置里已写但引擎还没重载的条目（写入后
+     *  立刻可见，不用等重启——opencode 不热重载配置）。 */
     loadMcpFromUserDirectory: async (_request?: { workspacePath?: string }) => {
-      const servers = await getJson<OcrcMcpServer[]>('/api/mcp', [])
-      return { servers: (servers ?? []).map((s) => toRecord(s, 'user')) }
+      const [servers, globalMcp] = await Promise.all([
+        getJson<OcrcMcpServer[]>('/api/mcp', []),
+        getJson<OcrcGlobalMcp>('/api/settings/opencode-config/mcp', {}),
+      ])
+      return { servers: mergeUserMcp(servers ?? [], globalMcp) }
     },
 
-    /** workspace 运行态列表：ocrc 的 /api/mcp 给的就是「配置态 + 引擎可见性」。 */
+    /** workspace 运行态列表：ocrc 的 /api/mcp 给的就是「配置态 + 引擎可见性」，
+     *  再并上全局配置里待重载的条目与项目配置里的条目。 */
     listWorkspaceMcpServerStatuses: async (params: { workspacePath?: string }) => {
-      const [servers, project] = await Promise.all([
+      const [servers, project, globalMcp] = await Promise.all([
         getJson<OcrcMcpServer[]>('/api/mcp', []),
         params?.workspacePath
           ? getJson<OcrcProjectMcp>(`/api/settings/project/mcp?dir=${encodeURIComponent(params.workspacePath)}`, {})
           : Promise.resolve<OcrcProjectMcp>({}),
+        getJson<OcrcGlobalMcp>('/api/settings/opencode-config/mcp', {}),
       ])
+      const engineNames = new Set((servers ?? []).map((s) => s.name))
       const projectNames = Object.keys(project.mcp ?? {})
+      const userOnly = Object.entries(globalMcp.mcp ?? {})
+        .filter(([name]) => !engineNames.has(name))
+        .map(([name, entry]) => ({
+          name,
+          status: (entry as { enabled?: boolean })?.enabled === false ? 'disabled' : 'configured',
+          source: 'user',
+        }))
       return {
         mode: 'config' as const,
         servers: [
           ...(servers ?? []).map((s) => ({ name: s.name, status: s.status ?? 'configured', source: 'engine' })),
+          ...userOnly,
           ...projectNames.map((name) => ({ name, status: 'configured', source: 'project' })),
         ],
       }
     },
 
-    saveMcpToUserDirectory: async () => {
-      throw new Error('[ocrc-fork] 用户目录级 MCP 写入需要改全局 opencode 配置，/z/ 暂只提供项目级（POST /api/settings/project/mcp）')
+    /** identity 路径与 platform 路径共用同一份写入映射（mcpWrite.ts）。 */
+    saveMcpToUserDirectory: async (payload: Parameters<typeof saveMcpToUserDirectory>[0]) => {
+      const out = await saveMcpToUserDirectory(payload)
+      if (!out.success) throw new Error(out.error ?? 'MCP 保存失败')
     },
     listLocalUserMcpCandidates: async () => ({ candidates: [] }),
     listRemoteUserMcpStatuses: async () => ({ statuses: [] }),

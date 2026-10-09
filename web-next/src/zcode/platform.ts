@@ -1,8 +1,9 @@
 // zcode/platform.ts — vendored from packages/web/src/main.tsx createWebPlatform
 // (Apache-2.0, ZCode). Web 平台层的合法 stub 集合——他们自己就这样跑 web 模式；
 // ocrc 的桌面级能力（选目录、终端、窗口控制）同样显式不可用。
-import type { IPlatformService, RemoteTarget, ServerRemoteInfo } from '@zcode/shared'
+import type { IPlatformService, RemoteTarget, SaveCliMcpToUserDirectoryRequest, ServerRemoteInfo } from '@zcode/shared'
 import { putWebFile } from '../zcode-services/webAttachments.js'
+import { saveMcpToUserDirectory } from '../zcode-services/mcpWrite.js'
 
 /** web 端的「选文件」：没有本地路径，就发**句柄**。ZCode 的桌面链路把
  *  getPathForFile/selectFiles 的返回值当路径引用零拷贝透传到
@@ -66,8 +67,10 @@ export function createWebPlatform(): IPlatformService {
     listDockerContainers: () => Promise.resolve([]),
     listSSHConfigAliases: () => Promise.resolve([]),
     loadMcpFromUserDirectory: () => Promise.resolve({ servers: [] }),
-    saveMcpToUserDirectory: () =>
-      Promise.resolve({ success: false, error: 'MCP native directory management requires a desktop attachment' }),
+    // N8-3：本地 workspace（无 workspaceIdentity）时 mcpStore 的写落在这里。
+    // 此前是"桌面专属"桩（success:false）+ store 吞错 → 表单关闭、假装保存成功。
+    // 现在走共享实现（users 级 → 全局结构化 patch；project 级 → 项目配置路由）。
+    saveMcpToUserDirectory: (payload: SaveCliMcpToUserDirectoryRequest) => saveMcpToUserDirectory(payload as any),
     migrateLegacyCommonMcp: () =>
       Promise.resolve({ servers: {}, totalCount: 0, importedCount: 0, migratedCount: 0 } as any),
     openExternal: (url: string) => {

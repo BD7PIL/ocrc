@@ -195,6 +195,71 @@ export function reorderConfig(
   writeFileSyncRaw(path, `${JSON.stringify(doc, null, 2)}\n`)
 }
 
+/** MCP entry patch for the user-level `mcp` map in the opencode global
+ *  config. Same read-modify-write contract as patchProvider: the CURRENT
+ *  parsed doc is patched and re-serialized, so unrelated keys survive, and the
+ *  write goes through writeFileSyncRaw (backup + atomic rename). */
+export interface McpPatch {
+  id: string
+  /** Replace/insert the entry. */
+  entry?: Record<string, unknown>
+  /** Toggle `enabled` on an EXISTING entry (creating a bare {enabled} stub
+   *  would be an invalid entry the engine chokes on). */
+  enabled?: boolean
+  /** Remove the entry. */
+  delete?: boolean
+}
+
+export function patchMcpEntry(path: string, patch: McpPatch): void {
+  const id = typeof patch?.id === 'string' ? patch.id.trim() : ''
+  if (!id) throw new Error('MCP 名称必填')
+  const raw = existsSync(path) ? readFileSync(path, 'utf-8') : '{}'
+  const { ok, parsed } = parseConfig(raw)
+  if (!ok || !parsed) throw new Error('当前配置不是合法 JSONC — 请先用编辑器修复')
+  const doc = parsed
+  const mcp = (doc.mcp ??= {}) as Record<string, Record<string, unknown>>
+  if (patch.delete) {
+    delete mcp[id]
+    writeFileSyncRaw(path, `${JSON.stringify(doc, null, 2)}\n`)
+    return
+  }
+  if (patch.entry !== undefined) {
+    const entry = patch.entry
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new Error('MCP 配置必须是对象')
+    // The engine fail-fasts on malformed MCP bootstrap; validate here so a bad
+    // form can't poison the global config.
+    const type = (entry as { type?: unknown }).type
+    if (type !== 'local' && type !== 'remote') throw new Error("MCP 配置需要 type: 'local' | 'remote'")
+    if (type === 'local' && !Array.isArray((entry as { command?: unknown }).command)) throw new Error('local MCP 需要 command 数组')
+    if (type === 'remote' && typeof (entry as { url?: unknown }).url !== 'string') throw new Error('remote MCP 需要 url')
+    mcp[id] = entry
+    writeFileSyncRaw(path, `${JSON.stringify(doc, null, 2)}\n`)
+    return
+  }
+  if (patch.enabled !== undefined) {
+    const existing = mcp[id]
+    if (!existing || typeof existing !== 'object' || Array.isArray(existing)) throw new Error(`MCP ${id} 不存在，无法切换启停`)
+    existing.enabled = patch.enabled
+    writeFileSyncRaw(path, `${JSON.stringify(doc, null, 2)}\n`)
+    return
+  }
+  throw new Error('MCP patch 需要 entry / enabled / delete 之一')
+}
+
+/** Read the user-level `mcp` map (parsed; missing/invalid file → {}). Feeds the
+ *  settings page's list right after a write — the engine itself only picks the
+ *  entries up on restart (it does not hot-reload config). */
+export function readMcpEntries(path: string): Record<string, Record<string, unknown>> {
+  try {
+    if (!existsSync(path)) return {}
+    const { ok, parsed } = parseConfig(readFileSync(path, 'utf-8'))
+    if (!ok || !parsed) return {}
+    return (parsed.mcp ?? {}) as Record<string, Record<string, unknown>>
+  } catch {
+    return {}
+  }
+}
+
 /** Server-side connectivity probe for a stored provider: the API key never
  *  leaves the host, so the browser cannot do this itself. GET <baseURL>/models
  *  is the cheapest authenticated round-trip. */

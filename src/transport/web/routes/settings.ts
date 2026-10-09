@@ -1,7 +1,8 @@
 import type { Hono } from 'hono'
 import {
-  fetchProviderModels, globalConfigPath, patchProvider, reorderConfig, summarize,
+  fetchProviderModels, globalConfigPath, patchMcpEntry, patchProvider, readMcpEntries, reorderConfig, summarize,
   testProviderConnectivity, writeConfig,
+  type McpPatch,
   type ProviderPatch,
 } from '../../../core/settings-service.js'
 import { readFileSync } from 'node:fs'
@@ -46,6 +47,29 @@ export function registerSettings(app: Hono, configDir?: string) {
       return c.json({ ok: true })
     } catch (err) {
       return c.json({ ok: false, error: (err as Error).message })
+    }
+  })
+
+  /** Structured MCP entry patch (user-level `mcp` map: upsert/delete/set-enabled).
+   *  Body {id, entry?, enabled?, delete?}. */
+  app.post('/api/settings/opencode-config/mcp', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as Partial<McpPatch>
+    if (!body.id) return c.json({ error: 'id required' }, 400)
+    try {
+      patchMcpEntry(path(), body as McpPatch)
+      return c.json({ ok: true })
+    } catch (err) {
+      return c.json({ ok: false, error: (err as Error).message })
+    }
+  })
+
+  /** The user-level `mcp` map as written (the settings list reads this so a
+   *  fresh write is visible before the engine restarts). */
+  app.get('/api/settings/opencode-config/mcp', (c) => {
+    try {
+      return c.json({ mcp: readMcpEntries(path()) })
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 500)
     }
   })
 

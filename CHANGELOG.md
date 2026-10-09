@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.0.0-rc.3 — the ZCode shell IS the product; goal/workflow groundwork (2026-10-09)
+
+> rc.1 → rc.2 是 fork 搭设期（N1–N8：ZCode 前端挂上 ocrc 服务、逐组件对表，见
+> `web-next/vendor/CHECKLIST.md` 与 `docs/ARCHITECTURE.md`）。本条目从 rc.3 起记。
+
+### refactor(web)!: 旧控制台退役——`/` 即 ZCode 壳
+- `/`、`/z/*`、`/next/*` 同一落点（ZCodeApp）；rc.2 控制台（Home/Session/Automations/
+  Settings/TokenGallery + 命令面板等浮层）删源码退役（55 文件，按引用闭包）。保留：
+  ShareLanding（公开分享页）、PairGate（共享鉴权门）、cards/markdown 闭包。
+- 柿橙配色封存 `web-next/src/styles/persimmon-theme.css`（不参与构建，回肤取用）。
+
+### perf: N9 性能批（详见 docs/perf-remediation-brief.md）
+- 行身份内容寻址（rowId 从位置序号改为 messageId 哈希）——**回复重复渲染根除**，
+  216 卡会话流式 11 次采样零重复行；首屏 1.84s（<2s 线）、refetch 次数减半。
+- 热路径减负（工具消息缓存 60s + 单窗回取上限 3 + 去抖 250ms）、sdelta 侧信道复活
+  （host 接线，流式回合 9+ 帧/250ms 批次）。残余：全量 rebuild 的 137ms longtask
+  （窗口化按计划不做，留观察）。
+
+### feat: N9-4 消息动作 / N10 任务组 / N11 白板与插件面
+- fork 直通（`POST /api/session/:id/fork`）、editUserQuery（revert 截断 + 重发；文件
+  rewind 如实拒绝）、feedback 本地持久；getHistory 补 revert 截断（引擎自己不过滤）。
+- 任务组：host state 三槽位 + `/api/task-groups` + 桥接 5 方法接真（分组视图实测出组）。
+- 白板入口启用（vendor PATCHES #6；「添加到对话区」走既有附件通道）；插件面读侧映射
+  opencode.json 的 plugin 数组（市场类操作如实拒绝）。
+
+### feat: 计划详情页（plan projection）
+- 核实 opencode plan agent 无 ExitPlanMode 工具；plan 回合产出投影为该形状（前缀
+  `plan-` 标明投影）→ 时间线计划卡 + 状态面板计划目录 + 详情侧页全链路实测。
+- 新增 per-message agent 通道（`/api/message` 带 `agent`），/z/ 计划模式 → 引擎原生
+  plan agent。
+
+### fix: 发布门修复 + 文档对账
+- ci.yml/publish.yml/pre-release.sh 三处对已退役 `web/`（Svelte）的 install/build/test
+  改指 web-next——此前任何 push 都会红、任何 `v*` tag 都会在 publish 前失败。
+- AGENTS.md：`/` 即壳、4199 隔离配方、spike-restart.sh 警告（4598 遗留，误跑顶死 4199）；
+  CHECKLIST §12 逐步勾账。
+
 ## 0.26.12 — ADOPT your own engine; the control-plane positioning lands (2026-10-06)
 
 ### feat(host): ADOPT an already-running opencode server (`OCRC_SERVER_URL`)

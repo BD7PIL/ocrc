@@ -83,6 +83,17 @@ function loadDotEnv(): void {
   for (const path of dotEnvPaths()) dotenvConfig({ path, override: false })
 }
 
+/**
+ * Load the env files without validating anything. The ATTACHED plugin path needs
+ * this and nothing else from here: it must not require a Telegram token (the host
+ * owns the bot), but it should still honour LOG_LEVEL / OCRC_HOME from the same
+ * files the host reads — otherwise an attached plugin silently loses its
+ * info-level logging (the logger defaults to `warn`).
+ */
+export function loadEnvFiles(): void {
+  loadDotEnv()
+}
+
 function env(key: string, optionsVal?: string): string | undefined {
   return optionsVal ?? process.env[key]
 }

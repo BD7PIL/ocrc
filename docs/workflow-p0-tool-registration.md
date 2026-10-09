@@ -109,13 +109,68 @@ workspace 只能走 ctx（V1 `ctx.directory` / V2 `ctx.directory`）。
    形状依据。
 5. **ATTACHED 分支必须零副作用**：不建 transport、不写 state、不起定时器、不选举。
    重复安装（global 目录 + 项目目录各一份）只会得到两份工具而不出错，但**副作用会翻倍**。
-6. **今天不能直接装**：PASSIVE 分支（`src/plugin/entry.ts:123-132`）返回的 inert hooks
+6. **今天不能直接装**：PASSIVE 分支（`src/plugin/entry.ts`）返回的 inert hooks
    **不含 `tool`**，且 PASSIVE 只在「别人持有锁」时进入——而 host **从不取锁**
    （`tryBecomePrimary` 只在 `entry.ts` 出现）。所以此刻把插件装进配置，插件会成为
-   PRIMARY 并**自己再拉一套 4099 + TG**（与 host 双冲突）。这就是 P0-2/P0-3 要修的东西。
+   PRIMARY 并**自己再拉一套 4099 + TG**（与 host 双冲突）。这就是 P0-2/P0-3 修掉的东西：
+   host 取锁标 `role:'host'`，插件读到就进 ATTACHED（只注册工具、零 transport）。
+
+## 部署顺序（P0-3 之后）
+
+1. host 先起（`~/bin/restart-ocrc.sh`），它取锁并写 `role=host` + 自己的 web URL；
+2. 引擎随后起（或重启），插件加载时读到 `role=host` → ATTACHED。
+   反序（引擎先起、host 后起）时插件会先赢得选举跑 FULL；host 起来会看到锁被 plugin
+   占着并**大声告警**（不夺锁），此时需要重启引擎让它改为 attach。
 
 ## 与计划门禁的对应
 
-P0 门禁里的「引擎里出现探针工具 `wf_echo`」已在本次 scratch 实测中达成（`[1]`/`[3]`）；
-「插件没监听端口」达成（`[6]`）。剩下两项属 P0-3/P0-4：「能取回值」（真正被模型调用一次，
-需要 scratch 里配一个 provider）与「host 不在时逐字回归」。
+P0 门禁（见计划 §P0）现在**全部实测通过**——`node scripts/spikes/p0-tool-registration/gate.mjs`
+在一次性 scratch 栈上跑，14/14：
+
+| # | 检查 | 结果 | 证据 |
+|---|---|---|---|
+| 1 | host 取锁并写 `role=host` + 自己的 URL | ✅ | `{"pid":29875,"role":"host","url":"http://127.0.0.1:4199"}` |
+| 2 | attach 通道在 token 闸之后可用 | ✅ | `GET /api/attach/status` → 200（带 token） |
+| 3 | 无 token 被拒 | ✅ | 同端点 → 401 |
+| 4 | 引擎里出现探针工具 `wf_echo` | ✅ | `/experimental/tool/ids` 末尾 `…,"schedule_list","wf_echo"` |
+| 5 | **插件没监听端口** | ✅ | 该引擎 pid 的 socket 只有它自己的 `127.0.0.1:4295` |
+| 6 | **TG 没有被二次拉起** | ✅ | 无 telegram 日志行，且**没有** `tg-runtime.lock` |
+| 7 | 插件日志是 ATTACHED、引擎自己没选举 | ✅ | `[plugin] host owns the primary lock — ATTACHED to http://127.0.0.1:4199`；无该 pid 的 `became PRIMARY` |
+| 8 | 引擎能建会话 | ✅ | `POST /session` → `ses_…` |
+| 9 | **模型真的调用了工具并取回 host 的值** | ✅ | 本地 stub provider 两轮：模型发 `wf_echo{value:"ping"}` → 工具打 host `/api/attach/echo`（host 日志 `POST /api/attach/echo → 200`）→ 最终 assistant 文本含 `runId=host-<hostPid>-1` |
+| 10 | host 关停时把锁还回来 | ✅ | SIGTERM 后锁文件消失 |
+| 11 | host 不在 → 插件照旧赢得选举 | ✅ | 锁变成 `{"role":"plugin"}`，pid = 引擎 pid |
+| 12 | host 不在 → 插件起自己的 web 监听 | ✅ | `:4198` 的 pid == 引擎 pid |
+| 13 | host 不在 → 插件照旧尝试自己的 TG poller | ✅ | `tg-runtime.lock` 被插件自己创建（假 token 下 launch 随后失败） |
+| 14 | host 不在 → 全量工具面仍在 | ✅ | `rc-status/notify/schedule_create/schedule_list` 都在 |
+
+复现：`npm run build && node scripts/spikes/p0-tool-registration/gate.mjs`
+（产物：`/tmp/ocrc-p04/`，含 `transcript.txt` 与各进程日志）。
+
+### 门禁自己修出的两处真缺陷
+
+1. **ATTACHED 分支不能要求 Telegram token**（最关键）。原先 entry 先 `loadPluginConfig`
+   再判断 attach，而 `loadPluginConfig` 默认 `requireTelegram: true` —— 一个**没有 bot
+   token 的引擎直接加载插件失败**（实测 `failed to load plugin … error="TELEGRAM_BOT_TOKEN
+   is required"`），整个插件连工具都注册不出来。修法：attach 判据只看锁（`role=host` + URL），
+   配置延后到确认「没有 host」之后才加载；token 改为每次调用惰性从 host 的 token 文件读
+   （`hostTokenFromDisk`），并单独 `loadEnvFiles()` 以便仍尊重 `LOG_LEVEL`/`OCRC_HOME`。
+   这条正是 P0 存在的意义——它在纸面上完全看不出来。
+2. **host 关停可能把锁留在原地**。transport 的 `stop()` 卡住（TG 的 long-poll 是现场见过的
+   一种）时 `primary.release()` 永远轮不到，留下一个「pid 活着但已经没用」的锁：之后启动的
+   插件会一直 attach 到一个正在退出的 host。修法：teardown 加 10s 硬上限 + `process.on('exit')`
+   兜底释放（`release()` 幂等且只删自己 pid 的锁）。
+
+### 一次真实事故（记在案，避免重犯）
+
+门禁第一版**没有清空 `TELEGRAM_BOT_TOKEN`**，而 `loadPluginConfig` 会 dotenv 读取仓库
+`.env`（该文件里有生产 bot token）——于是 scratch host 以**生产 token** 起了真实的
+Telegram poller（日志 `bot polling as @OC_V93KVM_B_bot`，并调用了 `setMyCommands`），
+持续约 88 秒。当时没有别的 ocrc 实例在轮询（生产 ocrc host 未运行），未观察到用户消息
+被吞或 409；影响面是这 88 秒内到达的更新会被那个 scratch 实例消费，以及 bot 菜单被按
+ocrc 的默认菜单重写了一次（内容与生产一致）。
+修法：gate 的每个子进程都过 `childEnv()`，把 `TELEGRAM_BOT_TOKEN`/`ALLOWED_USER_IDS`
+显式置空（dotenv `override:false` 因此不会回填），并在启动前 `assertNoTelegramCredentials()`
+打印它会屏蔽哪些文件；gate B 需要「确实尝试过 TG」这一证据时，用的是**结构合法但必假的
+token**（401 而非真 bot）。
+

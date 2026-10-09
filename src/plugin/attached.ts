@@ -1,7 +1,10 @@
 import { tool } from '@opencode-ai/plugin'
 import type { Hooks } from '@opencode-ai/plugin'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { formatScheduleList, parseScheduleCreate, scheduleCreatedMessage, type ScheduleCreateArgs } from './schedule-tool.js'
 import type { Schedule } from '../core/scheduler.js'
+import { ocrcHome } from '../utils/paths.js'
 import { createLogger } from '../utils/logger.js'
 
 const log = createLogger('attached')
@@ -11,9 +14,9 @@ const log = createLogger('attached')
  * already owns the primary lock.
  *
  * In this shape the plugin must own nothing: no web listener, no Telegram poller,
- * no scheduler, no state file. The host runs all of that. The plugin's entire job
- * is to put ocrc's tools in front of the model, and every tool is a thin HTTP call
- * back to the host's token-guarded API.
+ * no scheduler, no state file — and it needs no bot token either, because the host
+ * owns the bot. Its entire job is to put ocrc's tools in front of the model, and
+ * every tool is a thin HTTP call back to the host's token-guarded API.
  *
  * Two reasons the tools must be stateless and idempotent:
  *  - opencode keeps duplicate tool names on its list and lets the LAST registration
@@ -26,7 +29,12 @@ const log = createLogger('attached')
 export interface AttachedOpts {
   /** Host web base URL, taken from the primary lock the host wrote. */
   baseUrl: string
-  token: string
+  /**
+   * The host's web token, resolved per call. Lazy on purpose: the host writes the
+   * token while it is starting up, so a plugin that attached inside that window
+   * must still succeed once the file appears.
+   */
+  resolveToken: () => string | undefined
   version: string
   /** P0 gate only: expose the `wf_echo` round-trip probe. */
   probe?: boolean
@@ -36,10 +44,24 @@ export interface AttachedHandle extends Hooks {
   dispose(): Promise<void>
 }
 
+/**
+ * Read the host's token from the shared token file. Never GENERATES one: an
+ * attached plugin must present the HOST's token, and minting a fresh one would
+ * only 401 against the host (and could race the host's own write).
+ */
+export function hostTokenFromDisk(): string | undefined {
+  try {
+    const t = readFileSync(join(ocrcHome(), 'token'), 'utf-8').trim()
+    return t || undefined
+  } catch { return undefined }
+}
+
 async function call<T>(opts: AttachedOpts, path: string, init?: RequestInit): Promise<T> {
+  const token = opts.resolveToken()
+  if (!token) throw new Error('host token not readable yet — the host may still be starting')
   const res = await fetch(`${opts.baseUrl}${path}`, {
     ...init,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opts.token}`, ...(init?.headers ?? {}) },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(init?.headers ?? {}) },
     signal: AbortSignal.timeout(15000),
   })
   const text = await res.text()

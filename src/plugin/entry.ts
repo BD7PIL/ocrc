@@ -1,6 +1,6 @@
 import { tool } from '@opencode-ai/plugin'
 import type { Plugin } from '@opencode-ai/plugin'
-import { loadPluginConfig } from './config.js'
+import { loadPluginConfig, loadEnvFiles } from './config.js'
 import { createTelegramTransport, type TelegramTransport } from '../transport/telegram/index.js'
 import { createWebTransport } from '../transport/web/index.js'
 import { selectAuthStrategy } from '../connectivity/auth/select.js'
@@ -12,7 +12,7 @@ import { normalizeOpencodeEvent } from '../core/agent/opencode-normalizer.js'
 import { createCardBus } from '../core/card-bus.js'
 import { startPushNotifications } from '../core/push.js'
 import { tryBecomePrimary, currentPrimary, type PrimaryLock } from '../core/primary-election.js'
-import { createAttachedHooks } from './attached.js'
+import { createAttachedHooks, hostTokenFromDisk } from './attached.js'
 import { formatScheduleList, parseScheduleCreate, scheduleCreatedMessage, type ScheduleCreateArgs } from './schedule-tool.js'
 import { createScheduler } from '../core/scheduler.js'
 import { createChannelsStore } from '../core/channels.js'
@@ -73,19 +73,23 @@ export const PLUGIN_ID = 'ocrc'
  * adopts therefore must NOT elect itself: it registers tools that call the host
  * over its token-guarded API, and owns no listener, no poller, no state.
  *
- * Returns undefined when no host is running — the plugin then elects as before,
- * so plugin-mode installs keep working byte for byte.
+ * Deliberately reads the lock ONLY — no config load. An attached plugin needs no
+ * Telegram token and no web settings (the host owns both), and requiring them here
+ * is what made a token-less engine fail to load the plugin at all (found live by
+ * the P0 gate: "TELEGRAM_BOT_TOKEN is required" killed the whole plugin).
+ *
+ * Returns undefined when no host is running — the caller then loads config and
+ * elects exactly as before, so plugin-mode installs keep working byte for byte.
  */
 type HostTarget = { kind: 'attach'; baseUrl: string } | { kind: 'standdown'; reason: string }
 
-function hostTarget(config: ReturnType<typeof loadPluginConfig>): HostTarget | undefined {
+function hostTarget(): HostTarget | undefined {
   const owner = currentPrimary()
   if (!owner || (owner.role ?? 'plugin') !== 'host') return undefined
-  // The host writes its URL when it serves web. A TG-only host has no channel for
-  // an attached plugin — stand down rather than start a second Telegram poller.
-  const baseUrl = owner.url ?? (config.webEnabled ? `http://127.0.0.1:${config.webPort}` : undefined)
-  if (!baseUrl) return { kind: 'standdown', reason: `host pid ${owner.pid} serves no web API (Telegram-only)` }
-  return { kind: 'attach', baseUrl }
+  // A TG-only host has no channel for an attached plugin — stand down rather than
+  // start a second Telegram poller against the same bot.
+  if (!owner.url) return { kind: 'standdown', reason: `host pid ${owner.pid} serves no web API (Telegram-only)` }
+  return { kind: 'attach', baseUrl: owner.url }
 }
 
 /** Inert hooks: own nothing, do nothing. Used when standing down. */
@@ -102,19 +106,19 @@ function inertHooks(): { event: () => Promise<void>; dispose: () => Promise<void
  */
 const v2Setup = async (ctx: V2Context, options?: Record<string, unknown>) => {
   installProcessGuards()
+  loadEnvFiles()
   process.env.OCRC_MODE = 'plugin'
   log.info(`v${VERSION} starting (V2 setup)`)
 
-  const config = loadPluginConfig(options ?? ctx.options)
-
   // P0-3: a live host owns the transports — attach instead of electing. Checked
   // BEFORE the transient-process gate below: attaching owns no transports, so it
-  // is safe (and useful) even in a one-shot `opencode run` process.
+  // is safe (and useful) even in a one-shot `opencode run` process. Also checked
+  // before config load: an attached plugin needs no Telegram token.
   //
   // Note: the V2 setup contract exposes no tool-registration surface (see
   // docs/v2-api-notes.md), so on a V2 host "attach" degenerates to "stand down" —
   // owning nothing is still the correct answer, we just cannot offer tools there.
-  const target = hostTarget(config)
+  const target = hostTarget()
   if (target) {
     log.info(
       target.kind === 'attach'
@@ -123,6 +127,8 @@ const v2Setup = async (ctx: V2Context, options?: Record<string, unknown>) => {
     )
     return async () => {}
   }
+
+  const config = loadPluginConfig(options ?? ctx.options)
 
   // Transient-process gate (V2): `opencode run` is a one-shot client that also
   // loads plugins. Letting it host transports means a TG poller / web server
@@ -152,6 +158,10 @@ const v2Setup = async (ctx: V2Context, options?: Record<string, unknown>) => {
 
 export const remoteControlPlugin: Plugin = (async (ctx, options) => {
   installProcessGuards()
+  // Env files only (no validation): the ATTACHED path below must not require a
+  // Telegram token, but LOG_LEVEL / OCRC_HOME still have to come from the same
+  // files the host reads.
+  loadEnvFiles()
   // Identity of this process, reported via /api/version and `ocrc status`
   // (the standalone host entry sets 'host' the same way).
   process.env.OCRC_MODE = 'plugin'
@@ -166,17 +176,16 @@ export const remoteControlPlugin: Plugin = (async (ctx, options) => {
   }
   log.info(`v${VERSION} starting`)
 
-  const config = loadPluginConfig(options)
-
   // P0-3: a live ocrc host owns the transports. Attach — register tools that call
-  // the host, own no listener / poller / state, and never touch the lock. Without
-  // a host we fall through to the election below and behave exactly as before.
-  const target = hostTarget(config)
+  // the host, own no listener / poller / state, and never touch the lock. Decided
+  // from the lock alone: no config, no Telegram token (the host owns the bot).
+  // Without a host we fall through to the election below and behave as before.
+  const target = hostTarget()
   if (target?.kind === 'attach') {
     log.info(`host owns the primary lock — ATTACHED to ${target.baseUrl} (tools only, no transports)`)
     return createAttachedHooks({
       baseUrl: target.baseUrl,
-      token: loadOrCreateToken({ token: config.webToken }),
+      resolveToken: hostTokenFromDisk,
       version: VERSION,
       probe: process.env.OCRC_WF_PROBE === '1',
     })
@@ -185,6 +194,8 @@ export const remoteControlPlugin: Plugin = (async (ctx, options) => {
     log.info(`host owns the primary lock but ${target.reason} — standing down (no tools, no transports)`)
     return inertHooks()
   }
+
+  const config = loadPluginConfig(options)
 
   const primary = tryBecomePrimary()
   if (!primary.isPrimary) {

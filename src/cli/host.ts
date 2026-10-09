@@ -376,8 +376,23 @@ export async function main(): Promise<void> {
   await Promise.all(transports.map((t) => t.start({ cardBus, state })))
   log.info(`${transports.length} transport(s) started; backends=[${registry.list().map((b) => b.id).join(', ')}]`)
 
+  // Shutdown must always hand the primary lock back. A transport that never
+  // settles (a Telegram stop waiting on an in-flight long poll is the one seen
+  // live) used to leave the lock behind with a live-but-useless owner: every
+  // plugin that boots after that attaches to a host that is on its way out, and
+  // nothing reclaims the lock until this pid dies. So bound the teardown, and
+  // release from `exit` too — release() is idempotent and only unlinks our own.
+  let disposeRan = false
   const dispose = async () => {
+    if (disposeRan) return
+    disposeRan = true
     log.info('shutting down…')
+    const hardStop = setTimeout(() => {
+      log.warn('teardown exceeded 10s — releasing the primary lock and exiting')
+      primary.release()
+      process.exit(0)
+    }, 10_000)
+    hardStop.unref?.()
     scheduler.stop()
     // N12: stop the goal loop before the transports go away — without this a
     // verifier/continuation could dispatch into a torn-down relay (the offpeak
@@ -397,4 +412,6 @@ export async function main(): Promise<void> {
   }
   process.on('SIGINT', dispose)
   process.on('SIGTERM', dispose)
+  // Crash path: whatever happens above, do not leave a live-looking lock behind.
+  process.on('exit', () => { try { primary.release() } catch { /* ignore */ } })
 }

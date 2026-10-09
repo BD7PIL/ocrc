@@ -11,7 +11,7 @@ vi.mock('../../src/utils/logger.js', () => ({
 
 import { createAttachedHooks } from '../../src/plugin/attached.js'
 
-const OPTS = { baseUrl: 'http://127.0.0.1:4199', token: 'test-token', version: '1.0.0-rc.5' }
+const OPTS = { baseUrl: 'http://127.0.0.1:4199', resolveToken: () => 'test-token', version: '1.0.0-rc.5' }
 
 function jsonResponse(body: unknown, status = 200) {
   return {
@@ -47,6 +47,22 @@ describe('createAttachedHooks', () => {
     await hooks.tool!['schedule_list'].execute({}, {} as any)
     expect(calls[0].url).toBe('http://127.0.0.1:4199/api/schedules')
     expect((calls[0].init?.headers as Record<string, string>).Authorization).toBe('Bearer test-token')
+  })
+
+  it('resolves the token lazily, so a plugin that attached mid-host-startup still works', async () => {
+    // The host writes its token while starting up; a plugin that attached inside
+    // that window must not bake in "no token" forever.
+    let token: string | undefined
+    const calls = stubFetch(() => jsonResponse({ schedules: [] }))
+    const hooks = createAttachedHooks({ ...OPTS, resolveToken: () => token })
+
+    const before = await hooks.tool!['schedule_list'].execute({}, {} as any)
+    expect(before).toContain('host token not readable yet')
+    expect(calls).toHaveLength(0)
+
+    token = 'late-token'
+    await hooks.tool!['schedule_list'].execute({}, {} as any)
+    expect((calls[0].init?.headers as Record<string, string>).Authorization).toBe('Bearer late-token')
   })
 
   it('rc-status reports the HOST, not the plugin', async () => {

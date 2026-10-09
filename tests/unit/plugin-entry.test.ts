@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('../../src/plugin/config.js', () => ({
+  loadEnvFiles: vi.fn(),
   loadPluginConfig: vi.fn().mockReturnValue({
     telegramBotToken: '123:abc',
     allowedUserIds: [123456],
@@ -67,6 +68,7 @@ import { createCardBus } from '../../src/core/card-bus.js'
 import { startPushNotifications } from '../../src/core/push.js'
 import { createTelegramTransport } from '../../src/transport/telegram/index.js'
 import { createWebTransport } from '../../src/transport/web/index.js'
+import { loadPluginConfig } from '../../src/plugin/config.js'
 import { startGlobalEvents } from '../../src/opencode/global-events.js'
 import { tryBecomePrimary, currentPrimary } from '../../src/core/primary-election.js'
 import { remoteControlPlugin } from '../../src/plugin/entry.js'
@@ -380,6 +382,15 @@ describe('remoteControlPlugin — ATTACHED to a running host', () => {
     expect(createTelegramTransport).not.toHaveBeenCalled()
     expect(createWebTransport).not.toHaveBeenCalled()
     await hooks.dispose?.()
+  })
+
+  it('attaches without loading config, so no Telegram token is needed', async () => {
+    // Found live by the P0 gate: requiring TELEGRAM_BOT_TOKEN before deciding to
+    // attach made a token-less engine fail to load the plugin at all.
+    ;(currentPrimary as any).mockReturnValue({ pid: 4242, startedAt: 1, role: 'host', url: 'http://127.0.0.1:4199' })
+    const hooks = await remoteControlPlugin(ctx, {})
+    expect(hooks.tool && Object.keys(hooks.tool)).toContain('rc-status')
+    expect(loadPluginConfig).not.toHaveBeenCalled()
   })
 
   it('stands down inert when the host serves no web API (Telegram-only)', async () => {

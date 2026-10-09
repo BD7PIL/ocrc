@@ -14,6 +14,8 @@ import type {
   ZCodeAgentAttachmentTerminalParams,
 } from "@zcode/services";
 import { logger } from "@/logger.js";
+// N8-4 vendor 补丁（PATCHES.md #4）：非安全上下文的 SHA-256 回退。
+import { sha256Hex } from "@/v4/sha256Pure.js";
 
 /** 384KiB 可被 3 整除，除末片外 base64 不含 padding；同时为两层 envelope 留足空间。 */
 const ATTACHMENT_UPLOAD_CHUNK_BYTES = 384 * 1024;
@@ -88,7 +90,11 @@ function encodeBase64(bytes: Uint8Array): string {
 }
 
 async function checksum(bytes: Uint8Array): Promise<string> {
-  if (!globalThis.crypto?.subtle) throw new Error("fault.attachment.checksumUnavailable");
+  // N8-4 vendor 补丁（见 vendor/PATCHES.md #4）：crypto.subtle 只在安全上下文
+  // 存在，局域网 http 源上没有——原来的"缺 subtle 就抛"会让拖放/粘贴的附件在
+  // 第一步就 fault.attachment.checksumUnavailable。回退到纯 JS SHA-256，返回
+  // 格式与原生实现完全一致（sha256:<小写 hex>）。
+  if (!globalThis.crypto?.subtle) return `sha256:${sha256Hex(bytes)}`;
   // WebCrypto 的 BufferSource 要求 ArrayBuffer；复制也避免调用期间底层 view 被复用。
   const digest = await globalThis.crypto.subtle.digest("SHA-256", Uint8Array.from(bytes).buffer);
   const hex = [...new Uint8Array(digest)]

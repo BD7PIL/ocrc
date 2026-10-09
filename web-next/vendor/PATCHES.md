@@ -16,3 +16,9 @@
 
 ## 3.（运行时行为，非文件 patch）上游缺陷修复沿用
 - **vite.config.ts**：`worker.rollupOptions.treeshake: false`——上游 web/vite.config 同款修复（@pierre/diffs worker 入口缺 sideEffects 声明，生产 worker 子构建被摇成 0B → 池握手超时）。
+
+## 4. 附件上传校验和：非安全上下文的纯 JS SHA-256 回退（N8-4）
+- **文件**：`vendor/zcode/ui/src/v4/sha256Pure.ts`（新增）+ `vendor/zcode/ui/src/v4/attachmentUploadTransaction.ts`（`checksum()` 一处分支 + 一行 import）
+- **修改**：`checksum()` 由「无 `crypto.subtle` 即抛 `fault.attachment.checksumUnavailable`」改为「有 subtle 走原生，否则回退 `sha256Hex()`（纯 JS，FIPS 180-4）」，返回格式不变（`sha256:<小写 hex>`）。
+- **原因**：`crypto.subtle` 只在安全上下文（https/localhost）存在。ocrc 生产形态常是局域网 http 源（`http://192.168.x.x:4099/z/`），那里拖放/粘贴的附件（无 localPath，走 V4 上传事务）第一步就抛错、整条链断掉。零拷贝 localPath 路径本来就不算校验和，不受影响。
+- **验证**：`web-next/src/zcode-services/__tests__/attachmentChecksum.test.ts` 对照 node `crypto` 逐长度比对（空/1B/55/56/63/64B/多 block/中文），并 stub 掉 subtle 走回退接线断言 `beginParams.checksum`。

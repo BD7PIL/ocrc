@@ -29,7 +29,7 @@ function token(): string {
   try { return localStorage.getItem('ocrc.token') ?? '' } catch { return '' }
 }
 
-async function postJson(path: string, body: unknown): Promise<void> {
+async function postJson(path: string, body: unknown): Promise<any> {
   const res = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
@@ -39,6 +39,7 @@ async function postJson(path: string, body: unknown): Promise<void> {
     const detail = (await res.json().catch(() => ({}))) as { error?: string }
     throw new Error(`${path} ${res.status}${detail.error ? `：${detail.error}` : ''}`)
   }
+  return res.json().catch(() => ({}))
 }
 
 async function ocrcSessions(): Promise<OcrcSessionSummary[]> {
@@ -231,9 +232,64 @@ function createExplicitTaskService(): IZCodeTaskService {
     // 置顶真相在 host（state.pinnedTaskIds）——TG 与 /z/ 共用同一份，不是浏览器本地偏好。
     listPinnedTaskIds: async () => (await ocrcSessions()).filter((s) => s.pinned).map((s) => s.id),
     listDeletedTaskIds: async () => [],
-    listGroupedTaskViewStructure: async () =>
-      ({ groups: [], members: [], topLevelOrders: [] }) as ZCodeGroupedTaskViewStructure,
-    applyGroupedTaskViewOrder: async () => ({ nodes: [] }) as ZCodeGroupedTaskView,
+    // ── N10 任务组：结构真存 host state.json（GET/POST /api/task-groups）──
+    // vendor 拿这份原始结构后与 sessions-index 会话行 join（tasks 行是左表）。
+    // 组是全局的（侧栏显示已按 workspace 过滤；组是用户自己的组织维度）。
+    listGroupedTaskViewStructure: async () => {
+      const res = await fetch('/api/task-groups', { headers: { Authorization: `Bearer ${token()}` } }).catch(() => null)
+      if (!res?.ok) return { groups: [], members: [], topLevelOrders: [] } as unknown as ZCodeGroupedTaskViewStructure
+      const raw = await res.json() as { groups?: any[]; members?: any[]; topLevelOrders?: any[] }
+      return {
+        groups: (raw.groups ?? []).map((g) => ({ id: g.id, title: g.title, color: g.color, createdAt: g.createdAt, updatedAt: g.updatedAt })),
+        members: (raw.members ?? []).map((m) => ({
+          groupId: m.groupId, workspaceKey: m.workspaceKey, workspacePath: m.workspacePath ?? '',
+          workspaceIdentity: m.workspaceIdentity, taskId: m.taskId, sortOrder: m.sortOrder ?? null, addedAt: m.addedAt ?? 0,
+        })),
+        topLevelOrders: raw.topLevelOrders ?? [],
+      } as unknown as ZCodeGroupedTaskViewStructure
+    },
+    createTaskGroup: async (params?: { title?: string; color?: string }) => {
+      const res = await postJson('/api/task-groups', { action: 'create', title: params?.title, color: params?.color })
+      return res.group
+    },
+    renameTaskGroup: async (params: { groupId: string; title: string }) => {
+      const res = await postJson('/api/task-groups', { action: 'rename', groupId: params.groupId, title: params.title })
+      return res.group
+    },
+    updateTaskGroupColor: async (params: { groupId: string; color: string }) => {
+      const res = await postJson('/api/task-groups', { action: 'color', groupId: params.groupId, color: params.color })
+      return res.group
+    },
+    deleteTaskGroup: async (params: { groupId: string }) => {
+      await postJson('/api/task-groups', { action: 'delete', groupId: params.groupId })
+    },
+    applyGroupedTaskViewOrder: async (input: { topLevelNodes?: any[]; groups?: Array<{ groupId: string; taskRefs: Array<{ workspacePath?: string; workspaceIdentity?: string; taskId: string }> }> }) => {
+      // vendor 提交最终排序与 membership：topLevelNodes 直接落 topOrders；
+      // groups[].taskRefs 展开为成员行（workspaceKey = identity ?? path，与服务端
+      // resolveWorkspaceKey 同口径）。
+      const topOrders = (input.topLevelNodes ?? []).map((n: any, i: number) =>
+        n.type === 'group'
+          ? { type: 'group', groupId: n.groupId, sortOrder: i }
+          : { type: 'task', workspaceKey: n.task?.workspaceIdentity ?? n.task?.workspacePath ?? '', taskId: n.task?.taskId, sortOrder: i })
+      const members: any[] = []
+      for (const g of input.groups ?? []) {
+        for (let i = 0; i < (g.taskRefs ?? []).length; i++) {
+          const ref = g.taskRefs[i]
+          members.push({
+            groupId: g.groupId,
+            workspaceKey: ref.workspaceIdentity ?? ref.workspacePath ?? '',
+            workspacePath: ref.workspacePath ?? '',
+            workspaceIdentity: ref.workspaceIdentity,
+            taskId: ref.taskId,
+            sortOrder: i,
+            addedAt: Date.now(),
+          })
+        }
+      }
+      await postJson('/api/task-groups', { action: 'order', members, topOrders })
+      // 回读结构，让 vendor 的 apply 流拿到落库后的最终视图。
+      return { nodes: [] } as unknown as ZCodeGroupedTaskView
+    },
     listArchivedTasks: async (_params: { workspacePath: string }): Promise<ZCodeTaskMeta[]> =>
       (await ocrcSessions()).filter((s) => s.archived).map(toMeta),
     /** ZCode 语义：只归档已完成（非 busy/非 error 即视为完成）、无未读、非 pinned 的超期任务。 */

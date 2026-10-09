@@ -32,6 +32,13 @@ interface PersistedState {
   unreadSessionIds?: string[]
   /** /z/ archived tasks (ZCode 语义：归档 = 从默认列表隐藏，可恢复/可删）。 */
   archivedSessionIds?: string[]
+  /** N10 /z/ sidebar task groups (global organizational dimension — the sidebar
+   *  already filters by workspace for display; groups are the user's own
+   *  cross-workspace organization). Shape mirrors vendor ZCodeTaskGroup +
+   *  membership + view order, minus anything the client derives. */
+  taskGroups?: Array<{ id: string; title: string; color: string; createdAt: number; updatedAt: number }>
+  taskGroupMembers?: Array<{ groupId: string; workspaceKey: string; taskId: string; sortOrder: number | null; addedAt: number }>
+  taskGroupTopOrders?: Array<{ type: 'group'; groupId: string; sortOrder: number } | { type: 'task'; workspaceKey: string; taskId: string; sortOrder: number }>
 }
 
 export interface SessionState {
@@ -84,6 +91,15 @@ export interface SessionState {
   listArchivedSessionIds(): string[]
   isSessionArchived(sessionId: string): boolean
   setSessionArchived(sessionId: string, archived: boolean): void
+  /** N10: /z/ sidebar task groups (structure + membership + view order). */
+  listTaskGroups(): Array<{ id: string; title: string; color: string; createdAt: number; updatedAt: number }>
+  createTaskGroup(title: string, color: string): { id: string; title: string; color: string; createdAt: number; updatedAt: number }
+  renameTaskGroup(groupId: string, title: string): { id: string; title: string; color: string; createdAt: number; updatedAt: number } | undefined
+  updateTaskGroupColor(groupId: string, color: string): { id: string; title: string; color: string; createdAt: number; updatedAt: number } | undefined
+  deleteTaskGroup(groupId: string): boolean
+  listTaskGroupMembers(): Array<{ groupId: string; workspaceKey: string; taskId: string; sortOrder: number | null; addedAt: number }>
+  listTaskGroupTopOrders(): Array<{ type: 'group'; groupId: string; sortOrder: number } | { type: 'task'; workspaceKey: string; taskId: string; sortOrder: number }>
+  applyGroupedTaskView(members: Array<{ groupId: string; workspaceKey: string; taskId: string; sortOrder: number | null; addedAt: number }>, topOrders: Array<{ type: 'group'; groupId: string; sortOrder: number } | { type: 'task'; workspaceKey: string; taskId: string; sortOrder: number }>): void
   getSessionCost(sessionId: string): number | undefined
   setSessionCost(sessionId: string, cost: number | undefined): void
   /** Multi-backend: the backend that owns a session (undefined → default). */
@@ -296,6 +312,50 @@ export function createFileBackedState(path: string): SessionState {
         : current.filter((id) => id !== sid)
       if (next.length) cache.archivedSessionIds = next
       else delete cache.archivedSessionIds
+      void persist()
+    },
+    listTaskGroups: () => JSON.parse(JSON.stringify(cache.taskGroups ?? [])),
+    createTaskGroup: (title, color) => {
+      const now = Date.now()
+      const group = { id: `tg_${now.toString(36)}_${Math.random().toString(36).slice(2, 7)}`, title, color, createdAt: now, updatedAt: now }
+      ;(cache.taskGroups ??= []).push(group)
+      void persist()
+      return group
+    },
+    renameTaskGroup: (groupId, title) => {
+      const g = (cache.taskGroups ?? []).find((x) => x.id === groupId)
+      if (!g) return undefined
+      g.title = title
+      g.updatedAt = Date.now()
+      void persist()
+      return { ...g }
+    },
+    updateTaskGroupColor: (groupId, color) => {
+      const g = (cache.taskGroups ?? []).find((x) => x.id === groupId)
+      if (!g) return undefined
+      g.color = color
+      g.updatedAt = Date.now()
+      void persist()
+      return { ...g }
+    },
+    deleteTaskGroup: (groupId) => {
+      const before = (cache.taskGroups ?? []).length
+      cache.taskGroups = (cache.taskGroups ?? []).filter((x) => x.id !== groupId)
+      // 组删了成员跟着走（vendor 语义：调用方先把任务移回顶层；这里兜底清理）。
+      cache.taskGroupMembers = (cache.taskGroupMembers ?? []).filter((m) => m.groupId !== groupId)
+      cache.taskGroupTopOrders = (cache.taskGroupTopOrders ?? []).filter((o) => !(o.type === 'group' && o.groupId === groupId))
+      const changed = cache.taskGroups.length !== before
+      if (!cache.taskGroups.length) delete cache.taskGroups
+      if (!cache.taskGroupMembers?.length) delete cache.taskGroupMembers
+      if (!cache.taskGroupTopOrders?.length) delete cache.taskGroupTopOrders
+      if (changed) void persist()
+      return changed
+    },
+    listTaskGroupMembers: () => JSON.parse(JSON.stringify(cache.taskGroupMembers ?? [])),
+    listTaskGroupTopOrders: () => JSON.parse(JSON.stringify(cache.taskGroupTopOrders ?? [])),
+    applyGroupedTaskView: (members, topOrders) => {
+      cache.taskGroupMembers = members.length ? members : undefined
+      cache.taskGroupTopOrders = topOrders.length ? topOrders : undefined
       void persist()
     },
     getSessionCost: (sid) => sessionCosts.get(sid),

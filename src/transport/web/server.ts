@@ -23,6 +23,7 @@ import { registerAbort } from './routes/abort.js'
 import { registerVcs, registerRevert, registerFork } from './routes/vcs.js'
 import { registerTodo } from './routes/todo.js'
 import { registerControls } from './routes/controls.js'
+import { registerTaskGroups } from './routes/task-groups.js'
 import { registerFiles } from './routes/files.js'
 import { registerContext } from './routes/context.js'
 import { registerApproval } from './routes/approval.js'
@@ -150,6 +151,7 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerFork(app, reg)
   registerTodo(app, reg, opts.state)
   registerControls(app, reg, opts.state)
+  registerTaskGroups(app, opts.state)
   registerFiles(app, reg, opts.state)
   registerContext(app, reg, opts.state)
   registerApproval(app, reg, opts.state)

@@ -167,7 +167,6 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerSettings(app, opts.settingsConfigDir)
   if (opts.shares) registerShareAuthed(app, opts.shares, reg)
   registerBrowser(app)
-  registerSettings(app, opts.settingsConfigDir)
   // globalConfigRaw 是三参——此前漏传，导致 /api/settings/model-presets 的 current 恒为 {}。
   // 用 getter（每次读取时取盘），避免把启动瞬间的配置快照固化。
   registerSettingsProject(

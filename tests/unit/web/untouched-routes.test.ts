@@ -199,3 +199,13 @@ describe('web routes — previously uncovered happy paths', () => {
     expect(out.lines.join('\n')).toContain('marker-line-for-logs-test')
   })
 })
+
+describe('route registration hygiene', () => {
+  it('settings routes are registered exactly once (regression: registerSettings ran twice)', () => {
+    const a = app(fakeState(), fakeBackend())
+    const routes = (a as any).routes as Array<{ method: string; path: string }> | undefined
+    expect(Array.isArray(routes)).toBe(true)
+    const settings = routes!.filter((r) => r.method === 'GET' && r.path === '/api/settings/opencode-config')
+    expect(settings).toHaveLength(1)
+  })
+})

@@ -341,6 +341,10 @@
   携带 goal（派发后挂目标，kickoff 由工单自己的 prompt 承担）。`tests/unit/offpeak.test.ts`
   补上 N5 欠下的 24 条单测。
 - 🔶 workflow：Q18a 单独立项，本批只留最小形态接口位（见「不做」清单）。
+- **spike 实测记录**：[docs/n12-spike-record.md](../../docs/n12-spike-record.md)——
+  A/C/D/E/F/G 隔离栈实测通过（含 UI 截图与 DOM 断言）；B 的 /z/ 半场用真 UI 点按钮通过，
+  **TG 半场待用户本人跑**（我没有 Telegram 客户端，无法以用户身份发消息）。spike 修出
+  三处真缺陷：证据窗口头部截断、resume 不续跑、续跑可落进 plan 模式（均已修 + 回归）。
 
 ### 分享发布（N7-2 + N7-6 实测）——**端到端已闭环**
 - ✅ 服务侧全接（publish → POST /api/share；record 四元组；导入/续聊如实拒绝）+ 契约测试 6 条。

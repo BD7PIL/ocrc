@@ -39,6 +39,14 @@
   上游门控），续跑轮 origin + epilogue 披露，每轮验收一条 timeline marker。
 - `sendGoalCommand`/`pauseGoal`/`resumeGoal` 接真（此前落 `ocrc_unwired_*`）。
 
+### fix: spike 修出的三处缺陷（隔离栈实测）
+- **证据窗口从头部截断**：多轮后最新一轮整段被切掉，验收器两轮看到同一状态 → 无进展闸
+  第 4 轮误停健康目标（实测 4 轮时证据 10.2k > 8k 上限）。改为**保尾**。
+- **resume 不续跑**：上游 resumeGoal 会 continueGoalAfterChange；我们只翻状态，
+  且撞过迭代上限的目标 resume 后下一轮立刻又停。改为 resume 派发续跑 + 上限按整档延展。
+- **续跑可落进 plan 模式**：循环自身没查 plan（set/resume 查了）。改为拒绝续跑并停机通知。
+- 实测记录：[docs/n12-spike-record.md](docs/n12-spike-record.md)。
+
 ### docs: 收口对账
 - CHECKLIST：§0 收口口径 + 全量对账（陈旧条目改正：Git 写操作其实 N7-3 已接、Header 全要素、
   任务行状态点；剩余 🔶/⬜ 逐条注明归属）。PRODUCT.md：「不做目标/goal」改判（机制在引擎钩子、

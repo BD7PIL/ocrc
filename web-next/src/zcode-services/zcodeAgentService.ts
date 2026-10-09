@@ -175,8 +175,10 @@ const MAX_TOOL_OUTPUT_CHARS = 50_000
  *  必须回取一次原始消息。按 messageId 缓存，避免每轮重复拉。 */
 interface OcrcToolPart { id?: string; tool?: string; state?: { status?: string; input?: unknown; output?: unknown; metadata?: unknown; title?: string } }
 const rawMessageCache = new Map<string, { parts: Map<string, OcrcToolPart>; at: number }>()
-/** 短 TTL：流式中的工具结果会随后续帧变化，缓存太久会显示半截输出。 */
-const RAW_CACHE_TTL_MS = 5_000
+/** 长缓存：定稿工具结果不变，只有流式中的还在变。60s + 条目上限（越过即全清——
+ *  会话热路径上 Map 只增不减曾是泄漏点）。 */
+const RAW_CACHE_TTL_MS = 60_000
+const RAW_CACHE_MAX_ENTRIES = 64
 
 async function rawToolParts(sessionId: string, messageId: string): Promise<Map<string, OcrcToolPart>> {
   const key = `${sessionId}:${messageId}`
@@ -195,6 +197,7 @@ async function rawToolParts(sessionId: string, messageId: string): Promise<Map<s
     }
   } catch { /* 拿不到就退化成无输出的卡片，不影响行渲染 */ }
   rawMessageCache.set(key, { parts: byId, at: Date.now() })
+  if (rawMessageCache.size > RAW_CACHE_MAX_ENTRIES) rawMessageCache.clear()
   return byId
 }
 
@@ -227,7 +230,12 @@ function toolOutputFor(toolName: string, part: OcrcToolPart | undefined): { text
   return { text: outText.length > MAX_TOOL_OUTPUT_CHARS ? outText.slice(0, MAX_TOOL_OUTPUT_CHARS) : outText }
 }
 
-/** 把工具块的输出补进行里（就地改 rows）。只对真的带 messageId + 工具块的消息回取。 */
+/** 把工具块的输出补进行里（就地改 rows）。只对真的带 messageId + 工具块的消息回取。
+ *  N9-2：单次 rebuild 的**未命中**回取上限 3 条（命中的缓存行不受限）——流式期工具
+ *  一多，每去抖窗都可能对全部工具消息各发一针，这里把每窗新增回取钉住；其余工具
+ *  行本窗先渲染成无输出卡片，下一窗轮到它们。 */
+const ENRICH_FETCH_BUDGET = 3
+
 async function enrichToolRows(rows: any[], sessionId: string): Promise<void> {
   const byMessage = new Map<string, any[]>()
   for (const row of rows) {
@@ -236,7 +244,16 @@ async function enrichToolRows(rows: any[], sessionId: string): Promise<void> {
     list.push(row)
     byMessage.set(row.__messageId, list)
   }
+  let fetchBudget = ENRICH_FETCH_BUDGET
   for (const [messageId, messageRows] of byMessage) {
+    const cached = rawMessageCache.get(`${sessionId}:${messageId}`)
+    const fresh = cached && Date.now() - cached.at < RAW_CACHE_TTL_MS
+    if (!fresh && fetchBudget <= 0) {
+      // 预算耗尽：本窗跳过（行保持 __messageId 不删，下窗重试），只拆内部字段。
+      for (const row of messageRows) { delete row.__messageId; delete row.__partId }
+      continue
+    }
+    if (!fresh) fetchBudget -= 1
     const parts = await rawToolParts(sessionId, messageId)
     for (const row of messageRows) {
       const part = row.__partId ? parts.get(row.__partId) : undefined
@@ -570,10 +587,12 @@ async function liveUpdate(sessionId: string): Promise<void> {
 function scheduleLive(sessionId: string): void {
   const existing = liveTimers.get(sessionId)
   if (existing) clearTimeout(existing)
+  // N9-2：400→250ms——refetch 本身已由内容寻址 diff + 缓存/预算减负，去抖再收紧
+  // 一档换来更跟手的流式呈现（实测基线节律 ~1s/窗，250ms 不增加每窗成本）。
   liveTimers.set(sessionId, setTimeout(() => {
     liveTimers.delete(sessionId)
     void liveUpdate(sessionId)
-  }, 400))
+  }, 250))
 }
 
 function liveWatch(sessionId: string): void {

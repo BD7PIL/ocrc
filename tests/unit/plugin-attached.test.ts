@@ -36,9 +36,19 @@ afterEach(() => { vi.unstubAllGlobals() })
 describe('createAttachedHooks', () => {
   it('registers the ocrc tool set and no event hook (owns nothing)', () => {
     const hooks = createAttachedHooks(OPTS)
-    expect(Object.keys(hooks.tool!).sort()).toEqual(['notify', 'rc-status', 'schedule_create', 'schedule_list'])
+    const names = Object.keys(hooks.tool!)
+    // The base four plus the P3 workflow face (author-side and actor-side).
+    expect(names).toEqual(expect.arrayContaining([
+      'notify', 'rc-status', 'schedule_create', 'schedule_list',
+      'CreateWorkflow', 'AmendWorkflow', 'GetWorkflowRun', 'ListWorkflowRuns',
+      'ResumeWorkflowRun', 'SaveWorkflow', 'ListSavedWorkflows', 'EvalWorkflowSnippet',
+      'GetWorkflowSkill', 'submit_result', 'escalate', 'ResolveWorkflowQuestion',
+    ]))
     expect(hooks.event).toBeUndefined()
     expect(typeof hooks.dispose).toBe('function')
+    // ATTACHED owns no resources, but it does register the one hook the skill gate
+    // needs — a hook, not a listener.
+    expect(typeof hooks['tool.execute.before']).toBe('function')
   })
 
   it('sends the host token on every call', async () => {

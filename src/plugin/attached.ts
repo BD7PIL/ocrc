@@ -3,6 +3,7 @@ import type { Hooks } from '@opencode-ai/plugin'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { formatScheduleList, parseScheduleCreate, scheduleCreatedMessage, type ScheduleCreateArgs } from './schedule-tool.js'
+import { createWorkflowTools, skillGateHook } from './workflow-tools.js'
 import type { Schedule } from '../core/scheduler.js'
 import { ocrcHome } from '../utils/paths.js'
 import { createLogger } from '../utils/logger.js'
@@ -172,10 +173,19 @@ export function createAttachedHooks(opts: AttachedOpts): AttachedHandle {
     })
   }
 
+  // P3: the workflow tool face (author-side + actor-side) is part of the attached
+  // set — an engine session is both the place workflows are authored and the place
+  // their subagents run, so both halves must be visible to the same model.
+  Object.assign(tools, createWorkflowTools(opts))
+
   log.info(`ATTACHED to ${opts.baseUrl} — ${Object.keys(tools).length} tool(s), no transports`)
 
   return {
     tool: tools,
+    // The skill gate: opencode's own `skill` tool is how the model loads the
+    // authoring contract, so this hook is what opens it. A hook owns no resources
+    // (no listener, no poller, no state file) — ATTACHED's promise is intact.
+    'tool.execute.before': skillGateHook(),
     async dispose() {
       // Nothing to tear down: we own no listener, no poller, no timers, and we do
       // not hold the primary lock (the host does).

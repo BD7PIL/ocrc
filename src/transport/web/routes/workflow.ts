@@ -1,8 +1,12 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Hono } from 'hono'
 import type { WorkflowManager } from '../../../core/workflow/manager.js'
 import type { ArtifactStore } from '../../../core/workflow/artifacts.js'
 import type { SavedWorkflowsStore } from '../../../core/workflow/saved.js'
 import type { BackendRegistry } from '../../../core/agent/registry.js'
+import { compileScript } from '../../../core/workflow/manager.js'
 
 /**
  * P2 workflow surface. Deliberately thin: the manager owns run semantics and the
@@ -16,6 +20,36 @@ export interface WorkflowRouteDeps {
   artifacts: ArtifactStore
   saved: SavedWorkflowsStore
   registry: BackendRegistry
+}
+
+const SKILL_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../../../vendor/zcode-dwf/skills/dynamic-workflows')
+
+/**
+ * Escalations raised by actor sessions. Deliberately in-memory: a question lives
+ * exactly as long as the run that asked it, and a restarted host has no live run
+ * to answer.
+ */
+const escalations = new Map<string, Array<{ question: string; answer?: string }>>()
+
+function recordEscalation(runId: string | undefined, question: string): void {
+  const key = runId ?? '*'
+  const list = escalations.get(key) ?? []
+  if (!list.some((e) => e.question === question)) list.push({ question })
+  escalations.set(key, list)
+}
+
+/** `ResolveWorkflowQuestion`: the parent-side answer to an actor's escalation. */
+export function answerEscalation(runId: string | undefined, question: string, answer: string): boolean {
+  const key = runId ?? '*'
+  const list = escalations.get(key) ?? []
+  const hit = list.find((e) => e.question === question)
+  if (hit) { hit.answer = answer; return true }
+  return false
+}
+
+/** Pending escalations for a run (surfaced in the run view). */
+export function pendingEscalations(runId: string): string[] {
+  return (escalations.get(runId) ?? []).filter((e) => !e.answer).map((e) => e.question)
 }
 
 export function registerWorkflow(app: Hono, deps: WorkflowRouteDeps) {
@@ -102,21 +136,84 @@ export function registerWorkflow(app: Hono, deps: WorkflowRouteDeps) {
   })
 
   /**
-   * P2 gate probe: deliver a `submit_result` payload for an actor session.
-   *
-   * The real path is the actor-side tool (P3), which calls the very same
-   * `manager.submitFromSession`. This route exists so the typed-ask arbitration
-   * (accept / repair / nudge) can be verified live before that tool lands, and it
-   * is off unless `OCRC_WF_PROBE=1`.
+   * Actor-side `submit_result`: the actor's tool call lands here and is routed to
+   * the live run's driver, which hands it to the engine for validation. The answer
+   * the model sees is the tool result, so a rejection comes back as a repair
+   * instruction rather than a silent retry.
    */
-  if (process.env.OCRC_WF_PROBE === '1') {
-    app.post('/api/workflow/submit-probe', async (c) => {
-      const body = (await c.req.json().catch(() => ({}))) as { sessionId?: string; payload?: unknown }
-      if (typeof body.sessionId !== 'string' || !body.sessionId) return c.json({ error: 'sessionId required' }, 400)
-      const delivered = manager.submitFromSession(body.sessionId, body.payload)
-      return c.json({ delivered }, delivered ? 200 : 409)
+  app.post('/api/workflow/submit', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { sessionId?: string; payload?: unknown }
+    if (typeof body.sessionId !== 'string' || !body.sessionId) return c.json({ error: 'sessionId required' }, 400)
+    const delivered = manager.submitFromSession(body.sessionId, body.payload)
+    return c.json(
+      delivered
+        ? { ok: true, note: 'Submitted. If the value does not satisfy the schema you will be told what to fix.' }
+        : { ok: false, error: 'this session has no workflow ask in flight' },
+      delivered ? 200 : 409,
+    )
+  })
+
+  /**
+   * Actor-side `escalate`: a question the workflow cannot answer itself. It is
+   * recorded and surfaced; `ResolveWorkflowQuestion` (the parent-side tool) answers
+   * it. Until an answer arrives the actor is told to continue with its best
+   * judgment rather than block the run.
+   */
+  app.post('/api/workflow/escalate', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { sessionId?: string; question?: string; runId?: string }
+    const question = typeof body.question === 'string' ? body.question.trim() : ''
+    if (!question) return c.json({ error: 'question required' }, 400)
+    recordEscalation(body.runId, question)
+    const answered = (escalations.get(body.runId ?? '*') ?? []).find((e) => e.question === question)?.answer
+    return c.json({
+      ok: true,
+      question,
+      answer: answered ?? null,
+      note: answered
+        ? 'The user answered your question.'
+        : 'No answer is available yet — continue with your best judgment and say what you assumed.',
     })
-  }
+  })
+
+  /** `ResolveWorkflowQuestion`: answer an actor's escalation from the parent side. */
+  app.post('/api/workflow/escalations/answer', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { runId?: string; question?: string; answer?: string }
+    if (typeof body.question !== 'string' || typeof body.answer !== 'string' || !body.answer.trim()) {
+      return c.json({ error: 'question and answer required' }, 400)
+    }
+    const ok = answerEscalation(body.runId, body.question, body.answer)
+    return c.json({ ok, pending: body.runId ? pendingEscalations(body.runId) : [] }, ok ? 200 : 404)
+  })
+
+  /** `EvalWorkflowSnippet`: compile-only, no run. This is the feedback loop the
+   *  authoring skill leans on hardest — it must be cheap and must never create a run. */
+  app.post('/api/workflow/compile', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { scriptText?: string }
+    if (typeof body.scriptText !== 'string' || !body.scriptText.trim()) return c.json({ error: 'scriptText required' }, 400)
+    const out = compileScript(body.scriptText)
+    if (out.ok) {
+      return c.json({
+        ok: true,
+        askSites: out.askSpecs?.size ?? 0,
+        scriptHash: out.scriptHash,
+        declaredRunCommands: out.declaredRunCommands ?? [],
+      })
+    }
+    return c.json({ ok: false, diagnostics: out.diagnostics })
+  })
+
+  /** The authoring skill's text. `CreateWorkflow` refuses until it has been read
+   *  (the vendored gate), and this is where it comes from — one copy, vendored. */
+  app.get('/api/workflow/skill', (c) => {
+    const file = c.req.query('file') ?? 'SKILL.md'
+    if (!/^[A-Za-z0-9._-]+$/.test(file)) return c.json({ error: 'bad file' }, 400)
+    try {
+      const text = readFileSync(join(SKILL_DIR, file), 'utf-8')
+      return c.json({ file, text })
+    } catch {
+      return c.json({ error: 'not_found', files: ['SKILL.md', 'patterns.md', 'examples.md'] }, 404)
+    }
+  })
 
   // ── saved workflows ───────────────────────────────────────────────────────
   app.get('/api/workflow/saved', (c) => c.json({ workflows: saved.list() }))

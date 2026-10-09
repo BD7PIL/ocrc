@@ -28,7 +28,10 @@
   与 TG 共用一份，不是浏览器本地偏好；注意它和 relay 的 pinnedSessionId 是两回事）
 - ✅ 归档视图（N7-5 全家接通：archiveTask/unarchiveTask/listArchivedTasks/archiveStaleTasks/
   archiveWorkspaceTasks/deleteArchivedTask(s)，默认列表隐藏已归档；隔离栈往返实证）
-- 🔶 任务组（颜色/拖拽分组——grouped 结构空实现；需产品裁决是否纳入）
+- ✅ 任务组（N10）：host state.json 三槽位（groups/members/topLevelOrders）+ `GET/POST /api/task-groups`
+  （create/rename/color/delete/order，shape 校验 fail-fast，删组级联）+ 桥接 5 个组方法全接真。
+  组为**全局**组织维度（侧栏显示已按 workspace 过滤）。隔离栈实测：建组→挂成员→分组视图渲染
+  出组与组内任务→改色→重命名→删除级联，刷新持久。
 - ✅ 时间线分区空态（conversation 工作区语义，忠实）
 
 ## 3. 会话时间线（N2 核心）
@@ -58,10 +61,14 @@
 - ✅ 推理块折叠展示（N7-6 映射 + N8-1/N8 补全：重建路径 thinkingText（b4b3870）与直播
   delta 归类（d2235e2）都已修，生产会话实测 65 卡 26.6 万字符、直播 42s 回合推理连续上屏。
   「已处理」折叠组 UI 已见；展开态核对待用户一眼）
-- 🔶 用户消息气泡 + 编辑/fork 动作（**N9 批**）：悬停按钮以 row.entityId 为渲染条件，
-  桥接 buildRows 尚未写 entityId → 按钮不显形；editUserQuery/forkAssistant 命令也未实现
-  （revert 路由已有、引擎 fork 端点已核实）。与性能批行身份改造同批。
-- 🔶 消息悬停动作（复制 ✅ 纯前端；反馈/编辑/fork 同上——entityId 前置，N9 批）
+- ✅ 用户消息气泡 + 编辑/fork 动作（**N9 批已交付**）：buildRows 现写 `entityId`（= 卡片
+  messageId，内容寻址行身份同批落地）→ 悬停按钮显形条件满足；`editUserQuery`（revert 截断
+  + 原文重发，ACK disposition:'rewind'；文件回退 rewind 无 checkpoint 机制、如实拒绝）与
+  `forkAssistant`（引擎 `POST /session/:id/fork` 直通，ACK 带新 sessionId）都已实现。隔离栈
+  E2E：fork 子会话带全 216 卡、revert 截断 216→2、重发追加生效。
+- ✅ 消息悬停动作（N9）：复制 ✅ 纯前端；编辑/fork ✅（见上条）；反馈 ✅ 按 entityId
+  本地持久（localStorage `ocrc.feedback`，重建时回读进行、高亮态不丢）——**引擎侧无
+  feedback 面**，语义如实限定为本地偏好（不喂引擎，文案不谎报）。
 - ✅ 加载更早（rows 分页游标 conversationRowsRangeV4）：按 rowId < beforeRowId 从完整历史
   切尾部 limit 行——行号由 buildRows 顺序生成、历史不变即稳定，无需服务端游标。
 
@@ -101,11 +108,17 @@
   crypto.subtle 缺失）真实拖放 PNG → 无报错 → POST /api/message images[] → 引擎
   落 file:image/png part（2026-10-09）。12 条单测对照 node crypto（padding 边界全覆盖）。
 - ✅ 停止生成（stopGeneration → /api/abort；N6 批次 1 补上响应码检查——此前不看结果）
-- 🔶 **性能：/z/ 整体卡顿**（2026-10-08 用户实测「几乎无法使用」，已决定立项整改）。已观察证据：
-  loopback 28.8MB/6s、热路径全量重建+全量对比（每事件 O(N)）、工具卡回取、getView 双请求风暴。
-  整改期间会话面热路径**冻结新功能**（详见简报的边界条款）。
-- 🔶 **回复重复渲染**（用户截图可见，同源缺陷）：行号 = 位置序号，流式中插入行会使后续 rowId
-  位移 → diff 当「删+增」→ 重复渲染。整改方向：行身份改内容寻址；与性能同批修，以回归测试钉住。
+- ✅ **性能：/z/ 卡顿（N9 批已整改，2026-10-09 实测复核）**。基线（206 卡）：首屏 1.3–1.5s、
+  单 refetch 12–122ms/~50KB、每回合一次 50–148ms longtask。整改：行身份内容寻址（N9-1）、
+  缓存/回取预算/去抖（N9-2）、sdelta 复活（N9-3）。整改后（216 卡）：首屏 **1.84s（<2s ✓）**、
+  流式 11 次采样 + 定稿**零重复行（✓）**、refetch 次数减半、sdelta 每回合 9+ 帧。
+  **残余**：longtask 仍 1×137ms/回合——全量 rebuild 固有 O(N)，窗口化（rowsWindow 游标协议
+  已在）按计划不做，留观察。数字详见 docs/perf-remediation-brief.md。
+- ✅ **回复重复渲染（N9-1 根除，2026-10-09 复核）**：rowId 由位置序号改为**内容寻址**
+  （messageId + 块序的确定性哈希），中间插入行不再位移后续 rowId；diffRows 改前缀身份 +
+  按键浅比较（去掉整行 stringify）。216 卡会话流式 11 次采样 + 定稿均零重复行；
+  `rowIdentity.test.ts` 6 条回归钉住（幂等重建 / entityId 落行 / 追加不位移 /
+  末行增长同 rowId / thinking 补插不位移 / 旧引擎无 messageId 兜底）。
 
 ### 已修缺陷（N6 过程中实测）
 - ✅ **远端主机启用后不注册**（`src/transport/web/index.ts`）：host 传了 `onRemoteEnabled`、

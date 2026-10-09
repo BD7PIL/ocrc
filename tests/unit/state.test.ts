@@ -132,6 +132,74 @@ describe('SessionState', () => {
     expect(createFileBackedState(path).getSessionBackend('k1')).toBeUndefined()
   })
 
+  describe('goals (N12)', () => {
+    const sample = () => ({
+      targetId: 'goal_1',
+      objective: '让测试全绿',
+      status: 'active' as const,
+      iteration: 2,
+      tokensUsed: 1234,
+      timeUsedSeconds: 42,
+      verifications: [{ iteration: 1, outcome: 'notSatisfied' as const, at: 1000, nextAction: '修 A' }],
+      iterations: [{ iteration: 1, items: ['A'], updatedAt: 1000 }],
+    })
+
+    it('round-trips a goal through the state file', async () => {
+      const path = join(dir, 'state.json')
+      const a = createFileBackedState(path)
+      expect(a.getGoal('ses_1')).toBeUndefined()
+      a.setGoal('ses_1', sample())
+      await a.flush()
+      const b = createFileBackedState(path)
+      expect(b.getGoal('ses_1')).toEqual(sample())
+      expect(b.listGoals()).toEqual({ ses_1: sample() })
+    })
+
+    it('getGoal returns a deep clone — caller mutation does not leak back', () => {
+      const s = createFileBackedState(join(dir, 'state.json'))
+      s.setGoal('ses_1', sample())
+      const g = s.getGoal('ses_1')!
+      g.iteration = 99
+      g.verifications.push({ iteration: 9, outcome: 'pass', at: 9 })
+      expect(s.getGoal('ses_1')!.iteration).toBe(2)
+      expect(s.getGoal('ses_1')!.verifications).toHaveLength(1)
+    })
+
+    it('updateGoal shallow-merges and returns the merged record', async () => {
+      const path = join(dir, 'state.json')
+      const s = createFileBackedState(path)
+      expect(s.updateGoal('ses_1', { iteration: 3 })).toBeUndefined() // no goal yet
+      s.setGoal('ses_1', sample())
+      const merged = s.updateGoal('ses_1', { status: 'paused', iteration: 3 })
+      expect(merged).toMatchObject({ status: 'paused', iteration: 3, objective: '让测试全绿' })
+      await s.flush()
+      expect(createFileBackedState(path).getGoal('ses_1')).toMatchObject({ status: 'paused', iteration: 3 })
+    })
+
+    it('clearGoal reports whether a goal was present and drops the slot', async () => {
+      const path = join(dir, 'state.json')
+      const s = createFileBackedState(path)
+      expect(s.clearGoal('ses_1')).toBe(false)
+      s.setGoal('ses_1', sample())
+      expect(s.clearGoal('ses_1')).toBe(true)
+      expect(s.getGoal('ses_1')).toBeUndefined()
+      await s.flush()
+      expect(createFileBackedState(path).listGoals()).toEqual({})
+    })
+
+    it('dropSession clears the session goal', async () => {
+      const path = join(dir, 'state.json')
+      const s = createFileBackedState(path)
+      s.setGoal('ses_1', sample())
+      s.setGoal('ses_2', { ...sample(), targetId: 'goal_2' })
+      s.dropSession('ses_1')
+      await s.flush()
+      const r = createFileBackedState(path)
+      expect(r.getGoal('ses_1')).toBeUndefined()
+      expect(r.getGoal('ses_2')).toMatchObject({ targetId: 'goal_2' })
+    })
+  })
+
   describe('normalizeSessionId', () => {
     it('passes undefined/empty through instead of throwing or matching everything', () => {
       const s = createFileBackedState(join(dir, 'state.json'))

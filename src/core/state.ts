@@ -7,6 +7,45 @@ const log = createLogger('state')
 /** Minimum length for a short display suffix to be resolved via endsWith. */
 const MIN_SUFFIX_LEN = 6
 
+/** Goal 的持久状态（对齐上游运行时四态；verifying/verified/notSatisfied/failed
+ *  是投影态，从不落库，由桥接层从 status + verifierRunning 派生）。 */
+export type GoalStatus = 'active' | 'paused' | 'budget_limited' | 'complete'
+
+/** 一次验收结论。outcome 是投影三态在「已结束」侧的取值：
+ *  pass=验收通过（goal 完成）、notSatisfied=未达成（可续跑）、failed=验收器自身
+ *  失败/解析失败（fail-closed 停机）。 */
+export interface GoalVerification {
+  iteration: number
+  outcome: 'pass' | 'notSatisfied' | 'failed'
+  at: number
+  reason?: string
+  nextAction?: string
+}
+
+/** 一轮迭代的待办快照（验收证据的一部分，也是 UI 的 iterations 投影）。 */
+export interface GoalIteration {
+  iteration: number
+  items: string[]
+  updatedAt: number
+}
+
+/** 一个会话的 goal（host state.json 槽位，按 sessionId 存）。
+ *  注意：`verifierRunning` 是瞬时状态，不入此记录——由 goalManager 在内存里持有，
+ *  桥接层派生态时再合入。 */
+export interface GoalRecord {
+  targetId: string
+  objective: string
+  summaryTitle?: string
+  status: GoalStatus
+  iteration: number
+  tokenBudget?: number
+  tokensUsed: number
+  timeUsedSeconds: number
+  activeRunStartedAtMs?: number
+  verifications: GoalVerification[]
+  iterations: GoalIteration[]
+}
+
 interface PersistedState {
   lastSessionId?: string
   pinnedSessionId?: string
@@ -39,6 +78,9 @@ interface PersistedState {
   taskGroups?: Array<{ id: string; title: string; color: string; createdAt: number; updatedAt: number }>
   taskGroupMembers?: Array<{ groupId: string; workspaceKey: string; taskId: string; sortOrder: number | null; addedAt: number }>
   taskGroupTopOrders?: Array<{ type: 'group'; groupId: string; sortOrder: number } | { type: 'task'; workspaceKey: string; taskId: string; sortOrder: number }>
+  /** N12: per-session goals (sid → GoalRecord). Authoritative copy lives here —
+   *  the /z/ UI and TG both read this through the host, never their own store. */
+  goals?: Record<string, GoalRecord>
 }
 
 export interface SessionState {
@@ -102,6 +144,16 @@ export interface SessionState {
   applyGroupedTaskView(members: Array<{ groupId: string; workspaceKey: string; taskId: string; sortOrder: number | null; addedAt: number }>, topOrders: Array<{ type: 'group'; groupId: string; sortOrder: number } | { type: 'task'; workspaceKey: string; taskId: string; sortOrder: number }>): void
   getSessionCost(sessionId: string): number | undefined
   setSessionCost(sessionId: string, cost: number | undefined): void
+  /** N12: per-session goal record (deep clone — callers may mutate freely). */
+  getGoal(sessionId: string): GoalRecord | undefined
+  /** Replace a session's goal record wholesale. */
+  setGoal(sessionId: string, goal: GoalRecord): void
+  /** Shallow-merge a patch into a session's goal; undefined if none exists. */
+  updateGoal(sessionId: string, patch: Partial<GoalRecord>): GoalRecord | undefined
+  /** Remove a session's goal; true if one was present. */
+  clearGoal(sessionId: string): boolean
+  /** All goals, keyed by sessionId (deep clone). */
+  listGoals(): Record<string, GoalRecord>
   /** Multi-backend: the backend that owns a session (undefined → default). */
   getSessionBackend(sessionId: string): string | undefined
   setSessionBackend(sessionId: string, backendId: string | undefined): void
@@ -275,6 +327,11 @@ export function createFileBackedState(path: string): SessionState {
         if (!cache.archivedSessionIds.length) delete cache.archivedSessionIds
         dirty = true
       }
+      if (cache.goals?.[sid]) {
+        delete cache.goals[sid]
+        if (!Object.keys(cache.goals).length) delete cache.goals
+        dirty = true
+      }
       if (dirty) void persist()
       sessionError.delete(sid)
     },
@@ -363,6 +420,29 @@ export function createFileBackedState(path: string): SessionState {
       if (cost === undefined) sessionCosts.delete(sid)
       else sessionCosts.set(sid, cost)
     },
+    getGoal: (sid) => {
+      const g = cache.goals?.[sid]
+      return g ? (JSON.parse(JSON.stringify(g)) as GoalRecord) : undefined
+    },
+    setGoal: (sid, goal) => {
+      ;(cache.goals ??= {})[sid] = JSON.parse(JSON.stringify(goal)) as GoalRecord
+      void persist()
+    },
+    updateGoal: (sid, patch) => {
+      const g = cache.goals?.[sid]
+      if (!g) return undefined
+      cache.goals![sid] = { ...g, ...patch }
+      void persist()
+      return JSON.parse(JSON.stringify(cache.goals![sid])) as GoalRecord
+    },
+    clearGoal: (sid) => {
+      if (!cache.goals?.[sid]) return false
+      delete cache.goals[sid]
+      if (!Object.keys(cache.goals).length) delete cache.goals
+      void persist()
+      return true
+    },
+    listGoals: () => JSON.parse(JSON.stringify(cache.goals ?? {})) as Record<string, GoalRecord>,
     getSessionBackend: (sid) => cache.sessionBackends?.[sid],
     setSessionBackend: (sid, backendId) => {
       if (backendId === undefined) {

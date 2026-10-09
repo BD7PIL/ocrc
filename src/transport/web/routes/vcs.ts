@@ -106,3 +106,18 @@ export function registerRevert(app: Hono, reg: BackendRegistry) {
   app.post('/api/session/:id/unrevert', run('unrevert'))
   app.get('/api/session/:id/revert-state', run('state'))
 }
+
+/** N9-4 message actions: fork the session (passthrough to the engine). Body
+ *  {messageID?} optional — fork point; omitted = fork the whole tail. Returns
+ *  the NEW session id; the caller (zcode bridge) switches the UI over. */
+export function registerFork(app: Hono, reg: BackendRegistry) {
+  app.post('/api/session/:id/fork', async (c) => {
+    const id = c.req.param('id')
+    const backend = reg.forSession(id)
+    if (!backend?.forkSession) return c.json({ error: 'unsupported' }, 501)
+    const body = await c.req.json().catch(() => ({})) as { messageID?: string }
+    const created = await backend.forkSession(id, typeof body.messageID === 'string' && body.messageID ? body.messageID : undefined)
+    if (!created) return c.json({ error: 'fork failed' }, 502)
+    return c.json(created)
+  })
+}

@@ -293,6 +293,18 @@ function cardIdentity(c: OcrcCard, index: number): string {
   return c.messageId ?? `${c.ts ?? 0}:${c.kind}:${index}`
 }
 
+/** N9-4 feedback 回读：localStorage `ocrc.feedback` 按 entityId（卡片 messageId）
+ *  记 like/dislike，重建时带进 assistantText 行（vendor 行 schema 有 feedback 键，
+ *  悬停按钮的高亮态读它）。存取失败一律静默——不渲染、不谎报。 */
+function feedbackFor(entityId?: string): { feedback?: 'like' | 'dislike' } {
+  if (!entityId) return {}
+  try {
+    const all = JSON.parse(localStorage.getItem('ocrc.feedback') ?? '{}') as Record<string, string>
+    const v = all[entityId]
+    return v === 'like' || v === 'dislike' ? { feedback: v } : {}
+  } catch { return {} }
+}
+
 function buildRows(cards: OcrcCard[]): any[] {
   const rows: any[] = []
   let turn = 0
@@ -333,7 +345,7 @@ function buildRows(cards: OcrcCard[]): any[] {
       }
       for (const b of c.blocks) {
         if (b.type === 'text') {
-          rows.push({ ...base(ts, identity, `text-${textI++}`, c.messageId), kind: 'assistantText', text: b.text ?? '', state: 'complete', model: c.meta?.model })
+          rows.push({ ...base(ts, identity, `text-${textI++}`, c.messageId), kind: 'assistantText', text: b.text ?? '', state: 'complete', model: c.meta?.model, ...feedbackFor(c.messageId) })
         } else if (b.type === 'reasoning') {
           rows.push({ ...base(ts, identity, `reasoning-${reasoningI++}`, c.messageId), kind: 'reasoning', text: b.text ?? '', state: 'complete' })
         } else if (b.type === 'tool') {
@@ -1134,6 +1146,90 @@ export function createOcrcZcodeAgentService(): any {
         return res.ok
           ? { commandId: envelope.commandId, status: 'accepted', revisionAtDecision: 0 }
           : { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_delete_failed', message: `POST /api/sessions/:id/delete ${res.status}`, revisionAtDecision: 0 }
+      }
+      if (envelope.type === 'forkAssistant') {
+        // N9-4：引擎 POST /session/:id/fork 直通——新会话承载截断历史，vendor 收
+        // forkAssistant ACK 后自动切到新会话。原会话不动。
+        if (!sessionId) {
+          return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_bad_payload', message: 'forkAssistant 缺 sessionId', revisionAtDecision: 0 }
+        }
+        const target = (envelope.payload as { target?: { rowId?: number; entityId?: string } }).target
+        if (!target?.rowId || !target.entityId) {
+          return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_bad_payload', message: 'forkAssistant 需要 rowId+entityId', revisionAtDecision: 0 }
+        }
+        const res = await fetch(`/api/session/${sessionId}/fork`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+          body: JSON.stringify({ messageID: target.entityId }),
+        })
+        if (!res.ok) {
+          return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_fork_failed', message: `POST /api/session/:id/fork ${res.status}`, revisionAtDecision: 0 }
+        }
+        const created = (await res.json()) as { id: string }
+        return {
+          commandId: envelope.commandId,
+          status: 'accepted',
+          revisionAtDecision: 0,
+          result: { type: 'forkAssistant', sessionId: created.id },
+        }
+      }
+      if (envelope.type === 'editUserQuery') {
+        // N9-4：preserve 模式 = revert 到该用户消息（含）+ 原文重发（新 turn）。
+        // rewind（文件回退）没有 checkpoint 机制，如实拒绝；fork 分支不做（vendor
+        // 新客户端已不生成）。
+        if (!sessionId) {
+          return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_bad_payload', message: 'editUserQuery 缺 sessionId', revisionAtDecision: 0 }
+        }
+        const { target, newText, workspaceMode } = envelope.payload as { target?: { rowId?: number; entityId?: string }; newText?: string; workspaceMode?: string }
+        if (!target?.entityId || typeof newText !== 'string') {
+          return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_bad_payload', message: 'editUserQuery 需要 target.entityId + newText', revisionAtDecision: 0 }
+        }
+        if (workspaceMode === 'rewind') {
+          return {
+            commandId: envelope.commandId,
+            status: 'rejected',
+            reasonCode: 'ocrc_rewind_unsupported',
+            message: 'ocrc 没有 checkpoint/文件回退——preserve 模式可用（仅改写对话分支）',
+            revisionAtDecision: 0,
+          }
+        }
+        const rv = await fetch(`/api/session/${sessionId}/revert?messageID=${encodeURIComponent(target.entityId)}`, {
+          method: 'POST', headers: { Authorization: `Bearer ${token()}` },
+        })
+        if (!rv.ok) {
+          return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_revert_failed', message: `POST /revert ${rv.status}`, revisionAtDecision: 0 }
+        }
+        const mres = await fetch('/api/message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+          body: JSON.stringify({ sessionId, text: newText, clientId: envelope.commandId }),
+        })
+        if (!mres.ok) {
+          return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_send_failed', message: `POST /api/message ${mres.status}`, revisionAtDecision: 0 }
+        }
+        return {
+          commandId: envelope.commandId,
+          status: 'accepted',
+          revisionAtDecision: 0,
+          result: { type: 'editUserQuery', disposition: 'rewind', sessionId },
+        }
+      }
+      if (envelope.type === 'setAssistantFeedback') {
+        // N9-4：ocrc 引擎没有 feedback 面。按 entityId 本地持久（localStorage
+        // `ocrc.feedback`），row.feedback 回读由 buildSnapshot/diffRows 携带。
+        // 引擎侧语义（喂 RLHF）不存在——这一点如实写进文案，不假成功。
+        const { target, feedback } = envelope.payload as { target?: { entityId?: string }; feedback?: string | null }
+        if (!target?.entityId) {
+          return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_bad_payload', message: 'setAssistantFeedback 需要 target.entityId', revisionAtDecision: 0 }
+        }
+        try {
+          const key = 'ocrc.feedback'
+          const all = JSON.parse(localStorage.getItem(key) ?? '{}') as Record<string, string | null>
+          if (feedback === null) delete all[target.entityId]
+          else all[target.entityId] = String(feedback)
+          localStorage.setItem(key, JSON.stringify(all))
+        } catch { /* 存不了也不谎报成功 */ }
+        return { commandId: envelope.commandId, status: 'accepted', revisionAtDecision: 0 }
       }
       return {
         commandId: envelope.commandId,

@@ -253,6 +253,9 @@ export interface AgentBackend {
    *  unrevert restores the last revert. Returns the updated Session. */
   revertSession?(sessionId: string, messageId: string): Promise<{ id: string; revert?: { messageID: string } } | undefined>
   unrevertSession?(sessionId: string): Promise<{ id: string; revert?: { messageID: string } } | undefined>
+  /** Fork the session at messageID (or tail when omitted) into a new session —
+   *  POST /session/:id/fork, body {messageID?} → returns the new Session id. */
+  forkSession?(sessionId: string, messageId?: string): Promise<{ id: string } | undefined>
   /** Session-level info (revert state etc.) without message data. */
   getSessionRevert?(sessionId: string): Promise<{ reverted: boolean; messageID?: string } | undefined>
   // ── M10: interactive questions (present when capabilities.questions) ────────

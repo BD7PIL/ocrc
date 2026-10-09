@@ -372,7 +372,17 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
       const detail = err.data?.message ?? err.message ?? JSON.stringify(res.error).slice(0, 160)
       throw new Error(`engine history read failed: ${detail}`)
     }
-    const messages = (res.data ?? []) as any[]
+    let messages = (res.data ?? []) as any[]
+    // Revert cutoff (N9-4 editUserQuery): the engine keeps listing ALL messages
+    // even while a revert is active — its own UI truncates client-side at
+    // revert.messageID. ocrc must do the same or the "edited" tail stays
+    // visible after an edit. Cutoff = drop the cutoff message and everything
+    // after it (revert targets USER messages; time.created is the order key).
+    const revert = await getSessionRevert(id).catch(() => undefined)
+    if (revert?.reverted && revert.messageID) {
+      const cut = messages.findIndex((m) => (m.info ?? m)?.id === revert.messageID)
+      if (cut >= 0) messages = messages.slice(0, cut)
+    }
     return cardsFromMessages(id, messages, limit, offset)
   }
 
@@ -761,6 +771,22 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
   const revertSession = (sessionId: string, messageId: string) => revertOrUnrevert(sessionId, 'revert', messageId)
   const unrevertSession = (sessionId: string) => revertOrUnrevert(sessionId, 'unrevert')
 
+  async function forkSession(sessionId: string, messageId?: string): Promise<{ id: string } | undefined> {
+    try {
+      // Engine semantics: fork copies everything up to messageID (tail when
+      // omitted) into a NEW session and returns it — the original is untouched.
+      const res = await xfetch(`${baseUrl}/session/${encodeURIComponent(sessionId)}/fork`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(messageId ? { messageID: messageId } : {}),
+      })
+      if (!res.ok) { log.warn(`session fork HTTP ${res.status}`); return undefined }
+      const body = (await res.json()) as any
+      const id = String(body?.id ?? '')
+      return id ? { id } : undefined
+    } catch (err) { log.warn(`session fork failed`, (err as Error).message); return undefined }
+  }
+
   async function getSessionRevert(sessionId: string): Promise<{ reverted: boolean; messageID?: string } | undefined> {
     try {
       const res = await xfetch(`${baseUrl}/session/${encodeURIComponent(sessionId)}`)
@@ -783,7 +809,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     listWorktreeSandboxes, createWorktreeSandboxes, removeWorktreeSandboxes,
     getMessageRaw,
     ...(deps.remote ? {} : { getVcs, getVcsDiff }),
-    revertSession, unrevertSession, getSessionRevert,
+    revertSession, unrevertSession, forkSession, getSessionRevert,
     listQuestions, answerQuestion, rejectQuestion,
     listWorkspaces, listCommands, runCommand,
     resolvePermission,

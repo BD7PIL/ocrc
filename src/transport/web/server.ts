@@ -20,7 +20,7 @@ import { registerSessions } from './routes/sessions.js'
 import { registerSession } from './routes/session.js'
 import { registerMessage } from './routes/message.js'
 import { registerAbort } from './routes/abort.js'
-import { registerVcs, registerRevert } from './routes/vcs.js'
+import { registerVcs, registerRevert, registerFork } from './routes/vcs.js'
 import { registerTodo } from './routes/todo.js'
 import { registerControls } from './routes/controls.js'
 import { registerFiles } from './routes/files.js'
@@ -147,6 +147,7 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerAbort(app, reg, opts.state)
   registerVcs(app, reg)
   registerRevert(app, reg)
+  registerFork(app, reg)
   registerTodo(app, reg, opts.state)
   registerControls(app, reg, opts.state)
   registerFiles(app, reg, opts.state)

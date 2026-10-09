@@ -483,6 +483,54 @@ describe('createRelay', () => {
       expect(assistantCard.thinkingText).toBe('Let me think this through')
     })
 
+    it('accumulates reasoning deltas onto the reasoning block (regression: live thinking showed empty)', async () => {
+      const cardBus = createCardBus()
+      const cards: StructuredCard[] = []
+      cardBus.subscribeAll((c) => cards.push(c))
+
+      const state = fakeState()
+      state.getPinnedSessionId = () => 'ses_plugin'
+      const relay = createRelay({
+        cardBus,
+        backend: fakeBackend(),
+        state,
+        chatTimeoutMs: 5000,
+        tuiVisible: false,      })
+      await relay({ userId: '1', chatId: '100', text: 'test', messageId: 'p11' })
+
+      // The engine's real sequence for a thinking turn: a reasoning
+      // part.updated announces the part with EMPTY text, increments then ride
+      // message.part.delta keyed by that same partId, and a trailing
+      // part.updated carries the full text at the end.
+      await relay.handleEvent({
+        kind: 'part', sessionId: 'ses_plugin',
+        part: { id: 'r2', type: 'reasoning', text: '' },
+      })
+      await relay.handleEvent({ kind: 'delta', sessionId: 'ses_plugin', partId: 'r2', text: 'think ' })
+      await relay.handleEvent({ kind: 'delta', sessionId: 'ses_plugin', partId: 'r2', text: 'harder' })
+      await relay.handleEvent({
+        kind: 'part', sessionId: 'ses_plugin',
+        part: { id: 't11', type: 'text', text: 'done' },
+      })
+
+      // The delta branch used to hardcode type:'text', which replaced the
+      // reasoning block with a text block — live thinking became empty (and
+      // leaked into the answer body until the trailing full-text update).
+      await new Promise((r) => setTimeout(r, 1200))
+      const lastStream = cards.filter(c => c.kind === 'streaming').at(-1) as any
+      const reasoning = lastStream.blocks.find((b: any) => b.type === 'reasoning')
+      expect(reasoning).toBeDefined()
+      expect(reasoning.text).toBe('think harder')
+      expect(lastStream.blocks.filter((b: any) => b.type === 'text').map((b: any) => b.text)).toEqual(['done'])
+
+      await relay.handleEvent({ kind: 'idle', sessionId: 'ses_plugin' })
+      await new Promise((r) => setTimeout(r, 10))
+
+      const assistantCard = cards.find(c => c.kind === 'assistant') as any
+      expect(assistantCard.thinkingText).toBe('think harder')
+      expect(assistantCard.blocks.some((b: any) => b.type === 'reasoning')).toBe(false)
+    })
+
     it('publishes error card when session.error fires', async () => {
       const cardBus = createCardBus()
       const cards: StructuredCard[] = []

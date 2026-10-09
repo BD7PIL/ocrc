@@ -113,6 +113,12 @@ interface PluginSessionCtx {
   assistantMessageId?: string
   /** partId → owning message id: lets a late role announcement retract parts. */
   partMsgIds: Map<string, string>
+  /** partId → part type ('text' | 'tool' | 'reasoning' | …). Reasoning text
+   *  streams as `message.part.delta` against the reasoning part's id; without
+   *  this table the delta branch plants those increments on a text block and
+   *  the live reasoning block stays empty (final cards only looked right
+   *  because the trailing full-text part.updated overwrote it). */
+  partTypes: Map<string, string>
   /** Last rendered block list (mutated in place when roles retract user parts). */
   blocks: ContentBlock[]
   assistantConfirmed: boolean
@@ -290,6 +296,7 @@ const messageRoles = new Map<string, Map<string, string>>()
         processedPartIds: new Set(),
         partTextAcc: new Map(),
         partMsgIds: new Map(),
+        partTypes: new Map(),
         pendingDelta: new Map(),
         blocks: [],
         assistantConfirmed: false,
@@ -500,6 +507,7 @@ const messageRoles = new Map<string, Map<string, string>>()
         processedPartIds: new Set(),
         partTextAcc: new Map(),
         partMsgIds: new Map(),
+        partTypes: new Map(),
         pendingDelta: new Map(),
         blocks: [],
         assistantConfirmed: false,
@@ -526,6 +534,9 @@ const messageRoles = new Map<string, Map<string, string>>()
       const part = e.part
       const isNewPart = !ctx.processedPartIds.has(part.id)
       if (isNewPart) ctx.processedPartIds.add(part.id)
+      // Remember what this partId IS: later deltas arrive keyed by partId only,
+      // and reasoning deltas must land on a reasoning block, not a text block.
+      if (part.type) ctx.partTypes.set(part.id, part.type)
       const input: PartInput = { id: part.id, type: part.type, text: part.text, tool: part.tool, args: part.args, status: part.status }
       const blocks = ctx.acc.update([input])
       ctx.blocks = blocks
@@ -558,7 +569,13 @@ const messageRoles = new Map<string, Map<string, string>>()
       const fullText = prev + e.text
       ctx.partTextAcc.set(e.partId, fullText)
       if (!ctx.signal.aborted) {
-        ctx.blocks = ctx.acc.update([{ id: e.partId, type: 'text', text: fullText }])
+        // Reasoning deltas share this path with text deltas — the part's type
+        // (recorded when its part.updated arrived) decides which block the
+        // accumulated text lands on. Hardcoding 'text' here used to swallow
+        // live thinking into the answer body and leave the reasoning block
+        // empty until the final part.updated rewrote it.
+        const blockType = ctx.partTypes.get(e.partId) === 'reasoning' ? 'reasoning' as const : 'text' as const
+        ctx.blocks = ctx.acc.update([{ id: e.partId, type: blockType, text: fullText }])
         publishStreaming(ctx)
       }
       if (!ctx.assistantMessageId && e.messageId) ctx.assistantMessageId = e.messageId

@@ -85,14 +85,16 @@
   零拷贝链路把句柄原样放进 sendText.attachments[].ref → 发送时解析回字节转成
   /api/message 的 images[]。上传家族（attachmentBeginV4/ChunkV4/CommitV4/AbortV4/ReadV4）
   同步做真（内存暂存 + ocrc-att:// 引用），target 未注册的竞态窗口也能走通。
-  **这个设计特意绕开了 crypto.subtle**：零拷贝路径不算校验和，局域网 http 源（非安全上下文）
-  上附件照常可用——vendor 的上传事务在那种源上第一步就会抛 checksumUnavailable（未打补丁，
-  非零拷贝路径如拖放大文件仍受此限，见下）。非图片附件如实拒绝（ocrc 发送通道仅支持图片）。
-  实证（隔离栈 4199，CDP 拦截文件选择器塞真 PNG）：芯片就绪无重试、POST /api/message 带
-  images[]（base64 与塞入文件一致）、引擎收到图（免费模型不支持视觉属模型能力，非管线）。
-- 🔶 拖放大文件路径仍受 vendor 校验和限制：拖放 → addAttachmentFiles(file) 无 localPath 时走
-  serialize+V4 上传 → checksum 用 crypto.subtle → 非安全上下文抛 checksumUnavailable。
-  若要解锁需最小 vendor 补丁（纯 JS sha256 回退，登记 PATCHES.md）——待产品裁决。
+  **这个设计特意绕开了 crypto.subtle**：零拷贝路径不算校验和。而 N8-4 已把唯一剩下的
+  受限路径也解锁——纯 JS SHA-256 回退（vendor 补丁 #4，PATCHES.md）：非安全上下文下
+  checksum() 不再抛 checksumUnavailable，返回格式不变。非图片附件如实拒绝（ocrc 发送
+  通道仅支持图片）。实证（隔离栈 4199，CDP 拦截文件选择器塞真 PNG）：芯片就绪无重试、
+  POST /api/message 带 images[]（base64 与塞入文件一致）、引擎收到图（免费模型不支持
+  视觉属模型能力，非管线）。
+- ✅ 拖放/粘贴大文件路径（N8-4 解锁）：无 localPath 的附件走 serialize+V4 上传，
+  checksum 在非安全上下文回退纯 JS SHA-256。E2E：LAN http 源（192.168.22.202:4199，
+  crypto.subtle 缺失）真实拖放 PNG → 无报错 → POST /api/message images[] → 引擎
+  落 file:image/png part（2026-10-09）。12 条单测对照 node crypto（padding 边界全覆盖）。
 - ⬜ 停止生成
 - 🔶 **性能：/z/ 整体卡顿**（2026-10-08 用户实测「几乎无法使用」，已决定立项整改）。已观察证据：
   loopback 28.8MB/6s、热路径全量重建+全量对比（每事件 O(N)）、工具卡回取、getView 双请求风暴。
@@ -241,8 +243,18 @@
 - ✅ 设置主视图渲染（基础设置/常规/外观/模型设置/浏览器控制/键盘快捷键/Agent 能力/记忆 全分区）
 - ✅ settingService：appSettings 完整默认 + ocrc /api/settings 只读透传（形状有意不合并）
 - ⬜ 设置字段语义级对齐 ocrc（可写回项——N4+）
-- ⬜ MCP 管理（mcpSyncService）
-- ⬜ 技能管理（skillsService）
+- ✅ MCP 管理（N8-3 接上写侧）：用户级 upsert/delete/set-enabled → host 结构化 patch
+  （全局 opencode.json，备份+原子写+引擎启动同款校验），project 级走既有项目路由；
+  platform（本地 workspace 实际命中点）与 mcpSyncService（identity 路径）共用 mcpWrite.ts。
+  列表并上「已写、引擎未重载」的全局条目（source=user，disabled 如实标注）——opencode
+  不热重载配置，不并则写入看起来"没保存"。假成功根除：此前 platform 桩返回失败又被
+  vendor store 的 .catch(logger.warn) 吞掉。E2E：写入落盘+备份、非法条目如实拒绝、
+  删除、引擎重启后 /api/mcp 可见（隔离栈）。
+- 🔶 技能管理（skillsService）：list + setEnabled（symlink 启停）真实现；copyToCommon/
+  removeFromCommon/deleteSkill 如实拒绝——ocrc 的技能生效模型是"源目录 + symlink"，
+  没有 `.zcode/skills` 通用目录，删除动用户源文件不属于面板（文案见 skillsService.ts）。
+  UI 上唯一会露出的拒绝是 deleteSkill（SkillsSection 错误横幅）。这个拒绝是**对的**，
+  维持现状。
 - ⬜ 插件面（pluginsService——ocrc 无对应，占位说明）
 
 ## 9. 通道与自动化（N4）
@@ -280,8 +292,14 @@
 - ✅ zai 双主题（暗/亮切换）
 - ✅ 字阶 + 圆角 + 滚动条 + 焦点策略（styles.css 原生）
 - ✅ 错误边界（App + Scoped）
-- ⬜ 移动端适配（断点/安全区）
-- ⬜ i18n 切换（zh-CN 已定）
+- 🔶 移动端适配（N8-7 最小壳层适配）：安全区消费（.zcode-shell-root 接 env(safe-area-inset-*)，
+  index.html 的 viewport-fit=cover 此前没人用）+ 触屏指针下可编辑控件 16px（修 iOS 聚焦
+  整页缩放；composer 用 text-ui-base=14px）。iPhone 模拟实测两项生效、390px 可用。
+  **更大布局改造（初始收起侧栏等）需改 vendor WorkspaceShellLayout，遵 D4 裁决不做**。
+- ✅ i18n 切换（N8-5 核实——此前勾"未做"是误记）：vendor 自带 zh-CN/en-US 全套
+  （5874/5875 条）+ 两处切换入口（侧栏头像菜单、设置→General），localStorage
+  （zcode-locale-preference）持久。ocrc 侧自研 service 的硬编码中文错误串在英文模式下
+  会中英混排（如实记录，不阻塞）。
 - ⬜ 性能预算（8.4k 模块分包/懒加载审查）
 
 ## 12. 退役与 rc.3 执行清单（验收通过后按序执行）

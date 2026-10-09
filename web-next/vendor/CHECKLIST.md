@@ -215,6 +215,12 @@
   路径一律经 containment 校验（safeResolve，符号链接感知）。`.zcodeignore` 不适用：
   读接口给说明模板、写接口如实拒绝（ocrc 的文件索引由 host 内置规则决定，不写一个
   没人读的文件假装生效）。
+- ✅ 后台 bash 输出页（N8 D2 实证）：ocrc 没有"后台任务"概念——**运行中的 bash 工具
+  调用就是它**。snapshot 的 `backgroundWorks` 投影 running 的 bash 行（workId 编码
+  `ocrc-tool:<messageId>:<partId>`），`backgroundBashOutputV4` 按编码回取该 part 的
+  `state.output`（8KB 上限截断，`outputPath` 用 `ocrc://tool-output/…` URI——ocrc 没有
+  输出文件，不编造盘上路径）。状态面板「终端 · 1 后台」→ 点开 → 输出页实时显示
+  （隔离栈实测：sleep 90 运行中点开，完成后输出 `d2-live-output-done`）。
 - ⬜ 工具输出页（messageRaw）：**N8-5 核实——vendor 没有通用"工具输出页"**。右侧面板族里
   与工具输出相关的只有 `bash-output`（后台 bash 任务输出，入口在状态面板的**运行中**
   后台任务行，数据模型是 workId，ocrc 无对应概念）。行内富化输出（N6 批次 2B）已覆盖

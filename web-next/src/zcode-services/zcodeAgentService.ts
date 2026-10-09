@@ -141,6 +141,31 @@ async function listSessionSubagents(params: { sessionId?: string; endedLimit?: n
   }
 }
 
+/** 运行中的 bash 工具行 → 后台任务条目（vendor 的 bash-output 面板入口，D2）。
+ *  ocrc 没有独立的"后台任务"概念：**运行中的 bash 调用就是它**。只投影 running
+ *  （语义与 vendor 的 status 枚举一致；已结束的输出仍走行内富化展示）。
+ *  workId 编码 (messageId, partId)，backgroundBashOutputV4 靠它回取该 part 的输出。 */
+function collectBackgroundWorks(rows: any[]): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = []
+  for (const r of rows) {
+    if (r?.kind !== 'toolCall' || r.status !== 'running') continue
+    if (!/^(bash|shell|terminal)$/i.test(String(r.toolName ?? ''))) continue
+    const messageId = String(r.__messageId ?? '')
+    const partId = String(r.__partId ?? '')
+    if (!messageId || !partId) continue
+    out.push({
+      workId: `ocrc-tool:${messageId}:${partId}`,
+      kind: 'bash',
+      title: String(r.inputText || r.toolName || 'bash').slice(0, 120) || 'bash',
+      status: 'running',
+      startedAt: Number(r.createdAtSeq ?? r.createdAt ?? Date.now()),
+      cancellable: false,
+      anchorRowId: Number(r.rowId) || null,
+    })
+  }
+  return out
+}
+
 /** 单条工具输出进浏览器的上限（ZCode schema 上限 150k；行要参与 diff，
  *  太大每次重建都做整串比较）。 */
 const MAX_TOOL_OUTPUT_CHARS = 50_000
@@ -363,6 +388,9 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
     subagents ? `children=${subagents.childSessionIds.length} running=${subagents.running.length} ended=${subagents.endedTotal}` : '(none)',
   )
   const rows = buildRows(cards)
+  // 必须在 enrichToolRows 之前收集：富化结束时会把 __messageId/__partId 删掉
+  // （那是行内实现细节），而 backgroundWorks 的 workId 正需要它们。
+  const backgroundWorks = collectBackgroundWorks(rows)
   await enrichToolRows(rows, taskId)
   const seq = rows.length
   const snapshot = {
@@ -397,7 +425,7 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
     queue: { items: [], autoDrain: true },
     pendingInteractions: [],
     pendingCommands: [],
-    backgroundWorks: [],
+    backgroundWorks,
     // meta.title：schema 默认值是空串，而空串不走 `??` 回退 —— 分享标题取
     // snapshot.meta.title，缺它就恒为空 → 「生成分享链接」永久禁用（隔离栈实测根因）。
     meta: { title: sessionTitle || 'ocrc 会话', titleSource: sessionTitle ? 'generated' as const : 'default' as const },
@@ -722,6 +750,39 @@ export function createOcrcZcodeAgentService(): any {
     // 目录页 ended 段显示「无法加载子智能体目录」。
     async listSessionSubagents(params: { sessionId?: string; endedLimit?: number; endedCursor?: string }) {
       return listSessionSubagents(params)
+    },
+    // 后台 bash 输出页（D2）：workId 由 snapshot 的 backgroundWorks 编码
+    // （ocrc-tool:<messageId>:<partId>），回取该工具 part 的 state.output。
+    // vendor 的 schema 要求 outputPath —— ocrc 没有输出文件，这里给 URI 而不是
+    // 编造一个盘上路径（面板只把它当标题显示）。
+    async backgroundBashOutputV4(params: { sessionId?: string; workId?: string }) {
+      const workId = String(params?.workId ?? '')
+      const matched = workId.match(/^ocrc-tool:([^:]+):(.+)$/)
+      const sessionId = String(params?.sessionId ?? '')
+      if (!matched || !sessionId) return { kind: 'unsupported' as const, workId }
+      const [, messageId, partId] = matched
+      const res = await fetch(
+        `/api/session/${encodeURIComponent(sessionId)}/message/${encodeURIComponent(messageId)}`,
+        { headers: { Authorization: `Bearer ${token()}` } },
+      )
+      if (!res.ok) return { kind: 'read_failed' as const, workId }
+      const raw = (await res.json()) as { parts?: Array<{ id?: string; type?: string; state?: { status?: string; output?: unknown } }> }
+      const part = (raw.parts ?? []).find((p) => p.id === partId)
+      if (!part) return { kind: 'unavailable' as const, workId }
+      const text = typeof part.state?.output === 'string' ? part.state.output : ''
+      const max = 8192 // BACKGROUND_BASH_OUTPUT_MAX_BYTES
+      const truncated = text.length > max
+      const status = part.state?.status === 'error' ? ('failed' as const)
+        : part.state?.status === 'completed' ? ('completed' as const)
+          : ('running' as const)
+      return {
+        kind: 'output' as const,
+        workId,
+        status,
+        output: truncated ? text.slice(0, max) : text,
+        truncated,
+        outputPath: `ocrc://tool-output/${partId}`,
+      }
     },
     // ── V4 附件上传家族（N7-1）：内存暂存，commit 后以 ocrc-att:// 引用发给 sendText ──
     // 校验和只用于服务端去重；ocrc 是单进程内存暂存，不做跨上传去重，直接收。

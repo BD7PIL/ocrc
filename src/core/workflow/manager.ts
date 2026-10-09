@@ -11,6 +11,7 @@ import {
   type AskSpec,
   type Caps,
   type RunRecord,
+  type RunEvent,
   type RunSettlement,
   type StoredEvent,
 } from '../../../vendor/zcode-dwf/dist/dynamic-workflow/src/index.js'
@@ -106,13 +107,20 @@ export interface WorkflowManagerDeps {
   journal: WorkflowJournal
   world: WorldReader
   artifacts: ArtifactStore
-  /** Emitted for every Boundary C event (journal already holds it). */
-  onEvent?: (runId: string, event: StoredEvent) => void
+  /**
+   * Boundary C fan-out. The engine has ALREADY journaled the event before calling
+   * `driver.emit` (engine.ts: "每个事件既落 journal（dwf_event，持久）又经
+   * driver.emit 扇出"), so this hook must never append again — it is the live
+   * notification path, not a second writer.
+   */
+  onEvent?: (runId: string, event: RunEvent) => void
   /** Run reached a terminal state (notifications). */
   onSettled?: (record: RunRecord, settlement: RunSettlement) => void
   /** Approve a `world.run` command (the host's policy gate). */
   approveRun?: (runId: string, cmd: string, args: string[]) => Promise<boolean> | boolean
   personaPrelude?: string
+  /** Token/tool accounting for an actor session (drives the budget gate). */
+  readStats?: (sessionId: string) => Promise<import('../../../vendor/zcode-dwf/dist/dynamic-workflow/src/index.js').AskStats | undefined>
   /** Test seams. */
   runScript?: typeof runWorkflowScript
   now?: () => number
@@ -180,9 +188,12 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
     tokenBudget?: number
   }): Promise<void> {
     const abort = new AbortController()
-    let handle: WorkflowDriverHandle | undefined
+    // The engine hands us its report sink only when it constructs the driver
+    // (`makeDriver(sink)`), which happens after this entry exists — so the entry
+    // is created first and the driver is filled in by the factory below.
+    const entry: Live = { abort, driver: undefined as unknown as WorkflowDriverHandle }
     const makeDriver = (sink: import('../../../vendor/zcode-dwf/dist/dynamic-workflow/src/index.js').WorkflowReportSink) => {
-      handle = createWorkflowDriver({
+      const driver = createWorkflowDriver({
         runId: input.runId,
         registry: deps.registry,
         journal: deps.journal,
@@ -192,12 +203,13 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
         cwd: input.cwd,
         ...(input.actorModel ? { actorModel: input.actorModel } : {}),
         ...(deps.personaPrelude ? { personaPrelude: deps.personaPrelude } : {}),
+        ...(deps.readStats ? { readStats: deps.readStats } : {}),
+        maxConcurrency: input.caps.maxConcurrency,
         onActorSession: (sessionId, actor, name) => {
           log.info(`run ${input.runId.slice(-8)} actor ${name ?? `${actor.siteId}#${actor.ordinal}`} → session ${sessionId.slice(-8)}`)
         },
         emitEvent: (event) => {
-          const stored = deps.journal.appendEvent(input.runId, event)
-          deps.onEvent?.(input.runId, stored)
+          deps.onEvent?.(input.runId, event)
           // Token budget gate. It hangs off the engine's own usage event so the
           // accounting has exactly one source (the driver's askStats → the engine's
           // running total), and it stops the run the moment the ceiling is crossed
@@ -208,10 +220,10 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
           }
         },
       })
-      return handle
+      entry.driver = driver
+      return driver
     }
 
-    const entry: Live = { abort, driver: handle as unknown as WorkflowDriverHandle }
     live.set(input.runId, entry)
 
     const settlement = await runScript({
@@ -225,10 +237,6 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
       validate: (schema, value) => validate(schema as never, value),
       signal: abort.signal,
     })
-    // The driver is created inside makeDriver, which the harness always calls
-    // before running — so `handle` is set by here.
-    if (handle) entry.driver = handle
-
     live.delete(input.runId)
     const record = deps.journal.getRun(input.runId)
     if (record) deps.onSettled?.(record, settlement)

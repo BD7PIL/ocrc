@@ -26,7 +26,7 @@ import {
 export interface ArtifactStoreDeps {
   /** Directory holding per-run artifact directories — normally `<ocrcHome>/workflows`. */
   dir: string
-  /** Workspace root; `file` sources resolve against it and may not escape it. */
+  /** Default workspace root; each publish may override it (a run carries its own). */
   cwd: string
   now?: () => number
 }
@@ -48,7 +48,8 @@ interface IndexEntry {
 type RunIndex = Record<string, IndexEntry>
 
 export interface ArtifactStore {
-  publish(request: ArtifactPublishRequest): Promise<ArtifactVersionRecord>
+  /** `cwd` overrides the store's default root — the run's workspace. */
+  publish(request: ArtifactPublishRequest, cwd?: string): Promise<ArtifactVersionRecord>
   /** Read back one published version (the byte endpoint). */
   readVersion(runId: string, id: string, version: number): ArtifactByte | undefined
   /** Where a version's bytes live (diagnostics). */
@@ -139,7 +140,8 @@ export function createArtifactStore(deps: ArtifactStoreDeps): ArtifactStore {
         .sort((a, b) => a.id.localeCompare(b.id) || a.version - b.version)
     },
 
-    async publish(request) {
+    async publish(request, cwdOverride) {
+      const cwd = cwdOverride ?? deps.cwd
       const { runId, id, version, op } = request
       if (!/^[A-Za-z0-9_.-]+$/.test(id) || id.length > ARTIFACT_CAPS.maxIdLength) {
         fail('DriverError', `artifact id must match [A-Za-z0-9_.-]{1,${ARTIFACT_CAPS.maxIdLength}}, got "${id}"`)
@@ -157,8 +159,8 @@ export function createArtifactStore(deps: ArtifactStoreDeps): ArtifactStore {
       if (op === 'file') {
         const rel = request.path
         if (typeof rel !== 'string' || !rel) fail('DriverError', 'artifact.file requires a path')
-        const abs = isAbsolute(rel) ? normalize(rel) : normalize(join(deps.cwd, rel))
-        const inside = relative(deps.cwd, abs)
+        const abs = isAbsolute(rel) ? normalize(rel) : normalize(join(cwd, rel))
+        const inside = relative(cwd, abs)
         if (inside === '' || inside.startsWith('..') || isAbsolute(inside)) {
           fail('ArtifactPathOutsideWorkspace', `artifact.file path escapes the workspace: ${rel}`)
         }

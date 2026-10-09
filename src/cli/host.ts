@@ -237,6 +237,17 @@ export async function main(): Promise<void> {
         },
       }),
       artifacts: workflowArtifacts,
+      // Token accounting for the budget gate: the engine's own per-session
+      // counters, summed for the actor session. Same source the panel shows, so
+      // "over budget" means the same thing in both places.
+      readStats: async (sessionId) => {
+        try {
+          const meta = await registry.forSession(sessionId).getSessionMeta(sessionId)
+          const tokens = meta?.tokens
+          if (!tokens) return undefined
+          return { tokens: (tokens.input ?? 0) + (tokens.output ?? 0), toolCalls: 0, turns: 1 }
+        } catch { return undefined }
+      },
       onEvent: () => { /* P4 projects these into the UI */ },
       onSettled: (record, settlement) => {
         const body = settlement.status === 'completed'

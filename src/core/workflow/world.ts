@@ -20,7 +20,7 @@ import { WORLD_READ_CAPS, WorkflowError, type WorldReadOp } from '../../../vendo
  */
 
 export interface WorldReadDeps {
-  /** Workspace root — every path is resolved and confined against it. */
+  /** Default workspace root; each call may override it (a run carries its own). */
   cwd: string
   /**
    * Approval gate for `world.run`. Returns false to refuse. Absent = allow (the
@@ -56,10 +56,10 @@ function safeJoin(cwd: string, p: string): string {
 const relOf = (cwd: string, abs: string) => relative(cwd, abs).split(sep).join('/')
 
 /** Run a git command in the workspace, returning stdout (utf-8). */
-function git(deps: WorldReadDeps, args: string[], maxBytes: number): Promise<string> {
+function git(deps: WorldReadDeps, cwd: string, args: string[], maxBytes: number): Promise<string> {
   const exec = deps.execFileImpl ?? execFile
   return new Promise<string>((resolve, reject) => {
-    exec('git', args, { cwd: deps.cwd, maxBuffer: maxBytes + 64 * 1024, encoding: 'utf-8' }, (err, stdout) => {
+    exec('git', args, { cwd, maxBuffer: maxBytes + 64 * 1024, encoding: 'utf-8' }, (err, stdout) => {
       if (err) { reject(new WorkflowError('DriverError', `git ${args.join(' ')} failed: ${err.message}`)); return }
       resolve(String(stdout ?? ''))
     })
@@ -96,7 +96,8 @@ function walk(dir: string, cwd: string, out: string[], limit: number): void {
 const readdirSafe = (dir: string): string[] => readdirSync(dir)
 
 export interface WorldReader {
-  read(op: WorldReadOp, args: unknown[]): Promise<unknown>
+  /** `cwd` overrides the reader's default root — the run's workspace. */
+  read(op: WorldReadOp, args: unknown[], cwd?: string): Promise<unknown>
 }
 
 export function createWorldReader(deps: WorldReadDeps): WorldReader {
@@ -107,20 +108,21 @@ export function createWorldReader(deps: WorldReadDeps): WorldReader {
   }
 
   return {
-    async read(op, args) {
+    async read(op, args, cwdOverride) {
+      const cwd = cwdOverride ?? deps.cwd
       switch (op) {
         case 'glob': {
           const pattern = str(args[0], op, 'pattern')
           const re = globToRegExp(pattern)
           const all: string[] = []
-          walk(deps.cwd, deps.cwd, all, caps.globMaxFiles)
+          walk(cwd, cwd, all, caps.globMaxFiles)
           const matches = all.filter((p) => re.test(p)).sort()
           if (matches.length > caps.globMaxFiles) throw capExceeded(op, `${matches.length} files > ${caps.globMaxFiles}`)
           return matches
         }
 
         case 'read': {
-          const abs = safeJoin(deps.cwd, str(args[0], op, 'path'))
+          const abs = safeJoin(cwd, str(args[0], op, 'path'))
           let st
           try { st = statSync(abs) } catch { throw driverError(op, `no such file: ${String(args[0])}`) }
           if (st.isDirectory()) throw badArgs(op, `${args[0]} is a directory`)
@@ -133,12 +135,12 @@ export function createWorldReader(deps: WorldReadDeps): WorldReader {
           const re = new RegExp(pattern)
           const fileRe = glob ? globToRegExp(glob) : undefined
           const all: string[] = []
-          walk(deps.cwd, deps.cwd, all, 20_000)
+          walk(cwd, cwd, all, 20_000)
           const matches: Array<{ path: string; line: number; text: string }> = []
           for (const rel of all) {
             if (fileRe && !fileRe.test(rel)) continue
             let text: string
-            try { text = readFileSync(join(deps.cwd, rel), 'utf-8') } catch { continue }
+            try { text = readFileSync(join(cwd, rel), 'utf-8') } catch { continue }
             const lines = text.split('\n')
             for (let i = 0; i < lines.length; i++) {
               if (!re.test(lines[i])) continue
@@ -157,8 +159,8 @@ export function createWorldReader(deps: WorldReadDeps): WorldReader {
         case 'git-changed-files': {
           const base = args[0] === undefined ? undefined : str(args[0], op, 'base')
           const out = base
-            ? await git(deps, ['diff', '--name-only', base], caps.gitDiffMaxBytes)
-            : await git(deps, ['status', '--porcelain'], caps.gitDiffMaxBytes)
+            ? await git(deps, cwd, ['diff', '--name-only', base], caps.gitDiffMaxBytes)
+            : await git(deps, cwd, ['status', '--porcelain'], caps.gitDiffMaxBytes)
           return out.split('\n')
             .map((l) => (base ? l : l.slice(3)).trim())
             .filter(Boolean)
@@ -168,7 +170,7 @@ export function createWorldReader(deps: WorldReadDeps): WorldReader {
           const base = args[0] === undefined ? undefined : str(args[0], op, 'base')
           const path = args[1] === undefined ? undefined : str(args[1], op, 'path')
           const argv = ['diff', ...(base ? [base] : []), ...(path ? ['--', path] : [])]
-          const out = await git(deps, argv, caps.gitDiffMaxBytes)
+          const out = await git(deps, cwd, argv, caps.gitDiffMaxBytes)
           if (Buffer.byteLength(out, 'utf-8') > caps.gitDiffMaxBytes) {
             throw capExceeded(op, `diff exceeded ${caps.gitDiffMaxBytes} bytes`)
           }
@@ -176,7 +178,7 @@ export function createWorldReader(deps: WorldReadDeps): WorldReader {
         }
 
         case 'git-status': {
-          const out = await git(deps, ['status', '--porcelain=v1', '--branch'], caps.gitDiffMaxBytes)
+          const out = await git(deps, cwd, ['status', '--porcelain=v1', '--branch'], caps.gitDiffMaxBytes)
           const lines = out.split('\n').filter(Boolean)
           const branchLine = lines.find((l) => l.startsWith('## '))
           const branch = branchLine?.slice(3).split('...')[0]?.trim()
@@ -201,7 +203,7 @@ export function createWorldReader(deps: WorldReadDeps): WorldReader {
           const count = args[0] === undefined ? caps.gitLogDefaultCount : Number(args[0])
           if (!Number.isFinite(count) || count < 1) throw badArgs(op, `count must be a positive number, got ${String(args[0])}`)
           if (count > caps.gitLogMaxCount) throw capExceeded(op, `count ${count} > ${caps.gitLogMaxCount}`)
-          const out = await git(deps, ['log', `-n${Math.floor(count)}`, '--pretty=format:%H%x1f%s%x1f%an%x1f%aI'], caps.gitDiffMaxBytes)
+          const out = await git(deps, cwd, ['log', `-n${Math.floor(count)}`, '--pretty=format:%H%x1f%s%x1f%an%x1f%aI'], caps.gitDiffMaxBytes)
           return out.split('\n').filter(Boolean).map((l) => {
             const [hash, subject, author, date] = l.split('\x1f')
             return { hash, subject, author, date }
@@ -226,7 +228,7 @@ export function createWorldReader(deps: WorldReadDeps): WorldReader {
           const exec = deps.execFileImpl ?? execFile
           return await new Promise((resolve, reject) => {
             exec(cmd, argv as string[], {
-              cwd: deps.cwd,
+              cwd,
               timeout: timeoutMs,
               maxBuffer: caps.runStdoutMaxBytes + caps.runStderrMaxBytes + 64 * 1024,
               encoding: 'utf-8',

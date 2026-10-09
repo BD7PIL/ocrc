@@ -61,6 +61,8 @@ export interface WorkflowDriverDeps {
   cwd: string
   /** Per-run actor model; absent = the session's own default. */
   actorModel?: ActorModel
+  /** The run's model-slot ceiling (caps.maxConcurrency). */
+  maxConcurrency?: number
   /** Extra system text prepended to every actor's persona (the workflow skill). */
   personaPrelude?: string
   /** Register a freshly minted actor session (host bookkeeping + UI tagging). */
@@ -74,6 +76,8 @@ export interface WorkflowDriverDeps {
 }
 
 export interface WorkflowDriverHandle extends WorkflowDriver {
+  /** The engine changes the run's cap at runtime (AmendWorkflow settings). */
+  setMaxConcurrency(n: number): void
   /** The host calls this when a session's turn ends (see the module doc). */
   notifyTurnEnd(sessionId: string): Promise<void>
   /**
@@ -91,6 +95,10 @@ interface InFlight {
   typed: boolean
   schema?: unknown
   nudged: boolean
+  /** Whether this ask currently holds a model slot. */
+  admitted: boolean
+  /** The prompt to send once a slot frees. */
+  pending?: { text: string; what: string }
 }
 
 /** Compose the prompt for one ask: persona, instructions, and — for typed asks —
@@ -128,6 +136,16 @@ export function createWorkflowDriver(deps: WorkflowDriverDeps): WorkflowDriverHa
 
   const backend = () => deps.registry.active()
 
+  // ── run-level seat gate ────────────────────────────────────────────────────
+  // The engine journals `caps.maxConcurrency` but does not enforce it: admission
+  // is the driver's side (the core is a pure state machine with no notion of a
+  // running model request). So the run's concurrency ceiling lives here, and the
+  // contract's vocabulary is what reports it: a queued ask is `askWaiting` with
+  // cause 'slot', a started one is `askExecuting`.
+  let cap = Math.max(1, deps.maxConcurrency ?? 4)
+  let inFlight = 0
+  const queue: InFlight[] = []
+
   async function finalText(sessionId: string): Promise<string> {
     if (deps.readFinalText) {
       try { return await deps.readFinalText(sessionId) } catch { /* fall through */ }
@@ -146,15 +164,53 @@ export function createWorkflowDriver(deps: WorkflowDriverDeps): WorkflowDriverHa
     return ''
   }
 
-  function send(sessionId: string, text: string, what: string): void {
+  function send(sessionId: string, text: string, what: string, entry: InFlight): void {
     void backend()
       .prompt(sessionId, { text, ...(deps.actorModel ? { model: deps.actorModel } : {}) })
-      .catch((err) => log.error(`${what} dispatch failed for ${sessionId.slice(-8)}`, err as Error))
+      .catch((err) => {
+        log.error(`${what} dispatch failed for ${sessionId.slice(-8)}`, err as Error)
+        // A prompt that never started must not hold a seat forever.
+        if (entry.admitted) releaseSlot()
+        forget(entry)
+        deps.sink.askFailed(entry.instance, {
+          name: 'WorkflowError', code: 'DriverError',
+          message: `actor session prompt failed: ${(err as Error).message}`,
+        } as never)
+      })
   }
 
   function forget(entry: InFlight): void {
     bySession.delete(entry.sessionId)
     byInstance.delete(instanceKey(entry.instance))
+  }
+
+  /** Hand a slot to the next queued ask, if any. */
+  function releaseSlot(): void {
+    inFlight = Math.max(0, inFlight - 1)
+    while (inFlight < cap && queue.length > 0) {
+      const next = queue.shift()!
+      startNow(next)
+    }
+  }
+
+  function startNow(entry: InFlight): void {
+    inFlight += 1
+    entry.admitted = true
+    const pending = entry.pending
+    entry.pending = undefined
+    if (!pending) return
+    deps.sink.askExecuting(entry.instance)
+    send(entry.sessionId, pending.text, pending.what, entry)
+  }
+
+  /** Admit or queue an ask, depending on the run's free seats. */
+  function admit(entry: InFlight, text: string, what: string): void {
+    entry.pending = { text, what }
+    if (inFlight < cap) { startNow(entry); return }
+    // The ask is live but has no model slot: report the wait the way the vendored
+    // contract expects (cause 'slot'), then park it.
+    queue.push(entry)
+    deps.sink.askWaiting(entry.instance, { cause: 'slot' })
   }
 
   return {
@@ -197,13 +253,13 @@ export function createWorkflowDriver(deps: WorkflowDriverDeps): WorkflowDriverHa
       const entry: InFlight = {
         instance, sessionId: session.id, typed: message.typed,
         ...(message.typed ? { schema: message.schema } : {}),
-        nudged: false,
+        nudged: false, admitted: false,
       }
       bySession.set(session.id, entry)
       byInstance.set(instanceKey(instance), entry)
 
       const persona = deps.journal.getActor(deps.runId, instance.siteId, instance.ordinal)?.persona ?? {}
-      send(session.id, buildAskPrompt(message, persona, deps.personaPrelude), 'ask')
+      admit(entry, buildAskPrompt(message, persona, deps.personaPrelude), 'ask')
     },
 
     respondToSubmit(instance, verdict: SubmitVerdict) {
@@ -214,7 +270,12 @@ export function createWorkflowDriver(deps: WorkflowDriverDeps): WorkflowDriverHa
         // another turn. `nudged` guards against looping if the model ignores us.
         if (entry.nudged) return
         entry.nudged = true
-        send(entry.sessionId, buildNudgePrompt(entry.schema), 'nudge')
+        admit(entry, buildNudgePrompt(entry.schema), 'nudge')
+        return
+      }
+      if (verdict.kind === 'accept') {
+        // The node is settled; free its seat for the next queued ask.
+        if (entry.admitted) releaseSlot()
         return
       }
       if (verdict.kind === 'reject') {
@@ -225,23 +286,40 @@ export function createWorkflowDriver(deps: WorkflowDriverDeps): WorkflowDriverHa
         const violations = verdict.violations
           .map((v) => `${v.path}: expected ${v.expected}, got ${v.got}`)
           .join('; ')
-        send(entry.sessionId, `Your \`submit_result\` did not satisfy the schema. Fix these and call \`submit_result\` again:\n${violations}`, 'repair')
+        admit(entry, `Your \`submit_result\` did not satisfy the schema. Fix these and call \`submit_result\` again:\n${violations}`, 'repair')
       }
     },
 
     cancelAsk(instance) {
       const entry = byInstance.get(instanceKey(instance))
       if (!entry) return
+      const queued = queue.indexOf(entry)
+      if (queued >= 0) queue.splice(queued, 1)
+      if (entry.admitted) releaseSlot()
       forget(entry)
       void backend().abort(entry.sessionId).catch(() => { /* already idle */ })
     },
 
+    setMaxConcurrency(n) {
+      const next = Math.max(1, Math.floor(n))
+      if (next === cap) return
+      const previousCap = cap
+      log.info(`run ${deps.runId.slice(-8)} concurrency cap ${cap} → ${next}`)
+      cap = next
+      // The contract's `key` is the provider key for the AIMD controller; the
+      // run-level seat gate is per-run, so the run id is the honest key here.
+      deps.sink.concurrencyChanged({ key: deps.runId, previous: previousCap, next, reason: 'settings_changed' as never })
+      while (inFlight < cap && queue.length > 0) startNow(queue.shift()!)
+    },
+
     async executeWorldRead(op, args) {
-      return await deps.world.read(op, args)
+      // The run's own workspace, not the host's cwd — a run started for another
+      // directory must read and write there.
+      return await deps.world.read(op, args, deps.cwd)
     },
 
     async executeArtifactPublish(request) {
-      return await deps.artifacts.publish(request)
+      return await deps.artifacts.publish(request, deps.cwd)
     },
 
     journal: deps.journal,
@@ -258,6 +336,8 @@ export function createWorkflowDriver(deps: WorkflowDriverDeps): WorkflowDriverHa
     dispose() {
       bySession.clear()
       byInstance.clear()
+      queue.length = 0
+      inFlight = 0
     },
 
     async notifyTurnEnd(sessionId) {
@@ -271,8 +351,10 @@ export function createWorkflowDriver(deps: WorkflowDriverDeps): WorkflowDriverHa
         } catch { /* observation only */ }
       }
       // Typed asks settle through `submit_result`, never through the final text —
-      // that is the whole point of the typed path.
+      // that is the whole point of the typed path. Either way the turn is over, so
+      // its model seat goes back to the run.
       if (!entry.typed) forget(entry)
+      if (entry.admitted) releaseSlot()
       deps.sink.askTurnEnded(entry.instance, text)
     },
 

@@ -101,6 +101,23 @@ export function registerWorkflow(app: Hono, deps: WorkflowRouteDeps) {
     })
   })
 
+  /**
+   * P2 gate probe: deliver a `submit_result` payload for an actor session.
+   *
+   * The real path is the actor-side tool (P3), which calls the very same
+   * `manager.submitFromSession`. This route exists so the typed-ask arbitration
+   * (accept / repair / nudge) can be verified live before that tool lands, and it
+   * is off unless `OCRC_WF_PROBE=1`.
+   */
+  if (process.env.OCRC_WF_PROBE === '1') {
+    app.post('/api/workflow/submit-probe', async (c) => {
+      const body = (await c.req.json().catch(() => ({}))) as { sessionId?: string; payload?: unknown }
+      if (typeof body.sessionId !== 'string' || !body.sessionId) return c.json({ error: 'sessionId required' }, 400)
+      const delivered = manager.submitFromSession(body.sessionId, body.payload)
+      return c.json({ delivered }, delivered ? 200 : 409)
+    })
+  }
+
   // ── saved workflows ───────────────────────────────────────────────────────
   app.get('/api/workflow/saved', (c) => c.json({ workflows: saved.list() }))
 

@@ -465,22 +465,45 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
 
   const lastKnownCtx = new Map<string, { tokens: Record<string, number>; at: number }>()
 
-  async function getSubagents(sessionId: string): Promise<SubagentInfo[]> {
-    return hotCached(`subs:${sessionId}`, 2000, async () => {
+  async function getSubagents(sessionId: string, opts?: { limit?: number; withTodos?: boolean }): Promise<SubagentInfo[]> {
+    const limit = Math.max(1, Math.min(opts?.limit ?? 8, 100))
+    // The subagent-directory page lists every finished child and doesn't show
+    // todo progress; skipping the per-child todo read keeps a 50-child request
+    // one engine call instead of fifty.
+    const withTodos = opts?.withTodos !== false
+    return hotCached(`subs:${sessionId}:${limit}:${withTodos ? 1 : 0}`, 2000, async () => {
     const all = (await listAllSessions(client)) as Array<{
-      id: string; parentID?: string; title?: string; time?: { updated?: number }
+      id: string; parentID?: string; title?: string; agent?: string
+      time?: { created?: number; updated?: number }
+      // Engine sessions carry a transient error latch; the directory maps it
+      // to the ended-status enum instead of claiming success for a dead child.
+      error?: boolean
     }>
-    const children = all.filter((s) => s.parentID === sessionId).slice(0, 8)
+    const children = all
+      .filter((s) => s.parentID === sessionId)
+      .sort((a, b) => (b.time?.created ?? 0) - (a.time?.created ?? 0))
+      .slice(0, limit)
     const out: SubagentInfo[] = []
     for (const c of children) {
       let done = 0
       let total = 0
-      try {
-        const todos = await getTodos(c.id)
-        total = todos.length
-        done = todos.filter((t) => (t as { status?: string })?.status === 'completed').length
-      } catch { /* child without todos */ }
-      out.push({ id: c.id, title: c.title ?? '', updatedAt: c.time?.updated, done, total })
+      if (withTodos) {
+        try {
+          const todos = await getTodos(c.id)
+          total = todos.length
+          done = todos.filter((t) => (t as { status?: string })?.status === 'completed').length
+        } catch { /* child without todos */ }
+      }
+      out.push({
+        id: c.id,
+        title: c.title ?? '',
+        updatedAt: c.time?.updated,
+        agent: typeof c.agent === 'string' ? c.agent : undefined,
+        createdAt: c.time?.created,
+        error: c.error === true ? true : undefined,
+        done,
+        total,
+      })
     }
     return out
     })

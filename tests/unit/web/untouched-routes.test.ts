@@ -171,6 +171,23 @@ describe('web routes — previously uncovered happy paths', () => {
     const a = app(fakeState(), backend)
     const out = await getJson(a, '/api/session/ses_a/subagents') as any
     expect(out.subagents).toEqual([{ id: 'ses_sub', title: 'sub', done: 1, total: 2, busy: true }])
+    // default page: 8 children, todo progress included (plan-HUD semantics)
+    expect(backend.getSubagents).toHaveBeenCalledWith('ses_a', { limit: undefined, withTodos: true })
+  })
+
+  it('subagents route forwards the directory page window (?limit&todos=0) for the subagent-directory pane', async () => {
+    const backend = fakeBackend({
+      getSubagents: vi.fn().mockResolvedValue([
+        { id: 'ses_done', title: 'done', agent: 'build', createdAt: 5, updatedAt: 9, done: 0, total: 0 },
+      ]),
+    })
+    const a = app(fakeState(), backend)
+    const out = await getJson(a, '/api/session/ses_a/subagents?limit=50&todos=0') as any
+    expect(backend.getSubagents).toHaveBeenCalledWith('ses_a', { limit: 50, withTodos: false })
+    // new fields ride through the route untouched (bridge maps them to the
+    // vendor result; error→failed, agent→subagentType, createdAt/updatedAt→
+    // startedAt/endedAt)
+    expect(out.subagents[0]).toMatchObject({ id: 'ses_done', agent: 'build', createdAt: 5, updatedAt: 9, busy: false })
   })
 
   it('logs route serves the in-memory ring (bounded by limit)', async () => {

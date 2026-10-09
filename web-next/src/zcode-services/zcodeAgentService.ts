@@ -60,7 +60,19 @@ async function conversationPlan(sessionId: string): Promise<{ items: Array<{ id:
   } catch { return null }
 }
 
-interface OcrcSubagent { id: string; title?: string; done?: number; total?: number; busy?: boolean }
+interface OcrcSubagent {
+  id: string
+  title?: string
+  /** Engine agent name — the directory renders it as subagentType. */
+  agent?: string
+  createdAt?: number
+  updatedAt?: number
+  /** Engine error latch → the directory's 'failed' ended-status. */
+  error?: boolean
+  done?: number
+  total?: number
+  busy?: boolean
+}
 async function conversationSubagents(sessionId: string): Promise<{ revision: number; childSessionIds: string[]; running: Array<Record<string, unknown>>; endedTotal: number } | undefined> {
   try {
     const res = await fetch(`/api/session/${sessionId}/subagents`, { headers: { Authorization: `Bearer ${token()}` } })
@@ -82,6 +94,51 @@ async function conversationSubagents(sessionId: string): Promise<{ revision: num
       endedTotal: subs.length - running.length,
     }
   } catch { return undefined }
+}
+
+/** 子代理目录页（右侧面板）的数据源。running/ended 的判定与 HUD 一致
+ *  （busy 或 todo 未完成 = 运行中），ended 的 status 借引擎 error 闩如实
+ *  区分 success/failed，不假装成功。vendor 的 zod schema 是 strict —— 只回
+ *  它声明的键，多一个字段整个结果都会被拒。 */
+async function listSessionSubagents(params: { sessionId?: string; endedLimit?: number }): Promise<{
+  revision: number
+  childSessionIds: string[]
+  running: Array<Record<string, unknown>>
+  ended: { total: number; items: Array<Record<string, unknown>> }
+}> {
+  const empty = { revision: 0, childSessionIds: [], running: [], ended: { total: 0, items: [] } }
+  const sessionId = params?.sessionId
+  if (!sessionId) return empty
+  const limit = Math.max(1, Math.min(params?.endedLimit ?? 20, 100))
+  // 每子会话一次 todo 读取：小页（≤20）带 todo 换 summary，大页跳过避免一串读。
+  const withTodos = limit <= 20
+  const res = await fetch(
+    `/api/session/${encodeURIComponent(sessionId)}/subagents?limit=${limit}&todos=${withTodos ? 1 : 0}`,
+    { headers: { Authorization: `Bearer ${token()}` } },
+  )
+  if (!res.ok) throw new Error(`[ocrc-fork] listSessionSubagents failed: ${res.status}`)
+  const body = (await res.json()) as { subagents?: OcrcSubagent[] }
+  const subs = body.subagents ?? []
+  const isRunning = (x: OcrcSubagent) => Boolean(x.busy) || (x.total ?? 0) > (x.done ?? 0)
+  const toItem = (x: OcrcSubagent): Record<string, unknown> => ({
+    childSessionId: x.id,
+    subagentType: x.agent || 'task',
+    title: x.title || x.id,
+    ...(x.total ? { summary: `${x.done ?? 0}/${x.total}` } : {}),
+    ...(x.createdAt ? { startedAt: x.createdAt } : {}),
+    ...(x.updatedAt ? { endedAt: x.updatedAt } : {}),
+  })
+  const running = subs.filter(isRunning)
+  const ended = subs.filter((x) => !isRunning(x))
+  return {
+    revision: 1,
+    childSessionIds: subs.map((x) => x.id),
+    running: running.map((x) => ({ ...toItem(x), status: 'running' })),
+    ended: {
+      total: ended.length,
+      items: ended.map((x) => ({ ...toItem(x), status: x.error ? 'failed' : 'success' })),
+    },
+  }
 }
 
 /** 单条工具输出进浏览器的上限（ZCode schema 上限 150k；行要参与 diff，
@@ -655,6 +712,12 @@ export function createOcrcZcodeAgentService(): any {
         // 还有更早的行 = 本次没取到的部分非空
         hasMore: earlier.length > page.length,
       }
+    },
+    // 子代理目录页（右侧面板）：读 /api/session/:id/subagents 并组装 vendor 的
+    // ZCodeSessionSubagentsResult。此前整条方法缺失 → Proxy 兜底 reject →
+    // 目录页 ended 段显示「无法加载子智能体目录」。
+    async listSessionSubagents(params: { sessionId?: string; endedLimit?: number; endedCursor?: string }) {
+      return listSessionSubagents(params)
     },
     // ── V4 附件上传家族（N7-1）：内存暂存，commit 后以 ocrc-att:// 引用发给 sendText ──
     // 校验和只用于服务端去重；ocrc 是单进程内存暂存，不做跨上传去重，直接收。

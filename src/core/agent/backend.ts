@@ -65,7 +65,21 @@ export interface AgentInfo { name: string; model: string; description: string }
 export interface ModelProvider { id: string; name: string; models: Array<{ id: string; name: string }> }
 export interface McpServer { name: string; type?: string; status: 'configured' | 'disabled' }
 /** A subagent (child) session of a turn, with its todo progress. */
-export interface SubagentInfo { id: string; title: string; updatedAt?: number; done: number; total: number; busy?: boolean }
+export interface SubagentInfo {
+  id: string
+  title: string
+  updatedAt?: number
+  /** Engine agent name (e.g. 'build', 'Sisyphus - ultraworker') — the vendor
+   *  subagent directory renders it as `subagentType`. */
+  agent?: string
+  createdAt?: number
+  /** True when the engine flagged the child session as errored — maps to the
+   *  directory's 'failed' ended-status instead of a false 'success'. */
+  error?: boolean
+  done: number
+  total: number
+  busy?: boolean
+}
 /** An agent skill from GET /skill (opencode 1.18+). */
 export interface SkillInfo { name: string; description?: string }
 /** A directory entry from GET /file. */
@@ -213,7 +227,7 @@ export interface AgentBackend {
   getModels(directory?: string): Promise<ModelProvider[]>
   getMcp(directory?: string): Promise<McpServer[]>
   /** Subagent (child) sessions of a turn with todo progress — gates the plan-HUD badge/list. */
-  getSubagents?(sessionId: string): Promise<SubagentInfo[]>
+  getSubagents?(sessionId: string, opts?: { limit?: number; withTodos?: boolean }): Promise<SubagentInfo[]>
   // ── M8: skills / files / worktrees (present when capabilities report them) ──
   /** Agent skills (GET /skill). */
   getSkills?(directory?: string): Promise<SkillInfo[]>

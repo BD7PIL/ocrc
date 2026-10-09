@@ -126,13 +126,21 @@ export interface WorkflowManager {
   get(runId: string): WorkflowRunView | undefined
   events(runId: string, opts?: { afterSequence?: number; limit?: number }): StoredEvent[]
   cancel(runId: string, reason?: 'user' | 'model'): boolean
-  resume(runId: string): Promise<{ ok: true } | { ok: false; error: string }>
+  resume(runId: string): Promise<{ ok: true } | { ok: false; error: string; diagnostics?: CompileOutcome['diagnostics'] }>
   /** Supersede a run with a revised script: new run, lineage pointer to the old. */
   amend(runId: string, scriptText: string): Promise<{ ok: true; runId: string } | { ok: false; error: string; diagnostics?: CompileOutcome['diagnostics'] }>
   /** In-flight runs in this process (diagnostics / dispose). */
   live(): string[]
   /** P3: the live driver for a run, so actor-side tools can reach it. */
   driverFor(runId: string): WorkflowDriverHandle | undefined
+  /**
+   * A session's turn ended. Routes to whichever live run owns that session as an
+   * actor — the host calls this from its single relay hook (the same one the goal
+   * loop hangs off), so nothing else has to know about actor sessions.
+   */
+  handleTurnEnd(sessionId: string): Promise<void>
+  /** P3: a `submit_result` tool call from an actor session. */
+  submitFromSession(sessionId: string, payload: unknown): boolean
   /** Cold start: runs left `running` by a dead process become `interrupted`. */
   recoverOnStart(): number
   stop(): void
@@ -357,6 +365,23 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
 
     driverFor(runId) {
       return live.get(runId)?.driver
+    },
+
+    async handleTurnEnd(sessionId) {
+      for (const entry of live.values()) {
+        if (!entry.driver.inFlightSessions().includes(sessionId)) continue
+        await entry.driver.notifyTurnEnd(sessionId)
+        return
+      }
+    },
+
+    submitFromSession(sessionId, payload) {
+      for (const entry of live.values()) {
+        if (!entry.driver.inFlightSessions().includes(sessionId)) continue
+        entry.driver.submit(sessionId, payload)
+        return true
+      }
+      return false
     },
 
     recoverOnStart() {

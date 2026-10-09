@@ -32,6 +32,7 @@ COMMANDS:
   restart [dir] Restart it
   status        Show instance state (server / supervisor / web panel / workdir)
   host          Run standalone against an ACP agent (no opencode; OCRC_ACP_CMD)
+  wf <sub>      Dynamic workflows (list / show / run / resume / amend / …)
   --help, -h    Show this help
 `
 
@@ -69,6 +70,11 @@ async function main() {
 
   if (cmd === 'host') {
     await import('./host.js').then((m) => m.main())
+    return
+  }
+
+  if (cmd === 'wf') {
+    await import('./wf.js').then((m) => m.main(process.argv.slice(3)))
     return
   }
 

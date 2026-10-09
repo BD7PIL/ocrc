@@ -32,6 +32,11 @@ import { createWebTransport } from '../transport/web/index.js'
 import { createOffPeakManager } from '../core/offpeak.js'
 import { createGoalManager, type GoalManager } from '../core/goal.js'
 import { tryBecomePrimary, currentPrimary } from '../core/primary-election.js'
+import { createWorkflowJournal } from '../core/workflow/journal.js'
+import { createWorldReader } from '../core/workflow/world.js'
+import { createArtifactStore } from '../core/workflow/artifacts.js'
+import { createSavedWorkflowsStore } from '../core/workflow/saved.js'
+import { createWorkflowManager, type WorkflowManager } from '../core/workflow/manager.js'
 import { selectAuthStrategy } from '../connectivity/auth/select.js'
 import type { Transport } from '../transport/interface.js'
 import { createLogger } from '../utils/logger.js'
@@ -178,7 +183,13 @@ export async function main(): Promise<void> {
     // N12: turn end → goal loop. goalManager is assigned just below (the loop
     // needs the relay as its dispatch target, so the two are mutually
     // referential); this closure reads it lazily.
-    onTurnEnd: (sid) => { void goalManager?.handleTurnEnd(sid) },
+    onTurnEnd: (sid) => {
+      // N12 goal loop and P2 workflow runs both key off "this session's turn
+      // ended" — the relay fires it after the final assistant card is published,
+      // which is exactly when both want to read the transcript.
+      void goalManager?.handleTurnEnd(sid)
+      void workflowManager?.handleTurnEnd(sid)
+    },
   })
   // N12 goal loop: verifier + continuation live host-side (the engine has no
   // goal concept). Built after the relay so dispatch can target it; cold
@@ -193,6 +204,61 @@ export async function main(): Promise<void> {
     isPlanMode: () => state.getNextAgent() === 'plan',
   })
   goalManager.recoverOnStart()
+
+  // ── P2 workflow engine (vendored dwf) ──────────────────────────────────────
+  // State lives in <ocrcHome>/workflows: one JSONL journal per run, artifact
+  // bytes per run, saved workflows in saved.json. `OCRC_WORKFLOW=off` keeps the
+  // whole surface dark (no journal reads, no endpoints) — the rollback switch.
+  const workflowEnabled = process.env.OCRC_WORKFLOW !== 'off'
+  const workflowsDir = join(dataDir, 'workflows')
+  let workflowManager: WorkflowManager | undefined
+  let workflowArtifacts: ReturnType<typeof createArtifactStore> | undefined
+  let workflowSaved: ReturnType<typeof createSavedWorkflowsStore> | undefined
+  if (workflowEnabled) {
+    const workflowJournal = createWorkflowJournal({ dir: workflowsDir })
+    workflowArtifacts = createArtifactStore({ dir: workflowsDir, cwd: process.cwd() })
+    workflowSaved = createSavedWorkflowsStore(join(workflowsDir, 'saved.json'))
+    workflowManager = createWorkflowManager({
+      registry,
+      journal: workflowJournal,
+      world: createWorldReader({
+        cwd: process.cwd(),
+        // world.run is the one world read with an effect. The human gate that
+        // shows the command and waits for a decision is part of the tool face
+        // (P3) — until it lands, the honest options are "deny everything" or
+        // "allow and say so loudly", and OCRC_WORKFLOW_RUN picks between them.
+        approve: async (cmd, args) => {
+          const allow = process.env.OCRC_WORKFLOW_RUN !== 'off'
+          log.warn(
+            `${allow ? 'ALLOWING' : 'DENYING'} world.run \`${cmd} ${args.join(' ').slice(0, 120)}\` — ` +
+            'the workflow approval gate arrives with the tool face (P3); set OCRC_WORKFLOW_RUN=off to deny.',
+          )
+          return allow
+        },
+      }),
+      artifacts: workflowArtifacts,
+      onEvent: () => { /* P4 projects these into the UI */ },
+      onSettled: (record, settlement) => {
+        const body = settlement.status === 'completed'
+          ? `workflow 完成：${record.name ?? record.runId.slice(-8)}`
+          : settlement.status === 'stopped'
+            ? `workflow 已停下（${settlement.reason}）：${record.name ?? record.runId.slice(-8)}`
+            : `workflow 失败：${record.name ?? record.runId.slice(-8)}`
+        cardBus.publish({
+          kind: 'info',
+          title: 'Workflow',
+          sections: [{ body }],
+          ...(record.parentSessionId ? { sessionId: record.parentSessionId } : {}),
+        })
+      },
+    })
+    // Cold start: runs left `running` by a dead process become `interrupted`
+    // (resumable) — never auto-resumed.
+    workflowManager.recoverOnStart()
+    log.info(`workflow engine enabled — journal at ${workflowsDir}`)
+  } else {
+    log.info('workflow engine disabled (OCRC_WORKFLOW=off)')
+  }
 
   // Persist finalized conversation cards for ACP sessions (recordCard no-ops for
   // opencode sessions, which aren't in the store) so they reopen with history.
@@ -357,6 +423,9 @@ export async function main(): Promise<void> {
       remotes: remotesStore,
       offpeak,
       offpeakWindow,
+      workflow: workflowManager,
+      workflowArtifacts,
+      workflowSaved,
       remoteManager,
       onRemoteEnabled: (r) => wireHandle.registerRemoteBackend(r),
       settingsConfigDir: process.env.OPENCODE_CONFIG_DIR ?? join(process.env.HOME ?? '', '.config', 'opencode'),
@@ -398,6 +467,9 @@ export async function main(): Promise<void> {
     // verifier/continuation could dispatch into a torn-down relay (the offpeak
     // manager shipped without its stop() and this is the same trap).
     goalManager?.stop()
+    // Workflow runs are stopped as `interrupted` (resumable), never cancelled as
+    // user actions — the same discipline as goal cold recovery.
+    workflowManager?.stop()
     offpeak.stop()
     remoteManager.dispose()
     void wireHandle.dispose()

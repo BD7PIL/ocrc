@@ -36,12 +36,25 @@ export interface ArtifactByte {
   contentType: string
 }
 
+/** Per-run artifact index: `<id>.v<version>` → what it is. Kept beside the bytes
+ *  so the byte endpoint can answer with the right Content-Type without re-deriving
+ *  it from a file name that deliberately has no extension. */
+interface IndexEntry {
+  contentType: string
+  bytes: number
+  publishedAt: number
+  sourcePath?: string
+}
+type RunIndex = Record<string, IndexEntry>
+
 export interface ArtifactStore {
   publish(request: ArtifactPublishRequest): Promise<ArtifactVersionRecord>
   /** Read back one published version (the byte endpoint). */
   readVersion(runId: string, id: string, version: number): ArtifactByte | undefined
   /** Where a version's bytes live (diagnostics). */
   versionPath(runId: string, id: string, version: number): string
+  /** Every published version of a run (the UI artifact list). */
+  listVersions(runId: string): Array<{ id: string; version: number; contentType: string; bytes: number; publishedAt: number; sourcePath?: string }>
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -89,6 +102,18 @@ export function createArtifactStore(deps: ArtifactStoreDeps): ArtifactStore {
     if (!/^[A-Za-z0-9._-]+$/.test(runId)) fail('DriverError', `artifact: unsafe runId "${runId}"`)
     return join(deps.dir, 'artifacts', runId)
   }
+  const indexPath = (runId: string) => join(runDir(runId), 'index.json')
+  const versionKey = (id: string, version: number) => `${id}.v${version}`
+
+  function readIndex(runId: string): RunIndex {
+    try { return JSON.parse(readFileSync(indexPath(runId), 'utf-8')) as RunIndex } catch { return {} }
+  }
+  function writeIndex(runId: string, index: RunIndex): void {
+    try {
+      mkdirSync(runDir(runId), { recursive: true })
+      writeFileSync(indexPath(runId), JSON.stringify(index, null, 2))
+    } catch { /* the bytes are already on disk; the index is a convenience */ }
+  }
 
   /** File name on disk: `<id>.v<version><ext>` — the version is part of the name so
    *  a republish never clobbers the previous bytes. */
@@ -100,6 +125,19 @@ export function createArtifactStore(deps: ArtifactStoreDeps): ArtifactStore {
 
   return {
     versionPath,
+
+    listVersions(runId) {
+      const index = readIndex(runId)
+      return Object.entries(index)
+        .map(([key, entry]) => {
+          const dot = key.lastIndexOf('.v')
+          const id = dot > 0 ? key.slice(0, dot) : key
+          const version = dot > 0 ? Number(key.slice(dot + 2)) : 1
+          return { id, version, ...entry }
+        })
+        .filter((e) => Number.isInteger(e.version))
+        .sort((a, b) => a.id.localeCompare(b.id) || a.version - b.version)
+    },
 
     async publish(request) {
       const { runId, id, version, op } = request
@@ -159,6 +197,15 @@ export function createArtifactStore(deps: ArtifactStoreDeps): ArtifactStore {
         fail('ArtifactStoreUnavailable', `artifact store write failed: ${(err as Error).message}`)
       }
 
+      const index = readIndex(runId)
+      index[versionKey(id, version)] = {
+        contentType,
+        bytes: bytes.byteLength,
+        publishedAt: now(),
+        ...(sourcePath ? { sourcePath } : {}),
+      }
+      writeIndex(runId, index)
+
       return {
         id,
         kind: op,
@@ -177,7 +224,8 @@ export function createArtifactStore(deps: ArtifactStoreDeps): ArtifactStore {
       const file = versionPath(runId, id, version)
       if (!existsSync(file)) return undefined
       try {
-        return { bytes: readFileSync(file), contentType: contentTypeFor(id) }
+        const indexed = readIndex(runId)[versionKey(id, version)]?.contentType
+        return { bytes: readFileSync(file), contentType: indexed ?? contentTypeFor(id) }
       } catch { return undefined }
     },
   }

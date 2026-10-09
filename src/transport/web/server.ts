@@ -55,6 +55,7 @@ import { registerSubagents } from './routes/subagents.js'
 import { registerM8 } from './routes/m8.js'
 import { registerPairExchange, registerPairQr, registerPairOnboarding, registerPairReset } from './routes/pairing.js'
 import { registerAttach } from './routes/attach.js'
+import { registerWorkflow } from './routes/workflow.js'
 import type { PairingStore } from '../../connectivity/pairing.js'
 
 export interface BuildServerOpts {
@@ -93,6 +94,10 @@ export interface BuildServerOpts {
   port?: number
   /** P0-3: expose the attach echo probe (OCRC_WF_PROBE=1; P0 gate only). */
   attachProbe?: boolean
+  /** P2 workflow surface (runs + saved). Absent = the endpoints do not exist. */
+  workflow?: import('../../core/workflow/manager.js').WorkflowManager
+  workflowArtifacts?: import('../../core/workflow/artifacts.js').ArtifactStore
+  workflowSaved?: import('../../core/workflow/saved.js').SavedWorkflowsStore
 }
 
 export function buildServer(opts: BuildServerOpts): Hono {
@@ -167,6 +172,16 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerQuestion(app, reg, opts.state)
   registerVersion(app)
   registerLogs(app)
+  // P2: workflow runs + saved workflows. Registered only when the host wired a
+  // manager — the routes are pure translations of its API.
+  if (opts.workflow && opts.workflowArtifacts && opts.workflowSaved) {
+    registerWorkflow(app, {
+      manager: opts.workflow,
+      artifacts: opts.workflowArtifacts,
+      saved: opts.workflowSaved,
+      registry: opts.registry,
+    })
+  }
   // P0-3: the ATTACHED-plugin channel (status / notify / echo probe). Registered
   // for both host and plugin modes — the host is the only process that serves it.
   registerAttach(app, {

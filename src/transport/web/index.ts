@@ -25,6 +25,11 @@ export interface WebTransportConfig {
    *  while staticRoot (frozen Svelte shell) stays at '/'. Missing dir = the
    *  mount is skipped entirely — the old shell keeps working unchanged. */
   nextStaticRoot?: string
+  /** P2 workflow runs + saved workflows (optional; the /api/workflow surface
+   *  only exists when the host wired a manager). */
+  workflow?: import('../../core/workflow/manager.js').WorkflowManager
+  workflowArtifacts?: import('../../core/workflow/artifacts.js').ArtifactStore
+  workflowSaved?: import('../../core/workflow/saved.js').SavedWorkflowsStore
   /** P2b-M7 cross-channel scheduled prompts (optional). */
   scheduler?: Scheduler
   /** M9 bot-channel settings store + live TG status (optional). */
@@ -108,6 +113,9 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         offpeakWindow: cfg.offpeakWindow,
         goalManager: cfg.goalManager,
         port: cfg.port,
+        workflow: cfg.workflow,
+        workflowArtifacts: cfg.workflowArtifacts,
+        workflowSaved: cfg.workflowSaved,
       })
 
       // Immutable hashed assets cache forever; everything else (above all

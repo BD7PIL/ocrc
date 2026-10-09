@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { tryBecomePrimary } from '../../src/core/primary-election'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tryBecomePrimary, currentPrimary, readPrimaryOwner } from '../../src/core/primary-election'
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -52,5 +52,80 @@ describe('tryBecomePrimary', () => {
     const b = tryBecomePrimary(lock)
     expect(b.isPrimary).toBe(true)
     b.release()
+  })
+})
+
+// P0-2: the lock records WHO owns it, so an ocrc plugin loaded inside an engine
+// can tell "another plugin owns the transports" (stand down) from "a host owns
+// them" (attach: register tools, own nothing).
+describe('primary lock role', () => {
+  it('defaults to role=plugin (every pre-P0 caller is the plugin entry)', () => {
+    const a = tryBecomePrimary(lock)
+    expect(a.isPrimary).toBe(true)
+    expect(readPrimaryOwner(lock)?.role).toBe('plugin')
+    a.release()
+  })
+
+  it('records the role the winner asked for', () => {
+    const a = tryBecomePrimary(lock, { role: 'host' })
+    expect(a.isPrimary).toBe(true)
+    expect(readPrimaryOwner(lock)).toMatchObject({ pid: process.pid, role: 'host' })
+    a.release()
+  })
+
+  it('a plugin losing to a live host sees owner.role=host (the ATTACHED signal)', () => {
+    const host = tryBecomePrimary(lock, { role: 'host' })
+    const plugin = tryBecomePrimary(lock)
+    expect(host.isPrimary).toBe(true)
+    expect(plugin.isPrimary).toBe(false)
+    expect(plugin.owner?.role).toBe('host')
+    host.release()
+  })
+
+  it('a plugin losing to a live plugin sees owner.role=plugin (stand down)', () => {
+    const first = tryBecomePrimary(lock)
+    const second = tryBecomePrimary(lock)
+    expect(second.isPrimary).toBe(false)
+    expect(second.owner?.role).toBe('plugin')
+    first.release()
+  })
+
+  it('currentPrimary reports a live owner and treats a legacy role-less lock as plugin', () => {
+    writeFileSync(lock, JSON.stringify({ pid: process.pid, startedAt: 1 }))
+    expect(currentPrimary(lock)).toMatchObject({ pid: process.pid })
+    expect(currentPrimary(lock)?.role).toBeUndefined()
+  })
+
+  it('currentPrimary ignores an absent, corrupt, or dead-pid lock', () => {
+    expect(currentPrimary(lock)).toBeUndefined()
+    writeFileSync(lock, 'garbage')
+    expect(currentPrimary(lock)).toBeUndefined()
+    writeFileSync(lock, JSON.stringify({ pid: 2147483646, startedAt: 1, role: 'host' }))
+    expect(currentPrimary(lock)).toBeUndefined()
+  })
+
+  it('a stale host lock does not block a plugin from becoming primary', () => {
+    writeFileSync(lock, JSON.stringify({ pid: 2147483646, startedAt: 1, role: 'host' }))
+    const a = tryBecomePrimary(lock)
+    expect(a.isPrimary).toBe(true)
+    expect(readPrimaryOwner(lock)?.role).toBe('plugin')
+    a.release()
+  })
+
+  it('host release hands the lock to a plugin that then wins', () => {
+    const host = tryBecomePrimary(lock, { role: 'host' })
+    host.release()
+    const plugin = tryBecomePrimary(lock)
+    expect(plugin.isPrimary).toBe(true)
+    expect(readPrimaryOwner(lock)?.role).toBe('plugin')
+    plugin.release()
+  })
+
+  it('a losing instance never deletes the winner’s lock on release', () => {
+    const host = tryBecomePrimary(lock, { role: 'host' })
+    const plugin = tryBecomePrimary(lock)
+    plugin.release()
+    expect(readFileSync(lock, 'utf-8')).toContain('"role":"host"')
+    host.release()
   })
 })

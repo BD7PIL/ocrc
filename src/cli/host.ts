@@ -31,6 +31,7 @@ import { createTelegramTransport } from '../transport/telegram/index.js'
 import { createWebTransport } from '../transport/web/index.js'
 import { createOffPeakManager } from '../core/offpeak.js'
 import { createGoalManager, type GoalManager } from '../core/goal.js'
+import { tryBecomePrimary, currentPrimary } from '../core/primary-election.js'
 import { selectAuthStrategy } from '../connectivity/auth/select.js'
 import type { Transport } from '../transport/interface.js'
 import { createLogger } from '../utils/logger.js'
@@ -52,6 +53,26 @@ export async function main(): Promise<void> {
     throw new Error('ACP host: nothing to serve — set TELEGRAM_BOT_TOKEN and/or WEB_ENABLED=true')
   }
   log.info(`standalone host starting — backends=[${specs.map((s) => s.id).join(', ')}], telegram=${telegramEnabled}, web=${config.webEnabled}, port=${config.webPort}`)
+
+  // P0-2: the host takes the primary lock with role='host'. That is the signal an
+  // ocrc plugin loaded inside any engine this host spawns/adopts reads to run
+  // ATTACHED (register tools, own no transports) instead of double-binding 4099
+  // and the Telegram poller. The plugin's own election still wins when no host
+  // exists — plugin mode keeps working exactly as before.
+  const held = currentPrimary()
+  if (held && (held.role ?? 'plugin') === 'plugin') {
+    log.warn(
+      `a live PLUGIN instance owns the primary lock (pid ${held.pid}) — the engine's ocrc plugin ` +
+      `will not attach to this host and both will fight over the web port and the Telegram poller. ` +
+      `Stop that plugin instance (or install ocrc in host mode only) and restart this host.`,
+    )
+  }
+  const primary = tryBecomePrimary(undefined, { role: 'host' })
+  if (primary.isPrimary) {
+    log.info(`primary lock acquired (role=host, pid ${process.pid})`)
+  } else if (primary.owner) {
+    log.warn(`primary lock NOT acquired — held by pid ${primary.owner.pid} (role=${primary.owner.role ?? 'plugin'}); continuing without it`)
+  }
 
   const state = createFileBackedState(config.statePath)
   const cardBus = createCardBus()
@@ -366,6 +387,7 @@ export async function main(): Promise<void> {
     // Flush debounced writes (100ms debounce would otherwise be lost on exit).
     try { await state.flush() } catch { /* best effort */ }
     try { await acpStore.flush() } catch { /* best effort */ }
+    primary.release()
     process.exit(0)
   }
   process.on('SIGINT', dispose)

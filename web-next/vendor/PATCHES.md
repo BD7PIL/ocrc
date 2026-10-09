@@ -28,3 +28,9 @@
 - **修改**：`if (!model.hasContent && !canRenderEndedWorkflows) return null;` → 追加 `&& !canRenderEndedAgents`。
 - **原因**：上游注释自认"Agents 的已结束行有同一个洞：`endedSubagentCount` 没进 `hasContent`"。后果：**只剩历史**的会话（opencode 不热重载，host 重启后打开旧会话就是这种）整个状态面板消失 → 子代理目录入口在旧会话里永远不可达。ocrc 的持久会话几乎都是这种形态。
 - **验证**：隔离栈造一个已结束子会话 → /z/ 打开父会话 → 状态面板出现「已结束」入口 → 点击打开子代理目录面板并列出该子会话。
+
+## 6. 白板入口解注释（N11-1）
+- **文件**：`vendor/zcode/ui/src/app-shell/AnimatedSidePanePanel.tsx`（`+` 菜单中上游注释掉的画板项）+ lucide import 列表加 `PaletteIcon` + 解构 `onOpenWhiteboard` 去掉 `_` 前缀
+- **修改**：恢复被上游注释的 `<DropdownMenuItem onSelect={onOpenWhiteboard}>` 画板菜单项。
+- **原因**：PRODUCT.md 增值四件明列 whiteboard（纯前端+发到聊天）。vendor store 零 fetch、纯内存；「添加到对话区」走 window CustomEvent → composer 附件 → 既有 sendText 通道，ocrc 零桥接。
+- **验证**：隔离栈实测：展开侧边面板 → 终端 tab → `+` → 画板 → 画线 → 添加到对话区 → composer 出现 `画板 1.png` 附件。

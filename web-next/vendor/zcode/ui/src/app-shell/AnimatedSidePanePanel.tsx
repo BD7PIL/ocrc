@@ -95,6 +95,7 @@ import {
   FileDiffIcon,
   GlobeIcon,
   MessageSquareTextIcon,
+  PaletteIcon,
   PlusIcon,
   SquareTerminalIcon,
   type LucideIcon,
@@ -312,7 +313,7 @@ export function AnimatedSidePanePanel({
   onCloseAllTabs,
   onReopenClosedTab,
   onOpenBrowserTab,
-  onOpenWhiteboard: _onOpenWhiteboard,
+  onOpenWhiteboard,
   onOpenDeveloperTools,
   onOpenTerminalTab,
   onOpenReviewTab,
@@ -716,15 +717,16 @@ export function AnimatedSidePanePanel({
             <span>{intl.formatMessage({ id: "sidePane.review" })}</span>
           </DropdownMenuItem>
         ) : null}
-        {/* 画板入口未启用 */}
-        {/* <DropdownMenuItem
+        {/* [ocrc-vendor-patch #6] 白板入口启用（上游注释掉了；PRODUCT.md 增值四件之一。
+            纯前端 + 发到聊天，store 零 fetch，ocrc 无需桥接。 */}
+        <DropdownMenuItem
           onSelect={() => {
             onOpenWhiteboard();
           }}
         >
           <PaletteIcon className="size-4" />
           <span>{intl.formatMessage({ id: "whiteboard.title" })}</span>
-        </DropdownMenuItem> */}
+        </DropdownMenuItem>
         {!isOfficeMode ? (
           <DropdownMenuItem
             data-side-pane-add-item="terminal"

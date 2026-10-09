@@ -141,6 +141,12 @@ goal + 闲时两项 spike 已通过（见 [n12-spike-record.md](n12-spike-record
 - **前置（P0）**：插件与 host 共存的 ATTACHED 模式——今天装插件会和 host 双冲突，
   因为 host 从不取锁、插件非 primary 时连工具都不注册。
   P0 第一步的实测结论见 [workflow-p0-tool-registration.md](workflow-p0-tool-registration.md)。
+- **进度（2026-10-10）**：P0–P3 已落地并各有实测记录——
+  [P0 工具注册语义](workflow-p0-tool-registration.md)（14/14）、
+  [P2 driver + manager](workflow-p2-record.md)（30/30）、
+  [P3 工具面 + 技能 + 审批](workflow-p3-record.md)（14/14）。
+  **P4（/z/ 投影）与 P4b（amend 导入缓存）未完成**；在此之前 workflow 只能从模型工具面、
+  HTTP 与 `ocrc wf` 使用，面板里还没有它的卡与侧页。
 
 **明确不做（维持）**：host 原生 workflow runner（自研编排执行引擎）。
 

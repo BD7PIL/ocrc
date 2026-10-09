@@ -228,6 +228,45 @@ inline buttons, and the ws `goal` frame → `state.updated` for the panel.
 Setting a goal kicks off its first turn (upstream's command runs its own turn);
 off-peak tasks pass `kickoff: false` because their own prompt is turn 1.
 
+## Dynamic workflows (P0–P3) — src/core/workflow/ + vendor/zcode-dwf/
+
+ZCode 的 workflow 是**上游引擎 + 官方钩子工具面 + host 侧状态**的组合，不是自研编排
+执行引擎（PRODUCT.md 的硬边界）。三层各是谁的：
+
+- **引擎 = vendor 的上游**（`vendor/zcode-dwf/`，Apache-2.0，登记制见 PATCHES.md）。
+  两包只依赖 `typescript` + node 内建，src 对 `@zcode` 零 import。它是**纯确定性状态机**：
+  决定该发生什么、把决定落 journal，副作用一律交给 driver。脚本编译（TS API）、typed
+  schema 合成、repair/nudge 裁决、replay/resume、`vm` 裸 realm 沙箱都在里面。
+- **driver = 我们**（`src/core/workflow/driver.ts`）。把引擎的决定落到 ocrc 的引擎上：
+  铸 actor 会话（映射落 journal，resume 时重挂）、下发 prompt、abort、把 turn 结束经
+  `WorkflowReportSink` 回报。两处接缝值得记：actor 会话**journal 化**（不是推导出来的，
+  因为 ocrc 的 backend 自己铸 session id），turn 结束**由 host 送进来**（relay 的
+  onTurnEnd，fire 在最终卡片发布之后，所以给引擎的文本与用户看到的是同一份）。
+- **host = 我们**（`src/core/workflow/{manager,journal,world,artifacts,saved,approval}.ts`）。
+  run id 铸造、run 行、进程并发上限与 run 级 seat gate、token 预算闸、取消、冷恢复、
+  amend 的 lineage、world 读的 caps、artifact 字节、saved workflows、world.run 的人工门。
+
+**journal**：每 run 一个 `<ocrcHome>/workflows/runs/<runId>.jsonl`，同步追加、内存索引按需
+从文件重建。选 JSONL 而不是上游的 SQLite：本机下限 EL7/glibc 2.17，native 模块是真实风险，
+而 `appendFileSync` 是 O(1) 且崩到最后一个完整行。**事件由引擎写一次**（`driver.emit` 只做
+实时扇出，绝不当第二个写入者——这条踩过坑，见 workflow-p2-record.md）。
+
+**工具面**（`src/plugin/workflow-tools.ts`，挂在 ATTACHED 插件上）：作者侧
+`CreateWorkflow / AmendWorkflow / GetWorkflowRun / ListWorkflowRuns / ResumeWorkflowRun /
+SaveWorkflow / ListSavedWorkflows / EvalWorkflowSnippet / GetWorkflowSkill`，actor 侧
+`submit_result / escalate / ResolveWorkflowQuestion`。每个都是打回 host 的薄 HTTP 调用、
+无状态（run id 由 host 分配）。**技能门**：创建类工具在本会话未加载 `dynamic-workflows`
+技能前直接拒绝（上游同款），开门走 `GetWorkflowSkill` 或 opencode 官方 `skill` 工具的
+`tool.execute.before` 钩子。
+
+**P0 的架构改动（插件与 host 共存）**：锁文件记 `role`（`host` / `plugin`）与 host 的 web
+URL；host 启动即取锁标 `role:'host'`；插件读到活着的 host 就进 **ATTACHED**——只注册工具、
+零 transport、零端口、连 Telegram token 都不需要（host 拥有 bot）。没有 host 时逐字维持
+旧行为。这是「引擎里的 ocrc 工具」能存在的前提。
+
+**未完成**：`/z/` 的完整投影（P4：workflowRuns/deltas/7 查询/命令/saved/index/侧页）与
+amend 的导入缓存（P4b）。引擎侧与工具侧已可用（CLI + HTTP + 模型工具面）。
+
 ## Telegram surface (src/transport/telegram/)
 
 - **index.ts** — transport factory: allowlist middleware, photo intake,

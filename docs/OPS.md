@@ -144,6 +144,34 @@ Web 默认 `0.0.0.0:4099`（token 门禁）。PWA 安装需要安全上下文：
 - **关停**：host `dispose()` 会先 `goalManager.stop()` 再拆传输——停机时不会有续跑派发进已拆的
   relay。
 
+## Dynamic workflows（P0–P3）——运维要点
+
+- **开关**：`OCRC_WORKFLOW=off` 整面变暗（不读 journal、不注册路由）。host 日志里
+  `workflow engine enabled — journal at <dir>` / `workflow engine disabled` 是判据。
+- **状态在哪**：`~/.ocrc/workflows/`——
+  `runs/<runId>.jsonl`（每 run 一个 journal，行种类见 ARCHITECTURE）、
+  `artifacts/<runId>/<id>.v<version>`（产物字节 + `index.json` 记 contentType）、
+  `saved.json`（具名可复用脚本）。删 run 就删它的 journal；产物目录可单独清。
+- **崩溃恢复**：host 重启时把 `running` 的 run 落 `stopped(interrupted)`（**可 resume**），
+  **绝不自动续跑**——actor 会话是用户的，重跑要花 token。`ocrc wf resume <runId>` 或
+  `POST /api/workflow/runs/:id/resume`。`errored`（脚本自己的错）**不可 resume**，只能 amend。
+- **取消**：`ocrc wf cancel <runId>` 只对**本进程**在飞的 run 生效（host 持有的那些）；
+  落 `stopped(user)`。
+- **并发**：run 级上限 = 提交时的 `maxConcurrency`（默认 4），进程天花板
+  `max(1,min(16,availableParallelism()-2))`。引擎按上限排序派发，driver 另有一层 seat gate。
+- **token 预算**：提交时给 `tokenBudget`，越线即停（`stopped`）。用量取引擎自己的
+  per-session token 计数，与面板同源。
+- **world.run 的人工门**（默认开）：`OCRC_WORKFLOW_RUN=off` 一律拒绝 /
+  `=auto` 放行并每次 warn（无人值守）/ 缺省发审批卡等决策，**超时 5 分钟即拒绝**。
+  只有从会话里起的 run 才有父会话可问；没有父会话的命令一律拒绝。`always` 按
+  (run, 命令) 记忆。
+- **world 读的 caps**：grep 2000 条 / 256KB、glob 2000、git diff 512KB、world.run
+  stdout+stderr 各 256KB、默认超时 300s。**超限是拒绝不是截断**（脚本可以 catch）。
+- **成本**：每个 actor 是一个独立子会话（与用户会话同列，可在面板里打开）；一个 3 actor
+  fan-out 就是 3 份上下文。想省就在脚本里少扇出，或给 `tokenBudget`。
+- **CLI**：`ocrc wf list|show|events|cancel|resume|amend|run|compile|saved`（读面不需要
+  引擎在跑；`run`/`resume` 指向 host 用的同一个引擎，`OCRC_SERVER_URL` 决定是哪个）。
+
 ## 诊断速查
 
 ```bash
@@ -161,8 +189,8 @@ Workers → Unregister（别用 Clear site data，会连 localStorage 的 token 
 ## 构建与测试（源码开发）
 
 ```bash
-npm install && npm run build:all   # tsc + web-next（vite build）
-npm test                           # 后端 vitest（733 例）
+npm install && npm run build:all   # tsc + vendor dwf 引擎 + web-next（vite build）
+npm test                           # 后端 vitest（853 例）
 npm run typecheck
 cd web-next && npm test            # /z/ 桥接 vitest（161 例）；npm run typecheck
 

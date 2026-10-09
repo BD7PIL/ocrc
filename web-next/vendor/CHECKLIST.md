@@ -5,7 +5,7 @@
 >
 > **收口口径（2026-10-10，N12 批末对账）**：本批完成后，「ZCode 有而我们没有」的**体验面归零**。
 > 剩余非 ✅ 只有三类：①产品裁决不做的（终端页签/插件市场/CUA/画中画，见 🚫 条）；
-> ②workflow（Q18a 单独立项，本批只留最小形态的接口位）；③不在「前端复刻」口径内的
+> ②workflow 的**面板面**（引擎/工具面已落地，/z/ 投影 = P4）；③不在「前端复刻」口径内的
 > （桌面壳、ACP 多 harness——各属独立项目）。下面每一条非 ✅ 都已注明属于哪一类。
 
 ## 1. 引导与壳
@@ -340,7 +340,12 @@
   （会话内创建首跑 resume 绑定会话，会话没了回落新建）、失败/取消可 `continue` 重取号、任务可
   携带 goal（派发后挂目标，kickoff 由工单自己的 prompt 承担）。`tests/unit/offpeak.test.ts`
   补上 N5 欠下的 24 条单测。
-- 🔶 workflow：Q18a 单独立项，本批只留最小形态接口位（见「不做」清单）。
+- 🔶 workflow：**引擎与工具面已可用**（P0–P3，见 [../../docs/workflow-p3-record.md](../../docs/workflow-p3-record.md)：
+  模型经 `CreateWorkflow` 等 16 个工具作者化、host 侧 journal/并发/预算/审批/产物全通，三份实测记录
+  14/14 + 30/30 + 14/14）。**面板里还没有它**——`/z/` 的完整投影是 P4（`snapshot.workflowRuns` +
+  `workflowRunDeltas` + 7 个 v4 查询 + 4 条命令 + saved 家族 + `getDynamicWorkflowClientConfig` +
+  sessions-index `workflowActivity`），与 amend 的导入缓存（P4b）同批。在此之前 workflow 只能从
+  模型工具面、HTTP 与 `ocrc wf` 使用。
 - **spike 实测记录**：[docs/n12-spike-record.md](../../docs/n12-spike-record.md)——
   A/C/D/E/F/G 隔离栈实测通过（含 UI 截图与 DOM 断言）；B 的 /z/ 半场用真 UI 点按钮通过，
   **TG 半场待用户本人跑**（我没有 Telegram 客户端，无法以用户身份发消息）。spike 修出

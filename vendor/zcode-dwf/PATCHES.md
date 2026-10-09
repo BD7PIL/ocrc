@@ -42,7 +42,16 @@
 升级 zod 不影响它；反之亦然。冒烟测试用 `src/schema/validate.ts` 校验合成结果，走的就是
 引擎自己那条校验路径。
 
-## 4. 未 vendor 的上游部分（有意）
+## 4. 技能正文（未修改，原样 vendor）
+- **来源**：`apps/zcode-cli/packages/bundled-skills/skills/dynamic-workflows/`
+- **落点**：`vendor/zcode-dwf/skills/dynamic-workflows/{SKILL.md,patterns.md,examples.md}`
+  （1,520 + 460 + 801 行）
+- **为什么在 dwf 树里**：它是**这套工具的作者契约**——创建类工具在会话未加载它之前直接
+  拒绝（上游 skill 自己的第一节写明这条门）。放在引擎旁边，re-vendor 时与引擎同批更新，
+  不会出现「引擎换了、技能还是旧的」。
+- **零修改**。由 host 的 `GET /api/workflow/skill` 供出（只有一份副本）。
+
+## 5. 未 vendor 的上游部分（有意）
 - `dynamic-workflow/scripts/generate-mermaid.mjs`（`charts` 脚本）——只生成图表产物，
   构建路径不需要，留在上游。
 - `dynamic-workflow/scratch/`、`.oxlintrc.json`、各包 `.gitignore`——开发脚手架。

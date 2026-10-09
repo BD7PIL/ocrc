@@ -55,8 +55,17 @@
 
 **不做**（2026-10-07 裁决）：host 原生 workflow runner（自研编排执行引擎）、终端页签、插件市场、treemapping（ZCode 自身已下架）、developer-tools（引擎不暴露网络级调试数据）、CUA 全家、登录/账号/订阅。
 
-**改判**（2026-10-10，N12）：旧条文的「目标/goal」不再成立——**做**，且扩展为「以引擎插件钩子补齐 ZCode 体验面（goal / 闲时收尾 / workflow 最小形态）」。
-**机制在引擎内（仅官方钩子，不改引擎、不追 opencode latest）、状态与调度在 host**；host 原生 workflow runner 仍然不做（workflow 走引擎自己的 dwf 面，ocrc 只做最小形态的接口位）。
+**改判**（2026-10-10，N12）：旧条文的「目标/goal」不再成立——**做**，且扩展为「以引擎插件钩子补齐 ZCode 体验面（goal / 闲时收尾 / workflow）」。
+**机制在引擎内（仅官方钩子，不改引擎、不追 opencode latest）、状态与调度在 host**。
+
+**workflow 二次改判**（2026-10-10，P0–P3 落地）：不再只是「最小形态的接口位」。定稿条文是
+**「引擎 vendored + 工具走官方钩子 + 状态/调度/审批/预算在 host」**——上游 ZCode 的 dwf 引擎
+（`dynamic-workflow` + `dynamic-workflow-runtime`，Apache-2.0，登记制 vendor）负责编译、
+typed schema、repair/nudge、replay/resume 与 `vm` 沙箱；ocrc 写 driver 与 host 状态面
+（journal、并发、预算、审批、产物、saved workflows），模型经官方 `tool` 钩子拿到
+`CreateWorkflow` 等工具。**host 原生 workflow runner（自研编排执行引擎）仍然不做**——
+那条旧裁决一个字没动，改判的是「引擎自己的 dwf 面能不能整套用上」，答案是可以，且不用
+重造任何编排逻辑。
 
 ## UI 原则（2026-10-06 裁决；2026-10-07 增补）
 
@@ -104,7 +113,7 @@
 
 ## 第五条：明确不做
 
-机器管理 · 多租户 · 云同步 · 通用聊天客户端 · 内嵌 agent 运行时 · 跟随 opencode latest（除非 V2 项目完成）· **个人微信自动化**（2026-10-05 裁决：只有 wechaty 类逆向方案，违反 ToS、封号风险真实；企业侧通道 = 企业微信/飞书/钉钉的官方企业接入）· host 原生 workflow runner（2026-10-07 裁决；goal 已于 2026-10-10 N12 改判为做——机制在引擎钩子、状态在 host，见上）· 终端页签 · 插件市场 · 语音转写 · 管理员分层。
+机器管理 · 多租户 · 云同步 · 通用聊天客户端 · 内嵌 agent 运行时 · 跟随 opencode latest（除非 V2 项目完成）· **个人微信自动化**（2026-10-05 裁决：只有 wechaty 类逆向方案，违反 ToS、封号风险真实；企业侧通道 = 企业微信/飞书/钉钉的官方企业接入）· host 原生 workflow runner（2026-10-07 裁决，**维持**；goal 与 workflow 均已改判为做——机制在引擎钩子、引擎本身 vendored 上游 dwf、状态在 host，见上）· 终端页签 · 插件市场 · 语音转写 · 管理员分层。
 
 ## 附：企业通道矩阵（2026-10-05 评估）
 

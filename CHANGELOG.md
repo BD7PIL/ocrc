@@ -1,5 +1,69 @@
 # Changelog
 
+## 1.0.0-rc.5 — workflow 全量落地 P0–P3（vendored dwf 引擎 + 官方钩子工具面 + host journal）(2026-10-10)
+
+> 口径：**ZCode 的 workflow 整套用上，但不重造编排逻辑**——引擎 vendor 上游 dwf，
+> 模型经官方 `tool` 钩子作者化，状态/调度/审批/预算全在 host。P4（/z/ 投影）与
+> P4b（amend 导入缓存）未完成，见文末。
+
+### feat(core): 插件与 host 共存（P0，唯一的架构改动）
+- 锁文件记**所有者角色**：`tryBecomePrimary(lock, {role, url})` 写 `{pid,startedAt,role,url}`，
+  新增 `currentPrimary()`（只认活着的 pid）。host 启动即取 `role:'host'` 并写自己的 web URL。
+- **ATTACHED 模式**（`src/plugin/attached.ts`）：插件读到活着的 host 就只注册工具、**零
+  transport、零端口、连 Telegram token 都不需要**；host 不在时逐字维持旧行为（FULL / PASSIVE）。
+- host 侧通道：`/api/attach/{status,notify,echo}`（token 闸之后）。host 关停加了 10s 硬上限 +
+  `process.on('exit')` 兜底释放锁（TG long-poll 卡住时曾把锁留在原地）。
+- 门禁 `scripts/spikes/p0-tool-registration/gate.mjs`：**14/14**（工具可调用并取回 host 分配的
+  runId、插件零端口、无第二个 TG poller、host 不在时逐字回归）。
+- P0-1 实测结论（`docs/workflow-p0-tool-registration.md`）：opencode 对重名工具**列表层并存、
+  模型面 last-wins 静默覆盖**，所以工具必须幂等、无实例状态、id 由 host 分配。
+
+### feat(workflow): vendored 上游 dwf 引擎（P1）
+- `vendor/zcode-dwf/`：`dynamic-workflow`（94 文件 / 20,530 行）+ `dynamic-workflow-runtime`
+  （5 文件 / 1,322 行），Apache-2.0，登记制（PATCHES.md 只有两行相对 import 改写）。
+- `scripts/build-dwf.mjs` + `build:all` 接入；`typescript` 从 devDeps 提到 **deps**（引擎运行时
+  要 TS 编译器 API）；`vendor/zcode-dwf/dist` 进 `files`。
+- 冒烟测试 8 例：照上游 run service 的流水线编译 → typed schema 合成 → 真沙箱（子进程 vm）跑
+  双 actor 脚本 → 断言诊断带作者行号、typed submit 经引擎 accept、脚本抛错结算 errored、
+  `process`/`require` 在编译期就被拒。
+
+### feat(workflow): driver + host manager（P2）
+- `src/core/workflow/`：`journal.ts`（JSONL，一 run 一文件，同步追加 + 内存索引）、
+  `driver.ts`（引擎 ↔ ocrc 会话；actor 会话 journal 化、turn 结束由 relay 送进来、
+  run 级 seat gate）、`world.ts`（8 个读原语，超限**拒绝不截断**，无 shell）、
+  `artifacts.ts`（内容成员落盘 + per-run index.json）、`saved.ts`、`manager.ts`
+  （submit/list/get/events/cancel/resume/amend/冷恢复/预算闸）。
+- HTTP：`/api/workflow/runs*`、`/api/workflow/saved*`、artifact 字节端点（不可变缓存）。
+- CLI：`ocrc wf list|show|events|cancel|resume|amend|run|compile|saved`。
+- 门禁 `scripts/spikes/p2-workflow/gate.mjs`：**30/30**（3 actor 并行、并发上限、typed ask
+  一次通过 + repair 后通过、world.read、artifact、report、cancel、resume、重启后 resume、预算）。
+- 门禁修出三处真缺陷：driver 没绑进 live 表（所有 ask 永停 running）、事件被写两遍、world/
+  artifact 的根目录用了 host 的 cwd。
+
+### feat(workflow): 工具面 + 技能 + 人工门（P3）
+- 16 个工具挂在 ATTACHED 插件上（作者侧 9 + actor 侧 3 + 基础 4），全部是打回 host 的薄 HTTP
+  调用、无状态。**技能门**：创建类工具在本会话未加载 `dynamic-workflows` 技能前直接拒绝；
+  开门走 `GetWorkflowSkill` 或 opencode 官方 `skill` 工具的 `tool.execute.before` 钩子。
+  技能正文 vendor 自上游 bundled-skills（2,781 行），由 `GET /api/workflow/skill` 供出。
+- `EvalWorkflowSnippet`：只编译不建 run，回带行列的诊断——模型最依赖的便宜迭代路径。
+- **world.run 人工门**（`src/core/workflow/approval.ts`）：审批卡 + `POST /api/workflow/approval`，
+  **一律 fail-closed**（无父会话 / 超时 5 分钟 / 未知 requestId / host 关停都拒绝），
+  `always` 按 (run, 命令) 记忆，`OCRC_WORKFLOW_RUN=off|auto` 两档旁路。
+- 门禁 `scripts/spikes/p3-tools/gate.mjs`：**14/14**（模型读到技能 → 故意写错拿 TS2322 带 L3:C7
+  的诊断 → 改对起 run → 跟进度 → actor typed submit 被接受 → escalate 被回答）。
+
+### docs
+- 新增 `docs/workflow-p0-tool-registration.md` / `workflow-p2-record.md` / `workflow-p3-record.md`
+  （三份实测记录，含各自修出的真缺陷）；ARCHITECTURE 新增 workflow 域；OPS 新增运维要点；
+  PRODUCT 的 workflow 条文改判；next-phase §4 指向本计划。
+
+### 未完成（下一批）
+- **P4**：`/z/` 的完整投影（`snapshot.workflowRuns` + `workflowRunDeltas` + 7 个 v4 查询 +
+  4 条命令 + saved 家族 + `getDynamicWorkflowClientConfig` + sessions-index `workflowActivity`）。
+  当前模型侧与 CLI/HTTP 侧已可用，面板里还没有 workflow 卡与侧页。
+- **P4b**：amend 的导入缓存（上游 `dynamic-workflow-import.ts` 移植）。当前 amend 是**重跑**
+  （正确但更贵），已在 `manager.amend` 的注释里写明。
+
 ## 1.0.0-rc.4 — N12: the goal loop, off-peak completion, rc.3 console closeout (2026-10-10)
 
 > 口径：**本批完成后，「ZCode 有而我们没有」的体验面归零**（剩余非 ✅ 三类：产品裁决不做 /

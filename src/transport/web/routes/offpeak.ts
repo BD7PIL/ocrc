@@ -17,6 +17,8 @@ export function registerOffPeak(app: Hono, manager: OffPeakManager, window: OffP
       permissionMode?: string
       modelSelection?: { providerID?: unknown; modelID?: unknown }
       directory?: string
+      boundSessionId?: string
+      goal?: string
     }
     const text = typeof body.prompt === 'string' ? body.prompt : ''
     const title = typeof body.title === 'string' ? body.title : ''
@@ -35,6 +37,8 @@ export function registerOffPeak(app: Hono, manager: OffPeakManager, window: OffP
       permissionMode: typeof body.permissionMode === 'string' ? body.permissionMode : undefined,
       modelSelection,
       directory: typeof body.directory === 'string' ? body.directory : undefined,
+      boundSessionId: typeof body.boundSessionId === 'string' ? body.boundSessionId : undefined,
+      goal: typeof body.goal === 'string' ? body.goal : undefined,
     })
     return c.json(task ? { task } : { error: 'invalid offpeak task' }, task ? 200 : 400)
   })

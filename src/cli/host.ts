@@ -231,6 +231,11 @@ export async function main(): Promise<void> {
     applyModelSelection: (m) => state.setNextModel(m),
     applyApprovalPolicy: (sessionId, policy) => state.setSessionApprovalPolicy(sessionId, policy),
     isSessionBusy: (id) => state.hasActiveGeneration(id) || state.isSessionBusy(id),
+    // N12 补尾：会话内创建的工单首跑 resume 绑定会话；带 goal 的工单派发后挂目标
+    // （kickoff 由工单自己的 prompt 承担，所以 setGoal 不带 kickoff）。
+    sessionExists: (id) => registry.forSession(id).hasSession(id),
+    setGoal: (sessionId, objective) => { goalManager?.set(sessionId, objective, { kickoff: false }) },
+    abortSession: async (id) => { await registry.forSession(id).abort(id) },
   })
   offpeak.start()
   const channels = createChannelsStore(join(dataDir, 'channels.json'))

@@ -80,7 +80,7 @@ export interface GoalDeps {
 }
 
 export interface GoalManager {
-  set(sessionId: string, objective: string, opts?: { tokenBudget?: number }): GoalActionResult
+  set(sessionId: string, objective: string, opts?: { tokenBudget?: number; kickoff?: boolean }): GoalActionResult
   pause(sessionId: string): GoalActionResult
   resume(sessionId: string): GoalActionResult
   clear(sessionId: string): boolean
@@ -513,6 +513,9 @@ export function createGoalManager(deps: GoalDeps): GoalManager {
       // Kick off the first turn so a freshly-set goal starts working at once —
       // upstream's goal command runs its own turn. Fire-and-forget like the
       // scheduler: a dispatch failure is logged, not thrown at the command.
+      // kickoff:false is for callers that already own the first turn (an
+      // off-peak task sends its own prompt), so the goal doesn't double-send.
+      if (opts?.kickoff === false) return { ok: true, goal }
       void deps.dispatch({
         userId: 'ocrc-goal',
         chatId: 'ocrc-goal',

@@ -23,6 +23,12 @@ interface OcrcOffPeakTask {
   sessionId?: string
   createdAt: number
   updatedAt: number
+  /** 会话内创建时绑定的会话（首跑 resume 它，而不是新建）。 */
+  boundSessionId?: string
+  /** 派发后自动挂上的目标（N12 goal 循环）。 */
+  goal?: string
+  /** 排队位次（1 起，FIFO）；仅 queued 态有值，由 host 读出时派生。 */
+  queuePosition?: number
 }
 
 async function fetchOffPeak(): Promise<{ tasks: OcrcOffPeakTask[]; window: { start: string; end: string }; windowOpen: boolean }> {
@@ -48,6 +54,8 @@ function toTask(t: OcrcOffPeakTask): any {
     sessionId: t.sessionId,
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
+    ...(t.boundSessionId ? { boundSessionId: t.boundSessionId } : {}),
+    ...(t.queuePosition !== undefined ? { queuePosition: t.queuePosition } : {}),
   }
 }
 
@@ -71,8 +79,9 @@ export function createOcrcOffPeakTaskService(): any {
       return t ? toTask(t) : null
     },
     // vendor ZCodeOffPeakTaskCreateParams 全量收下：title/prompt/permissionMode/
-    // modelSelection/workspacePath 落 ocrc 工单；boundSessionId（会话内创建）N5.x
-    createTask: async (params: { title: string; prompt: string; permissionMode?: string; modelSelection?: { providerID: string; modelID: string }; workspacePath?: string }) => {
+    // modelSelection/workspacePath/boundSessionId 落 ocrc 工单（boundSessionId =
+    // 会话内创建，首跑 resume 该会话）。
+    createTask: async (params: { title: string; prompt: string; permissionMode?: string; modelSelection?: { providerID: string; modelID: string }; workspacePath?: string; boundSessionId?: string }) => {
       const res = await fetch('/api/offpeak', {
         method: 'POST',
         headers: auth(),
@@ -82,6 +91,7 @@ export function createOcrcOffPeakTaskService(): any {
           permissionMode: params.permissionMode,
           modelSelection: params.modelSelection,
           directory: params.workspacePath,
+          ...(params.boundSessionId ? { boundSessionId: params.boundSessionId } : {}),
         }),
       })
       if (!res.ok) {

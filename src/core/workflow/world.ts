@@ -26,7 +26,7 @@ export interface WorldReadDeps {
    * Approval gate for `world.run`. Returns false to refuse. Absent = allow (the
    * host wires the real gate; tests and snippet evaluation omit it).
    */
-  approve?: (cmd: string, args: string[]) => Promise<boolean> | boolean
+  approve?: (cmd: string, args: string[], runId?: string) => Promise<boolean> | boolean
   /** Test seam. */
   execFileImpl?: typeof execFile
 }
@@ -96,8 +96,9 @@ function walk(dir: string, cwd: string, out: string[], limit: number): void {
 const readdirSafe = (dir: string): string[] => readdirSync(dir)
 
 export interface WorldReader {
-  /** `cwd` overrides the reader's default root — the run's workspace. */
-  read(op: WorldReadOp, args: unknown[], cwd?: string): Promise<unknown>
+  /** `cwd` overrides the reader's default root — the run's workspace; `runId` is
+   *  handed to the approval gate so a decision can be attributed to its run. */
+  read(op: WorldReadOp, args: unknown[], cwd?: string, runId?: string): Promise<unknown>
 }
 
 export function createWorldReader(deps: WorldReadDeps): WorldReader {
@@ -108,7 +109,7 @@ export function createWorldReader(deps: WorldReadDeps): WorldReader {
   }
 
   return {
-    async read(op, args, cwdOverride) {
+    async read(op, args, cwdOverride, runId) {
       const cwd = cwdOverride ?? deps.cwd
       switch (op) {
         case 'glob': {
@@ -221,7 +222,7 @@ export function createWorldReader(deps: WorldReadDeps): WorldReader {
             ? opts.timeoutMs
             : caps.runDefaultTimeoutMs
 
-          if (deps.approve && !(await deps.approve(cmd, argv as string[]))) {
+          if (deps.approve && !(await deps.approve(cmd, argv as string[], runId))) {
             throw driverError(op, `world.run \`${cmd}\` was not approved`)
           }
 

@@ -30,6 +30,8 @@ export interface WebTransportConfig {
   workflow?: import('../../core/workflow/manager.js').WorkflowManager
   workflowArtifacts?: import('../../core/workflow/artifacts.js').ArtifactStore
   workflowSaved?: import('../../core/workflow/saved.js').SavedWorkflowsStore
+  /** P3: the world.run approval gate (the panel answers its cards). */
+  workflowApproval?: import('../../core/workflow/approval.js').WorkflowApproval
   /** P2b-M7 cross-channel scheduled prompts (optional). */
   scheduler?: Scheduler
   /** M9 bot-channel settings store + live TG status (optional). */
@@ -116,6 +118,7 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         workflow: cfg.workflow,
         workflowArtifacts: cfg.workflowArtifacts,
         workflowSaved: cfg.workflowSaved,
+        workflowApproval: cfg.workflowApproval,
       })
 
       // Immutable hashed assets cache forever; everything else (above all

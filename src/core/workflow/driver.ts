@@ -315,7 +315,7 @@ export function createWorkflowDriver(deps: WorkflowDriverDeps): WorkflowDriverHa
     async executeWorldRead(op, args) {
       // The run's own workspace, not the host's cwd — a run started for another
       // directory must read and write there.
-      return await deps.world.read(op, args, deps.cwd)
+      return await deps.world.read(op, args, deps.cwd, deps.runId)
     },
 
     async executeArtifactPublish(request) {

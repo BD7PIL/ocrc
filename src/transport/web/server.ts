@@ -98,6 +98,8 @@ export interface BuildServerOpts {
   workflow?: import('../../core/workflow/manager.js').WorkflowManager
   workflowArtifacts?: import('../../core/workflow/artifacts.js').ArtifactStore
   workflowSaved?: import('../../core/workflow/saved.js').SavedWorkflowsStore
+  /** P3: the world.run approval gate. */
+  workflowApproval?: import('../../core/workflow/approval.js').WorkflowApproval
 }
 
 export function buildServer(opts: BuildServerOpts): Hono {
@@ -180,6 +182,7 @@ export function buildServer(opts: BuildServerOpts): Hono {
       artifacts: opts.workflowArtifacts,
       saved: opts.workflowSaved,
       registry: opts.registry,
+      ...(opts.workflowApproval ? { approval: opts.workflowApproval } : {}),
     })
   }
   // P0-3: the ATTACHED-plugin channel (status / notify / echo probe). Registered

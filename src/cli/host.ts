@@ -37,6 +37,7 @@ import { createWorldReader } from '../core/workflow/world.js'
 import { createArtifactStore } from '../core/workflow/artifacts.js'
 import { createSavedWorkflowsStore } from '../core/workflow/saved.js'
 import { createWorkflowManager, type WorkflowManager } from '../core/workflow/manager.js'
+import { createWorkflowApproval } from '../core/workflow/approval.js'
 import { selectAuthStrategy } from '../connectivity/auth/select.js'
 import type { Transport } from '../transport/interface.js'
 import { createLogger } from '../utils/logger.js'
@@ -214,8 +215,11 @@ export async function main(): Promise<void> {
   let workflowManager: WorkflowManager | undefined
   let workflowArtifacts: ReturnType<typeof createArtifactStore> | undefined
   let workflowSaved: ReturnType<typeof createSavedWorkflowsStore> | undefined
+  let workflowApproval: ReturnType<typeof createWorkflowApproval> | undefined
   if (workflowEnabled) {
     const workflowJournal = createWorkflowJournal({ dir: workflowsDir })
+    // P3: world.run's human gate. Fail-closed — an unanswered request is a deny.
+    const workflowApproval = createWorkflowApproval({ cardBus })
     workflowArtifacts = createArtifactStore({ dir: workflowsDir, cwd: process.cwd() })
     workflowSaved = createSavedWorkflowsStore(join(workflowsDir, 'saved.json'))
     workflowManager = createWorkflowManager({
@@ -227,13 +231,24 @@ export async function main(): Promise<void> {
         // shows the command and waits for a decision is part of the tool face
         // (P3) — until it lands, the honest options are "deny everything" or
         // "allow and say so loudly", and OCRC_WORKFLOW_RUN picks between them.
-        approve: async (cmd, args) => {
-          const allow = process.env.OCRC_WORKFLOW_RUN !== 'off'
-          log.warn(
-            `${allow ? 'ALLOWING' : 'DENYING'} world.run \`${cmd} ${args.join(' ').slice(0, 120)}\` — ` +
-            'the workflow approval gate arrives with the tool face (P3); set OCRC_WORKFLOW_RUN=off to deny.',
-          )
-          return allow
+        // The human gate. `OCRC_WORKFLOW_RUN=off` denies every command outright;
+        // `=auto` skips the card (unattended runs); otherwise the card goes to the
+        // parent session and the panel answers it.
+        approve: async (cmd, args, runId) => {
+          if (process.env.OCRC_WORKFLOW_RUN === 'off') {
+            log.warn(`DENYING world.run \`${cmd}\` (OCRC_WORKFLOW_RUN=off)`)
+            return false
+          }
+          if (process.env.OCRC_WORKFLOW_RUN === 'auto') {
+            log.warn(`ALLOWING world.run \`${cmd}\` (OCRC_WORKFLOW_RUN=auto)`)
+            return true
+          }
+          const sessionId = runId ? workflowJournal.getRun(runId)?.parentSessionId : undefined
+          if (!runId || !sessionId) {
+            log.warn(`world.run \`${cmd}\` denied: no parent session to ask (start the run from a session)`)
+            return false
+          }
+          return await workflowApproval.request({ runId, sessionId, cmd, args })
         },
       }),
       artifacts: workflowArtifacts,
@@ -437,6 +452,7 @@ export async function main(): Promise<void> {
       workflow: workflowManager,
       workflowArtifacts,
       workflowSaved,
+      workflowApproval,
       remoteManager,
       onRemoteEnabled: (r) => wireHandle.registerRemoteBackend(r),
       settingsConfigDir: process.env.OPENCODE_CONFIG_DIR ?? join(process.env.HOME ?? '', '.config', 'opencode'),
@@ -481,6 +497,7 @@ export async function main(): Promise<void> {
     // Workflow runs are stopped as `interrupted` (resumable), never cancelled as
     // user actions — the same discipline as goal cold recovery.
     workflowManager?.stop()
+    workflowApproval?.stop()
     offpeak.stop()
     remoteManager.dispose()
     void wireHandle.dispose()

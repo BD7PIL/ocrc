@@ -6,6 +6,7 @@ import type { WorkflowManager } from '../../../core/workflow/manager.js'
 import type { ArtifactStore } from '../../../core/workflow/artifacts.js'
 import type { SavedWorkflowsStore } from '../../../core/workflow/saved.js'
 import type { BackendRegistry } from '../../../core/agent/registry.js'
+import type { WorkflowApproval } from '../../../core/workflow/approval.js'
 import { compileScript } from '../../../core/workflow/manager.js'
 
 /**
@@ -20,6 +21,8 @@ export interface WorkflowRouteDeps {
   artifacts: ArtifactStore
   saved: SavedWorkflowsStore
   registry: BackendRegistry
+  /** P3: the world.run approval gate (absent = no run can start a command). */
+  approval?: WorkflowApproval
 }
 
 const SKILL_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../../../vendor/zcode-dwf/skills/dynamic-workflows')
@@ -173,6 +176,21 @@ export function registerWorkflow(app: Hono, deps: WorkflowRouteDeps) {
         ? 'The user answered your question.'
         : 'No answer is available yet — continue with your best judgment and say what you assumed.',
     })
+  })
+
+  /** The panel's answer to a `world.run` approval card. */
+  app.post('/api/workflow/approval', async (c) => {
+    if (!deps.approval) return c.json({ error: 'unsupported' }, 501)
+    const body = (await c.req.json().catch(() => ({}))) as { requestId?: string; decision?: string }
+    if (typeof body.requestId !== 'string' || !body.requestId) return c.json({ error: 'requestId required' }, 400)
+    if (!['once', 'always', 'reject'].includes(body.decision ?? '')) return c.json({ error: 'decision must be once|always|reject' }, 400)
+    const ok = deps.approval.resolve(body.requestId, body.decision as 'once' | 'always' | 'reject')
+    return c.json({ ok }, ok ? 200 : 404)
+  })
+
+  app.get('/api/workflow/approvals', (c) => {
+    if (!deps.approval) return c.json({ pending: [] })
+    return c.json({ pending: deps.approval.pending() })
   })
 
   /** `ResolveWorkflowQuestion`: answer an actor's escalation from the parent side. */

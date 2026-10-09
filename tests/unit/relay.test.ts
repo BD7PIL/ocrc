@@ -444,6 +444,42 @@ describe('createRelay', () => {
       expect(assistantCard.blocks.some((b: any) => b.type === 'text' && b.text === 'response text')).toBe(true)
     })
 
+    it('fires onTurnEnd once per session idle (the goal loop hook)', async () => {
+      const cardBus = createCardBus()
+      const state = fakeState()
+      state.getPinnedSessionId = () => 'ses_plugin'
+      const onTurnEnd = vi.fn()
+      const relay = createRelay({
+        cardBus,
+        backend: fakeBackend(),
+        state,
+        chatTimeoutMs: 5000,
+        tuiVisible: false,
+        onTurnEnd,
+      })
+      await relay({ userId: '1', chatId: '100', text: 'test', messageId: 'p4' })
+      expect(onTurnEnd).not.toHaveBeenCalled()
+      await relay.handleEvent({ kind: 'idle', sessionId: 'ses_plugin' })
+      expect(onTurnEnd).toHaveBeenCalledTimes(1)
+      expect(onTurnEnd).toHaveBeenCalledWith('ses_plugin')
+    })
+
+    it('a throwing onTurnEnd hook does not break idle handling', async () => {
+      const cardBus = createCardBus()
+      const state = fakeState()
+      state.getPinnedSessionId = () => 'ses_plugin'
+      const relay = createRelay({
+        cardBus,
+        backend: fakeBackend(),
+        state,
+        chatTimeoutMs: 5000,
+        tuiVisible: false,
+        onTurnEnd: () => { throw new Error('hook exploded') },
+      })
+      await relay({ userId: '1', chatId: '100', text: 'test', messageId: 'p5' })
+      await expect(relay.handleEvent({ kind: 'idle', sessionId: 'ses_plugin' })).resolves.toBeUndefined()
+    })
+
     it('carries live reasoning on streaming cards and thinkingText on the final card', async () => {
       const cardBus = createCardBus()
       const cards: StructuredCard[] = []

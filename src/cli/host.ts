@@ -30,6 +30,7 @@ import type { OcEvent } from '../core/opencode-events.js'
 import { createTelegramTransport } from '../transport/telegram/index.js'
 import { createWebTransport } from '../transport/web/index.js'
 import { createOffPeakManager } from '../core/offpeak.js'
+import { createGoalManager, type GoalManager } from '../core/goal.js'
 import { selectAuthStrategy } from '../connectivity/auth/select.js'
 import type { Transport } from '../transport/interface.js'
 import { createLogger } from '../utils/logger.js'
@@ -107,6 +108,9 @@ export async function main(): Promise<void> {
   // sdelta side channel (0.25.0): relay → WS hub。plugin entry 同款接线——
   // web transport 启动时绑定 broadcast；web 关闭时 delta 在此丢弃。
   const streamDeltaSink: { broadcast?: (frame: import('../core/structured-card.js').StreamDeltaFrame) => void } = {}
+  // N12 goal push channel: goal manager → WS hub (`goal` frames). Bound when the
+  // web transport starts, like streamDeltaSink; a TG-only host simply drops them.
+  const goalSink: { broadcast?: (frame: { sessionId: string; goal: import('../core/state.js').GoalRecord | undefined; verifying: boolean }) => void } = {}
   const remoteManager = createRemoteHostManager({ store: remotesStore })
 
   // Build every backend (spawning opencode server(s) + ACP agents) and wire each
@@ -145,7 +149,24 @@ export async function main(): Promise<void> {
     chatTimeoutMs: config.chatTimeoutMs,
     tuiVisible: false, // no local TUI in standalone mode
     onStreamDelta: (frame) => streamDeltaSink.broadcast?.(frame),
+    // N12: turn end → goal loop. goalManager is assigned just below (the loop
+    // needs the relay as its dispatch target, so the two are mutually
+    // referential); this closure reads it lazily.
+    onTurnEnd: (sid) => { void goalManager?.handleTurnEnd(sid) },
   })
+  // N12 goal loop: verifier + continuation live host-side (the engine has no
+  // goal concept). Built after the relay so dispatch can target it; cold
+  // recovery runs immediately (active goals → paused, never auto-resumed).
+  let goalManager: GoalManager | undefined
+  goalManager = createGoalManager({
+    state,
+    registry,
+    dispatch: async (msg) => { await relay(msg) },
+    cardBus,
+    onGoalChanged: (sessionId, goal, verifying) => goalSink.broadcast?.({ sessionId, goal, verifying }),
+    isPlanMode: () => state.getNextAgent() === 'plan',
+  })
+  goalManager.recoverOnStart()
 
   // Persist finalized conversation cards for ACP sessions (recordCard no-ops for
   // opencode sessions, which aren't in the store) so they reopen with history.
@@ -322,6 +343,11 @@ export async function main(): Promise<void> {
   const dispose = async () => {
     log.info('shutting down…')
     scheduler.stop()
+    // N12: stop the goal loop before the transports go away — without this a
+    // verifier/continuation could dispatch into a torn-down relay (the offpeak
+    // manager shipped without its stop() and this is the same trap).
+    goalManager?.stop()
+    offpeak.stop()
     remoteManager.dispose()
     void wireHandle.dispose()
     push.stop()

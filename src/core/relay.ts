@@ -25,6 +25,10 @@ export interface RelayDeps {
    *  as `sdelta` frames so throttled snapshot cards can stay sparse. Not wired
    *  by Telegram-only hosts — those keep consuming CardBus snapshots. */
   onStreamDelta?: (frame: StreamDeltaFrame) => void
+  /** Turn-end hook (N12): fired once per session idle — the single point where
+   *  a turn is known to be over. The goal loop hangs off this. Never let it
+   *  throw into the relay; the host wraps its handler. */
+  onTurnEnd?: (sessionId: string) => void
 }
 
 const SUBMIT_MAX_RETRIES = 5
@@ -608,6 +612,15 @@ const messageRoles = new Map<string, Map<string, string>>()
         messageRoles.delete(sid)
         log.info(`[plugin] session idle (no ctx): ${sid.slice(-8)}`)
         deps.cardBus.publish({ kind: 'status', sessionId: sid, fields: { status: 'idle' } })
+      }
+      // N12: the turn is over — hand the session to the goal loop (verify and
+      // maybe continue). Fired for both branches: a goal's continuation turn
+      // may end without an ocrc ctx of its own. Never let a hook failure break
+      // the relay's idle handling.
+      if (deps.onTurnEnd) {
+        try { deps.onTurnEnd(sid) } catch (err) {
+          log.error(`[plugin] onTurnEnd hook failed`, err as Error)
+        }
       }
       return
     }

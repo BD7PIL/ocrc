@@ -302,13 +302,14 @@ export interface AgentBackend {
   suggestFollowUps?(sessionId: string, exchange: { user: string; assistant: string }): Promise<string[]>
   /**
    * One-shot prompt in a throwaway child session → the assistant's text reply.
-   * The goal completion verifier's independent LLM call: it must not disturb the
-   * source conversation, so the child session is created, used, and deleted.
-   * `tools` is the per-request tool enable map (false disables a tool) — the
-   * verifier denies write-class tools. Never throws; resolves undefined on any
-   * failure so the caller can fail closed.
+   * Used for calls that must not disturb a conversation (the goal completion
+   * verifier, commit-message generation): the child session is created, used,
+   * and deleted. `parentID` attaches the child to a source conversation when
+   * there is one. `tools` is the per-request tool enable map (false disables a
+   * tool) — the verifier denies write-class tools. Never throws; resolves
+   * undefined on any failure so the caller can fail closed.
    */
-  promptOnce?(sessionId: string, text: string, opts?: {
+  promptOnce?(text: string, opts?: {
     parentID?: string
     tools?: Record<string, boolean>
     timeoutMs?: number

@@ -34,3 +34,14 @@
 - **修改**：恢复被上游注释的 `<DropdownMenuItem onSelect={onOpenWhiteboard}>` 画板菜单项。
 - **原因**：PRODUCT.md 增值四件明列 whiteboard（纯前端+发到聊天）。vendor store 零 fetch、纯内存；「添加到对话区」走 window CustomEvent → composer 附件 → 既有 sendText 通道，ocrc 零桥接。
 - **验证**：隔离栈实测：展开侧边面板 → 终端 tab → `+` → 画板 → 画线 → 添加到对话区 → composer 出现 `画板 1.png` 附件。
+
+## 7. mermaid 渲染器按需加载（N12 G9）
+- **文件**：`vendor/zcode/ui/src/components/ai-elements/code-block.tsx`（import → `lazy()` + `<Suspense>`）、`vendor/zcode/ui/src/previewPaneCodeContent.tsx`（同）
+- **修改**：两处 `import { MermaidBlock } from "…/mermaid-block.js"` 改为 `lazy(() => import(…))`，调用点包 `<Suspense fallback={null}>`。
+- **原因**：静态 import 让 mermaid 渲染器成为壳层 chunk 的静态可达节点（图表是少数派内容）。
+- **实测（N12 G9 分包审查，`npm run build` 产物字节）**：
+  - 首屏 = 入口 `index-*.js` 441.8 kB + 唯一静态依赖 `mermaid-MCJ5UELQ-*.js` **8,688.4 kB**（gzip 2,434 kB）+ CSS 385.9 kB（gzip 62.8 kB）≈ **2.6 MB gzip**。
+  - 本补丁单独生效 ≈ −4 kB（把渲染器本身挪出静态图）。
+  - **mermaid 的静态残留 = 622 kB**（唯一另一条静态链是 `message.tsx:16` 的 `import { mermaid } from "@streamdown/mermaid"` → `streamdownPlugins`，删掉实测 8,688 → 8,066 kB）。**该链未动**：它挂在核心消息渲染器的 plugins 入参上，延后会让首遍 markdown 解析拿不到 mermaid 插件，需单独批次 + 渲染实测。
+  - 其余重件（pdf-viewer / pptx、xlsx 预览引擎 / prism 语言包 / wasm）上游**已经**各自独立懒 chunk——分包结构本身是对的；8 MB 壳层是 vendor UI + streamdown/remark/shiki/katex/zod 的热图，缩表需要 bundle-visualizer 级的归因批次。
+- **验证**：`npm run build` 通过；`mermaid-block-*.js`（4.4 kB）成为独立懒 chunk；非 mermaid 代码块路径无 Suspense 命中（`shouldRenderMermaid` 门内）。

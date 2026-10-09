@@ -68,3 +68,44 @@ describe('git 写操作（N7-3）', () => {
     expect(out.error).toBeTruthy()
   })
 })
+
+describe('提交信息生成（N12 G9）', () => {
+  it('gitWorkingDiff 取工作区 diff，staged 与 unstaged 分开', async () => {
+    const { gitWorkingDiff, gitStage } = await import('../../src/core/git-ops.js')
+    writeFileSync(join(dir, 'a.txt'), 'three\n')
+    expect(await gitWorkingDiff(dir, { staged: true })).toBe('')
+    expect(await gitWorkingDiff(dir)).toContain('three')
+    await gitStage(dir, ['a.txt'], true)
+    expect(await gitWorkingDiff(dir, { staged: true })).toContain('three')
+    await gitStage(dir, ['a.txt'], false)
+    // 越界路径照样被拒（复用 assertSafePaths）
+    await expect(gitWorkingDiff(dir, { paths: ['../../etc/passwd'] })).rejects.toThrow(/非法路径/)
+  })
+
+  it('gitWorkingDiff 按上限截断', async () => {
+    const { gitWorkingDiff } = await import('../../src/core/git-ops.js')
+    writeFileSync(join(dir, 'big.txt'), Array.from({ length: 500 }, (_, i) => `line ${i}`).join('\n'))
+    // 未跟踪文件不进 diff——先意图跟踪（-N），否则拿到空串而不是被截断的补丁
+    execFileSync('git', ['add', '-N', 'big.txt'], { cwd: dir })
+    const diff = await gitWorkingDiff(dir, { staged: false, paths: ['big.txt'], maxBytes: 200 })
+    expect(diff.length).toBeLessThan(300)
+    expect(diff).toContain('diff truncated at 200 bytes')
+  })
+
+  it('提示词带 locale 语言与 diff，且声明只要提交信息', async () => {
+    const { buildCommitMessagePrompt } = await import('../../src/core/git-ops.js')
+    const zh = buildCommitMessagePrompt('+ x', 'zh-CN')
+    expect(zh).toContain('中文')
+    expect(zh).toContain('Output ONLY the commit message')
+    expect(zh).toContain('<diff>\n+ x\n</diff>')
+    expect(buildCommitMessagePrompt('+ x', 'en-US')).toContain('English')
+  })
+
+  it('sanitizeCommitMessage 剥围栏与引号', async () => {
+    const { sanitizeCommitMessage } = await import('../../src/core/git-ops.js')
+    expect(sanitizeCommitMessage('```\nfix: a\n```')).toBe('fix: a')
+    expect(sanitizeCommitMessage('```git\nfix: a\n```')).toBe('fix: a')
+    expect(sanitizeCommitMessage('"fix: a"')).toBe('fix: a')
+    expect(sanitizeCommitMessage('  fix: a\n\nbody  ')).toBe('fix: a\n\nbody')
+  })
+})

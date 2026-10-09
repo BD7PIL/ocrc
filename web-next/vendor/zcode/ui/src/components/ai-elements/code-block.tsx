@@ -13,6 +13,8 @@ import { cn } from "../lib/utils.js";
 import { CheckIcon, CopyIcon, Maximize2Icon, WrapTextIcon } from "lucide-react";
 import type { ComponentProps, CSSProperties, HTMLAttributes } from "react";
 import {
+  lazy,
+  Suspense,
   createContext,
   useCallback,
   useContext,
@@ -30,7 +32,12 @@ import {
   getCurrentMermaidDocumentVisibility,
   resolveMermaidAutoRenderDecision,
 } from "@/lib/mermaidRenderBudget.js";
-import { MermaidBlock } from "@/components/ai-elements/mermaid-block.js";
+// ocrc 补丁 #7：mermaid 静态 import 会把整个图表库（mermaid + cytoscape + dagre
+// + katex…）拉进壳层 chunk（实测 8.69MB），而图表是少数派内容。改成按需加载：
+// 只有真的要渲染 mermaid 代码块时才去取那个 chunk。PATCHES.md #7。
+const MermaidBlock = lazy(() =>
+  import("@/components/ai-elements/mermaid-block.js").then((m) => ({ default: m.MermaidBlock })),
+);
 import { DiagramPreviewDialog } from "@/components/ai-elements/diagram-preview-dialog.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
@@ -326,13 +333,15 @@ export const CodeBlock = ({
         {children}
         <div className={cn("p-2 pt-0 pb-3", contentClassName)}>
           {shouldRenderMermaid ? (
-            <MermaidBlock
-              code={code}
-              theme={appTheme}
-              onOpenPreview={openMermaidPreview}
-              onPreviewSvgChange={setMermaidPreviewSvg}
-              // className={cn(children ? "border-t border-border" : null)}
-            />
+            <Suspense fallback={null}>
+              <MermaidBlock
+                code={code}
+                theme={appTheme}
+                onOpenPreview={openMermaidPreview}
+                onPreviewSvgChange={setMermaidPreviewSvg}
+                // className={cn(children ? "border-t border-border" : null)}
+              />
+            </Suspense>
           ) : (
             <CodeViewer
               code={code}

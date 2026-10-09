@@ -181,7 +181,6 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
    * callers decide what that means).
    */
   async function promptOnce(
-    sessionId: string,
     text: string,
     opts?: { parentID?: string; tools?: Record<string, boolean>; timeoutMs?: number; title?: string },
   ): Promise<string | undefined> {

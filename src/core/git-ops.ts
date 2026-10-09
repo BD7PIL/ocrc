@@ -200,3 +200,51 @@ export async function gitSwitchBranch(cwd: string, branch: string, create: boole
   }
   await run(cwd, create ? ['checkout', '-b', branch] : ['checkout', branch])
 }
+
+// ── 提交信息生成（N12 G9）：给 /z/ Git 面板的「生成提交信息」按钮一个真实现。
+//    ZCode 走它自己的 agent；ocrc 复用同一条一次性子会话通道（backend.promptOnce），
+//    证据是工作区 diff（有界截断）。不做任何静默改写——模型给什么就回什么。 ──
+
+/** 待提交 diff（staged + 可选 unstaged），有界截断。paths 空 = 全树。 */
+export async function gitWorkingDiff(
+  workspacePath: string,
+  opts: { staged?: boolean; paths?: readonly string[]; maxBytes?: number } = {},
+): Promise<string> {
+  if (!workspacePath) return ''
+  const args = ['diff', '--no-color']
+  if (opts.staged) args.push('--cached')
+  if (opts.paths?.length) {
+    assertSafePaths(opts.paths)
+    args.push('--', ...opts.paths)
+  }
+  const out = await tryRun(workspacePath, args)
+  if (out === null) return ''
+  const max = opts.maxBytes ?? 24_000
+  return out.length > max ? `${out.slice(0, max)}\n… (diff truncated at ${max} bytes)` : out
+}
+
+/** 生成提交信息的提示词（locale 决定语言，其余与上游按钮语义一致）。 */
+export function buildCommitMessagePrompt(diff: string, locale?: string): string {
+  const lang = locale?.toLowerCase().startsWith('zh') ? '中文' : 'English'
+  return [
+    'Write a git commit message for the changes below.',
+    `Reply in ${lang}.`,
+    'Rules: one concise imperative subject line of at most 72 characters; add a short body after a blank line only when the why is not obvious from the subject.',
+    'Output ONLY the commit message. No quotes, no code fences, no preamble, no trailing explanation.',
+    '',
+    '<diff>',
+    diff,
+    '</diff>',
+  ].join('\n')
+}
+
+/** 剥掉模型偶发加的围栏/引号（上游按钮直接把结果填进输入框）。 */
+export function sanitizeCommitMessage(raw: string): string {
+  let text = raw.trim()
+  const fence = /^```[a-zA-Z]*\n([\s\S]*?)\n?```$/.exec(text)
+  if (fence) text = fence[1]!.trim()
+  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith('`') && text.endsWith('`'))) {
+    text = text.slice(1, -1).trim()
+  }
+  return text
+}

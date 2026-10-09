@@ -279,7 +279,7 @@ export function createGoalManager(deps: GoalDeps): GoalManager {
   async function verifyWith(sessionId: string, prompt: string, backend: AgentBackend): Promise<string | undefined> {
     if (deps.verify) return deps.verify(sessionId, prompt, backend)
     if (!backend.promptOnce) return undefined
-    return backend.promptOnce(sessionId, prompt, {
+    return backend.promptOnce(prompt, {
       parentID: sessionId,
       tools: VERIFIER_DENIED_TOOLS,
       timeoutMs: VERIFIER_TIMEOUT_MS,

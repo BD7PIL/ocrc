@@ -1,8 +1,11 @@
 // @ts-nocheck
 import type { BundledLanguage, BundledTheme } from "shiki";
-import type { Ref, UIEventHandler } from "react";
+import { lazy, Suspense, type Ref, type UIEventHandler } from "react";
 import { cn } from "@/components/lib/utils.js";
-import { MermaidBlock } from "@/components/ai-elements/mermaid-block.js";
+// 补丁 #7：同上——预览面板里的 mermaid 也按需加载。
+const MermaidBlock = lazy(() =>
+  import("@/components/ai-elements/mermaid-block.js").then((m) => ({ default: m.MermaidBlock })),
+);
 import { CodeViewer } from "@/components/ui/code-viewer.js";
 import type { CodeCommentLabels } from "@/components/ui/code-viewer.js";
 import type { CodePreviewSettings } from "@/store/index.js";
@@ -69,11 +72,13 @@ export function CodeContent({
         className={cn("h-full w-full overflow-auto bg-background p-4", className)}
         onScroll={onScroll}
       >
-        <MermaidBlock
-          code={code}
-          theme={theme}
-          className="min-h-full rounded-xl border border-border"
-        />
+        <Suspense fallback={null}>
+          <MermaidBlock
+            code={code}
+            theme={theme}
+            className="min-h-full rounded-xl border border-border"
+          />
+        </Suspense>
       </div>
     );
   }

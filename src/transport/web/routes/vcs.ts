@@ -1,6 +1,9 @@
 import type { Hono } from 'hono'
 import type { BackendRegistry } from '../../../core/agent/registry.js'
-import { gitCommit, gitDiscard, gitDiff, gitInfo, gitPush, gitStage, gitSwitchBranch } from '../../../core/git-ops.js'
+import {
+  buildCommitMessagePrompt, gitCommit, gitDiscard, gitDiff, gitInfo, gitPush, gitStage, gitSwitchBranch,
+  gitWorkingDiff, sanitizeCommitMessage,
+} from '../../../core/git-ops.js'
 
 /** 0.18 git pane data: branch + per-file working-tree status, and per-file
  *  patches. Proxied from the opencode server's /vcs endpoints (ocFetch).
@@ -79,6 +82,35 @@ export function registerVcs(app: Hono, reg: BackendRegistry) {
       return { ok: true }
     },
   ))
+
+  // ── N12 G9：提交信息生成（Git 面板的「生成提交信息」按钮）。ZCode 走它自己的
+  //    agent，ocrc 复用同一条一次性子会话通道；证据是工作区 diff（有界截断）。
+  //    模型不可用/没改动都如实报错，不静默编一条假信息。 ──
+  app.post('/api/git/commit-message', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      directory?: string; paths?: string[]; includeUnstaged?: boolean; locale?: string
+    }
+    const directory = body.directory ?? ''
+    if (!directory) return c.json({ error: 'directory required' }, 400)
+    try {
+      const staged = await gitWorkingDiff(directory, { staged: true, paths: body.paths })
+      const unstaged = body.includeUnstaged === false ? '' : await gitWorkingDiff(directory, { paths: body.paths })
+      const diff = `${staged}${unstaged}`.trim()
+      if (!diff) return c.json({ error: '没有可提交的改动' }, 400)
+      const backend = reg.active()
+      if (!backend.promptOnce) return c.json({ error: 'backend 不支持一次性生成' }, 501)
+      const raw = await backend.promptOnce(buildCommitMessagePrompt(diff, body.locale), {
+        title: 'ocrc-commit-message',
+        tools: {}, // 只写信息，不碰工作区
+        timeoutMs: 60_000,
+      })
+      const message = raw ? sanitizeCommitMessage(raw) : ''
+      if (!message) return c.json({ error: '模型未返回提交信息' }, 502)
+      return c.json({ message })
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400)
+    }
+  })
 }
 
 /** Session revert / unrevert + state (0.22). Separate file-level routes so the

@@ -231,7 +231,22 @@ export function createOcrcGitService(): Record<string, any> {
       cached.delete(params.workspacePath)
       return refreshSummary(params.workspacePath)
     },
-    // 提交信息生成需要一次模型调用（ZCode 走它的 agent）；ocrc 侧不做静默代写。
-    generateCommitMessage: async () => { throw new Error('[ocrc-fork] 生成提交信息需要模型调用，/z/ 暂未接（可直接手写提交说明）') },
+    // 提交信息生成（N12 G9）：host 取工作区 diff（有界截断）→ 一次性子会话生成。
+    // 模型不可用/没有改动时如实抛错，不编一条假的填进输入框。
+    generateCommitMessage: async (params: { workspacePath: string; paths?: string[]; includeUnstaged?: boolean; locale?: string }) => {
+      const res = await fetch('/api/git/commit-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+        body: JSON.stringify({
+          directory: params.workspacePath,
+          paths: params.paths ? relPaths(params.paths) : undefined,
+          includeUnstaged: params.includeUnstaged !== false,
+          locale: params.locale,
+        }),
+      })
+      const out = (await res.json().catch(() => ({}))) as { message?: string; error?: string }
+      if (!res.ok || !out.message) throw new Error(out.error ?? `[ocrc-fork] 生成提交信息失败 (${res.status})`)
+      return { message: out.message }
+    },
   })
 }

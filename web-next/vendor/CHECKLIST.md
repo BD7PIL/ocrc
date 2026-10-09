@@ -2,6 +2,11 @@
 
 > 用法：每个里程碑对清单打勾。状态：✅ 已验证可用 · 🔶 部分可用/降级 · ⬜ 未接（服务未实现）· 🚫 产品裁决不做 · ➕ N4 ocrc 域待建。
 > 基准：对屏对照 zai-org/ZCode v3.14.3 真实产品。更新本表 = 更新验收事实。
+>
+> **收口口径（2026-10-10，N12 批末对账）**：本批完成后，「ZCode 有而我们没有」的**体验面归零**。
+> 剩余非 ✅ 只有三类：①产品裁决不做的（终端页签/插件市场/CUA/画中画，见 🚫 条）；
+> ②workflow（Q18a 单独立项，本批只留最小形态的接口位）；③不在「前端复刻」口径内的
+> （桌面壳、ACP 多 harness——各属独立项目）。下面每一条非 ✅ 都已注明属于哪一类。
 
 ## 1. 引导与壳
 - ✅ 首启身份（oauth authenticated ocrc-local）
@@ -9,8 +14,8 @@
 - ✅ 侧栏骨架（WorkspaceSidebar：动作行/视图胶囊/分组/页脚）
 - ✅ 主区欢迎页（问候语 + Lexical composer + 项目选择器）
 - ✅ 顶栏（返回/前进 + 任务标题 + 工作区操作）
-- ⬜ Header 全要素——N7-6 已实测核心要素（模型指示 ✓ 分享入口 ✓ 搜索在侧栏=ZCode 信息
-  架构，见下方「分享发布」节的 header 全要素条）；此处保留待用户验收一眼后关闭。
+- ✅ Header 全要素（N7-6 实测核心要素：模型指示 ✓ 分享入口 ✓ 搜索在侧栏=ZCode 信息架构；
+  N12 复核仍全绿，见下方「分享发布」节的 header 全要素条）。
 
 ## 2. 左栏任务面
 - ✅ 新建任务行 + Ctrl+N 提示
@@ -21,9 +26,10 @@
 - ✅ 项目分组卡（折叠/展开/计数徽章）
 - ✅ 任务行（标题/时间/悬停删除/置顶钉）
 - ✅ 任务行点击 → 打开会话（v4 通道）
-- 🔶 任务行状态点（running 转圈已通；未读蓝点/错误红点见下）。未读蓝点与错误红点已通：
-  unread 由 host state 覆盖（POST /api/sessions/:id/unread，后端硬编码 false 的那一层
-  现在有真源），error 用既有 latch。running 转圈待 sessions-index 订阅接线（批次 2）。
+- ✅ 任务行状态点（N12 复核：三项全通）——未读蓝点由 host state 覆盖
+  （POST /api/sessions/:id/unread，后端硬编码 false 的那一层现在有真源），错误红点用既有
+  latch，running 转圈由 sessions-index 订阅接线（`subscribeSessionsIndexV4` 真 snapshot +
+  ws `session.status` 帧 → `busyBySession` → `session.upserted` 推相位）。
 - ✅ 置顶分区（listPinnedTasks/listPinnedTaskIds + setTaskPinned 走 host state.pinnedTaskIds ——
   与 TG 共用一份，不是浏览器本地偏好；注意它和 relay 的 pinnedSessionId 是两回事）
 - ✅ 归档视图（N7-5 全家接通：archiveTask/unarchiveTask/listArchivedTasks/archiveStaleTasks/
@@ -214,8 +220,10 @@
 - ✅ 折叠条「计划 n/m」+ Todo 清单区（plan ← /api/session/:id/todo，N6 批次 2B 接通）
 - ✅ 子代理区（running ← snapshot.subagents、已结束目录入口 ← listSessionSubagents + 补丁 #5，
   N8-2/N8-5 实证：「智能体 / 已结束 1」）
-- 🔶 自动展开语义（composer empty + running）：依赖面板 hasContent 门——只剩历史会话面板
-  恒 null（上游行为 + 补丁 #5 只为已结束子代理开门），活会话内按 vendor 原生语义走。
+- 🔶 自动展开语义（composer empty + running）——**接受现状，非缺口**：依赖 vendor 的
+  面板 hasContent 门。只剩历史（无运行中子代理/无 todo/无计划）的会话面板恒 null 是**上游
+  自身行为**；补丁 #5 只为已结束子代理开门（若不补，旧会话连目录入口都没有）。活会话内
+  完全按 vendor 原生语义走，不做 ocrc 侧的门改造（改了就偏离复刻口径）。
 
 ## 6. 命令中心与快捷键
 - ✅ Ctrl+K 命令面板（CommandCenterDialog + commandsService：ocrc /api/commands 引擎命令）
@@ -227,10 +235,14 @@
 
 ## 7. 右侧面板族
 - ✅ 面板骨架 + ✕ 关闭
-- 🔶 Git 面板（gitService）：只读面已通（N6 批次 2A）——host 侧 `GET /api/git`
-  给 repoRoot/ahead-behind/numstat/本地分支/identity（ocrc 原有 /api/vcs 是从引擎转手的
-  窄面，不够用），`GET /api/git/diff` 出差分。写操作（stage/commit/push/切分支）
-  留批次 3，此前如实拒绝。
+- ✅ Git 面板（gitService）：只读面 N6 批次 2A（host 侧 `GET /api/git` 给
+  repoRoot/ahead-behind/numstat/本地分支/identity——ocrc 原有 /api/vcs 是从引擎转手的窄面，
+  不够用；`GET /api/git/diff` 出差分），写操作 **N7-3 已全接**（stage/unstage/discard/
+  commit/push/switchBranch/createBranchAndSwitch，固定参数 execFile、路径白名单），本条旧记
+  「写操作留批次 3」是陈旧记录。N12 G9 补上最后一处：`generateCommitMessage` 此前唯一如实
+  拒绝（"需要模型调用"），现走 host `POST /api/git/commit-message`——取工作区 diff（24KB
+  有界截断）→ 一次性子会话生成（`tools:{}` 禁写）→ 剥围栏/引号；没改动/无通道/空回复各自
+  如实报错。
 - ✅ 文件浏览器/查看器（fileService）：14 个方法全部接线（N6 批次 2A）——readdir/stat/
   checkFilesExist ← /api/browse + 新增 POST /api/file-stat；readTextFile/readFileRange ←
   /api/file-slice、/api/file-base64（引擎读文件拿不到二进制，host 自己读盘）；
@@ -245,7 +257,7 @@
   `state.output`（8KB 上限截断，`outputPath` 用 `ocrc://tool-output/…` URI——ocrc 没有
   输出文件，不编造盘上路径）。状态面板「终端 · 1 后台」→ 点开 → 输出页实时显示
   （隔离栈实测：sleep 90 运行中点开，完成后输出 `d2-live-output-done`）。
-- ⬜ 工具输出页（messageRaw）：**N8-5 核实——vendor 没有通用"工具输出页"**。右侧面板族里
+- ⬜ 工具输出页（messageRaw）——**不在复刻口径内**（vendor 根本没有这项）：**N8-5 核实——vendor 没有通用"工具输出页"**。右侧面板族里
   与工具输出相关的只有 `bash-output`（后台 bash 任务输出，入口在状态面板的**运行中**
   后台任务行，数据模型是 workId，ocrc 无对应概念）。行内富化输出（N6 批次 2B）已覆盖
   常规展示（50k 截断）。若要"看完整输出"需产品侧先定形态（见 N8 计划的 D2）。
@@ -273,7 +285,9 @@
 ## 8. 设置页族
 - ✅ 设置主视图渲染（基础设置/常规/外观/模型设置/浏览器控制/键盘快捷键/Agent 能力/记忆 全分区）
 - ✅ settingService：appSettings 完整默认 + ocrc /api/settings 只读透传（形状有意不合并）
-- ⬜ 设置字段语义级对齐 ocrc（可写回项——N4+）
+- ⬜ 设置字段语义级对齐 ocrc（可写回项）——**归独立批次**：读侧已完整（appSettings 默认 +
+  /api/settings 只读透传，形状有意不合并）；写侧要逐字段把 vendor 的语义映射到 ocrc 配置面，
+  是一条独立工作线（N4+），不在前端复刻口径内。
 - ✅ MCP 管理（N8-3 接上写侧）：用户级 upsert/delete/set-enabled → host 结构化 patch
   （全局 opencode.json，备份+原子写+引擎启动同款校验），project 级走既有项目路由；
   platform（本地 workspace 实际命中点）与 mcpSyncService（identity 路径）共用 mcpWrite.ts。
@@ -300,6 +314,33 @@
 - 🚫 Bots 注册三件套（feishu/weixin QR 扫码注册、createBindCode、webhook secret）——依赖 ZCode 自有 bot 服务端，ocrc 通道为凭证制（token/appId+appSecret 在 rc.2 面板或 env 配置）；如需 /z/ 内配置入口属产品裁决（「粘贴凭证」降级形态可行）。removeBotSecret 亦暂缺——ocrc PATCH 不能清空 credentials（空对象被路由丢弃），reset 会连通道配置一起重置，过猛
 - ✅ 远程主机管理（2026-10-08 裁决②：本期做映射，方向为 ocrc 语义原生进 /z/——ZCode 的桌面 SSH-connectRemote 语义浏览器客户端做不了，ocrc 的 host 侧隧道 + 远端引擎注册才是正确模型）。设置页新增「远程主机」分区（vendor 新增 RemotesSection + settingsNavigation/config/i18n 四点接线）：列表/状态（隧道本地端口）/启停（PATCH live 生效）/SSH 探测/删除/新增，全走 ocrc /api/remotes。启用远端后会话自动并入任务列表，/z/ 侧栏即见、流式同源
 - ✅ 定时任务重做为 off-peak 取号语义（2026-10-08 裁决③：用户拍板「本来就不是 cron」）。新 ocrc 后端 `core/offpeak.ts`：一次性工单 queued→running→completed/failed（FIFO 单并发、低峰窗口 OCRC_OFFPEAK_WINDOW 默认 00:00-08:00、createSession+relay 派发、模型经 setNextModel 派发前应到引擎、permissionMode→审批策略 edit/yolo、完成检测用会话忙碌位）+ /api/offpeak CRUD。/z/ service 重接后状态机同形：实证「offpeak e2e probe」创建→派发新会话→引擎回复→已完成，闲时任务页全部分类/进行中/已完成/失败正常渲染。cron scheduler（TG 面板在用）未动，退役另行裁决
+
+### 目标循环（N12）——**ZCode goal 面全链**
+
+- ✅ 右侧 goal 面（objective/status/迭代 N、逐轮摘要、暂停/继续按钮）：数据面 = host
+  `GET /api/session/:id/goal` → 桥接 `projectGoal` 投影成 vendor 六态 + `availability.pauseGoal/
+  resumeGoal` 按上游 `projection-state.ts` 的门派生（可续才开 pause、paused 才开 resume，
+  无 goal 带 noGoalToPause/Resume 原因码驱动禁用 tooltip）。
+- ✅ 闭环本体在 host（`src/core/goal.ts`）：回合末采样记账 → 验收（独立子会话，`tools` 禁写）
+  → 通过=complete / 未达成带 nextAction=续跑 / 撞闸或验收器坏掉=停机+通知。续跑文本对齐上游
+  `formatGoalContinuationPrompt`（objective 用 `<untrusted_objective>` 包裹 + 预算行 + audit
+  指引），验收提示词照抄上游 `formatGoalCompletionVerificationPrompt`。
+- ✅ **四处有意偏离上游**（都记在最靠前的注释里）：①**fail-closed**——上游坏 JSON 判"通过"，
+  我们停机；②**两条上游没有的硬闸**——迭代上限 12、无进展检测（连续 2 轮同 nextAction）；
+  ③续跑**可见**（origin `goalContinuation`）；④权威状态在 host state.json（上游在会话存储）。
+- ✅ 时间线：每轮验收一条 `timelineMarker`（**lane 必须是 `turnTailBoundary`**，否则被折进
+  「已工作」折叠组），running 与终态共用 rowId（终态 upsert 覆盖）；续跑轮 `turnHeader/
+  userInput` origin = `goalContinuation`（vendor 的轮次导航/分享只认 `realUser`，所以既无
+  幽灵用户气泡、又能看见"又跑了一轮"），气泡只显示短展示行、整段提示词折进 epilogue 披露。
+- ✅ 命令面：/z/ 的 `sendGoalCommand`/`pauseGoal`/`resumeGoal` 接真到 `POST /api/goal`（此前
+  落 `ocrc_unwired_*`）；TG `/goal set|pause|resume|clear|status` + 内联按钮 + BotFather 菜单 +
+  /help。刷新不靠 ACK：ws `goal` 帧 → `state.updated`（goal + 完整 availability 八键）→ 前端即刻收敛。
+- ✅ 冷恢复：host 重启后 active 目标一律落 `paused`（上游同款，绝不自动拉起），`resume` 可续。
+- ✅ 闲时补尾（N12 G8）：`queuePosition`（读出时按 FIFO 派生，不落盘）、`boundSessionId`
+  （会话内创建首跑 resume 绑定会话，会话没了回落新建）、失败/取消可 `continue` 重取号、任务可
+  携带 goal（派发后挂目标，kickoff 由工单自己的 prompt 承担）。`tests/unit/offpeak.test.ts`
+  补上 N5 欠下的 24 条单测。
+- 🔶 workflow：Q18a 单独立项，本批只留最小形态接口位（见「不做」清单）。
 
 ### 分享发布（N7-2 + N7-6 实测）——**端到端已闭环**
 - ✅ 服务侧全接（publish → POST /api/share；record 四元组；导入/续聊如实拒绝）+ 契约测试 6 条。
@@ -339,10 +380,22 @@
   （5874/5875 条）+ 两处切换入口（侧栏头像菜单、设置→General），localStorage
   （zcode-locale-preference）持久。ocrc 侧自研 service 的硬编码中文错误串在英文模式下
   会中英混排（如实记录，不阻塞）。
-- ⬜ 性能预算（8.4k 模块分包/懒加载审查）
+- ⬜ 性能预算（分包/懒加载审查）——**N12 G9 已出数字与归因，缩表归独立批次**：
+  首屏 = 入口 441.8 kB + 唯一静态 chunk **8,688.4 kB**（gzip 2,434 kB）+ CSS 385.9 kB
+  （gzip 62.8 kB）≈ **2.6 MB gzip**。上游**已经**把重件各自懒分包（pdf-viewer / pptx、xlsx
+  预览引擎 / prism 语言包 / wasm / mermaid 的各类 diagram），分包结构本身是对的；8 MB 壳层
+  是 vendor UI + streamdown/remark/shiki/katex/zod 的**热图**。已测：mermaid 静态残留
+  = 622 kB（唯一静态链是 `message.tsx` 的 streamdown plugins 入参）。已修：MermaidBlock
+  渲染器改按需加载（补丁 #7，−4 kB，但把结构摆正）。剩下的缩表需要
+  bundle-visualizer 级归因 + 动核心消息渲染器的 plugins 延后（会让首遍 markdown 解析拿不到
+  mermaid 插件，须配渲染实测）——**独立批次**。
 
-## 12. 退役与 rc.3 执行清单（验收通过后按序执行）
+## 12. 退役与 rc.3 执行清单（✅ 已执行）
 1. ~~**切换默认落点**~~ ✅ 2026-10-09 已执行：web-next/src/App.tsx 路由翻转——`/` 直挂 ZCodeApp（懒加载），`/z/*`、`/next/z` 保留为书签兼容别名（`*` 通配同一组件）；`/share/:code` 落地页保持在鉴权门外；旧控制台路由（/session/:id、/automations、/settings、/dev/tokens）已移除挂载并**删除源码**（55 个文件：ShellLayout/CommandCenter/NewSessionDialog/ChannelsDialog/pages 五页/全部旧壳 lib，按引用闭包删除；PairGate 是共享鉴权门、ShareLanding 是公开落地页，均保留）；旧面板的 WS boot/全局键盘不再挂载；柿橙配色封存为 styles/persimmon-theme.css（不参与构建）。
 2. **重建部署**：`npm run build:all` + `bash ~/bin/restart-ocrc.sh`，验证 `/`、`/z/`、`/share/:code` 三落点。
 3. **文档收口**：AGENTS.md 架构指向更新（/ 为 ZCode 壳）；CHECKLIST 第 12 节本清单勾掉。
 4. **打 rc.3**：package.json 版本 → rc.3，git tag，tag→CI OIDC 发布（既有通道）。
+   ✅ tag `v1.0.0-rc.3` 已在本地（**未 push**——publish 是外向动作，等用户发话）。
+5. **N12 收口（2026-10-10）**：CHECKLIST 全量对账（§0 口径 + 陈旧条目改正 + 剩余项逐条注明
+   归属）、PRODUCT.md 改判条文、ARCHITECTURE/OPS 补 goal 循环与运维要点、CHANGELOG 记 N12、
+   package.json → `1.0.0-rc.4`（tag 同样等用户发话——tag 即触发 CI 发布）。

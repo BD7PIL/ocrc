@@ -190,6 +190,43 @@ adopted with a real timeout; ephemeral sessions never surface to feeds.
    network-class errors only, 5 tries, 2s exponential (relay.ts:57).
 4. Publish `thinking` + `user` cards (user card id = incoming message id so
    the web's optimistic card reconciles in place); finalization on `idle`.
+5. **Turn end** fires `RelayDeps.onTurnEnd(sid)` (relay.ts, idle branch) — the
+   single point where a turn is known to be over. The goal loop hangs off it.
+
+## Session goals (N12) — src/core/goal.ts
+
+The engine has no goal concept (the 185 MB opencode binary contains none of it),
+so the whole ZCode goal loop lives host-side and hangs off the relay's turn-end
+hook. Per session:
+
+    turn ends → account usage → budget gate → completion verifier (child
+    session, tool-less) → pass ⇒ complete / not-satisfied+nextAction ⇒
+    continuation turn / else ⇒ paused + notification
+
+Three gates stop a runaway loop: the token budget (upstream has it), an
+iteration cap (12) and a no-progress detector (two identical nextActions in a
+row) — the latter two are ours. The verifier **fails closed**: bad JSON, a
+thrown call or an empty reply pauses the goal, where upstream fails open and
+assumes the goal passed.
+
+Prompt text is ported from upstream's `contracts/src/tools/target.ts` so both
+sides mean the same thing by "done"; the record's authoritative copy is the
+per-session `goals` slot in state.json (upstream keeps projection states out of
+storage — so do we: the vendor's six-state vocabulary is derived in the /z/
+bridge from our four-state record plus the transient `verifierRunning`).
+
+Continuation turns are **visible**: origin `goalContinuation` on the relay's
+user card, and a `[ocrc-goal-continuation]` first line carrying a short display
+text (the /z/ bridge folds the prompt body into the vendor's epilogue
+disclosure; Telegram suppresses the synthetic bubble). A goal is mutually
+exclusive with plan mode. Cold recovery pauses every active goal — never
+auto-resumes — matching upstream.
+
+Surfaces over the same record: `GET /api/session/:id/goal` + `POST /api/goal`
+(set|pause|resume|clear), Telegram `/goal set|pause|resume|clear|status` with
+inline buttons, and the ws `goal` frame → `state.updated` for the panel.
+Setting a goal kicks off its first turn (upstream's command runs its own turn);
+off-peak tasks pass `kickoff: false` because their own prompt is turn 1.
 
 ## Telegram surface (src/transport/telegram/)
 
@@ -262,11 +299,12 @@ registration. Design detail in
 
 | File | Owner | Notes |
 |---|---|---|
-| `state.json` | core/state.ts | last/pinned/tui session, next agent/model, active workspace, session→backend map; 100ms debounced atomic write |
+| `state.json` | core/state.ts | last/pinned/tui session, next agent/model, active workspace, session→backend map, /z/ sidebar bookmarks+unread+archived, task groups, **per-session goals** (N12); 100ms debounced atomic write |
 | `token` | connectivity/auth/token.ts | web access token, 0600 |
 | `primary.lock` | core/primary-election.ts | PRIMARY election |
 | `channels.json` | core/channels.ts | per-channel bot settings (0600) |
-| `schedules.json` | core/scheduler.ts | scheduled prompts |
+| `schedules.json` | core/scheduler.ts | scheduled prompts (cron semantics — TG /tasks) |
+| `offpeak.json` | core/offpeak.ts | off-peak one-shot tickets (queued→running→completed/failed, FIFO single-concurrency, low-peak window) |
 | `remotes.json` | core/remotes.ts | SSH remote hosts incl. generated server passwords (0600) |
 | `acp-sessions.json` | agent/acp-store.ts | ACP sessions + history (standalone host) |
 | `config.env` | installer/CLI | KEY=VALUE, 0600 |

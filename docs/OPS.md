@@ -125,6 +125,24 @@ Web 默认 `0.0.0.0:4099`（token 门禁）。PWA 安装需要安全上下文：
 | `LOG_LEVEL` | `warn` | 只写文件（stdout 会污染 TUI） |
 | `OCRC_LOCALE` | `zh` | TG i18n（en 兜底） |
 | `OCRC_BACKENDS` / `OCRC_ACP_CMD` | — / `kimi acp` | 仅 standalone host |
+| `OCRC_OFFPEAK_WINDOW` | `00:00-08:00` | 闲时工单派发窗口（`HH:MM-HH:MM`，start>end 表示跨午夜） |
+
+## 目标循环（N12 goal）——运维要点
+
+- **状态在哪**：`~/.ocrc/state.json` 的 `goals` 槽位（按 sessionId）。删会话会连带清掉；
+  `POST /api/goal {action:'clear'}` 或 TG `/goal clear` 单清。
+- **重启行为**：host 启动时把**所有 active 目标落成 `paused`**（绝不自动拉起——上游同款
+  冷恢复语义）。用户 `resume` 才续跑；状态、迭代计数、用量与验收历史都不丢。
+- **验收器**：一次独立子会话调用（`promptOnce`：建子会话 → 带 `tools` 禁用写类工具发一次
+  prompt → 读回复 → 删子会话）。**fail-closed**：坏 JSON / 调用失败 / 空回复一律停机并通知，
+  不判"通过"。**残余风险**：工具名空间无法枚举，`tools` map 只能禁已知写类工具（write/edit/
+  multiedit/patch/bash/task/todowrite），叠加提示词里的"不要调用工具"约束；证据窗口有界
+  （~8k 字符），超长会话可能"证据不足"→ 同样停机通知（宁可停，不误判完成）。
+- **三条硬闸**：token 预算（上游有）、迭代上限 12、无进展检测（连续 2 轮同 nextAction）
+  ——后两条是本项目新增。撞闸 = `paused` + 一张 info 卡（TG 与 /z/ 都收得到）。
+- **成本**：每回合末一次验收调用（一个子会话，约等于一次短问答）。不想要就 `/goal clear`。
+- **关停**：host `dispose()` 会先 `goalManager.stop()` 再拆传输——停机时不会有续跑派发进已拆的
+  relay。
 
 ## 诊断速查
 
@@ -143,11 +161,13 @@ Workers → Unregister（别用 Clear site data，会连 localStorage 的 token 
 ## 构建与测试（源码开发）
 
 ```bash
-npm install && npm run build:all   # tsc + web（vite build → web/dist）
-npm test                           # 后端 vitest（505 例）
+npm install && npm run build:all   # tsc + web-next（vite build）
+npm test                           # 后端 vitest（733 例）
 npm run typecheck
-cd web && npm test                 # web vitest（131 例）；npm run check = svelte-check
-bash scripts/spike-restart.sh      # 隔离 dev 实例（绝不触碰生产实例）
+cd web-next && npm test            # /z/ 桥接 vitest（161 例）；npm run typecheck
+
+# 隔离 dev 实例（4199）——AGENTS.md 有完整命令；scripts/spike-restart.sh 是 4598
+# 遗留脚本，误跑会拉起同 token 的竞争实例把隔离 host 顶死（Telegram 409）。
 ```
 
 > 本地 vitest 不编译 web 的全部组件——CI 才是完整门禁（历史上两次构建错误只有

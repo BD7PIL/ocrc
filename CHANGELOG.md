@@ -1,5 +1,50 @@
 # Changelog
 
+## 1.0.0-rc.4 — N12: the goal loop, off-peak completion, rc.3 console closeout (2026-10-10)
+
+> 口径：**本批完成后，「ZCode 有而我们没有」的体验面归零**（剩余非 ✅ 三类：产品裁决不做 /
+> workflow 单独立项 / 不在前端复刻口径内的桌面壳与 ACP——见 CHECKLIST §0 与对账）。
+
+### feat(goal): goal 全链（引擎零改动，全在 host）
+- **循环**（`src/core/goal.ts`）：回合末采样记账 → 预算闸 → 独立验收子会话 → 通过 complete /
+  未达成带 nextAction 续跑 / 撞闸停机通知。提示词逐句对齐上游 `contracts/src/tools/target.ts`。
+- **四处有意偏离上游**（各自注释在案）：**fail-closed**（上游坏 JSON 判通过，我们停机）；
+  **两条上游没有的硬闸**（迭代上限 12、无进展检测）；**续跑可见**（origin `goalContinuation`）；
+  **权威状态在 host state.json**（上游在会话存储）。
+- **四处接口**：`GET /api/session/:id/goal` + `POST /api/goal`；TG `/goal set|pause|resume|
+  clear|status` + 内联按钮 + BotFather 菜单；ws `goal` 帧 → `state.updated` → /z/ 面板；
+  隐式：`goalVerify` 时间线 marker（lane `turnTailBoundary`，running→终态同 rowId upsert）。
+- 冷恢复把 active 目标落 paused（绝不自动拉起）；plan 模式与 goal 互斥；续跑轮在 /z/ 是
+  `goalContinuation`（不算真实用户输入、无幽灵气泡），TG 侧抑制合成气泡。
+- 新增后端一次性子会话原语 `promptOnce`（建→发→读→删）。
+
+### feat(offpeak): 闲时补尾 + 补债
+- `queuePosition`（读出时按 FIFO 派生，不落盘）、`boundSessionId`（会话内创建首跑 resume，
+  会话没了回落新建）、失败/取消可 `continue` 重取号（严格排到队尾）、任务可携带 goal
+  （派发后挂目标，kickoff 由工单自己的 prompt 承担）。
+- `tests/unit/offpeak.test.ts` 补上 N5 欠下的 24 条单测。
+
+### feat(git): 提交信息生成
+- Git 面板最后一处"如实拒绝"接真：host `POST /api/git/commit-message` 取工作区 diff
+  （24KB 有界截断，复用路径白名单）→ 一次性子会话（`tools:{}` 禁写）→ 剥围栏/引号。
+
+### perf: 分包审查 + mermaid 按需加载
+- 实测首屏 ≈ **2.6 MB gzip**（入口 441.8 kB + 唯一静态 chunk 8,688.4 kB / gzip 2,434 kB
+  + CSS 385.9 kB）。mermaid 静态残留仅 **622 kB**；重件（pdf/pptx/xlsx/prism/wasm）上游
+  本就各自懒分包。vendor 补丁 #7：MermaidBlock 渲染器改按需加载（结构摆正，为后续把
+  streamdown plugins 也延后铺路——那一步动核心消息渲染器，须配渲染实测，独立批次）。
+
+### feat(web-next): /z/ goal 面
+- 桥接把 host 四态记录投影成 vendor 六态（`goalProjection.ts`，含 availability 两门的
+  上游门控），续跑轮 origin + epilogue 披露，每轮验收一条 timeline marker。
+- `sendGoalCommand`/`pauseGoal`/`resumeGoal` 接真（此前落 `ocrc_unwired_*`）。
+
+### docs: 收口对账
+- CHECKLIST：§0 收口口径 + 全量对账（陈旧条目改正：Git 写操作其实 N7-3 已接、Header 全要素、
+  任务行状态点；剩余 🔶/⬜ 逐条注明归属）。PRODUCT.md：「不做目标/goal」改判（机制在引擎钩子、
+  状态在 host；host 原生 workflow runner 仍不做）。ARCHITECTURE/OPS：goal 循环、state 槽位、
+  offpeak 文件、运维要点（验收器残余风险 / 三条硬闸 / 关停次序）。
+
 ## 1.0.0-rc.3 — the ZCode shell IS the product; goal/workflow groundwork (2026-10-09)
 
 > rc.1 → rc.2 是 fork 搭设期（N1–N8：ZCode 前端挂上 ocrc 服务、逐组件对表，见

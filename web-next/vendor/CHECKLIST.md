@@ -9,7 +9,8 @@
 - ✅ 侧栏骨架（WorkspaceSidebar：动作行/视图胶囊/分组/页脚）
 - ✅ 主区欢迎页（问候语 + Lexical composer + 项目选择器）
 - ✅ 顶栏（返回/前进 + 任务标题 + 工作区操作）
-- ⬜ Header 全要素（搜索入口/模型指示/分享菜单——部分依赖未接服务）
+- ⬜ Header 全要素——N7-6 已实测核心要素（模型指示 ✓ 分享入口 ✓ 搜索在侧栏=ZCode 信息
+  架构，见下方「分享发布」节的 header 全要素条）；此处保留待用户验收一眼后关闭。
 
 ## 2. 左栏任务面
 - ✅ 新建任务行 + Ctrl+N 提示
@@ -25,8 +26,9 @@
   现在有真源），error 用既有 latch。running 转圈待 sessions-index 订阅接线（批次 2）。
 - ✅ 置顶分区（listPinnedTasks/listPinnedTaskIds + setTaskPinned 走 host state.pinnedTaskIds ——
   与 TG 共用一份，不是浏览器本地偏好；注意它和 relay 的 pinnedSessionId 是两回事）
-- ⬜ 归档视图（archive 全家）
-- ⬜ 任务组（颜色/拖拽分组——grouped 结构空实现）
+- ✅ 归档视图（N7-5 全家接通：archiveTask/unarchiveTask/listArchivedTasks/archiveStaleTasks/
+  archiveWorkspaceTasks/deleteArchivedTask(s)，默认列表隐藏已归档；隔离栈往返实证）
+- 🔶 任务组（颜色/拖拽分组——grouped 结构空实现；需产品裁决是否纳入）
 - ✅ 时间线分区空态（conversation 工作区语义，忠实）
 
 ## 3. 会话时间线（N2 核心）
@@ -53,12 +55,15 @@
   编一个 structuredPatch 就是假数据）。同时修 `status`：`running` 不再塌成 `success`
   （此前执行中的工具当场显示已完成、没有转圈）。隔离栈实证：发「用 bash 执行 ls -la …」
   → 卡片渲染出真实 stdout（截图 /tmp/n6-toolcard.png）。
-- ⬜ 推理块折叠展示
-- ⬜ 用户消息气泡 + 编辑/fork 动作
-- ⬜ 消息悬停动作（复制/反馈）
+- ✅ 推理块折叠展示（N7-6 映射 + N8-1/N8 补全：重建路径 thinkingText（b4b3870）与直播
+  delta 归类（d2235e2）都已修，生产会话实测 65 卡 26.6 万字符、直播 42s 回合推理连续上屏。
+  「已处理」折叠组 UI 已见；展开态核对待用户一眼）
+- 🔶 用户消息气泡 + 编辑/fork 动作（**N9 批**）：悬停按钮以 row.entityId 为渲染条件，
+  桥接 buildRows 尚未写 entityId → 按钮不显形；editUserQuery/forkAssistant 命令也未实现
+  （revert 路由已有、引擎 fork 端点已核实）。与性能批行身份改造同批。
+- 🔶 消息悬停动作（复制 ✅ 纯前端；反馈/编辑/fork 同上——entityId 前置，N9 批）
 - ✅ 加载更早（rows 分页游标 conversationRowsRangeV4）：按 rowId < beforeRowId 从完整历史
   切尾部 limit 行——行号由 buildRows 顺序生成、历史不变即稳定，无需服务端游标。
-- ⬜ TurnNavigator（右侧轮次刻度）
 
 ### N7 逐项（2026-10-08 开工，接 N6）
 - 🚫 **工作区文件写（N7-4）——核实后不做**：vendor UI 没有「保存文件到工作区」的消费方
@@ -95,7 +100,7 @@
   checksum 在非安全上下文回退纯 JS SHA-256。E2E：LAN http 源（192.168.22.202:4199，
   crypto.subtle 缺失）真实拖放 PNG → 无报错 → POST /api/message images[] → 引擎
   落 file:image/png part（2026-10-09）。12 条单测对照 node crypto（padding 边界全覆盖）。
-- ⬜ 停止生成
+- ✅ 停止生成（stopGeneration → /api/abort；N6 批次 1 补上响应码检查——此前不看结果）
 - 🔶 **性能：/z/ 整体卡顿**（2026-10-08 用户实测「几乎无法使用」，已决定立项整改）。已观察证据：
   loopback 28.8MB/6s、热路径全量重建+全量对比（每事件 O(N)）、工具卡回取、getView 双请求风暴。
   整改期间会话面热路径**冻结新功能**（详见简报的边界条款）。
@@ -156,10 +161,11 @@
 - ✅ 技能面：list ← /api/settings/skills-manager（源/启用/冲突真事实）、setEnabled ← toggle
   （enable = symlink 进 ~/.config/opencode/skills）。内容编辑/删除/跨机同步如实拒绝 ——
   ocrc 的技能生效模型是「源目录 + symlink」，没有 .zcode/skills 通用目录。
-- ✅ MCP 读取面：loadMcpFromUserDirectory / listWorkspaceMcpServerStatuses ← /api/mcp +
-  项目级 /api/settings/project/mcp。全局目录级写入如实拒绝（structured 写只有 provider 一族）。
-- ⬜ 附件管线（图片/文件上传）：web 端要走 File → attachmentBeginV4/ChunkV4/CommitV4 →
-  sendText.attachments 的整条链（ocrc 后端已支持 images[] base64），未接。
+- ✅ MCP 读取面 + 写侧（N8-3）：loadMcpFromUserDirectory / listWorkspaceMcpServerStatuses ←
+  /api/mcp + 项目级 /api/settings/project/mcp + 全局 /api/settings/opencode-config/mcp；
+  用户级结构化写入（见 §8 MCP 管理条）。
+- ✅ 附件管线（图片/文件上传，N7-1 全链）：File → attachmentBeginV4/ChunkV4/CommitV4 →
+  sendText.attachments → /api/message images[]（详见 §4 附件管线条；N8-4 解锁非安全源拖放）。
 
 ## 4. Composer（Lexical）
 - ✅ 富文本输入框挂载 + 占位文案
@@ -184,16 +190,19 @@
   renameSession/deleteSession → 既有路由；cancelBackgroundWork 等仍如实回
   `ocrc_unwired_<type>`（不假装成功）。
 - ✅ 停止生成（stopGeneration → /api/abort；N6 批次 1 补上响应码检查——此前不看结果）
-- ⬜ @ 上下文选择（fileService 文件枚举）
-- ⬜ / 斜杠命令面板（commandsService）
-- ⬜ 模型选择器数据（modelSelection 真目录已接，选择写回 overrides）
-- ⬜ 附件管线（图片/文件上传）
+- ✅ @ 上下文选择（fileService 文件枚举：searchWorkspaceFiles → /api/files/search、
+  listWorkspaceFiles* → /api/files/index 列式 packed 索引，N6 批次 2A 接通）
+- ✅ / 斜杠命令面板（commandsService.list → /api/commands 引擎用户命令；命令文件管理面
+  ocrc 无对应，如实拒绝）
+- ✅ 模型选择器（modelSelection 真目录 + switchModelConfig 写回 /api/overrides；N6/N7 接通）
+- ✅ 附件管线（图片/文件上传，N7-1 全链；N8-4 解锁非安全源拖放）
 
 ## 5. 状态面板
-- ⬜ 折叠条「计划 n/m」
-- ⬜ Todo 清单区（plan/todoGroups）
-- ⬜ 子代理区（subagents）
-- ⬜ 自动展开语义（composer empty + running）
+- ✅ 折叠条「计划 n/m」+ Todo 清单区（plan ← /api/session/:id/todo，N6 批次 2B 接通）
+- ✅ 子代理区（running ← snapshot.subagents、已结束目录入口 ← listSessionSubagents + 补丁 #5，
+  N8-2/N8-5 实证：「智能体 / 已结束 1」）
+- 🔶 自动展开语义（composer empty + running）：依赖面板 hasContent 门——只剩历史会话面板
+  恒 null（上游行为 + 补丁 #5 只为已结束子代理开门），活会话内按 vendor 原生语义走。
 
 ## 6. 命令中心与快捷键
 - ✅ Ctrl+K 命令面板（CommandCenterDialog + commandsService：ocrc /api/commands 引擎命令）
@@ -284,7 +293,8 @@
 
 ## 10. 分享与周边
 - ✅ 分享落地页路由（ShareLanding 已有独立实现）
-- ⬜ conversationShareService（ocrc shares API 对接）
+- ✅ conversationShareService（N7-2 端到端闭环：全选 → 披露 → 生成分享链接 → POST /api/share
+  → 公开落地页免鉴权取回同内容；四个集成缺陷已修并有回归测试，详见「分享发布」节）
 - ⬜ 白板（WhiteboardPane ➕ N4）
 - ⬜ 画中画浏览器（EmbeddedBrowserPane ➕ N4 / ocrc sidecar browser）
 

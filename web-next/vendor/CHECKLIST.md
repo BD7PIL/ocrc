@@ -215,9 +215,20 @@
   路径一律经 containment 校验（safeResolve，符号链接感知）。`.zcodeignore` 不适用：
   读接口给说明模板、写接口如实拒绝（ocrc 的文件索引由 host 内置规则决定，不写一个
   没人读的文件假装生效）。
-- ⬜ 工具输出页（messageRaw）
-- ⬜ 子代理转写页
-- ⬜ 计划详情页
+- ⬜ 工具输出页（messageRaw）：**N8-5 核实——vendor 没有通用"工具输出页"**。右侧面板族里
+  与工具输出相关的只有 `bash-output`（后台 bash 任务输出，入口在状态面板的**运行中**
+  后台任务行，数据模型是 workId，ocrc 无对应概念）。行内富化输出（N6 批次 2B）已覆盖
+  常规展示（50k 截断）。若要"看完整输出"需产品侧先定形态（见 N8 计划的 D2）。
+- ✅ 子代理转写页（N8-5 实证）：点目录里的子会话行 → 右侧标签页打开嵌套 SessionPane
+  （子会话 id 是真实引擎 session，走已桥接的 v4 会话订阅；隔离栈截图确认标签出现）。
+- ✅ 子代理目录页（N8-2 + N8-5 实证）：`listSessionSubagents` 桥接 + 后端 `/subagents`
+  扩字段（agent/createdAt/error + `?limit`/`?todos`），状态面板「智能体 → 已结束 N」
+  入口打开目录（隔离栈实测：「已结束 · 1 / n8-5 subagent probe / 已完成 / 20分」）。
+  **附带 vendor 补丁 #5**：上游自认 endedSubagentCount 没进 hasContent → 只剩历史的
+  会话整块面板返回 null、目录入口不可达；补一行条件（PATCHES.md #5）。
+- 🔶 计划详情页：数据路径已通（父会话投影 + `row.input` 带 plan markdown）；**触发依赖
+  该轮使用了 plan/switch-mode 工具**，未在真实会话中命中（同类问题：卡片"打开"态要求
+  参数含 markdown）。待有真实 plan 工具调用的会话复核。
 - ⬜ 终端页（🚫 ocrc 裁决不做）
 
 ## 8. 设置页族

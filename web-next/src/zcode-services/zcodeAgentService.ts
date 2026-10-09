@@ -358,6 +358,10 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
   const curModel = overrides.model?.modelID ?? providers.find((p) => p.id === curProvider)?.models?.[0]?.id ?? ''
   const curThought = (providers.find((p) => p.id === curProvider)?.models?.find((m) => m.id === curModel)?.variants ?? [])[0] ?? ''
   const [plan, subagents] = await Promise.all([conversationPlan(taskId), conversationSubagents(taskId)])
+  console.info(
+    '[ocrc-trace] snapshot subagents =',
+    subagents ? `children=${subagents.childSessionIds.length} running=${subagents.running.length} ended=${subagents.endedTotal}` : '(none)',
+  )
   const rows = buildRows(cards)
   await enrichToolRows(rows, taskId)
   const seq = rows.length

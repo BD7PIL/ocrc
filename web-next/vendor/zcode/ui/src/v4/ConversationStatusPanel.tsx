@@ -1856,7 +1856,11 @@ function ConversationStatusPanelImpl({
   // 会话会连整个胶囊一起消失——而那正是重启后打开一条旧对话的样子，run 目录的入口于是又没了。
   // 已结束的 run 因此单独开这道门。（Agents 的已结束行有同一个洞：`endedSubagentCount` 也
   // 没进 `hasContent`。那是既有行为，不在本轮一起翻。）
-  if (!model.hasContent && !canRenderEndedWorkflows) {
+  //
+  // N8-5 vendor 补丁（PATCHES.md #5）：把上面那句"不在本轮一起翻"翻掉——已结束的
+  // 子代理同样单独开门。ocrc 的持久会话几乎都是"只剩历史"（host 重启后打开旧会话），
+  // 不补的话子代理目录入口永远不可达，而目录数据侧已经能供（listSessionSubagents）。
+  if (!model.hasContent && !canRenderEndedWorkflows && !canRenderEndedAgents) {
     return null;
   }
 

@@ -55,6 +55,7 @@ function fakeBackend(over: Partial<AgentBackend> = {}): AgentBackend {
 interface Harness {
   manager: ReturnType<typeof createGoalManager>
   state: ReturnType<typeof createFileBackedState>
+  bus: ReturnType<typeof createCardBus>
   dispatched: IncomingMessage[]
   changes: Array<{ sessionId: string; goal: unknown; verifying: boolean }>
   infos: Array<{ title: string; body: string }>
@@ -81,7 +82,7 @@ function harness(over: Partial<GoalDeps> = {}): Harness {
   }
   delete (deps as any).backend
   const manager = createGoalManager(deps)
-  return { manager, state, dispatched, changes, infos }
+  return { manager, state, bus: cardBus, dispatched, changes, infos }
 }
 
 describe('parseVerification', () => {
@@ -369,6 +370,39 @@ describe('goal manager', () => {
       { id: 't1', content: 'A', status: 'completed' },
       { id: 't2', content: 'B', status: 'pending' },
     ])
+  })
+
+  it('default evidence prefers the in-process card bus (no engine lag)', async () => {
+    const seen: string[] = []
+    const h = harness({
+      verify: async (_sid, prompt) => { seen.push(prompt); return '{"passed": true, "reason": "ok"}' },
+    })
+    // 本轮刚结束的那一轮只在 bus 上（引擎历史还没提交）——fakeBackend.getHistory 返回空，
+    // 证据里出现这段话就证明走的是 bus。
+    h.bus.publish({ kind: 'user', sessionId: 'ses_1', text: '本轮用户输入', ts: 1 })
+    h.bus.publish({ kind: 'assistant', sessionId: 'ses_1', blocks: [{ type: 'text', text: '本轮刚做完的产出' }], meta: {}, ts: 2 })
+    h.manager.set('ses_1', '目标')
+    await h.manager.handleTurnEnd('ses_1')
+    expect(seen[0]).toContain('Recent transcript:')
+    expect(seen[0]).toContain('本轮刚做完的产出')
+  })
+
+  it('falls back to the engine history when the bus is cold', async () => {
+    const seen: string[] = []
+    const backend = fakeBackend({
+      getHistory: async () => [
+        { kind: 'user', sessionId: 'ses_1', text: '老对话', ts: 1 },
+        { kind: 'assistant', sessionId: 'ses_1', blocks: [{ type: 'text', text: '老回答' }], meta: {}, ts: 2 },
+      ] as any,
+    })
+    const h = harness({
+      backend,
+      cardBus: createCardBus(), // 空的 bus（冷启动形态）
+      verify: async (_sid, prompt) => { seen.push(prompt); return '{"passed": true, "reason": "ok"}' },
+    })
+    h.manager.set('ses_1', '目标')
+    await h.manager.handleTurnEnd('ses_1')
+    expect(seen[0]).toContain('老回答')
   })
 
   it('injected evidence feeds the verifier prompt', async () => {

@@ -589,6 +589,17 @@ const messageRoles = new Map<string, Map<string, string>>()
     }
 
     if (e.kind === 'idle') {
+      // N12: the turn-end hook runs AFTER the final card is published — the goal
+      // loop's evidence window reads the card bus (the authoritative in-process
+      // view). Firing it before the publish made the first verification of every
+      // turn read a transcript that was missing that very turn, which fed two
+      // identical verdicts to the no-progress gate and stopped healthy loops.
+      const fireTurnEnd = () => {
+        if (!deps.onTurnEnd) return
+        try { deps.onTurnEnd(sid) } catch (err) {
+          log.error(`[plugin] onTurnEnd hook failed`, err as Error)
+        }
+      }
       if (ctx) {
         log.info(`[plugin] session idle: ${sid.slice(-8)}, finalizing`)
         // Capture acc/msgId locally: cleanupPluginSession() runs synchronously
@@ -603,6 +614,8 @@ const messageRoles = new Map<string, Map<string, string>>()
             await publishAssistantCard({ sessionId: sid, acc, assistantMessageId: msgId, cardId })
           } catch (err) {
             log.error(`[plugin] publishAssistantCard failed`, err as Error)
+          } finally {
+            fireTurnEnd()
           }
         }, 0)
         cleanupPluginSession(sid)
@@ -612,15 +625,9 @@ const messageRoles = new Map<string, Map<string, string>>()
         messageRoles.delete(sid)
         log.info(`[plugin] session idle (no ctx): ${sid.slice(-8)}`)
         deps.cardBus.publish({ kind: 'status', sessionId: sid, fields: { status: 'idle' } })
-      }
-      // N12: the turn is over — hand the session to the goal loop (verify and
-      // maybe continue). Fired for both branches: a goal's continuation turn
-      // may end without an ocrc ctx of its own. Never let a hook failure break
-      // the relay's idle handling.
-      if (deps.onTurnEnd) {
-        try { deps.onTurnEnd(sid) } catch (err) {
-          log.error(`[plugin] onTurnEnd hook failed`, err as Error)
-        }
+        // No ctx = no card to publish; the hook still fires (a goal continuation
+        // turn may end without an ocrc ctx of its own).
+        fireTurnEnd()
       }
       return
     }

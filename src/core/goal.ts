@@ -301,13 +301,23 @@ export function createGoalManager(deps: GoalDeps): GoalManager {
     } catch (err) {
       log.warn(`evidence: getTodos failed: ${(err as Error).message}`)
     }
-    try {
-      const cards = await backend.getHistory(sessionId, EVIDENCE_HISTORY_LIMIT)
-      const text = cards.map(cardToEvidenceText).filter(Boolean).join('\n\n')
-      if (text) parts.push('Recent transcript:\n' + text)
-    } catch (err) {
-      log.warn(`evidence: getHistory failed: ${(err as Error).message}`)
+    // Transcript: the in-process card bus FIRST. It is the live view of this
+    // conversation and — because the relay fires onTurnEnd after the final card
+    // is published — it still holds the turn that just ended. Reading the engine
+    // history instead cost a whole turn of lag (the engine commits the finished
+    // message slightly after idle), which made the verifier judge the same state
+    // twice and trip the no-progress gate on a healthy loop.
+    // The bus is per-process and bounded, so fall back to the engine history for
+    // a cold session (host restarted, conversation older than the buffer).
+    let cards: StructuredCard[] = []
+    try { cards = deps.cardBus.recent(sessionId, EVIDENCE_HISTORY_LIMIT) } catch { /* bus absent */ }
+    if (!cards.length) {
+      try { cards = await backend.getHistory(sessionId, EVIDENCE_HISTORY_LIMIT) } catch (err) {
+        log.warn(`evidence: getHistory failed: ${(err as Error).message}`)
+      }
     }
+    const text = cards.map(cardToEvidenceText).filter(Boolean).join('\n\n')
+    if (text) parts.push('Recent transcript:\n' + text)
     return parts.join('\n\n').slice(0, EVIDENCE_MAX_CHARS)
   }
 

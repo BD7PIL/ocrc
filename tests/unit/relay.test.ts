@@ -460,8 +460,35 @@ describe('createRelay', () => {
       await relay({ userId: '1', chatId: '100', text: 'test', messageId: 'p4' })
       expect(onTurnEnd).not.toHaveBeenCalled()
       await relay.handleEvent({ kind: 'idle', sessionId: 'ses_plugin' })
+      // The hook is deferred with the final card publish, so the goal loop's
+      // evidence window reads a transcript that already contains this turn.
+      await new Promise((r) => setTimeout(r, 20))
       expect(onTurnEnd).toHaveBeenCalledTimes(1)
       expect(onTurnEnd).toHaveBeenCalledWith('ses_plugin')
+    })
+
+    it('fires onTurnEnd only after the assistant card is on the bus', async () => {
+      const cardBus = createCardBus()
+      const state = fakeState()
+      state.getPinnedSessionId = () => 'ses_plugin'
+      const seen: string[] = []
+      const relay = createRelay({
+        cardBus,
+        backend: fakeBackend(),
+        state,
+        chatTimeoutMs: 5000,
+        tuiVisible: false,
+        onTurnEnd: (sid) => {
+          seen.push(...cardBus.recent(sid, 20).map((c) => c.kind))
+        },
+      })
+      await relay({ userId: '1', chatId: '100', text: 'test', messageId: 'p6' })
+      await relay.handleEvent({ kind: 'part', sessionId: 'ses_plugin', part: { id: 't1', type: 'text', text: 'hi' } })
+      await relay.handleEvent({ kind: 'idle', sessionId: 'ses_plugin' })
+      await new Promise((r) => setTimeout(r, 20))
+      // 这就是「证据窗口一度落后一整轮」的回归线：hook 跑的时候本轮 assistant 卡必须在
+      seen.push('END')
+      expect(seen[seen.indexOf('END') - 1]).toBe('assistant')
     })
 
     it('a throwing onTurnEnd hook does not break idle handling', async () => {
@@ -478,6 +505,7 @@ describe('createRelay', () => {
       })
       await relay({ userId: '1', chatId: '100', text: 'test', messageId: 'p5' })
       await expect(relay.handleEvent({ kind: 'idle', sessionId: 'ses_plugin' })).resolves.toBeUndefined()
+      await new Promise((r) => setTimeout(r, 20)) // let the deferred hook run and swallow
     })
 
     it('carries live reasoning on streaming cards and thinkingText on the final card', async () => {

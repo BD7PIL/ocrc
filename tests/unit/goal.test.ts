@@ -252,6 +252,38 @@ describe('goal manager', () => {
     expect(h.manager.resume('ses_1')).toEqual({ ok: false, error: 'not_paused' })
   })
 
+  it('resume continues the goal (upstream resumeGoal → continueGoalAfterChange)', () => {
+    const h = harness()
+    h.manager.set('ses_1', '目标')
+    h.manager.pause('ses_1')
+    h.dispatched.length = 0 // drop the kickoff
+    const res = h.manager.resume('ses_1')
+    expect(res.ok).toBe(true)
+    expect(h.dispatched).toHaveLength(1)
+    expect(h.dispatched[0]).toMatchObject({ sessionId: 'ses_1', origin: 'goalContinuation' })
+    expect(h.dispatched[0].text.startsWith(CONTINUATION_PREFIX)).toBe(true)
+  })
+
+  it('resume after an iteration-cap stop extends the cap by a whole budget', async () => {
+    const h = harness({
+      verify: async () => `{"passed": false, "reason": "还没", "nextAction": "下一步 ${Math.random()}"}`,
+    })
+    h.manager.set('ses_1', '目标')
+    for (let i = 0; i < MAX_ITERATIONS + 3; i++) await h.manager.handleTurnEnd('ses_1')
+    expect(h.manager.status('ses_1')!.status).toBe('paused')
+    expect(h.manager.status('ses_1')!.iteration).toBe(MAX_ITERATIONS)
+
+    const resumed = h.manager.resume('ses_1')
+    expect(resumed.ok).toBe(true)
+    expect(h.manager.status('ses_1')!.iterationCap).toBe(MAX_ITERATIONS * 2)
+
+    // 恢复后又能正常推进（不再立刻撞同一道闸）
+    await h.manager.handleTurnEnd('ses_1')
+    const after = h.manager.status('ses_1')!
+    expect(after.status).toBe('active')
+    expect(after.iteration).toBe(MAX_ITERATIONS + 1)
+  })
+
   it('refuses set/resume under plan mode (mutual exclusion)', () => {
     let plan = false
     const h = harness({ isPlanMode: () => plan })
@@ -260,6 +292,20 @@ describe('goal manager', () => {
     plan = true
     expect(h.manager.resume('ses_1')).toEqual({ ok: false, error: 'plan_mode' })
     expect(h.manager.status('ses_1')!.status).toBe('paused')
+  })
+
+  it('plan mode stops the continuation instead of dispatching into the plan agent', async () => {
+    let plan = false
+    const h = harness({
+      isPlanMode: () => plan,
+      verify: async () => '{"passed": false, "reason": "还差", "nextAction": "继续做"}',
+    })
+    h.manager.set('ses_1', '目标')
+    plan = true
+    await h.manager.handleTurnEnd('ses_1')
+    expect(h.manager.status('ses_1')!.status).toBe('paused')
+    expect(h.dispatched).toHaveLength(1) // 只有 set 的 kickoff，没有续跑
+    expect(h.infos.some((i) => i.body.includes('计划模式'))).toBe(true)
   })
 
   it('a paused goal is inert at turn end', async () => {
@@ -370,6 +416,27 @@ describe('goal manager', () => {
       { id: 't1', content: 'A', status: 'completed' },
       { id: 't2', content: 'B', status: 'pending' },
     ])
+  })
+
+  it('evidence keeps the TAIL when it exceeds the budget（回归：头部截断曾让验收器看不到最新一轮）', async () => {
+    const seen: string[] = []
+    const h = harness({
+      verify: async (_sid, prompt) => { seen.push(prompt); return '{"passed": true, "reason": "ok"}' },
+    })
+    // 造一份超预算的转录：头部塞满旧轮次，最新一轮的产出在最后
+    for (let i = 1; i <= 40; i++) {
+      h.bus.publish({ kind: 'user', sessionId: 'ses_1', text: `第 ${i} 轮的续跑指令`.padEnd(300, '·'), ts: i * 2 })
+      h.bus.publish({ kind: 'assistant', sessionId: 'ses_1', blocks: [{ type: 'text', text: `第 ${i} 轮产出 ${'x'.repeat(300)}` }], meta: {}, ts: i * 2 + 1 })
+    }
+    h.bus.publish({ kind: 'assistant', sessionId: 'ses_1', blocks: [{ type: 'text', text: '最新一轮：Created step41.txt' }], meta: {}, ts: 999 })
+    h.manager.set('ses_1', '目标')
+    await h.manager.handleTurnEnd('ses_1')
+    const prompt = seen[0]!
+    expect(prompt).toContain('Created step41.txt') // 最新一轮必须在证据里
+    expect(prompt).toContain('earlier turns omitted')
+    // 证据整体仍在预算内（提示词模板本身另算）
+    const evidence = prompt.slice(prompt.indexOf('<evidence>') + 10, prompt.indexOf('</evidence>'))
+    expect(evidence.length).toBeLessThanOrEqual(8000)
   })
 
   it('default evidence prefers the in-process card bus (no engine lag)', async () => {

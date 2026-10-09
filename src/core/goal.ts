@@ -287,8 +287,19 @@ export function createGoalManager(deps: GoalDeps): GoalManager {
     })
   }
 
+  /** 证据必须**保尾**：模型要判断的是「这一轮做完之后还差什么」，头部是历史。
+   *  早期版本 slice(0, MAX) 从头部截断——多轮之后最新一轮整段被切掉，验收器两轮
+   *  看到同一份旧状态、给出同一个 nextAction，无进展闸（据此判定，本身没错）停掉
+   *  了健康的目标。隔离栈实测根因（4 轮时证据 10.2k 字符 > 8k 上限）。 */
+  function boundEvidenceTail(text: string, budget: number): string {
+    if (text.length <= budget) return text
+    const cut = text.slice(text.length - budget)
+    const firstBreak = cut.indexOf('\n')
+    return `… (earlier turns omitted)\n${firstBreak > -1 ? cut.slice(firstBreak + 1) : cut}`
+  }
+
   async function collectEvidenceDefault(sessionId: string, backend: AgentBackend): Promise<string> {
-    const parts: string[] = []
+    let todosText = ''
     try {
       const todos = await backend.getTodos(sessionId)
       if (Array.isArray(todos) && todos.length) {
@@ -296,19 +307,16 @@ export function createGoalManager(deps: GoalDeps): GoalManager {
           const r = (t ?? {}) as { status?: unknown; content?: unknown }
           return `- [${typeof r.status === 'string' ? r.status : '?'}] ${typeof r.content === 'string' ? r.content : ''}`
         })
-        parts.push('Todo list:\n' + lines.join('\n'))
+        todosText = 'Todo list:\n' + lines.join('\n')
       }
     } catch (err) {
       log.warn(`evidence: getTodos failed: ${(err as Error).message}`)
     }
     // Transcript: the in-process card bus FIRST. It is the live view of this
     // conversation and — because the relay fires onTurnEnd after the final card
-    // is published — it still holds the turn that just ended. Reading the engine
-    // history instead cost a whole turn of lag (the engine commits the finished
-    // message slightly after idle), which made the verifier judge the same state
-    // twice and trip the no-progress gate on a healthy loop.
-    // The bus is per-process and bounded, so fall back to the engine history for
-    // a cold session (host restarted, conversation older than the buffer).
+    // is published — it still holds the turn that just ended. The bus is
+    // per-process and bounded, so fall back to the engine history for a cold
+    // session (host restarted, conversation older than the buffer).
     let cards: StructuredCard[] = []
     try { cards = deps.cardBus.recent(sessionId, EVIDENCE_HISTORY_LIMIT) } catch { /* bus absent */ }
     if (!cards.length) {
@@ -316,9 +324,14 @@ export function createGoalManager(deps: GoalDeps): GoalManager {
         log.warn(`evidence: getHistory failed: ${(err as Error).message}`)
       }
     }
-    const text = cards.map(cardToEvidenceText).filter(Boolean).join('\n\n')
-    if (text) parts.push('Recent transcript:\n' + text)
-    return parts.join('\n\n').slice(0, EVIDENCE_MAX_CHARS)
+    const transcript = cards.map(cardToEvidenceText).filter(Boolean).join('\n\n')
+    log.debug(`evidence: cards=${cards.length} transcript=${transcript.length} chars, todos=${todosText.length}`)
+    // 待办先给（短），转录按剩余预算保尾。
+    const budget = Math.max(0, EVIDENCE_MAX_CHARS - todosText.length - 8)
+    const parts: string[] = []
+    if (todosText) parts.push(todosText)
+    if (transcript) parts.push('Recent transcript:\n' + boundEvidenceTail(transcript, budget))
+    return parts.join('\n\n')
   }
 
   function collectEvidence(sessionId: string, backend: AgentBackend): Promise<string> {
@@ -363,8 +376,12 @@ export function createGoalManager(deps: GoalDeps): GoalManager {
 
   /** Gate check for "should we continue?" — evaluated on the record that
    *  already carries the current (notSatisfied) verification. */
+  function capOf(goal: GoalRecord): number {
+    return goal.iterationCap ?? MAX_ITERATIONS
+  }
+
   function checkGate(goal: GoalRecord): GoalGate | null {
-    if (goal.iteration >= MAX_ITERATIONS) return 'iteration_cap'
+    if (goal.iteration >= capOf(goal)) return 'iteration_cap'
     const failed = goal.verifications.filter((v) => v.outcome === 'notSatisfied')
     const last = failed[failed.length - 1]
     const prev = failed[failed.length - 2]
@@ -463,12 +480,20 @@ export function createGoalManager(deps: GoalDeps): GoalManager {
     const gate = checkGate(updated)
     if (gate) {
       stopWith(sessionId, updated, 'paused', gate === 'iteration_cap'
-        ? `已达迭代上限 ${MAX_ITERATIONS} 轮`
+        ? `已达迭代上限 ${capOf(updated)} 轮（继续 = 再给 ${MAX_ITERATIONS} 轮）`
         : `连续 ${STALL_REPEATS} 轮无进展（同样的下一步反复出现）`)
       return
     }
 
     if (stopped) return
+
+    // plan 模式与 goal 互斥（上游 targetContinuationCandidateForCommand 直接
+    // return null）：用户中途切到 plan，续跑不能还把 prompt 打给 plan agent。
+    // 停成 paused 而不是静默丢弃——恢复目标由用户显式 resume。
+    if (planBlocked(sessionId)) {
+      stopWith(sessionId, updated, 'paused', '计划模式下不能续跑目标（切回 build 后 resume）')
+      return
+    }
 
     // 4. continue — snapshot this iteration's todos, bump, dispatch.
     const items = await collectTodoItems(sessionId, backend)
@@ -553,8 +578,25 @@ export function createGoalManager(deps: GoalDeps): GoalManager {
       if (!goal) return { ok: false, error: 'no_goal' }
       if (goal.status !== 'paused' && goal.status !== 'budget_limited') return { ok: false, error: 'not_paused' }
       if (planBlocked(sid)) return { ok: false, error: 'plan_mode' }
-      const updated = deps.state.updateGoal(sid, { status: 'active', activeRunStartedAtMs: now() })!
+      const at = now()
+      // 撞过迭代上限的：继续 = 再给一整档，否则「继续」只能换到一轮、下一轮立刻
+      // 又停（上限是累计的）。上游没有这道闸，语义由我们定。
+      const patch: Partial<GoalRecord> = { status: 'active', activeRunStartedAtMs: at }
+      if (goal.iteration >= capOf(goal)) patch.iterationCap = capOf(goal) + MAX_ITERATIONS
+      const updated = deps.state.updateGoal(sid, patch)!
       emit(sid, updated)
+      // 上游 resumeGoal 会 continueGoalAfterChange —— 恢复即续跑，不是只翻状态。
+      // 不派发的话目标会一直 active 地空等用户下一条消息。
+      if (!stopped) {
+        void deps.dispatch({
+          userId: 'ocrc-goal',
+          chatId: 'ocrc-goal',
+          text: continuationText(updated, null),
+          messageId: `goal_${updated.targetId}_resume_${updated.iteration}`,
+          sessionId: sid,
+          origin: 'goalContinuation',
+        }).catch((err) => log.error(`goal resume dispatch failed for ${sid.slice(-8)}`, err as Error))
+      }
       return { ok: true, goal: updated }
     },
 

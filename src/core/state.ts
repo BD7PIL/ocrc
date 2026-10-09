@@ -39,6 +39,9 @@ export interface GoalRecord {
   summaryTitle?: string
   status: GoalStatus
   iteration: number
+  /** 迭代上限（默认 MAX_ITERATIONS）。用户 resume 一个撞上限的目标时按整档延展，
+   *  否则「继续」只能换到一轮、下一轮立刻又停——上游没有闸，这条语义归我们。 */
+  iterationCap?: number
   tokenBudget?: number
   tokensUsed: number
   timeUsedSeconds: number

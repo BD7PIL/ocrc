@@ -67,7 +67,12 @@ export async function main(): Promise<void> {
       `Stop that plugin instance (or install ocrc in host mode only) and restart this host.`,
     )
   }
-  const primary = tryBecomePrimary(undefined, { role: 'host' })
+  const primary = tryBecomePrimary(undefined, {
+    role: 'host',
+    // Carried on the lock so an ocrc plugin inside the engine knows exactly where
+    // to attach — no port guessing, and it works before the listener is up.
+    ...(config.webEnabled ? { url: `http://127.0.0.1:${config.webPort}` } : {}),
+  })
   if (primary.isPrimary) {
     log.info(`primary lock acquired (role=host, pid ${process.pid})`)
   } else if (primary.owner) {

@@ -107,6 +107,7 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         offpeak: cfg.offpeak,
         offpeakWindow: cfg.offpeakWindow,
         goalManager: cfg.goalManager,
+        port: cfg.port,
       })
 
       // Immutable hashed assets cache forever; everything else (above all

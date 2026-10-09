@@ -54,6 +54,7 @@ import { registerRemotes } from './routes/remotes.js'
 import { registerSubagents } from './routes/subagents.js'
 import { registerM8 } from './routes/m8.js'
 import { registerPairExchange, registerPairQr, registerPairOnboarding, registerPairReset } from './routes/pairing.js'
+import { registerAttach } from './routes/attach.js'
 import type { PairingStore } from '../../connectivity/pairing.js'
 
 export interface BuildServerOpts {
@@ -88,6 +89,10 @@ export interface BuildServerOpts {
   statePath?: string
   /** M6 分享: snapshot store (public GET + authed create). */
   shares?: import('../../core/shares.js').SharesStore
+  /** P0-3: port the host listens on (reported back to an ATTACHED plugin). */
+  port?: number
+  /** P0-3: expose the attach echo probe (OCRC_WF_PROBE=1; P0 gate only). */
+  attachProbe?: boolean
 }
 
 export function buildServer(opts: BuildServerOpts): Hono {
@@ -162,6 +167,14 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerQuestion(app, reg, opts.state)
   registerVersion(app)
   registerLogs(app)
+  // P0-3: the ATTACHED-plugin channel (status / notify / echo probe). Registered
+  // for both host and plugin modes — the host is the only process that serves it.
+  registerAttach(app, {
+    cardBus: opts.cardBus,
+    telegramStatus: opts.telegramStatus,
+    webPort: opts.port ?? 0,
+    probe: opts.attachProbe === true || process.env.OCRC_WF_PROBE === '1',
+  })
   registerMcp(app, reg)
   registerCatalog(app, reg)
   registerOverrides(app, opts.state)

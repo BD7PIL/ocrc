@@ -11,7 +11,9 @@ import { createOpencodeClient } from '@opencode-ai/sdk'
 import { normalizeOpencodeEvent } from '../core/agent/opencode-normalizer.js'
 import { createCardBus } from '../core/card-bus.js'
 import { startPushNotifications } from '../core/push.js'
-import { tryBecomePrimary, type PrimaryLock } from '../core/primary-election.js'
+import { tryBecomePrimary, currentPrimary, type PrimaryLock } from '../core/primary-election.js'
+import { createAttachedHooks } from './attached.js'
+import { formatScheduleList, parseScheduleCreate, scheduleCreatedMessage, type ScheduleCreateArgs } from './schedule-tool.js'
 import { createScheduler } from '../core/scheduler.js'
 import { createChannelsStore } from '../core/channels.js'
 import { createPairingStore } from '../connectivity/pairing.js'
@@ -64,6 +66,34 @@ function installProcessGuards() {
 export const PLUGIN_ID = 'ocrc'
 
 /**
+ * P0-3: decide whether a live ocrc HOST owns this deployment.
+ *
+ * The standalone host takes the primary lock with `role: 'host'` and records the
+ * web base URL it serves. A plugin loaded inside any engine that host spawns or
+ * adopts therefore must NOT elect itself: it registers tools that call the host
+ * over its token-guarded API, and owns no listener, no poller, no state.
+ *
+ * Returns undefined when no host is running — the plugin then elects as before,
+ * so plugin-mode installs keep working byte for byte.
+ */
+type HostTarget = { kind: 'attach'; baseUrl: string } | { kind: 'standdown'; reason: string }
+
+function hostTarget(config: ReturnType<typeof loadPluginConfig>): HostTarget | undefined {
+  const owner = currentPrimary()
+  if (!owner || (owner.role ?? 'plugin') !== 'host') return undefined
+  // The host writes its URL when it serves web. A TG-only host has no channel for
+  // an attached plugin — stand down rather than start a second Telegram poller.
+  const baseUrl = owner.url ?? (config.webEnabled ? `http://127.0.0.1:${config.webPort}` : undefined)
+  if (!baseUrl) return { kind: 'standdown', reason: `host pid ${owner.pid} serves no web API (Telegram-only)` }
+  return { kind: 'attach', baseUrl }
+}
+
+/** Inert hooks: own nothing, do nothing. Used when standing down. */
+function inertHooks(): { event: () => Promise<void>; dispose: () => Promise<void> } {
+  return { event: async () => { /* no-op */ }, dispose: async () => { /* nothing owned */ } }
+}
+
+/**
  * Dual-export (development plan §7.1/§7.2, officially sanctioned upstream):
  * V1 hosts invoke `server` (the classic plugin function); V2 hosts invoke
  * `setup`. Both funnel into startCore() — the host-agnostic core (state,
@@ -74,6 +104,25 @@ const v2Setup = async (ctx: V2Context, options?: Record<string, unknown>) => {
   installProcessGuards()
   process.env.OCRC_MODE = 'plugin'
   log.info(`v${VERSION} starting (V2 setup)`)
+
+  const config = loadPluginConfig(options ?? ctx.options)
+
+  // P0-3: a live host owns the transports — attach instead of electing. Checked
+  // BEFORE the transient-process gate below: attaching owns no transports, so it
+  // is safe (and useful) even in a one-shot `opencode run` process.
+  //
+  // Note: the V2 setup contract exposes no tool-registration surface (see
+  // docs/v2-api-notes.md), so on a V2 host "attach" degenerates to "stand down" —
+  // owning nothing is still the correct answer, we just cannot offer tools there.
+  const target = hostTarget(config)
+  if (target) {
+    log.info(
+      target.kind === 'attach'
+        ? `host owns the primary lock — standing down (V2 setup has no tool surface; would attach to ${target.baseUrl})`
+        : `host owns the primary lock but ${target.reason} — standing down`,
+    )
+    return async () => {}
+  }
 
   // Transient-process gate (V2): `opencode run` is a one-shot client that also
   // loads plugins. Letting it host transports means a TG poller / web server
@@ -89,7 +138,6 @@ const v2Setup = async (ctx: V2Context, options?: Record<string, unknown>) => {
     return async () => {}
   }
 
-  const config = loadPluginConfig(options ?? ctx.options)
   const primary = tryBecomePrimary()
   if (!primary.isPrimary) {
     log.info('PASSIVE instance — web/bot/events owned by another opencode instance; standing down')
@@ -119,6 +167,25 @@ export const remoteControlPlugin: Plugin = (async (ctx, options) => {
   log.info(`v${VERSION} starting`)
 
   const config = loadPluginConfig(options)
+
+  // P0-3: a live ocrc host owns the transports. Attach — register tools that call
+  // the host, own no listener / poller / state, and never touch the lock. Without
+  // a host we fall through to the election below and behave exactly as before.
+  const target = hostTarget(config)
+  if (target?.kind === 'attach') {
+    log.info(`host owns the primary lock — ATTACHED to ${target.baseUrl} (tools only, no transports)`)
+    return createAttachedHooks({
+      baseUrl: target.baseUrl,
+      token: loadOrCreateToken({ token: config.webToken }),
+      version: VERSION,
+      probe: process.env.OCRC_WF_PROBE === '1',
+    })
+  }
+  if (target?.kind === 'standdown') {
+    log.info(`host owns the primary lock but ${target.reason} — standing down (no tools, no transports)`)
+    return inertHooks()
+  }
+
   const primary = tryBecomePrimary()
   if (!primary.isPrimary) {
     log.info('PASSIVE instance — web/bot/events owned by another opencode instance; standing down')
@@ -573,41 +640,19 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
             daily_time: tool.schema.string().optional().describe('Run daily at HH:MM local time (e.g. "09:00"). Provide this OR every_minutes, not both'),
             title: tool.schema.string().optional().describe('Short human-readable name; defaults to the trimmed prompt'),
           },
-          async execute(args: { prompt: string; every_minutes?: number; daily_time?: string; title?: string }) {
-            const prompt = args.prompt?.trim()
-            if (!prompt) return 'schedule_create failed: prompt is required'
-            const every = args.every_minutes, daily = args.daily_time?.trim()
-            if (every != null && daily) return 'schedule_create failed: provide every_minutes OR daily_time, not both'
-            let spec: { kind: 'every'; minutes: number } | { kind: 'daily'; time: string }
-            let human: string
-            if (daily) {
-              if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(daily)) return `schedule_create failed: daily_time must be HH:MM, got "${daily}"`
-              spec = { kind: 'daily', time: daily.padStart(5, '0') }
-              human = `每天 ${spec.time}`
-            } else if (every != null) {
-              const minutes = Math.max(1, Math.round(every))
-              spec = { kind: 'every', minutes }
-              human = `每 ${minutes} 分钟`
-            } else {
-              return 'schedule_create failed: provide every_minutes or daily_time'
-            }
-            const s = scheduler.add({ name: args.title?.trim() || undefined, prompt, spec, enabled: true })
+          async execute(args: ScheduleCreateArgs) {
+            const parsed = parseScheduleCreate(args)
+            if (!parsed.ok) return parsed.error
+            const s = scheduler.add({ name: parsed.name, prompt: parsed.prompt, spec: parsed.spec, enabled: true })
             if (!s) return 'schedule_create failed: could not persist the schedule'
-            return `定时任务已创建（${s.id}）— ${human}执行：${prompt.slice(0, 80)}${prompt.length > 80 ? '…' : ''}。管理：Web 面板右栏 → 定时任务。`
+            return scheduleCreatedMessage(s, parsed.prompt, parsed.human)
           },
         }),
         'schedule_list': tool({
           description: 'List the scheduled prompts (recurring tasks) with id, schedule and enabled state.',
           args: {},
           async execute() {
-            const list = scheduler.list()
-            if (list.length === 0) return '（当前没有定时任务）'
-            return list
-              .map((s) => {
-                const sched = s.spec.kind === 'every' ? `每 ${s.spec.minutes} 分钟` : `每天 ${s.spec.time}`
-                return `#${s.id}${s.name ? ` ${s.name}` : ''} — ${sched}${s.enabled ? '' : '（已暂停）'} — ${s.prompt.slice(0, 60)}`
-              })
-              .join('\n')
+            return formatScheduleList(scheduler.list())
           },
         }),
       },

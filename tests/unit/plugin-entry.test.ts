@@ -54,6 +54,7 @@ vi.mock('../../src/opencode/global-events.js', () => ({
 
 vi.mock('../../src/core/primary-election.js', () => ({
   tryBecomePrimary: vi.fn().mockReturnValue({ isPrimary: true, release: vi.fn() }),
+  currentPrimary: vi.fn().mockReturnValue(undefined),
 }))
 
 vi.mock('../../src/utils/logger.js', () => ({
@@ -65,7 +66,9 @@ import { createRelay } from '../../src/core/relay.js'
 import { createCardBus } from '../../src/core/card-bus.js'
 import { startPushNotifications } from '../../src/core/push.js'
 import { createTelegramTransport } from '../../src/transport/telegram/index.js'
+import { createWebTransport } from '../../src/transport/web/index.js'
 import { startGlobalEvents } from '../../src/opencode/global-events.js'
+import { tryBecomePrimary, currentPrimary } from '../../src/core/primary-election.js'
 import { remoteControlPlugin } from '../../src/plugin/entry.js'
 
 function fakeCardBus() {
@@ -352,5 +355,50 @@ describe('remoteControlPlugin', () => {
     // Should not throw — polling is best effort
     await new Promise((r) => setTimeout(r, 100))
     expect(ctx.client.session.get).toBeDefined()
+  })
+})
+
+/**
+ * P0-3: a live ocrc HOST owns the transports. The plugin must attach — register
+ * tools that call the host, elect nothing, own nothing.
+ */
+describe('remoteControlPlugin — ATTACHED to a running host', () => {
+  afterEach(() => { vi.clearAllMocks() })
+
+  const ctx = {
+    client: { session: { get: vi.fn(), list: vi.fn(), messages: vi.fn() } },
+    serverUrl: new URL('http://localhost:4096'),
+  } as any
+
+  it('registers tools and owns no transports when a host holds the lock', async () => {
+    ;(currentPrimary as any).mockReturnValue({ pid: 4242, startedAt: 1, role: 'host', url: 'http://127.0.0.1:4199' })
+    const hooks = await remoteControlPlugin(ctx, { telegramBotToken: '123:abc', allowedUserIds: '123456' })
+
+    expect(hooks.tool && Object.keys(hooks.tool)).toContain('rc-status')
+    expect(hooks.event).toBeUndefined()
+    expect(tryBecomePrimary).not.toHaveBeenCalled()
+    expect(createTelegramTransport).not.toHaveBeenCalled()
+    expect(createWebTransport).not.toHaveBeenCalled()
+    await hooks.dispose?.()
+  })
+
+  it('stands down inert when the host serves no web API (Telegram-only)', async () => {
+    ;(currentPrimary as any).mockReturnValue({ pid: 4242, startedAt: 1, role: 'host' })
+    const hooks = await remoteControlPlugin(ctx, { telegramBotToken: '123:abc', allowedUserIds: '123456' })
+
+    expect(hooks.tool).toBeUndefined()
+    expect(tryBecomePrimary).not.toHaveBeenCalled()
+    expect(createTelegramTransport).not.toHaveBeenCalled()
+  })
+
+  it('a live PLUGIN owner still means PASSIVE, not attached', async () => {
+    ;(currentPrimary as any).mockReturnValue({ pid: 4242, startedAt: 1, role: 'plugin' })
+    // A live plugin owner is exactly the pre-P0 PASSIVE case: the election loses.
+    ;(tryBecomePrimary as any).mockReturnValueOnce({ isPrimary: false, release: vi.fn() })
+    const hooks = await remoteControlPlugin(ctx, { telegramBotToken: '123:abc', allowedUserIds: '123456' })
+
+    expect(hooks.tool).toBeUndefined()
+    expect(tryBecomePrimary).toHaveBeenCalled()
+    expect(createTelegramTransport).not.toHaveBeenCalled()
   })
 })

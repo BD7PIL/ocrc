@@ -24,6 +24,12 @@ export interface PrimaryOwner {
   startedAt: number
   /** Absent on locks written before roles existed — read as `plugin`. */
   role?: PrimaryRole
+  /**
+   * Host only: the web base URL a plugin should talk to when it attaches
+   * (`http://127.0.0.1:4099`). Carried on the lock so the plugin needs no
+   * config guesswork — the host is the authority on where it listens.
+   */
+  url?: string
 }
 
 export interface PrimaryLock {
@@ -84,7 +90,7 @@ function passive(owner?: PrimaryOwner): PrimaryLock {
  * can win the subsequent O_EXCL open, so correctness is preserved, but the
  * function is not formally lock-free in the stale path.
  */
-export function tryBecomePrimary(lockPath = defaultLockPath(), opts: { role?: PrimaryRole } = {}): PrimaryLock {
+export function tryBecomePrimary(lockPath = defaultLockPath(), opts: { role?: PrimaryRole; url?: string } = {}): PrimaryLock {
   const role: PrimaryRole = opts.role ?? 'plugin'
   try {
     mkdirSync(dirname(lockPath), { recursive: true })
@@ -95,9 +101,9 @@ export function tryBecomePrimary(lockPath = defaultLockPath(), opts: { role?: Pr
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const fd = openSync(lockPath, 'wx') // wx = O_CREAT | O_EXCL | O_WRONLY
-      writeSync(fd, JSON.stringify({ pid: process.pid, startedAt: Date.now(), role }))
+      writeSync(fd, JSON.stringify({ pid: process.pid, startedAt: Date.now(), role, ...(opts.url ? { url: opts.url } : {}) }))
       closeSync(fd)
-      log.info(`became PRIMARY (pid ${process.pid}, role=${role})`)
+      log.info(`became PRIMARY (pid ${process.pid}, role=${role}${opts.url ? `, url=${opts.url}` : ''})`)
       let released = false
       return {
         isPrimary: true,

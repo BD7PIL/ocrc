@@ -104,6 +104,9 @@ export async function main(): Promise<void> {
   const remotesStore = createRemotesStore(join(dataDir, 'remotes.json'))
   const sharesStore = createSharesStore(dataDir)
   const statusSink: { broadcast?: (frame: { sessionId: string; busy: boolean }) => void } = {}
+  // sdelta side channel (0.25.0): relay → WS hub。plugin entry 同款接线——
+  // web transport 启动时绑定 broadcast；web 关闭时 delta 在此丢弃。
+  const streamDeltaSink: { broadcast?: (frame: import('../core/structured-card.js').StreamDeltaFrame) => void } = {}
   const remoteManager = createRemoteHostManager({ store: remotesStore })
 
   // Build every backend (spawning opencode server(s) + ACP agents) and wire each
@@ -141,6 +144,7 @@ export async function main(): Promise<void> {
     state,
     chatTimeoutMs: config.chatTimeoutMs,
     tuiVisible: false, // no local TUI in standalone mode
+    onStreamDelta: (frame) => streamDeltaSink.broadcast?.(frame),
   })
 
   // Persist finalized conversation cards for ACP sessions (recordCard no-ops for
@@ -292,6 +296,7 @@ export async function main(): Promise<void> {
       scheduler,
       channels,
       pairing,
+      streamDeltaSink,
       remotes: remotesStore,
       offpeak,
       offpeakWindow,

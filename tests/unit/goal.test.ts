@@ -118,6 +118,12 @@ describe('goal manager', () => {
     expect(goal).toMatchObject({ objective: '把测试跑绿', status: 'active', iteration: 1, tokensUsed: 0 })
     expect(goal.activeRunStartedAtMs).toBe(1_000_000)
     expect(h.changes.at(-1)).toMatchObject({ sessionId: 'ses_1', verifying: false })
+    // setting a goal kicks off the first turn immediately (upstream's goal
+    // command runs its own turn) — the loop would otherwise idle until the
+    // user typed something.
+    expect(h.dispatched).toHaveLength(1)
+    expect(h.dispatched[0].origin).toBe('goalContinuation')
+    expect(h.dispatched[0].text).toContain('把测试跑绿')
   })
 
   it('rejects an empty objective and a goal under plan mode', () => {
@@ -134,7 +140,7 @@ describe('goal manager', () => {
     const goal = h.manager.status('ses_1')!
     expect(goal.status).toBe('complete')
     expect(goal.verifications).toEqual([{ iteration: 1, outcome: 'pass', at: 1_000_000, reason: '全部完成' }])
-    expect(h.dispatched).toHaveLength(0)
+    expect(h.dispatched).toHaveLength(1) // the kickoff only — nothing continued
     expect(h.infos.map((i) => i.title)).toContain('目标已完成')
     // accounting ran: cumulative tokens sampled from getSessionMeta
     expect(goal.tokensUsed).toBe(150)
@@ -156,8 +162,8 @@ describe('goal manager', () => {
     ])
     expect(goal.iterations.map((i) => i.iteration)).toEqual([1, 2])
 
-    expect(h.dispatched).toHaveLength(1)
-    const msg = h.dispatched[0]
+    expect(h.dispatched).toHaveLength(2) // kickoff + one continuation
+    const msg = h.dispatched[1]
     expect(msg.sessionId).toBe('ses_1')
     expect(msg.origin).toBe('goalContinuation')
     expect(msg.text.startsWith(CONTINUATION_PREFIX)).toBe(true)
@@ -170,7 +176,7 @@ describe('goal manager', () => {
     h.manager.set('ses_1', '目标')
     await h.manager.handleTurnEnd('ses_1')
     expect(h.manager.status('ses_1')!.status).toBe('paused')
-    expect(h.dispatched).toHaveLength(0)
+    expect(h.dispatched).toHaveLength(1) // kickoff only
     expect(h.infos.map((i) => i.title)).toContain('目标已暂停')
   })
 
@@ -181,7 +187,7 @@ describe('goal manager', () => {
     const goal = h.manager.status('ses_1')!
     expect(goal.status).toBe('paused')
     expect(goal.verifications[0]).toMatchObject({ outcome: 'failed', iteration: 1 })
-    expect(h.dispatched).toHaveLength(0)
+    expect(h.dispatched).toHaveLength(1) // kickoff only — no continuation
   })
 
   it('fails closed when the verifier call itself throws / returns undefined', async () => {
@@ -215,7 +221,7 @@ describe('goal manager', () => {
     const goal = h.manager.status('ses_1')!
     expect(goal.status).toBe('paused')
     expect(h.infos.some((i) => i.body.includes('无进展'))).toBe(true)
-    expect(h.dispatched).toHaveLength(1) // only the first continuation went out
+    expect(h.dispatched).toHaveLength(2) // kickoff + only the first continuation
   })
 
   it('gate: token budget stops the loop with budget_limited', async () => {
@@ -228,7 +234,7 @@ describe('goal manager', () => {
     const goal = h.manager.status('ses_1')!
     expect(goal.status).toBe('budget_limited')
     expect(goal.tokensUsed).toBe(150)
-    expect(h.dispatched).toHaveLength(0)
+    expect(h.dispatched).toHaveLength(1) // kickoff only
   })
 
   it('pause/resume round-trips and restarts the run clock', () => {

@@ -2,6 +2,7 @@ import type { WebSocket } from 'ws'
 import type { CardBus } from '../../core/card-bus.js'
 import type { StreamDeltaFrame, StructuredCard } from '../../core/structured-card.js'
 import type { SessionState } from '../../core/state.js'
+import type { GoalRecord } from '../../core/state.js'
 import type { BackendRegistry } from '../../core/agent/registry.js'
 import { fetchSessionSummaries } from './session-summary.js'
 
@@ -25,6 +26,10 @@ export interface WsHub {
    *  shows 停止 vs 发送 from this; without it, turns started outside the
    *  panel show 发送 while running. */
   broadcastStatus(frame: { sessionId: string; busy: boolean }): void
+  /** N12 goal frames: the authoritative goal record (or undefined when cleared)
+   *  plus the transient verifying flag. Subscribers only — a goal belongs to one
+   *  session's conversation, so it rides the same filter as status/delta. */
+  broadcastGoal(frame: { sessionId: string; goal: GoalRecord | undefined; verifying: boolean }): void
 }
 
 export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry; state: SessionState }): WsHub {
@@ -122,6 +127,16 @@ export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry;
       )
       if (targets.length === 0) return
       const payload = JSON.stringify({ type: 'sdelta', ...frame })
+      for (const state of targets) {
+        try { state.ws.send(payload) } catch {}
+      }
+    },
+    broadcastGoal(frame) {
+      const targets = [...clients.values()].filter(
+        (state) => state.ws.readyState === 1 && (state.subscribed.size === 0 || state.subscribed.has(frame.sessionId)),
+      )
+      if (targets.length === 0) return
+      const payload = JSON.stringify({ type: 'goal', ...frame })
       for (const state of targets) {
         try { state.ws.send(payload) } catch {}
       }

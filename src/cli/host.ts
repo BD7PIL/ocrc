@@ -318,6 +318,8 @@ export async function main(): Promise<void> {
       channels,
       pairing,
       streamDeltaSink,
+      goalSink,
+      goalManager,
       remotes: remotesStore,
       offpeak,
       offpeakWindow,

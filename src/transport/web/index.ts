@@ -39,6 +39,9 @@ export interface WebTransportConfig {
    *  the transport (and its hub) boots after the relay is constructed. */
   streamDeltaSink?: { broadcast?: (frame: StreamDeltaFrame) => void }
   statusSink?: { broadcast?: (frame: { sessionId: string; busy: boolean }) => void }
+  /** N12 goal push channel: the host's goal manager publishes here; start()
+   *  binds it to the WS hub (`goal` frames). Same mutable-slot reason. */
+  goalSink?: { broadcast?: (frame: { sessionId: string; goal: import('../../core/state.js').GoalRecord | undefined; verifying: boolean }) => void }
   /** 0.26.0 remote host management routes. */
   remotes?: import('../../core/remotes.js').RemotesStore
   remoteManager?: import('../../core/remote-host.js').RemoteHostManager
@@ -53,6 +56,8 @@ export interface WebTransportConfig {
   /** N5: off-peak 一次性工单管理器（ZCode off-peak 语义，非 cron）。 */
   offpeak?: import('../../core/offpeak.js').OffPeakManager
   offpeakWindow?: import('../../core/offpeak.js').OffPeakWindow
+  /** N12 session goals (optional). */
+  goalManager?: import('../../core/goal.js').GoalManager
 }
 
 const CAPS: ChannelCapabilities = {
@@ -79,6 +84,7 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
       const wsHub = createWsHub({ cardBus: deps.cardBus, registry: cfg.registry, state: deps.state })
       if (cfg.streamDeltaSink) cfg.streamDeltaSink.broadcast = (frame) => wsHub.broadcastDelta(frame)
       if (cfg.statusSink) cfg.statusSink.broadcast = (frame) => wsHub.broadcastStatus(frame)
+      if (cfg.goalSink) cfg.goalSink.broadcast = (frame) => wsHub.broadcastGoal(frame)
       const app = buildServer({
         auth: cfg.auth,
         registry: cfg.registry,
@@ -100,6 +106,7 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         shares: cfg.shares,
         offpeak: cfg.offpeak,
         offpeakWindow: cfg.offpeakWindow,
+        goalManager: cfg.goalManager,
       })
 
       // Immutable hashed assets cache forever; everything else (above all

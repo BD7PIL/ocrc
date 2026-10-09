@@ -4,6 +4,7 @@ import { Hono } from 'hono'
 import type { BackendRegistry } from '../../core/agent/registry.js'
 import type { SessionState } from '../../core/state.js'
 import type { CardBus } from '../../core/card-bus.js'
+import type { GoalManager } from '../../core/goal.js'
 import type { IncomingMessage } from '../../core/types.js'
 import type { AuthStrategy } from '../../connectivity/auth/index.js'
 import { createLogger } from '../../utils/logger.js'
@@ -34,6 +35,7 @@ import { registerMcp } from './routes/mcp.js'
 import { registerCatalog } from './routes/catalog.js'
 import { registerOverrides } from './routes/overrides.js'
 import { registerOffPeak } from './routes/offpeak.js'
+import { registerGoal } from './routes/goal.js'
 import { registerWorkspaces } from './routes/workspaces.js'
 import { registerCreateSession } from './routes/create-session.js'
 import { registerCommands } from './routes/commands.js'
@@ -58,6 +60,8 @@ export interface BuildServerOpts {
   auth: AuthStrategy
   offpeak?: import('../../core/offpeak.js').OffPeakManager
   offpeakWindow?: import('../../core/offpeak.js').OffPeakWindow
+  /** N12 session goals (optional; the goal UI degrades without it). */
+  goalManager?: GoalManager
   registry: BackendRegistry
   state: SessionState
   cardBus: CardBus
@@ -162,6 +166,7 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerCatalog(app, reg)
   registerOverrides(app, opts.state)
   if (opts.offpeak) registerOffPeak(app, opts.offpeak, opts.offpeakWindow ?? { start: '00:00', end: '08:00' })
+  if (opts.goalManager) registerGoal(app, opts.goalManager)
   registerWorkspaces(app, reg)
   registerCreateSession(app, reg)
   registerCommands(app, reg, opts.state)

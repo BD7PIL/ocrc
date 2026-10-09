@@ -497,6 +497,17 @@ export function createGoalManager(deps: GoalDeps): GoalManager {
       deps.state.setGoal(sid, goal)
       log.info(`goal set for ${sid.slice(-8)}: ${text.slice(0, 60)}`)
       emit(sid, goal)
+      // Kick off the first turn so a freshly-set goal starts working at once —
+      // upstream's goal command runs its own turn. Fire-and-forget like the
+      // scheduler: a dispatch failure is logged, not thrown at the command.
+      void deps.dispatch({
+        userId: 'ocrc-goal',
+        chatId: 'ocrc-goal',
+        text: `${CONTINUATION_PREFIX}\n${buildContinuationPrompt(goal, null)}`,
+        messageId: `goal_${goal.targetId}_1`,
+        sessionId: sid,
+        origin: 'goalContinuation',
+      }).catch((err) => log.error(`goal kickoff dispatch failed for ${sid.slice(-8)}`, err as Error))
       return { ok: true, goal }
     },
 

@@ -49,6 +49,28 @@ describe('WsHub', () => {
     expect(bus.recent('ses_1')).toHaveLength(0)
     expect(bus.currentSeq('ses_1')).toBe(0)
   })
+  it('broadcastGoal follows the subscription filter and carries verifying', async () => {
+    const bus = createCardBus()
+    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const sub = fakeWs()
+    const other = fakeWs()
+    await hub.attach(sub as any, { email: 'u@x' } as any)
+    await hub.attach(other as any, { email: 'u@x' } as any)
+    hub.handleClientMessage(sub as any, { type: 'subscribe', sessionId: 'ses_1' })
+    hub.handleClientMessage(other as any, { type: 'subscribe', sessionId: 'ses_2' })
+    const goal = { targetId: 'goal_1', objective: 'x', status: 'active', iteration: 1, tokensUsed: 0, timeUsedSeconds: 0, verifications: [], iterations: [] }
+    hub.broadcastGoal({ sessionId: 'ses_1', goal: goal as any, verifying: true })
+    hub.broadcastGoal({ sessionId: 'ses_2', goal: undefined, verifying: false })
+    expect(sub.sent.filter((m: any) => m.type === 'goal')).toEqual([
+      { type: 'goal', sessionId: 'ses_1', goal, verifying: true },
+    ])
+    expect(other.sent.filter((m: any) => m.type === 'goal')).toEqual([
+      { type: 'goal', sessionId: 'ses_2', goal: undefined, verifying: false },
+    ])
+    // Goal frames bypass the CardBus like deltas — nothing buffered for replay.
+    expect(bus.recent('ses_1')).toHaveLength(0)
+  })
+
   it('broadcasts cards for subscribed sessionId', async () => {
     const bus = createCardBus()
     const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })

@@ -146,6 +146,43 @@ export function createWorkflowDriver(deps: WorkflowDriverDeps): WorkflowDriverHa
   let inFlight = 0
   const queue: InFlight[] = []
 
+  /**
+   * P4b: the ask's transcript boundary — how many transcript units the actor's session
+   * held when this exchange ended.
+   *
+   * The vendored contract calls it `NodeRecord.messageBoundary`: a **count offset**,
+   * because a count survives prefix-copying (copy the first N units into a new session and
+   * N still means the same place). That is what makes amend-resume's transcript seeding
+   * addressable across a chain of revisions.
+   *
+   * The unit here is OUR transcript's unit — a `StructuredCard`, the thing
+   * `backend.getHistory` returns and the thing a seeding implementation would copy. The
+   * vendored field is a number with a documented meaning, not a schema over someone else's
+   * store, so counting our own units is the honest reading; counting something we do not
+   * have (engine message rows) would be a fabricated number.
+   */
+  async function transcriptLength(sessionId: string): Promise<number | undefined> {
+    try {
+      return (await backend().getHistory(sessionId)).length
+    } catch (err) {
+      log.warn(`messageBoundary: history read failed for ${sessionId.slice(-8)}: ${(err as Error).message}`)
+      return undefined
+    }
+  }
+
+  /** Backfill the boundary onto the ask's node row (the engine owns the row; the boundary
+   *  is a driver-owned field, exactly like `stats`). */
+  function backfillBoundary(instance: InstanceRef, boundary: number): void {
+    try {
+      const record = deps.journal.getNode(deps.runId, instance.siteId, instance.ordinal)
+      if (!record) return
+      if (record.messageBoundary === boundary) return
+      deps.journal.putNode({ ...record, messageBoundary: boundary })
+    } catch (err) {
+      log.warn(`messageBoundary: write failed for ${instance.siteId}#${instance.ordinal}: ${(err as Error).message}`)
+    }
+  }
+
   async function finalText(sessionId: string): Promise<string> {
     if (deps.readFinalText) {
       try { return await deps.readFinalText(sessionId) } catch { /* fall through */ }
@@ -276,6 +313,14 @@ export function createWorkflowDriver(deps: WorkflowDriverDeps): WorkflowDriverHa
       if (verdict.kind === 'accept') {
         // The node is settled; free its seat for the next queued ask.
         if (entry.admitted) releaseSlot()
+        // The boundary belongs to the ask's END, and for a typed ask that end is here —
+        // the exchange is over the moment the value is accepted. (The untyped path ends at
+        // the turn instead; see notifyTurnEnd.) Written after the engine has settled the
+        // row so the engine's own write cannot clobber it.
+        void (async () => {
+          const boundary = await transcriptLength(entry.sessionId)
+          if (boundary !== undefined) backfillBoundary(entry.instance, boundary)
+        })()
         return
       }
       if (verdict.kind === 'reject') {
@@ -355,7 +400,11 @@ export function createWorkflowDriver(deps: WorkflowDriverDeps): WorkflowDriverHa
       // its model seat goes back to the run.
       if (!entry.typed) forget(entry)
       if (entry.admitted) releaseSlot()
+      // The boundary is written AFTER the engine is told the turn ended: that call is what
+      // settles the node (and rewrites its row), so writing first would be overwritten.
       deps.sink.askTurnEnded(entry.instance, text)
+      const boundary = await transcriptLength(sessionId)
+      if (boundary !== undefined) backfillBoundary(entry.instance, boundary)
     },
 
     submit(sessionId, payload) {

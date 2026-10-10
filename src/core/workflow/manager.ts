@@ -26,6 +26,7 @@ import type { RunToolJoin } from './journal.js'
 import { createWorkflowDriver, type ActorModel, type WorkflowDriverHandle } from './driver.js'
 import type { WorldReader } from './world.js'
 import { analyzePhases } from './phases.js'
+import { buildImportedCache, buildResumeCache, type ImportedCacheBuild } from './imported-cache.js'
 import { projectRun, type ProjectedRun } from './projection.js'
 import type { EscalationRegistry } from './escalations.js'
 import { createLogger } from '../../utils/logger.js'
@@ -310,6 +311,12 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
      * engine's own `run-started`, which is where the engine puts it.
      */
     launchMeta?: { inputId: string; phaseNames?: string[]; phaseAlongside?: number[][]; subagentModel?: string }
+    /**
+     * P4b: the predecessor's import cache (amend / a resume of a revision). Purely data —
+     * the engine stays I/O-free and reads nothing itself; see imported-cache.ts for what it
+     * does and does not carry.
+     */
+    importedCache?: import('../../../vendor/zcode-dwf/dist/dynamic-workflow/src/index.js').ImportedRunCache
   }): Promise<void> {
     const abort = new AbortController()
     // The engine hands us its report sink only when it constructs the driver
@@ -371,6 +378,7 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
       askSpecs: input.compiled.askSpecs as ReadonlyMap<string, AskSpec>,
       validate: (schema, value) => validate(schema as never, value),
       signal: abort.signal,
+      ...(input.importedCache ? { importedCache: input.importedCache } : {}),
     })
     live.delete(input.runId)
     const record = deps.journal.getRun(input.runId)
@@ -527,6 +535,13 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
       if (record.scriptHash && compiled.scriptHash !== record.scriptHash) {
         return { ok: false, error: 'script_changed' }
       }
+      // P4b: a resume of a revision rebuilds the cache from the run's own predecessor
+      // (`resumedFrom`), so resuming a revision does not re-pay for the asks the revision
+      // had already imported.
+      const imported = record.resumedFrom ? buildResumeCache(deps.journal, record) : undefined
+      if (imported && !imported.ok) {
+        log.warn(`resume ${runId.slice(-8)}: no import cache (${imported.reason})`)
+      }
       deps.journal.updateRunStatus(runId, 'running')
       void launch({
         runId,
@@ -537,6 +552,7 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
         // A resume re-runs the script; the actor model is pinned by the predecessor's
         // records, so it is not re-supplied here.
         launchMeta: launchMetaFor(compiled, undefined),
+        ...(imported?.ok ? { importedCache: imported.cache } : {}),
       })
       return { ok: true }
     },
@@ -551,12 +567,21 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
       const compiled = compileScript(scriptText)
       if (!compiled.ok) return { ok: false, error: 'compile_failed', diagnostics: compiled.diagnostics }
 
+      // P4b: build the import cache BEFORE superseding anything. A refusal here (a
+      // predecessor whose asks have no messageBoundary — every run from before P4b) must
+      // not leave a stopped predecessor behind for nothing; the revision proceeds without
+      // the cache, which costs tokens and nothing else.
+      const imported = buildImportedCache(deps.journal, runId)
+      if (imported.ok) {
+        log.info(`amend ${runId.slice(-8)}: import cache ${JSON.stringify(imported.stats)}`)
+      } else {
+        log.warn(`amend ${runId.slice(-8)}: no import cache (${imported.reason}) — the revision re-runs its asks`)
+      }
+
       const nextRunId = mintRunId()
-      // Supersede: the predecessor is marked stopped(superseded) and never touched
-      // again; the new run carries the lineage pointer. The imported cache (which
-      // lets the revision reuse finished actor work) is built from the predecessor
-      // journal — that port lands with the AmendWorkflow tool face (P4), so a
-      // revision here re-runs the script rather than replaying its cache.
+      // Supersede: the predecessor is marked stopped(superseded) and never touched again;
+      // the new run carries the lineage pointer and, when we have one, the import cache
+      // that lets the engine settle its finished asks from the record.
       deps.journal.updateRunStatus(runId, 'stopped', { stopReason: 'superseded', supersededBy: nextRunId })
       const caps: Caps = { maxConcurrency: predecessor.caps.maxConcurrency }
       deps.journal.createRun({
@@ -581,6 +606,7 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
         cwd: predecessor.cwd ?? process.cwd(),
         caps,
         launchMeta: launchMetaFor(compiled, undefined),
+        ...(imported.ok ? { importedCache: imported.cache } : {}),
       })
       return { ok: true, runId: nextRunId }
     },

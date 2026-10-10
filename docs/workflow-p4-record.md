@@ -164,3 +164,53 @@ ocrc host :4199  ←  引擎 :4295（装了 ocrc 插件，ATTACHED）  ←  stub
   返回值强制成数组——消费侧直接 `result.runs` 并遍历，回信封就是崩。
 - **卡片/页签的 testid 带后缀**（`workflow-card-<name>`、`workflow-run-row-<runId>`），
   「运行历史」在详情页的**分段页签**后面（定义 | 运行历史）。门禁按真实 DOM 走。
+
+---
+
+# P4b 门禁记录 — amend 的导入缓存
+
+门禁脚本：`scripts/spikes/p4b-amend/gate.mjs`。最后一次运行：**14/14 通过**。
+
+同一次改动后复跑前三道门禁：P4-1 **22/22**、P4-2 **31/31**、P4-3 **20/20**。
+
+## 门禁的形状
+
+三个 **typed** actor（`ask<V>`）按序跑完 → amend 成「多一个 actor、前三条指令逐字不变」的新
+脚本 → 只给新 actor 提交结果。前三条若被缓存命中，引擎会直接 `node-settled { cached: true }`
+而**不派发**——这正是断言读的那个信号（与面板上显示的同一份投影）。
+
+typed 是必需的：缓存按 `(actor 名, actorSeq, inputHash)` 命中，而只有 typed ask 才有引擎
+可校验的 schema 与逐条落库的结果。
+
+## 14 项断言（摘要）
+
+| # | 断言 | 依据 |
+|---|---|---|
+| a | 前驱跑完，三个提交值都在结果里 | `record.result` |
+| b | driver 给每条完结的 ask 补了 `messageBoundary` | `[["ask#1",2],["ask#2",3],["ask#3",4]]` |
+| c | 前驱三条都是 live 跑的（基线：无命中） | 投影 `cached` 全空 |
+| d | amend 被接受并铸出后继 | 新 runId |
+| e | 修订跑完，四个值都在 | `{a:1,b:2,c:3,d:4}` |
+| f | 修订带 lineage 指针 | `resumedFrom` = 前驱 |
+| g | **前驱三条在修订里是缓存命中** | 投影 `cached: true` ×3 |
+| h | 新那条是 live 跑的（缓存不是一刀切跳过） | `cached` 空、`phase: settled`、`outcome: ok` |
+| i | 前驱被 supersede 且不可恢复 | 投影 `resumable` 缺席 |
+| j | **修订只派发了新那一条** | 事件日志里 `node-dispatched` 只有 `ask#4` |
+
+## 硬前置与如实降级
+
+- **硬前置（已做）**：driver 从不写 `NodeRecord.messageBoundary`，而 vendored 的缓存构建
+  **整体拒绝**没有边界的条目（`missing_boundaries`）。现在 driver 在 ask 交换结束时补写：
+  typed ask 在 `respondToSubmit` 的 accept 分支（交换在值被接受那刻结束），untyped ask 在
+  `notifyTurnEnd`。两处都写在引擎结算之后，免得被引擎自己的行写入盖掉。
+  边界数的单位是**我们自己的转录单位**（`backend.getHistory` 返回的 `StructuredCard` 条数，
+  也就是将来做种子复制时真正要搬的东西）——数一个我们没有的东西（引擎的消息行）才是编数字。
+- **如实降级 ①（结果级复用）**：vendored 的缓存还能给「分歧 actor」的新会话播种前驱转录前缀。
+  我们的转录是卡片式的、driver 也不做会话复制，所以分歧 actor 以**空会话**开场、不带前驱上下文。
+  省下的仍然是贵的那一半：已完成的 ask 不再重跑。
+- **如实降级 ②（无 in-flight 条目）**：上游能把「停下时还在飞」的那半场对话交出去续跑，
+  同样需要转录复制，故省略——在飞的那条重跑一次。
+- **如实降级 ③（只回看一代）**：resume 时从**直接前驱**重建缓存（上游会走整条
+  `resumed_from` 链）。两代修订之后，祖辈的条目不在缓存里。
+- **缓存缺席不阻塞 amend**：preflight 失败只记一行 warn 并照常修订（代价是 token，不是功能）。
+  这样 P4b 之前的历史 run 也还能被修订。

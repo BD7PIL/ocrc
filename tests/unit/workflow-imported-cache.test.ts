@@ -87,6 +87,32 @@ describe('buildImportedCache', () => {
     expect(buildImportedCache(journal, RUN)).toMatchObject({ ok: false, reason: 'missing_boundaries' })
   })
 
+  it('takes the count from the host boundary line when there is one', () => {
+    // The driver writes both (the line and the node field); the line is the one the fork
+    // path reads, so it is the reading the cache must agree with. This row has a node
+    // count of 4 and a line count of 41: the line wins.
+    const journal = fixture({
+      actors: [{ siteId: 'actor#1', ordinal: 1, name: 'reader', sessionId: 'ses_a' }],
+      nodes: [ask({ ordinal: 1, actorSeq: 1, inputHash: 'h1', messageBoundary: 4 })],
+    })
+    journal.putAskBoundary(RUN, { siteId: 'ask#1', ordinal: 1, sessionId: 'ses_a', count: 41, messageId: 'msg_41' })
+    const built = buildImportedCache(journal, RUN)
+    expect(built.ok).toBe(true)
+    if (!built.ok) return
+    expect(built.cache.actors.get('reader')!.entries[0]!.messageBoundary).toBe(41)
+  })
+
+  it('still uses the node count for a run journalled before the line existed', () => {
+    const journal = fixture({
+      actors: [{ siteId: 'actor#1', ordinal: 1, name: 'reader', sessionId: 'ses_a' }],
+      nodes: [ask({ ordinal: 1, actorSeq: 1, inputHash: 'h1', messageBoundary: 4 })],
+    })
+    const built = buildImportedCache(journal, RUN)
+    expect(built.ok).toBe(true)
+    if (!built.ok) return
+    expect(built.cache.actors.get('reader')!.entries[0]!.messageBoundary).toBe(4)
+  })
+
   it('skips an anonymous actor and one with no session (nothing to address)', () => {
     const journal = fixture({
       actors: [

@@ -19,18 +19,15 @@ import type { WorkflowJournal } from './journal.js'
  * truth: every hit still writes a real node row, and losing the cache only costs tokens.
  *
  * Upstream builds this in its run service (it is host code, not engine code); this is the
- * same projection from the same journal facts. Two deliberate, documented degradations:
+ * same projection from the same journal facts. One deliberate, documented degradation
+ * remains:
  *
- *  1. **Results-level reuse only.** The vendored cache can also seed a diverging actor's
- *     *session* with the predecessor's transcript prefix (`ActorSessionSeed` +
- *     `NodeRecord.messageBoundary`). Our transcript store is card-based and our driver
- *     does not copy a transcript into a fresh session, so a diverging actor starts with an
- *     empty session and no predecessor context. What survives is the expensive half: a
- *     completed ask is not re-run.
- *  2. **No in-flight entry.** Upstream can hand over the half-finished transcript of an ask
+ *  1. **No in-flight entry.** Upstream can hand over the half-finished transcript of an ask
  *     that was live when the predecessor stopped, so the revision continues that
- *     conversation. That needs the same transcript copy, so it is omitted — an ask that was
- *     in flight simply runs again.
+ *     conversation (`ImportedInFlightAsk`). We omit it — an ask that was in flight simply
+ *     runs again. (The *finished* prefix is not omitted: the driver copies it, see
+ *     `createActorSession` → `seedActorSession`. That part is capability-gated at the
+ *     backend, not missing from here — the cache carries the boundary either way.)
  *
  * The preflight rule is the vendored one and it is all-or-nothing: if any *importable*
  * completed ask lacks a `messageBoundary`, the whole cache is refused
@@ -53,6 +50,13 @@ export interface ImportedCacheSource {
   getRun(runId: string): RunRecord | undefined
   listActors(runId: string): ActorRecord[]
   listNodes(runId: string): NodeRecord[]
+  /**
+   * The host's own boundary lines (journal.ts `AskBoundary`). Optional so a source that
+   * only has the engine rows still works: the count then comes off the node, which is the
+   * vendored field and always agrees — what the line adds is the message id a transcript
+   * copy stops at, and a cache does not need that.
+   */
+  listAskBoundaries?(runId: string): Array<{ siteId: string; ordinal: number; count: number }>
 }
 
 /** Actors whose name is empty are not addressable: the cache is keyed by effective name,
@@ -75,6 +79,12 @@ export function buildImportedCache(source: ImportedCacheSource, runId: string): 
 
   const nodes = source.listNodes(runId)
   const actors = namedActors(source.listActors(runId))
+  // The host's own boundary lines, keyed the way the driver writes them. The count on the
+  // line and the count on the node are the same measurement; the line is authoritative
+  // when both exist (it is the one the seeding path reads, so the two cannot drift apart
+  // silently), and a run journalled before the line existed falls back to the node.
+  const boundaries = new Map<string, number>()
+  for (const b of source.listAskBoundaries?.(runId) ?? []) boundaries.set(`${b.siteId}#${b.ordinal}`, b.count)
 
   // ── ask prefixes, per named actor ──────────────────────────────────────────
   const candidates = new Map<string, ImportedActorCandidate>()
@@ -88,7 +98,8 @@ export function buildImportedCache(source: ImportedCacheSource, runId: string): 
     const entries: ImportedAskEntry[] = []
     for (const node of own) {
       if (node.status !== 'completed') break // the prefix stops at the first unfinished ask
-      if (node.messageBoundary === undefined) {
+      const boundary = boundaries.get(`${node.siteId}#${node.ordinal}`) ?? node.messageBoundary
+      if (boundary === undefined) {
         // The vendored gate: a completed ask with no boundary cannot be truncated to, so
         // the whole cache is refused rather than half-built.
         return { ok: false, reason: 'missing_boundaries', stats }
@@ -97,7 +108,7 @@ export function buildImportedCache(source: ImportedCacheSource, runId: string): 
         inputHash: node.inputHash,
         result: node.result,
         ...(node.stats ? { stats: node.stats } : {}),
-        messageBoundary: node.messageBoundary,
+        messageBoundary: boundary,
       })
     }
     if (entries.length === 0) continue

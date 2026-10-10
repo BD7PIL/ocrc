@@ -228,6 +228,21 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
     driver: WorkflowDriverHandle
   }
   const live = new Map<string, Live>()
+  /**
+   * Drivers of runs that settled while one of their actor turns was still in flight.
+   *
+   * The vendored boundary contract is explicit that an ask's `messageBoundary` is the
+   * session length *after the complete exchange* — "including repair / nudge rounds and the
+   * wrap-up messages after the submit". A typed ask settles when its value is accepted,
+   * which is *before* the model's turn stops producing cards, and a run settles as soon as
+   * its last ask settles — so the turn end that owns the final number routinely arrives
+   * after the run is already terminal. Dropping the driver at that point is how the
+   * boundary ended up frozen at a provisional count.
+   *
+   * These drivers are kept only for that turn-end notification (a settled run takes no
+   * commands) and are dropped as soon as they hold no in-flight ask.
+   */
+  const settledDrivers = new Set<WorkflowDriverHandle>()
 
   function mintRunId(): string {
     // Charset-safe by construction: it lands in session ids, URLs and file names.
@@ -381,6 +396,19 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
       ...(input.importedCache ? { importedCache: input.importedCache } : {}),
     })
     live.delete(input.runId)
+    // Hand the driver's still-owed boundaries over to the post-settlement turn-end path
+    // (see `settledDrivers`). The engine disposes the driver the moment the run settles,
+    // which clears the in-flight tables — so the predicate is the driver's *pending
+    // boundary* list, not `inFlightSessions()`. Bounded, so a turn that never ends cannot
+    // leak a driver for the life of the process.
+    if (entry.driver.pendingBoundarySessions().length > 0) {
+      settledDrivers.add(entry.driver)
+      while (settledDrivers.size > 64) {
+        const oldest = settledDrivers.values().next().value as WorkflowDriverHandle | undefined
+        if (oldest === undefined || oldest === entry.driver) break
+        settledDrivers.delete(oldest)
+      }
+    }
     const record = deps.journal.getRun(input.runId)
     if (record) deps.onSettled?.(record, settlement)
     // A settled run has nobody listening: the escalation registry is in-memory by
@@ -625,6 +653,14 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
         await entry.driver.notifyTurnEnd(sessionId)
         return
       }
+      // A run that has already settled can still owe its last ask a boundary. Its driver
+      // stops needing this the moment it owes nothing — usually right here.
+      for (const driver of settledDrivers) {
+        if (!driver.pendingBoundarySessions().includes(sessionId)) continue
+        await driver.notifyTurnEnd(sessionId)
+        if (driver.pendingBoundarySessions().length === 0) settledDrivers.delete(driver)
+        return
+      }
     },
 
     submitFromSession(sessionId, payload) {
@@ -657,6 +693,7 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
         try { entry.abort.abort('interrupted') } catch { /* already settled */ }
       }
       live.clear()
+      settledDrivers.clear()
     },
   }
 }

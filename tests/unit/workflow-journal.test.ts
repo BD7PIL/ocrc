@@ -89,6 +89,21 @@ describe('workflow journal', () => {
     expect(cold.listEvents('dwfrun-1')).toHaveLength(1)
   })
 
+  it('persists ask boundaries per instance, and the last write wins', () => {
+    const j = createWorkflowJournal({ dir })
+    j.createRun(runRecord())
+    j.putAskBoundary('dwfrun-1', { siteId: 'site-a', ordinal: 1, sessionId: 'ses_1', count: 4, messageId: 'msg_4' })
+    j.putAskBoundary('dwfrun-1', { siteId: 'site-a', ordinal: 2, sessionId: 'ses_2', count: 9 })
+    // A re-measure of the same ask (a repair round) replaces it rather than stacking.
+    j.putAskBoundary('dwfrun-1', { siteId: 'site-a', ordinal: 1, sessionId: 'ses_1', count: 6, messageId: 'msg_6' })
+
+    const cold = createWorkflowJournal({ dir })
+    expect(cold.getAskBoundary('dwfrun-1', 'site-a', 1)).toEqual({ siteId: 'site-a', ordinal: 1, sessionId: 'ses_1', count: 6, messageId: 'msg_6' })
+    expect(cold.getAskBoundary('dwfrun-1', 'site-a', 2)).toMatchObject({ count: 9 })
+    expect(cold.getAskBoundary('dwfrun-1', 'site-b', 1)).toBeUndefined()
+    expect(cold.listAskBoundaries('dwfrun-1')).toHaveLength(2)
+  })
+
   it('survives a torn trailing line (crash mid-append)', () => {
     const j = createWorkflowJournal({ dir })
     j.createRun(runRecord())

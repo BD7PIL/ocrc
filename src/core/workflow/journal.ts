@@ -32,6 +32,8 @@ import type {
  *   run-usage   {spentTokens}
  *   run-caps    {caps}
  *   run-join    {join} — host-only metadata: which tool call started this run
+ *   ask-boundary {boundary} — host-only metadata: where an ask ended in its actor's
+ *                 transcript (the count plus the id a fork can stop at)
  *   actor       full ActorRecord snapshot (upsert by siteId/ordinal)
  *   node        full NodeRecord snapshot (upsert by siteId/ordinal)
  *   event       one Boundary C RunEvent (sequence = 1-based count of event lines)
@@ -63,12 +65,38 @@ export interface RunToolJoin {
   toolName: string
 }
 
+/**
+ * Where an ask's exchange ended in its actor's transcript — host bookkeeping, like
+ * `RunToolJoin`, and for the same reason: the vendored `NodeRecord.messageBoundary` is a
+ * bare count, while a transcript *copy* also needs to name the unit it stops at.
+ *
+ * `count` is in our own transcript units (a `StructuredCard` — what `getHistory` returns
+ * and what a seeding copy would copy), which is the reading the vendored contract means by
+ * a count offset: "copy the first N" survives prefix-copying, an id does not. `messageId`
+ * is the id of the last unit inside that prefix, so a backend that can only fork at a
+ * message boundary has something exact to fork at.
+ *
+ * A re-measure appends another line and the last one wins: the value written at a typed
+ * ask's accept is *provisional* (the model's wrap-up cards land later), and the turn end
+ * supplies the authoritative one — the vendored field is defined over the complete
+ * exchange.
+ */
+export interface AskBoundary {
+  siteId: string
+  ordinal: number
+  /** The actor session this was measured on (the fork source). */
+  sessionId?: string
+  count: number
+  messageId?: string
+}
+
 type Line =
   | { k: 'run'; rec: RunRecord }
   | { k: 'run-status'; status: RunStatus; settlement?: RunSettlementRecord }
   | { k: 'run-usage'; spentTokens: number }
   | { k: 'run-caps'; caps: Caps }
   | { k: 'run-join'; join: RunToolJoin }
+  | { k: 'ask-boundary'; boundary: AskBoundary }
   | { k: 'actor'; rec: ActorRecord }
   | { k: 'node'; rec: NodeRecord }
   | { k: 'event'; seq: number; at: number; ev: RunEvent }
@@ -76,6 +104,7 @@ type Line =
 interface RunState {
   record?: RunRecord
   join?: RunToolJoin
+  boundaries: Map<string, AskBoundary>
   actors: Map<string, ActorRecord>
   nodes: Map<string, NodeRecord>
   events: StoredEvent[]
@@ -93,6 +122,14 @@ export interface WorkflowJournal extends JournalStorePort {
   /** Host metadata: which tool call started this run (the card join key's input). */
   updateRunJoin(runId: string, join: RunToolJoin): void
   getRunJoin(runId: string): RunToolJoin | undefined
+  /**
+   * Where an ask's exchange ended in its actor's transcript (see {@link AskBoundary}).
+   * Upsert by instance: the later measurement of the same ask wins, which is what a
+   * re-measure after a repair round means.
+   */
+  putAskBoundary(runId: string, boundary: AskBoundary): void
+  getAskBoundary(runId: string, siteId: string, ordinal: number): AskBoundary | undefined
+  listAskBoundaries(runId: string): AskBoundary[]
   /** Path of a run's journal file (diagnostics / artifact co-location). */
   filePath(runId: string): string
   /** Forget a run entirely (only used by tests and `ocrc wf prune`). */
@@ -116,7 +153,7 @@ export function createWorkflowJournal(opts: WorkflowJournalOptions): WorkflowJou
   }
 
   function emptyState(): RunState {
-    return { actors: new Map(), nodes: new Map(), events: [], dirty: false }
+    return { actors: new Map(), nodes: new Map(), boundaries: new Map(), events: [], dirty: false }
   }
 
   function applyLine(state: RunState, line: Line): void {
@@ -140,6 +177,7 @@ export function createWorkflowJournal(opts: WorkflowJournalOptions): WorkflowJou
       case 'run-usage': if (state.record) state.record = { ...state.record, spentTokens: line.spentTokens }; break
       case 'run-caps': if (state.record) state.record = { ...state.record, caps: line.caps }; break
       case 'run-join': state.join = line.join; break
+      case 'ask-boundary': state.boundaries.set(actorKey(line.boundary.siteId, line.boundary.ordinal), line.boundary); break
       case 'actor': state.actors.set(actorKey(line.rec.siteId, line.rec.ordinal), line.rec); break
       case 'node': state.nodes.set(actorKey(line.rec.siteId, line.rec.ordinal), line.rec); break
       case 'event': state.events.push({ sequence: line.seq, event: line.ev, timeCreated: line.at }); break
@@ -202,6 +240,15 @@ export function createWorkflowJournal(opts: WorkflowJournalOptions): WorkflowJou
     },
     getRunJoin(runId) {
       return load(runId).join
+    },
+    putAskBoundary(runId, boundary) {
+      append(runId, { k: 'ask-boundary', boundary })
+    },
+    getAskBoundary(runId, siteId, ordinal) {
+      return load(runId).boundaries.get(actorKey(siteId, ordinal))
+    },
+    listAskBoundaries(runId) {
+      return [...load(runId).boundaries.values()]
     },
     putActor(record) {
       append(record.runId, { k: 'actor', rec: record })

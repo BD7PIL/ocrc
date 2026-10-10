@@ -25,6 +25,7 @@ import { createOcrcSkillsService } from '../zcode-services/skillsService.js'
 import { createOcrcMcpSyncService } from '../zcode-services/mcpSyncService.js'
 import { createOcrcShareService } from '../zcode-services/shareService.js'
 import { createOcrcPluginsManagementService } from '../zcode-services/pluginsManagementService.js'
+import { createOcrcCodingPlanSubscriptionService } from '../zcode-services/codingPlanSubscriptionService.js'
 import { ghostMethod, withGhosts } from '../zcode-services/ghost.js'
 
 // 同名服务/方法必须返回同一实例——Root 的 useMemo/useEffect 依赖
@@ -112,6 +113,9 @@ export function createGhostAccessor(): IServiceAccessor {
     botsService: createOcrcBotsService(),
     offPeakTaskService: createOcrcOffPeakTaskService(),
     zcodeTaskService: createOcrcTaskService(),
+    // P4-0：workflow 面的 fail-closed 总闸。只实到 getDynamicWorkflowClientConfig
+    // （alwaysOn/override），订阅/支付类方法由 withGhosts 如实拒绝。
+    codingPlanSubscriptionService: createOcrcCodingPlanSubscriptionService(),
     // N11-2 插件面：读侧映射 opencode.json 的 plugin 数组；marketplace/安装等
     // mutation 由 withGhosts 如实拒绝（PRODUCT.md 裁决：插件市场不做）。
     pluginManagementService: createOcrcPluginsManagementService(),

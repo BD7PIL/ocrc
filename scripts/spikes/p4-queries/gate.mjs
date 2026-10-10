@@ -226,13 +226,58 @@ async function main() {
     (await pill.count()) > 0 && (await pill.getAttribute('data-agent-status')) !== null,
     `pills=${await page.locator('[data-testid="workflow-agent-pill"]').count()} status=${await pill.getAttribute('data-agent-status').catch(() => null)}`)
 
-  // The run directory page is opened from the status panel's Workflows section, gated on
-  // `endedWorkflowRunCount > 0`. That count comes from the same projection we feed; the
-  // panel body is not laid out in the mini variant, so the honest reading is the data.
-  const ended = (await json(`${PANEL}/api/workflow/projection?sessionId=${sessionId}`, { headers: auth })).runs
-    .filter((r) => ['completed', 'errored', 'stopped'].includes(r.status)).length
-  check('ac) the run directory has rows to show (its gate is the ended-run count)',
-    ended > 0, `endedRuns=${ended}`)
+  // ── the run directory side page (the fifth and last side page) ──────────────
+  // Its entry lives in the status panel's Workflows section, and the section's body is mounted
+  // only once opened. The panel body is a CSS container query on the conversation column: in
+  // `auto` the body is `display:none` below 1280px and only the mini row is laid out, so the
+  // gate has to expand the panel first (the mini row carries exactly one control — the expand
+  // button). `data-state` is NOT the reading to branch on: it is `"collapsed"` only for the
+  // literal `mini` variant, and in `auto` it already says `"expanded"` while the body is
+  // display:none — branching on it is what made the first version of this gate call the page
+  // unreachable. That was a gate bug, not a product limit (docs/workflow-p4-record.md).
+  // The row must carry its detail anchor: the vendored directory model drops any summary
+  // without a `toolCallId`, so a row that enumerates fine can still be invisible in the page.
+  const anchor = summaries.runs[0]
+  check('ac) the directory query anchors the row (toolCallId) so the page can open it',
+    summaries.runs.length === 1 && anchor?.runId === runId
+      && typeof anchor?.toolCallId === 'string' && anchor.toolCallId !== '',
+    JSON.stringify(anchor ?? null))
+
+  const panel = page.locator('[data-testid="chat-summary-panel"]').first()
+  const panelUp = await waitFor(async () => (await panel.count()) > 0, { tries: 30, delay: 500, label: 'the status panel' })
+  const modeBefore = panelUp ? await panel.getAttribute('data-display-mode') : null
+  if (panelUp && modeBefore !== 'panel') {
+    // The mini row is the direct child carrying `aria-hidden` (`false` unless the variant is
+    // literally `panel`); the expand button is the only interactive control inside it.
+    const expand = panel.locator('> div[aria-hidden="false"] button[aria-label]').first()
+    if ((await expand.count()) > 0) await expand.click({ timeout: 5000 }).catch(() => {})
+  }
+  const expanded = await waitFor(async () => (await panel.getAttribute('data-display-mode')) === 'panel',
+    { tries: 20, delay: 250, label: 'the status panel to expand' })
+  check('ad) the status panel expands to its full body (auto → panel)',
+    expanded, `before=${modeBefore} after=${await panel.getAttribute('data-display-mode').catch(() => null)}`)
+
+  const sectionTrigger = page.locator('[data-status-section-trigger="workflow"]').first()
+  const sectionUp = await waitFor(async () => (await sectionTrigger.count()) > 0, { tries: 20, delay: 250, label: 'the Workflows section' })
+  if (sectionUp) await sectionTrigger.click({ timeout: 5000 }).catch(() => {})
+  const directoryTrigger = page.locator('[data-testid="workflow-run-directory-trigger"]').first()
+  const directoryUp = await waitFor(async () => (await directoryTrigger.count()) > 0, { tries: 30, delay: 250, label: 'the run directory entry' })
+  check('ae) the Workflows section exposes the run directory entry (gate = ended-run count)',
+    sectionUp && directoryUp, `section=${sectionUp} entry=${directoryUp}`)
+  if (directoryUp) await directoryTrigger.click({ timeout: 5000 }).catch(() => {})
+
+  // The pane's ended section is the only place a `data-workflow-directory-section` exists, so
+  // the row assertion cannot be satisfied by a task-list run line (those share `data-run-id`).
+  const endedSection = page.locator('section[data-workflow-directory-section="ended"]')
+  const directoryRow = endedSection.locator(`[data-run-id="${runId}"]`)
+  const rowUp = await waitFor(async () => (await directoryRow.count()) > 0, { tries: 30, delay: 500, label: 'the directory row' })
+  const rowStatus = rowUp ? await directoryRow.first().getAttribute('data-run-status') : null
+  const countText = rowUp
+    ? await page.locator('[data-testid="workflow-run-directory-ended-count"]').first().textContent().catch(() => null)
+    : null
+  check('af) the run directory side page opens and lists the settled run',
+    rowUp && rowStatus === 'completed', `status=${rowStatus} endedCount=${countText}`)
+  await page.screenshot({ path: join(ROOT, 'shots', '12-directory-pane.png') })
 
   check('z) no page errors from the run pages', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '))
   await ctx.close()

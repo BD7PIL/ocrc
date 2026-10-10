@@ -308,8 +308,9 @@ URL；host 启动即取锁标 `role:'host'`；插件读到活着的 host 就进 
 `imported-cache.ts` 文件头与 docs/workflow-p4-record.md）：不带 in-flight 条目（半场对话不续），
 resume 只回看一代前驱。
 
-**未完成**：`/z/` 的完整投影（P4：workflowRuns/deltas/7 查询/命令/saved/index/侧页）与
-amend 的导入缓存（P4b）。引擎侧与工具侧已可用（CLI + HTTP + 模型工具面）。
+**P4b 之后的剩余项**：vendor 验收表上已无非 ✅ 的 workflow 项（四道门禁逐项对账，见
+`docs/workflow-p4-record.md` 与 `web-next/vendor/CHECKLIST.md`）；如实保留的降级只有 imported-cache
+那两处，加上边界归属在「同会话快速连答」这一边角上的不精确（记录里有专门一段）。
 
 ## Telegram surface (src/transport/telegram/)
 

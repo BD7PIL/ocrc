@@ -185,13 +185,18 @@ Web 默认 `0.0.0.0:4099`（token 门禁）。PWA 安装需要安全上下文：
   看到而面板看不到时，先确认 host 在跑、token 有效。
 - **amend 的缓存**（P4b）：日志里 `amend <id>: import cache {...}` 是命中；`no import cache
   (missing_boundaries)` 表示前驱的 ask 没有 `messageBoundary`（P4b 之前的 run 都是这样），
-  修订照常进行、只是重跑——不是错误。`messageBoundary` 由 driver 在 ask 交换结束时补写，
-  单位是 actor 会话的**卡片条数**。
+  修订照常进行、只是重跑——不是错误。`messageBoundary` 由 driver 补写（typed ask 在值被接受时
+  写临时值，turn end 写权威值——权威那条常常在 run 结算**之后**才到，由 `settledDrivers` 接住），
+  单位是 actor 会话的**卡片条数**，宿主另记一行 `ask-boundary`（含边界消息 id）。
+- **转录种子**（P4b 第二轮）：日志里 `actor … seeded from <session>: N units` 是分歧 actor 拿到了
+  前驱前缀；`no transcript seeding … (backend lacks forkSession)` / `no boundary at N units` /
+  `fork failed` 都是**如实降级**——那条 actor 以空会话开场、修订照常跑。`transcript seeding … the
+  copy will be one message short` 表示源转录读不出来、只能拿边界消息当切点（少一条）。
 - **saved workflows**：`~/.ocrc/workflows/saved.json` 是**机器级**一个 store（不是按项目分
   目录的文件）。面板的 `dir`/`path` 报的就是这个文件；scope 是记录上的字段（默认 `project`）。
   `moveSavedWorkflow`（全局→项目）如实拒绝——没有可搬的文件。
 - **门禁**（隔离栈 + 真实浏览器/CDP，全部在 `scripts/spikes/p4-*/`）：
-  `p4-projection` 22/22、`p4-queries` 31/31、`p4-saved` 20/20、`p4b-amend` 14/14。
+  `p4-projection` 23/23、`p4-queries` 37/37、`p4-saved` 20/20、`p4b-amend` 18/18。
   每道都自起 host(:4199)+引擎(:4295)+stub 模型(:4300)，**生产引擎 :4096 零接触**，子进程 env
   显式清空 Telegram 凭据。记录见 `docs/workflow-p4-record.md`。
 

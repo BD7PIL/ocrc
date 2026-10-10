@@ -290,12 +290,23 @@ URL；host 启动即取锁标 `role:'host'`；插件读到活着的 host 就进 
   4 条命令 + 6 条 saved 方法。**`display` 挂在发起行的 `display` 上**，join 键由宿主记下的
   `(messageID, toolName)` 与桥自己的工具行解析（工具卡的 `toolCallId` 由引擎在调用返回后才铸出）。
 
-**P4b（amend 的导入缓存）**：driver 在 ask 交换结束时补写 `NodeRecord.messageBoundary`（typed 在
-`respondToSubmit` 的 accept、untyped 在 `notifyTurnEnd`，都写在引擎结算之后），
-`imported-cache.ts` 据此从前驱 journal 构建 `ImportedRunCache`（preflight 与上游同规：任一条
-缺边界即整体拒绝）。**只做结果级复用**：分歧 actor 以空会话开场（全保真转录种子需要 message/part
-存储与会话复制，我们两样都没有），不带 in-flight 条目，resume 只回看一代前驱——三处降级都写在
-`imported-cache.ts` 的文件头与 docs/workflow-p4-record.md 里。
+**P4b（amend 的导入缓存与转录种子）**：driver 在 ask 交换结束时补写
+`NodeRecord.messageBoundary`（单位是 actor 会话的**卡片条数**，读 1000 条的窗口而不是
+`getHistory` 默认的 50 条页；typed ask 在 `respondToSubmit` 的 accept 先写**临时值**、在
+`notifyTurnEnd` 写**权威值**——vendored 契约把边界定义在「完整交换（含 repair/nudge 与 submit
+之后的收尾消息）结束之后」。权威值所属的 turn end 常常在 run 结算**之后**才到，而引擎在
+`run-settled` 后立刻 `dispose()`（会清空在飞表），所以边界义务存在一张**不随 dispose 清空**的
+队列里，由 manager 的 `settledDrivers` 接住，并按**每会话 FIFO** 归属最老的在飞交换）。
+宿主另记一行 `ask-boundary`（与 `run-join` 同族，含边界消息 id），`imported-cache.ts` 据此从
+前驱 journal 构建 `ImportedRunCache`（preflight 与上游同规：任一条缺边界即整体拒绝；计数优先读
+宿主那行，旧 run 回落到节点字段）。
+
+**转录种子已实现**：分歧 actor 的会话由 `forkSession(sourceSessionId, …)` 从前驱转录复制而来。
+实测钉死的引擎语义：**fork 的切点不含**被指的那条消息，所以 driver 读一次源转录、把 fork 指向
+边界**之后**那条消息（源会话正好停在边界时用不带 id 的尾拷）。按后端能力降级：没有
+`forkSession`（v2/ACP）就铸空会话并记一行日志，**不拒绝 amend**。仍有的两处降级（写在
+`imported-cache.ts` 文件头与 docs/workflow-p4-record.md）：不带 in-flight 条目（半场对话不续），
+resume 只回看一代前驱。
 
 **未完成**：`/z/` 的完整投影（P4：workflowRuns/deltas/7 查询/命令/saved/index/侧页）与
 amend 的导入缓存（P4b）。引擎侧与工具侧已可用（CLI + HTTP + 模型工具面）。

@@ -279,7 +279,20 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
     caps: Caps
     actorModel?: ActorModel
     tokenBudget?: number
-    /** `run-launched` metadata: the turn anchor and the declared phase tables. */
+    /**
+     * `run-launched` metadata: the turn anchor and the declared phase tables.
+     *
+     * Written by US, not by the engine. The vendored engine transcribes host launch
+     * metadata into a `run-launched` event, but only when the run row does not already
+     * exist (`engine.js`: `existing === undefined && config.launch !== undefined`). ocrc
+     * deliberately creates the row before launching — a runId must be readable the moment
+     * `submit` returns, and a crash in between must still leave a run that cold recovery
+     * can mark interrupted — so that branch never fires here and the metadata would be
+     * dropped, taking the declared phase table (the sidebar's mini rail) and the per-run
+     * subagent model with it. The host authors this metadata either way; writing it where
+     * the row is written is the same fact from the same party. Recorded right after the
+     * engine's own `run-started`, which is where the engine puts it.
+     */
     launchMeta?: { inputId: string; phaseNames?: string[]; phaseAlongside?: number[][]; subagentModel?: string }
   }): Promise<void> {
     const abort = new AbortController()
@@ -287,6 +300,7 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
     // (`makeDriver(sink)`), which happens after this entry exists — so the entry
     // is created first and the driver is filled in by the factory below.
     const entry: Live = { abort, driver: undefined as unknown as WorkflowDriverHandle }
+    let launchRecorded = false
     const makeDriver = (sink: import('../../../vendor/zcode-dwf/dist/dynamic-workflow/src/index.js').WorkflowReportSink) => {
       const driver = createWorkflowDriver({
         runId: input.runId,
@@ -304,6 +318,16 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
           log.info(`run ${input.runId.slice(-8)} actor ${name ?? `${actor.siteId}#${actor.ordinal}`} → session ${sessionId.slice(-8)}`)
         },
         emitEvent: (event) => {
+          if (event.type === 'run-started' && input.launchMeta && !launchRecorded) {
+            launchRecorded = true
+            deps.journal.appendEvent(input.runId, {
+              type: 'run-launched',
+              inputId: input.launchMeta.inputId,
+              ...(input.launchMeta.phaseNames ? { phaseNames: input.launchMeta.phaseNames } : {}),
+              ...(input.launchMeta.phaseAlongside ? { phaseAlongside: input.launchMeta.phaseAlongside } : {}),
+              ...(input.launchMeta.subagentModel ? { subagentModel: input.launchMeta.subagentModel } : {}),
+            })
+          }
           deps.onEvent?.(input.runId, event)
           // Token budget gate. It hangs off the engine's own usage event so the
           // accounting has exactly one source (the driver's askStats → the engine's
@@ -331,7 +355,6 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
       askSpecs: input.compiled.askSpecs as ReadonlyMap<string, AskSpec>,
       validate: (schema, value) => validate(schema as never, value),
       signal: abort.signal,
-      ...(input.launchMeta ? { launch: input.launchMeta } : {}),
     })
     live.delete(input.runId)
     const record = deps.journal.getRun(input.runId)

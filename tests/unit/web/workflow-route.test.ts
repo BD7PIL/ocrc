@@ -115,14 +115,16 @@ describe('workflow routes', () => {
     expect(Array.isArray(res.events)).toBe(true)
   })
 
-  it('cancels a live run and 409s on a dead one', async () => {
+  it('cancels a live run and 404s an unknown one', async () => {
     const { app } = makeApp({ hold: true })
     const created = await json(await app.request('/api/workflow/runs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ scriptText: SCRIPT, cwd: dir }),
     }))
     expect((await app.request(`/api/workflow/runs/${created.runId}/cancel`, { method: 'POST' })).status).toBe(200)
-    expect((await app.request('/api/workflow/runs/dwfrun-none/cancel', { method: 'POST' })).status).toBe(409)
+    // The panel words its rejection from this distinction ("no such run" vs "it is not
+    // running"), so the two cases must not collapse into one status.
+    expect((await app.request('/api/workflow/runs/dwfrun-none/cancel', { method: 'POST' })).status).toBe(404)
   })
 
   it('resume 409s on a run that is not stopped', async () => {

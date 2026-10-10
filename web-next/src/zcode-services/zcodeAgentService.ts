@@ -10,6 +10,11 @@ import { dropAttachmentBytes, putAttachmentBlob, releaseWebFile, resolveWebFile,
 import {
   projectGoal, projectGoalAvailability, type GoalProjection, type OcrcGoalRecord,
 } from './goalProjection.js'
+import {
+  fetchWorkflowProjection, nextWorkflowRunsState, resolveToolCallIds, runsEqual,
+} from './workflowProjection.js'
+import { deriveSessionWorkflowActivity } from '@zcode/shared/zcode-protocol-v4/sessions-index-workflow-activity'
+import type { WorkflowRunState, WorkflowRunsState } from '@zcode/shared/zcode-protocol-v4/workflow-runs'
 
 const V4_WIRE_PROTOCOL_VERSION = 3 as const
 
@@ -148,7 +153,7 @@ async function listSessionSubagents(params: { sessionId?: string; endedLimit?: n
  *  ocrc 没有独立的"后台任务"概念：**运行中的 bash 调用就是它**。只投影 running
  *  （语义与 vendor 的 status 枚举一致；已结束的输出仍走行内富化展示）。
  *  workId 编码 (messageId, partId)，backgroundBashOutputV4 靠它回取该 part 的输出。 */
-function collectBackgroundWorks(rows: any[]): Array<Record<string, unknown>> {
+function collectBackgroundWorks(rows: any[], workflowRuns?: WorkflowRunState[]): Array<Record<string, unknown>> {
   const out: Array<Record<string, unknown>> = []
   for (const r of rows) {
     if (r?.kind !== 'toolCall' || r.status !== 'running') continue
@@ -164,6 +169,28 @@ function collectBackgroundWorks(rows: any[]): Array<Record<string, unknown>> {
       startedAt: Number(r.createdAtSeq ?? r.createdAt ?? Date.now()),
       cancellable: false,
       anchorRowId: Number(r.rowId) || null,
+    })
+  }
+  // P4-1b: workflow runs are background work too, and the vendored contract fixes the
+  // identity equation `workId ≡ runId` (that is what makes cancelBackgroundWork and
+  // resumeWorkflowRun addressable from the same card). Only live runs appear: a settled
+  // run is not background work any more, its result is in the run pane.
+  for (const run of workflowRuns ?? []) {
+    if (run.status !== 'running' && run.status !== 'pending') continue
+    // The run's own card, when we can find it: it gives the entry its title (the
+    // script's first line, as the card shows it) and its timeline anchor.
+    const anchor = run.toolCallId ? rows.find((r) => r?.toolCallId === run.toolCallId) : undefined
+    const title = String(anchor?.inputText ?? '').slice(0, 120).trim()
+    out.push({
+      workId: run.runId,
+      kind: 'workflow',
+      title: title || run.runId,
+      status: 'running',
+      // No anchor means no known start: the journal's `lastEventSequence` is a sequence
+      // number, not a clock, so we state the present rather than invent an elapsed time.
+      startedAt: Number(anchor?.createdAtSeq ?? anchor?.createdAt ?? Date.now()),
+      cancellable: true,
+      anchorRowId: Number(anchor?.rowId) || null,
     })
   }
   return out
@@ -306,6 +333,50 @@ function feedbackFor(entityId?: string): { feedback?: 'like' | 'dislike' } {
     const v = all[entityId]
     return v === 'like' || v === 'dislike' ? { feedback: v } : {}
   } catch { return {} }
+}
+
+// ── P4-1b workflow 面 ────────────────────────────────────────────────
+// 权威在 host（GET /api/workflow/projection 从 journal 现算），ws `workflow` 帧只是
+// 「这条 run 动了」的提示——面板回读投影并与自己上一份 diff（单一时钟：run 状态只有
+// 一个作者，socket 上不搬运第二份）。容器 revision 归消费侧，因为只有消费侧手里有
+// 「上一份」；键级增量用 vendor 自己的 diffWorkflowRunsState 算，不自己写补丁。
+const workflowRunsBySession = new Map<string, WorkflowRunsState>()
+
+/** 取一次投影并解析卡片 join 键。返回的是**本次读到的** run 列表；缓存里的容器由
+ *  `workflowRunsContainer` 维护（它要保证 revision 单调）。
+ *
+ *  rows 必须显式传入：首次快照时 `lastRowsBySession` 还是空的（它由快照构建之后才写入），
+ *  而 join 键只能对着行解析——漏了这一步，run 的 toolCallId 永远解不出来，卡永远不出现
+ *  （实测：投影里 toolCallId=None，时间线上一张卡都没有）。 */
+async function refreshWorkflowRuns(sessionId: string, rows?: any[]): Promise<WorkflowRunState[]> {
+  const { runs, joins } = await fetchWorkflowProjection(sessionId)
+  return resolveToolCallIds(runs, joins, rows ?? lastRowsBySession.get(sessionId) ?? [])
+}
+
+/** 会话当前的 workflowRuns 容器（缺席时按空容器起步）。 */
+function workflowRunsContainer(sessionId: string, runs: WorkflowRunState[]): WorkflowRunsState {
+  const cached = workflowRunsBySession.get(sessionId)
+  if (cached && runsEqual(cached.runs, runs)) return cached
+  const { state } = nextWorkflowRunsState(cached, runs)
+  workflowRunsBySession.set(sessionId, state)
+  return state
+}
+
+/** ws `workflow` 帧 / 快照重建后：重读投影，把**增量**推给订阅者。
+ *  与 goal 面同一姿态——先更新缓存，再推 state.updated，最后让 rows 收敛。 */
+async function applyWorkflowHint(sessionId: string): Promise<void> {
+  const runs = await refreshWorkflowRuns(sessionId)
+  const prior = workflowRunsBySession.get(sessionId)
+  const { state, deltas } = nextWorkflowRunsState(prior, runs)
+  workflowRunsBySession.set(sessionId, state)
+  if (prior && deltas.length === 0) return
+  const subs = [...subscriptions.entries()].filter(([, s]) => s.sessionId === sessionId)
+  if (subs.length === 0) return
+  for (const [subId, sub] of subs) {
+    const lastSeq = lastSeqBySub.get(subId) ?? 0
+    deliverWire(sub.topic, subId, lastSeq, lastSeq + 1, { kind: 'deltas', deltas }, 'online')
+    lastSeqBySub.set(subId, lastSeq + 1)
+  }
 }
 
 // ── N12 goal 面 ─────────────────────────────────────────────────────
@@ -613,14 +684,18 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
     conversationSubagents(taskId),
     fetchGoal(taskId),
   ])
+
   console.info(
     '[ocrc-trace] snapshot subagents =',
     subagents ? `children=${subagents.childSessionIds.length} running=${subagents.running.length} ended=${subagents.endedTotal}` : '(none)',
   )
   const rows = buildRows(cards, goalUiState)
-  // 必须在 enrichToolRows 之前收集：富化结束时会把 __messageId/__partId 删掉
-  // （那是行内实现细节），而 backgroundWorks 的 workId 正需要它们。
-  const backgroundWorks = collectBackgroundWorks(rows)
+  // P4-1b: this session's workflow runs, resolved against the rows we just built. Both
+  // this and the background-work collection must happen BEFORE enrichToolRows — the card
+  // join needs the tool rows' `toolCallId` + message id, and enrichment strips those
+  // (they are row-internal details).
+  const workflowRuns = await refreshWorkflowRuns(taskId, rows)
+  const backgroundWorks = collectBackgroundWorks(rows, workflowRuns)
   await enrichToolRows(rows, taskId)
   const seq = rows.length
   const snapshot = {
@@ -649,6 +724,10 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
     pendingInteractions: [],
     pendingCommands: [],
     backgroundWorks,
+    // P4-1b: the run projection. Absent (not an empty container) when the session has no
+    // runs — the vendored reading of a missing key is "nothing to show", and the sidebar
+    // derives its rail from the same key.
+    ...(workflowRuns.length > 0 ? { workflowRuns: workflowRunsContainer(taskId, workflowRuns) } : {}),
     // meta.title：schema 默认值是空串，而空串不走 `??` 回退 —— 分享标题取
     // snapshot.meta.title，缺它就恒为空 → 「生成分享链接」永久禁用（隔离栈实测根因）。
     meta: { title: sessionTitle || 'ocrc 会话', titleSource: sessionTitle ? 'generated' as const : 'default' as const },
@@ -853,6 +932,9 @@ function liveWsEnsure(): void {
     // goal 帧：先落缓存（含把每轮验收锚到当前行尾），再推 state.updated 让 goal 面
     // 与 availability 立刻刷新；rows 侧由 scheduleLive 的 diff 补上 marker 行。
     if (msg.type === 'goal') { applyGoalFrame(sid, msg as { goal?: OcrcGoalRecord | null; verifying?: boolean }); return }
+    // P4-1b：workflow 帧只是「这条 run 动了」。回读投影算增量（单一时钟），再让 rows
+    // 收敛一次——backgroundWorks 里的 run 条目、以及 run 卡的状态点都从 rows/投影来。
+    if (msg.type === 'workflow') { void applyWorkflowHint(sid).then(() => scheduleLive(sid)); return }
     if (msg.type === 'card' || msg.type === 'sdelta' || msg.type === 'session.status') scheduleLive(sid)
   }
   liveWs.onclose = () => {
@@ -881,9 +963,20 @@ function indexListenersFor(workspaceId: string): Set<(frame: any) => void> {
   return set
 }
 
-function toIndexSummary(s: OcrcIndexSession, workspaceId: string): Record<string, unknown> {
+function toIndexSummary(
+  s: OcrcIndexSession,
+  workspaceId: string,
+  workflowRunsBySessionId?: Map<string, WorkflowRunState[]>,
+): Record<string, unknown> {
   const busy = busyBySession.get(s.id) === true
   const ts = s.lastActiveAt ?? Date.now()
+  // P4-1b 侧栏轨道：vendor 的派生函数要 `workflowRuns` + `backgroundWorks`。索引面没有
+  // 其它会话的 rows，所以 backgroundWorks 为空——代价只是 run 行没有名字与开始时刻
+  // （schema 两者都可缺席），不是假数据。
+  const runs = workflowRunsBySessionId?.get(s.id)
+  const activity = runs && runs.length > 0
+    ? deriveSessionWorkflowActivity({ workflowRuns: { revision: 0, runs }, backgroundWorks: [] })
+    : undefined
   return {
     sessionId: s.id,
     workspaceId,
@@ -893,6 +986,7 @@ function toIndexSummary(s: OcrcIndexSession, workspaceId: string): Record<string
     hasBackgroundWork: false,
     lastActivityAt: ts,
     createdAt: ts,
+    ...(activity ? { workflowActivity: activity } : {}),
   }
 }
 
@@ -901,7 +995,18 @@ async function buildIndexSnapshot(workspaceId: string): Promise<{ sessions: Arra
     const res = await fetch('/api/sessions', { headers: { Authorization: `Bearer ${token()}` } })
     if (!res.ok) return null
     const sessions = (await res.json()) as OcrcIndexSession[]
-    return { sessions: sessions.map((x) => toIndexSummary(x, workspaceId)), logEpoch: 'ocrc-1' }
+    // One host read for every session's runs (the projection is bounded to the vendored
+    // `maxRuns`, which is more than the sidebar can draw anyway).
+    const { runs, sessions: owners } = await fetchWorkflowProjection()
+    const bySession = new Map<string, WorkflowRunState[]>()
+    for (const run of runs) {
+      const owner = owners[run.runId]
+      if (!owner) continue
+      const list = bySession.get(owner) ?? []
+      list.push(run)
+      bySession.set(owner, list)
+    }
+    return { sessions: sessions.map((x) => toIndexSummary(x, workspaceId, bySession)), logEpoch: 'ocrc-1' }
   } catch { return null }
 }
 
@@ -1213,7 +1318,10 @@ export function createOcrcZcodeAgentService(): any {
           compression: 'none' as const,
           workspaceHookReview: true,
           independentPlanState: true,
-          workflowRunDeltas: false,
+          // P4-1b：本 Host 会发 `workflowRun.*` 键级增量（workflow-runs-delta 的两条 op），
+          // 所以容器 revision 语义在场。置 true 之前这条一直是 false——不是保守，是当时
+          // 根本没有 workflow 面。
+          workflowRunDeltas: true,
         },
         auth: {},
       }
@@ -1497,6 +1605,133 @@ export function createOcrcZcodeAgentService(): any {
           localStorage.setItem(key, JSON.stringify(all))
         } catch { /* 存不了也不谎报成功 */ }
         return { commandId: envelope.commandId, status: 'accepted', revisionAtDecision: 0 }
+      }
+      // ── P4-1c 四条 workflow 命令 ──
+      // 四条都免 baseRevision（vendor：workflowRuns 面免 revision，假 CAS 失败只会误伤），
+      // 且都以 workId ≡ runId 定位。拒绝一律回 vendor 自己的 fault 前缀 + 它那套 reason 词，
+      // 因为 UI 拿 reasonCode 反查文案——换一个词就等于在面板上显示一句英文键名。
+      if (envelope.type === 'cancelBackgroundWork') {
+        const workId = String((envelope.payload as { workId?: string }).workId ?? '')
+        if (!workId) {
+          return { commandId: envelope.commandId, status: 'rejected', reasonCode: 'fault.command.backgroundWorkCancelRejected.not_found', message: 'cancelBackgroundWork 缺 workId', revisionAtDecision: 0 }
+        }
+        // `ocrc-tool:` 前缀是运行中的 bash 工具行——ocrc 没有可取消的后台任务概念
+        // （snapshot 里它们的 cancellable 就是 false），如实说不支持而不是假接受。
+        if (workId.startsWith('ocrc-tool:')) {
+          return { commandId: envelope.commandId, status: 'rejected', reasonCode: 'fault.command.backgroundWorkCancelRejected.cancel_not_supported', message: 'ocrc 无法取消一个 bash 工具调用（它随会话轮结束）', revisionAtDecision: 0 }
+        }
+        const res = await fetch(`/api/workflow/runs/${encodeURIComponent(workId)}/cancel`, {
+          method: 'POST', headers: { Authorization: `Bearer ${token()}` },
+        })
+        if (res.ok) return { commandId: envelope.commandId, status: 'accepted', revisionAtDecision: 0 }
+        const reason = res.status === 404 ? 'not_found' : 'not_running'
+        return { commandId: envelope.commandId, status: 'rejected', reasonCode: `fault.command.backgroundWorkCancelRejected.${reason}`, message: `cancelBackgroundWork ${workId} → ${res.status}`, revisionAtDecision: 0 }
+      }
+      if (envelope.type === 'resumeWorkflowRun') {
+        const workId = String((envelope.payload as { workId?: string }).workId ?? '')
+        if (!workId) {
+          return { commandId: envelope.commandId, status: 'rejected', reasonCode: 'fault.command.workflowRunResumeRejected.not_found', message: 'resumeWorkflowRun 缺 workId', revisionAtDecision: 0 }
+        }
+        const res = await fetch(`/api/workflow/runs/${encodeURIComponent(workId)}/resume`, {
+          method: 'POST', headers: { Authorization: `Bearer ${token()}` },
+        })
+        if (res.ok) return { commandId: envelope.commandId, status: 'accepted', revisionAtDecision: 0 }
+        const body = (await res.json().catch(() => ({}))) as { error?: string; diagnostics?: unknown[] }
+        // host 的 error 词 → vendor 的 reason 词。`not_resumable:<status>` 里的 running
+        // 是 vendor 单独一格（already_running），其余落到 not_resumable。
+        const raw = String(body.error ?? '')
+        const reason = raw === 'not_found' ? 'not_found'
+          : raw === 'no_script' ? 'script_missing'
+            : raw === 'script_changed' ? 'script_mismatch'
+              : raw === 'compile_failed' ? 'compile_failed'
+                : raw === 'not_resumable:superseded' ? 'superseded'
+                  : raw === 'not_resumable:running' ? 'already_running'
+                    : 'not_resumable'
+        return {
+          commandId: envelope.commandId,
+          status: 'rejected',
+          reasonCode: `fault.command.workflowRunResumeRejected.${reason}`,
+          message: `resumeWorkflowRun ${workId} → ${raw || res.status}`,
+          revisionAtDecision: 0,
+        }
+      }
+      if (envelope.type === 'amendWorkflowRunSettings') {
+        const payload = envelope.payload as { workId?: string; subagentModel?: string | null; maxConcurrency?: number | null }
+        const workId = String(payload.workId ?? '')
+        if (!workId) {
+          return { commandId: envelope.commandId, status: 'rejected', reasonCode: 'fault.command.workflowRunSettingsRejected.not_found', message: 'amendWorkflowRunSettings 缺 workId', revisionAtDecision: 0 }
+        }
+        if (payload.subagentModel !== undefined && payload.subagentModel !== null) {
+          // 活着的 run 换不了子代理模型：它的 actor 已经各自拥有会话。vendor 的
+          // model_unavailable 正是「这个模型在这个 run 上不可用」的那一格。
+          return { commandId: envelope.commandId, status: 'rejected', reasonCode: 'fault.command.workflowRunSettingsRejected.model_unavailable', message: '活的 run 不能换子代理模型（actor 会话已存在）——请改脚本发起一次修订', revisionAtDecision: 0 }
+        }
+        if (payload.maxConcurrency === undefined) {
+          return { commandId: envelope.commandId, status: 'rejected', reasonCode: 'fault.command.workflowRunSettingsRejected.unchanged', message: '没有任何设置被改动', revisionAtDecision: 0 }
+        }
+        const res = await fetch(`/api/workflow/runs/${encodeURIComponent(workId)}/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+          body: JSON.stringify({ maxConcurrency: payload.maxConcurrency }),
+        })
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string }
+          const reason = body.error === 'not_found' ? 'not_found'
+            : body.error === 'not_running' ? 'not_configurable'
+              : body.error === 'subagent_model_immutable' ? 'model_unavailable'
+                : 'start_failed'
+          return { commandId: envelope.commandId, status: 'rejected', reasonCode: `fault.command.workflowRunSettingsRejected.${reason}`, message: `amendWorkflowRunSettings ${workId} → ${body.error ?? res.status}`, revisionAtDecision: 0 }
+        }
+        // 就地生效：没有后继 run，结果里的 runId 就是这个 tab 自己（vendor 的
+        // useWorkflowRunPaneSettings 明确认这一格——「没有可跟随的东西」）。
+        return {
+          commandId: envelope.commandId,
+          status: 'accepted',
+          revisionAtDecision: 0,
+          result: { type: 'amendWorkflowRunSettings', runId: workId, toolCallId: `settings-${uuid()}` },
+        }
+      }
+      if (envelope.type === 'startSavedWorkflow') {
+        const payload = envelope.payload as { name?: string; scope?: string; args?: Record<string, unknown> }
+        const name = String(payload.name ?? '').trim()
+        if (!name) {
+          return { commandId: envelope.commandId, status: 'rejected', reasonCode: 'fault.command.savedWorkflowStartRejected.invalid_name', message: 'startSavedWorkflow 需要 name', revisionAtDecision: 0 }
+        }
+        // scope 只在能真正履行时才认：ocrc 的 saved store 目前全部是 global 作用域，
+        // 所以 project 作用域下没有任何可命中的条目——如实回 not_found（P4-3 落 scope）。
+        if (payload.scope === 'project') {
+          return { commandId: envelope.commandId, status: 'rejected', reasonCode: 'fault.command.savedWorkflowStartRejected.not_found', message: `没有项目作用域的已保存 workflow（ocrc 的 saved 面目前只有 global）：${name}`, revisionAtDecision: 0 }
+        }
+        const listRes = await fetch('/api/workflow/saved', { headers: { Authorization: `Bearer ${token()}` } })
+        if (!listRes.ok) {
+          return { commandId: envelope.commandId, status: 'rejected', reasonCode: 'fault.command.savedWorkflowStartRejected.start_failed', message: `GET /api/workflow/saved ${listRes.status}`, revisionAtDecision: 0 }
+        }
+        const list = (await listRes.json()) as { workflows?: Array<{ id: string; name: string }> }
+        const wf = (list.workflows ?? []).find((w) => w.name === name)
+        if (!wf) {
+          return { commandId: envelope.commandId, status: 'rejected', reasonCode: 'fault.command.savedWorkflowStartRejected.not_found', message: `没有名为 ${name} 的已保存 workflow`, revisionAtDecision: 0 }
+        }
+        const runRes = await fetch(`/api/workflow/saved/${encodeURIComponent(wf.id)}/run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+          body: JSON.stringify({ ...(payload.args ? { args: payload.args } : {}), ...(sessionId ? { sessionId } : {}) }),
+        })
+        if (!runRes.ok) {
+          const body = (await runRes.json().catch(() => ({}))) as { error?: string; diagnostics?: unknown[] }
+          const raw = String(body.error ?? '')
+          const reason = raw.startsWith('missing required argument') || raw.startsWith('unknown argument') || raw.startsWith('invalid')
+            ? 'invalid_args'
+            : raw === 'compile_failed' ? 'compile_failed'
+              : 'start_failed'
+          return { commandId: envelope.commandId, status: 'rejected', reasonCode: `fault.command.savedWorkflowStartRejected.${reason}`, message: raw || `POST /api/workflow/saved/:id/run ${runRes.status}`, revisionAtDecision: 0 }
+        }
+        const started = (await runRes.json()) as { runId: string }
+        return {
+          commandId: envelope.commandId,
+          status: 'accepted',
+          revisionAtDecision: 0,
+          result: { type: 'startSavedWorkflow', runId: started.runId, toolCallId: `launch-${uuid()}` },
+        }
       }
       return {
         commandId: envelope.commandId,

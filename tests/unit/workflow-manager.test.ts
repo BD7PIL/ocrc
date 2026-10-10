@@ -286,12 +286,16 @@ describe('workflow manager — P4 projection + live settings', () => {
     expect(manager.amendSettings('dwfrun-nope', { maxConcurrency: 2 })).toEqual({ ok: false, error: 'not_found' })
   })
 
-  it('passes the declared phase table to the sandbox as run-launched metadata', async () => {
+  it('records the declared phase table as a run-launched event', async () => {
     const seen: any[] = []
     const journal = createWorkflowJournal({ dir })
     const runScript = vi.fn(async (opts: any) => {
-      seen.push(opts.launch)
-      opts.makeDriver({} as never)
+      const driver = opts.makeDriver({} as never)
+      // The engine's own order: `record(run-started)` = journal append + driver.emit,
+      // then the host's run-launched transcription.
+      journal.appendEvent(opts.runId, { type: 'run-started', runId: opts.runId, caps: opts.caps })
+      driver.emit({ type: 'run-started', runId: opts.runId, caps: opts.caps } as never)
+      seen.push(journal.allEvents(opts.runId).map((e) => e.event.type))
       journal.updateRunStatus(opts.runId, 'completed', { result: null })
       return { status: 'completed' } as RunSettlement
     })
@@ -310,6 +314,17 @@ describe('workflow manager — P4 projection + live settings', () => {
       actorModel: { providerID: 'zai', modelID: 'glm-4.6' },
     })
     await settleTick()
-    expect(seen[0]).toEqual({ inputId: 'in-42', phaseNames: ['collect'], subagentModel: 'zai/glm-4.6' })
+    // run-launched lands right after run-started (the vendored order), exactly once.
+    expect(seen[0]).toEqual(['run-started', 'run-launched'])
+    const launched = journal.listRuns()[0]!
+    const event = journal.allEvents(launched.runId).find((e) => e.event.type === 'run-launched')!.event as any
+    expect(event).toEqual({
+      type: 'run-launched',
+      inputId: 'in-42',
+      phaseNames: ['collect'],
+      subagentModel: 'zai/glm-4.6',
+    })
+    // The projection reads it back from the journal, which is the whole point.
+    expect(manager.projectedRun(launched.runId)?.phaseNames).toEqual(['collect'])
   })
 })

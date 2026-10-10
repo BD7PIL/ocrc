@@ -64,16 +64,22 @@ export function registerWorkflow(app: Hono, deps: WorkflowRouteDeps) {
    *
    * `joins` is our own extra (not part of the vendored wire): runId → the tool call that
    * started it, so the panel can resolve the card join key against the rows it holds.
+   * `sessions` likewise: runId → the parent session, which the vendored run schema has
+   * no field for (the container is per-session there) but the sidebar's cross-session
+   * activity summary needs.
    */
   app.get('/api/workflow/projection', (c) => {
     const sessionId = c.req.query('sessionId')
     const runs = manager.projectedRuns(sessionId || undefined)
     const joins: Record<string, { messageId: string; toolName: string }> = {}
+    const sessions: Record<string, string> = {}
     for (const run of runs) {
       const join = manager.runJoin(run.runId)
       if (join) joins[run.runId] = join
+      const record = manager.get(run.runId)?.record
+      if (record?.parentSessionId) sessions[run.runId] = record.parentSessionId
     }
-    return c.json({ runs, joins })
+    return c.json({ runs, joins, sessions })
   })
 
   app.get('/api/workflow/projection/:id', (c) => {
@@ -127,8 +133,13 @@ export function registerWorkflow(app: Hono, deps: WorkflowRouteDeps) {
   })
 
   app.post('/api/workflow/runs/:id/cancel', (c) => {
-    const ok = manager.cancel(c.req.param('id'))
-    return c.json({ ok }, ok ? 200 : 409)
+    const id = c.req.param('id')
+    // A 404 for an unknown run and a 409 for a known-but-not-running one: the panel
+    // words its rejection from that distinction ("this run is not running" vs "no such
+    // run"), so collapsing them into one status would lose a fact.
+    if (!manager.get(id)) return c.json({ error: 'not_found' }, 404)
+    const ok = manager.cancel(id)
+    return c.json({ ok, ...(ok ? {} : { error: 'not_running' }) }, ok ? 200 : 409)
   })
 
   app.post('/api/workflow/runs/:id/resume', async (c) => {
@@ -153,12 +164,16 @@ export function registerWorkflow(app: Hono, deps: WorkflowRouteDeps) {
    * than accepted-and-ignored (the actors already own their sessions).
    */
   app.post('/api/workflow/runs/:id/settings', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { maxConcurrency?: number; subagentModel?: string }
-    if (typeof body.subagentModel === 'string' && body.subagentModel.trim()) {
+    const body = (await c.req.json().catch(() => ({}))) as { maxConcurrency?: number | null; subagentModel?: string | null }
+    if (body.subagentModel !== undefined && body.subagentModel !== null) {
       return c.json({ error: 'subagent_model_immutable', message: 'A live run\'s subagent model cannot change: its actors already own their sessions. Amend the script to start a revision with a new model.' }, 409)
     }
-    if (typeof body.maxConcurrency !== 'number') return c.json({ error: 'maxConcurrency required' }, 400)
-    const res = manager.amendSettings(c.req.param('id'), { maxConcurrency: body.maxConcurrency })
+    // `null` is the vendored "back to the default" value: the run drops its own limit and
+    // runs on the process ceiling. The manager clamps, so asking for a huge number and
+    // letting it clamp is the same thing stated once.
+    const requested = body.maxConcurrency === null ? Number.MAX_SAFE_INTEGER : body.maxConcurrency
+    if (typeof requested !== 'number') return c.json({ error: 'maxConcurrency required' }, 400)
+    const res = manager.amendSettings(c.req.param('id'), { maxConcurrency: requested })
     if (!res.ok) return c.json({ error: res.error }, res.error === 'not_found' ? 404 : 409)
     return c.json({ ok: true, maxConcurrency: res.maxConcurrency })
   })

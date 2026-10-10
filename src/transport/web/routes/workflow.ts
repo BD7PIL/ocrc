@@ -9,6 +9,15 @@ import type { BackendRegistry } from '../../../core/agent/registry.js'
 import type { WorkflowApproval } from '../../../core/workflow/approval.js'
 import type { EscalationRegistry } from '../../../core/workflow/escalations.js'
 import { compileScript } from '../../../core/workflow/manager.js'
+import {
+  clampRunsLimit, projectArtifactItems, projectArtifacts, projectNodeResult, projectRunEvents,
+  projectRunSummary, projectWorkspace, readArtifactChunk,
+} from '../../../core/workflow/queries.js'
+import { buildCreateWorkflowDisplay } from '../../../core/workflow/display.js'
+
+/** The vendored `attachmentChunkMaxBytes` — the same 512 KiB block the attachment
+ *  reads use, deliberately not a second constant. */
+const ARTIFACT_CHUNK_MAX_BYTES = 512 * 1024
 
 /**
  * P2 workflow surface. Deliberately thin: the manager owns run semantics and the
@@ -86,6 +95,17 @@ export function registerWorkflow(app: Hono, deps: WorkflowRouteDeps) {
     const run = manager.projectedRun(c.req.param('id'))
     if (!run) return c.json({ error: 'not_found' }, 404)
     return c.json({ run })
+  })
+
+  // Registered BEFORE `/runs/:id`: a literal path that comes after the parameterised one
+  // is swallowed by it (`summaries` would match `:id` and 404 as an unknown run).
+  /** ② workflowRuns — the restart-safe enumeration face (the projection is memory-only). */
+  app.get('/api/workflow/runs/summaries', (c) => {
+    const sessionId = c.req.query('sessionId')
+    if (!sessionId) return c.json({ error: 'sessionId required' }, 400)
+    const limitRaw = c.req.query('limit')
+    const summaries = manager.runSummaries(sessionId, clampRunsLimit(limitRaw !== undefined ? Number(limitRaw) : undefined))
+    return c.json({ runs: summaries.map((s) => projectRunSummary(s.record, { updatedAt: s.updatedAt })) })
   })
 
   app.get('/api/workflow/runs/:id', (c) => {
@@ -176,6 +196,116 @@ export function registerWorkflow(app: Hono, deps: WorkflowRouteDeps) {
     const res = manager.amendSettings(c.req.param('id'), { maxConcurrency: requested })
     if (!res.ok) return c.json({ error: res.error }, res.error === 'not_found' ? 404 : 409)
     return c.json({ ok: true, maxConcurrency: res.maxConcurrency })
+  })
+
+  // ── P4-2: the seven read faces the run pages use ────────────────────────────
+  // Each mirrors one vendored query (read-only, stateless, safe to re-send) and each is
+  // answered from the journal. The paths are ours; the shapes are the vendored wire
+  // shapes, because the renderer validates them.
+  //
+  // Authorization follows the vendored contract: `sessionId` must be the run's parent
+  // session, and anything else gets the same 404 as "no such run" — a query that
+  // distinguishes the two would be an existence oracle for other sessions' runs. The
+  // caller is already behind the host token; this is the second lock the contract asks
+  // for, and it costs one comparison.
+  const authorize = (c: { req: { param: (k: string) => string; query: (k: string) => string | undefined } }) => {
+    const sessionId = c.req.query('sessionId')
+    if (!sessionId) return { error: 'sessionId required' as const, status: 400 as const }
+    const snapshot = manager.runSnapshot(c.req.param('id'))
+    if (!snapshot) return { error: 'not_found' as const, status: 404 as const }
+    if (snapshot.record.parentSessionId !== sessionId) return { error: 'not_found' as const, status: 404 as const }
+    return { snapshot }
+  }
+
+  /** ① workflowRunEvents — one journal page, cursor = sequence. */
+  app.get('/api/workflow/runs/:id/events/v4', (c) => {
+    const auth = authorize(c)
+    if ('error' in auth) return c.json({ error: auth.error }, auth.status)
+    const id = c.req.param('id')
+    const afterRaw = c.req.query('afterSequence')
+    const limitRaw = c.req.query('limit')
+    const afterSequence = afterRaw !== undefined ? Number(afterRaw) : undefined
+    const limit = limitRaw !== undefined ? Math.max(1, Number(limitRaw)) : undefined
+    // Ask for one more than the page to answer `hasMore` honestly.
+    const page = manager.events(id, {
+      ...(afterSequence !== undefined ? { afterSequence } : {}),
+      limit: (limit ?? 200) + 1,
+    })
+    const hasMore = limit !== undefined ? page.length > limit : false
+    return c.json({ events: projectRunEvents(limit !== undefined ? page.slice(0, limit) : page), hasMore })
+  })
+
+  /** ③ workflowRunArtifacts — every version of every artifact (the durable read). */
+  app.get('/api/workflow/runs/:id/artifacts/v4', (c) => {
+    const auth = authorize(c)
+    if ('error' in auth) return c.json({ error: auth.error }, auth.status)
+    return c.json({ artifacts: projectArtifacts(auth.snapshot.events, auth.snapshot.createdAt) })
+  })
+
+  /** ④ workflowRunArtifactData — a preset board's items (tagged `report` rows). */
+  app.get('/api/workflow/runs/:id/artifacts/:artifactId/data', (c) => {
+    const auth = authorize(c)
+    if ('error' in auth) return c.json({ error: auth.error }, auth.status)
+    const snapshot = auth.snapshot
+    const afterRaw = c.req.query('afterSequence')
+    const limitRaw = c.req.query('limit')
+    const page = projectArtifactItems(snapshot.events, c.req.param('artifactId'), {
+      ...(afterRaw !== undefined ? { afterSequence: Number(afterRaw) } : {}),
+      ...(limitRaw !== undefined ? { limit: Number(limitRaw) } : {}),
+    })
+    return c.json(page)
+  })
+
+  /** ⑤ workflowRunArtifactRead — one block of a content artifact's bytes. */
+  app.get('/api/workflow/runs/:id/artifacts/:artifactId/versions/:version/read', (c) => {
+    const auth = authorize(c)
+    if ('error' in auth) return c.json({ error: auth.error }, auth.status)
+    const runId = c.req.param('id')
+    const version = Number(c.req.param('version'))
+    const offset = Number(c.req.query('offset') ?? 0)
+    const limit = Number(c.req.query('limit') ?? ARTIFACT_CHUNK_MAX_BYTES)
+    if (!Number.isInteger(version) || version < 1) return c.json({ error: 'bad version' }, 400)
+    if (!Number.isInteger(offset) || offset < 0) return c.json({ error: 'bad offset' }, 400)
+    if (!Number.isInteger(limit) || limit < 1 || limit > ARTIFACT_CHUNK_MAX_BYTES) return c.json({ error: `limit must be 1..${ARTIFACT_CHUNK_MAX_BYTES}` }, 400)
+    const chunk = readArtifactChunk(artifacts, runId, c.req.param('artifactId'), version, offset, limit)
+    if (!chunk) return c.json({ error: 'not_found' }, 404)
+    return c.json(chunk)
+  })
+
+  /**
+   * The CreateWorkflow tool card's static picture (the analyzer's projection).
+   *
+   * Not one of the seven queries: the panel reads this off the tool ROW's `display`, and
+   * the row is ours to fill. It is served here because the analyzer lives in the host.
+   */
+  app.get('/api/workflow/runs/:id/display', (c) => {
+    const auth = authorize(c)
+    if ('error' in auth) return c.json({ error: auth.error }, auth.status)
+    const scriptText = auth.snapshot.record.scriptText
+    if (!scriptText) return c.json({ error: 'no_script' }, 404)
+    return c.json({ display: buildCreateWorkflowDisplay(scriptText) })
+  })
+
+  /** ⑥ workflowRunWorkspace — the run's world calls as a transcript (no bodies). */
+  app.get('/api/workflow/runs/:id/workspace', (c) => {
+    const auth = authorize(c)
+    if ('error' in auth) return c.json({ error: auth.error }, auth.status)
+    const { snapshot } = auth
+    return c.json(projectWorkspace(snapshot.nodes, snapshot.events, snapshot.createdAt))
+  })
+
+  /** ⑦ workflowRunNodeResult — one node's body, bounded shape-preservingly. */
+  app.get('/api/workflow/runs/:id/nodes/:siteId/:ordinal/result', (c) => {
+    const auth = authorize(c)
+    if ('error' in auth) return c.json({ error: auth.error }, auth.status)
+    const { snapshot } = auth
+    const siteId = c.req.param('siteId')
+    const ordinal = Number(c.req.param('ordinal'))
+    const node = snapshot.nodes.find((n) => n.siteId === siteId && n.ordinal === ordinal)
+    if (!node) return c.json({ error: 'not_found' }, 404)
+    const maxRaw = c.req.query('maxBytes')
+    const maxBytes = maxRaw !== undefined ? Math.max(1, Math.min(Number(maxRaw), 32 * 1024)) : undefined
+    return c.json(projectNodeResult(node, maxBytes))
   })
 
   /** Artifact bytes. The journal only ever holds `uri` + `bytes`; the bytes are

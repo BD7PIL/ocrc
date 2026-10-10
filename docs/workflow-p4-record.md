@@ -74,3 +74,52 @@ ocrc host :4199  ←  引擎 :4295（装了 ocrc 插件，ATTACHED）  ←  stub
 - **run 侧页的静态因果图缺席**：侧页顶部写着「当前会话的可见历史里没有这张工作流程图」。
   图来自工具行的 `display`（`toolCallCreateWorkflowDisplaySchema`），上游 CLI 从分析器产出，
   我们的桥没有产出它。这是 P4-2 的活（侧页与查询），此处如实记录，不算 P4-1 的完成项。
+
+---
+
+# P4-2 门禁记录 — 七个读面与侧页
+
+门禁脚本：`scripts/spikes/p4-queries/gate.mjs`（栈复用 `../p4-projection/stack.mjs`）。
+最后一次运行：**31/31 通过**。P4-1 的门禁在同一次改动后复跑仍是 **22/22**。
+
+## 这一轮跑的是什么 run
+
+脚本**没有模型**在环里：两次 `files.*` 读（glob + read）、一次 `artifact.markdown`，一秒钟
+结算。这样七条查询的输入是确定的（world 节点带 op 与正文、产物带版本与字节、事件日志可翻页），
+不花一个 token。run 仍从**模型工具面**发起（stub 的计划），因为 HTTP 直接提交的 run 没有工具行，
+浏览器那半段就无卡可看。
+
+## 31 项断言（摘要）
+
+| # | 断言 | 依据 |
+|---|---|---|
+| a–c | 会话 + 工具面起的 run + 结算 completed | 投影 |
+| d | ② `workflowRuns` 枚举出该 run，label 由 `name` 派生 | `/api/workflow/runs/summaries` |
+| e | ① `workflowRunEvents` 按 sequence 翻页并如实报 `hasMore` | limit=3 → 第二页 9 条 |
+| f | 事件日志带 Boundary C 词汇 | `run-started`/`node-queued`/`artifact-published` |
+| g–i | ⑥ `workflowRunWorkspace`：op/args/status/summary + 由事件推出的时间戳 | `glob`/`read`，`resultCount:12` |
+| j–k | ⑦ `workflowRunNodeResult`：正文 + 真实字节数；`maxBytes` 保形截断并置 `truncated` | 414B → 截断后仍 414B totalBytes |
+| l–m | ③ `workflowRunArtifacts`：版本、kind、title、字节数 | `report` / markdown / v1 / 60B |
+| n–o | ⑤ `workflowRunArtifactRead`：分块取字节，末块 `nextOffset: null` | 首块 32B，尾块 28B |
+| p | ④ `workflowRunArtifactData`：markdown 产物不是看板，条目为空 | `{items:[],hasMore:false}` |
+| q–r | 工具卡 display：因果图 + 阶段词汇 + 车道 | `steps=2 participants=1 phases=[scan,publish]` |
+| s | 跨会话查询与「无此 run」同一个 404 | 授权契约 |
+| t–u | 结算后的 run 仍有卡；侧页打开为 completed | 浏览器 |
+| v | **侧页画出脚本图**（不再写「没有这张工作流程图」） | `workflow-run-graph-unavailable ×0` |
+| w–x | Artifacts 分区列出产物；点击打开产物侧页 | `workflow-run-artifact-card` → `workflow-artifact-pane` |
+| y | 产物侧页渲染**真实字节** | 代码块里是 markdown 原文 |
+| z | 全程无页面错误 | `pageerror` 为空 |
+
+截图：`/tmp/ocrc-p4/shots/{5-run-pane-graph-artifacts,6-artifact-pane}.png`。
+
+## 这一轮修掉的与如实说明的
+
+- **run 侧页的图**：P4-1 时它写着「当前会话的可见历史里没有这张工作流程图」。图来自工具行的
+  `display`（上游 CLI 从分析器产出），现在宿主用同一份 vendored 分析器产出，桥按 toolCallId
+  挂到发起行上。这不是「顺手补的」：`display` 解析失败是**静默**的（schema `.catch(undefined)`），
+  所以缺了它只表现为「图不见了」。
+- **`/api/workflow/runs/summaries` 被 `:id` 路由吃掉**：Hono 按注册序匹配，字面量路径必须排在
+  参数化路径之前，否则 `summaries` 会当成一个 runId 并回 404。已移到前面并注明。
+- **产物 id 不合法 = 404，不是 500**：artifact store 对不安全 id 抛错；读面把抛出与「没有这件
+  产物」归成同一个答案，既不是 500，也不做存在性预言。
+- **状态面板分区仍只断言到模型层**（P4-1 的说明不变）：mini 变体下面板正文不排版。

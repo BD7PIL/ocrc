@@ -92,6 +92,31 @@ export function resolveToolCallIds(
   })
 }
 
+/**
+ * The CreateWorkflow card's static picture, fetched per run and cached: it is a pure
+ * function of the script, so a run's display never changes and one fetch per run is the
+ * whole budget. A failure returns undefined and the card simply has no picture — the
+ * vendor's own renderer treats that as "no graph", not as an error.
+ */
+const displayCache = new Map<string, { at: number; display: unknown }>()
+const DISPLAY_TTL_MS = 10 * 60_000
+
+export async function fetchWorkflowDisplay(runId: string, sessionId: string): Promise<unknown | undefined> {
+  const cached = displayCache.get(runId)
+  if (cached && Date.now() - cached.at < DISPLAY_TTL_MS) return cached.display
+  try {
+    const query = new URLSearchParams({ sessionId })
+    const res = await fetch(`/api/workflow/runs/${encodeURIComponent(runId)}/display?${query}`, {
+      headers: { Authorization: `Bearer ${token()}` },
+    })
+    if (!res.ok) return undefined
+    const body = (await res.json()) as { display?: unknown }
+    if (body.display === undefined) return undefined
+    displayCache.set(runId, { at: Date.now(), display: body.display })
+    return body.display
+  } catch { return undefined }
+}
+
 export interface WorkflowRunsUpdate {
   state: WorkflowRunsState
   deltas: ConversationDelta[]

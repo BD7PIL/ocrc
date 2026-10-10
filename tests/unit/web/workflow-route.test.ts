@@ -314,3 +314,95 @@ describe('workflow routes — P4 projection + live settings', () => {
     expect((await json(res)).error).toBe('no_run')
   })
 })
+
+// P4-2 — the seven read faces over HTTP. The authorization rule is the vendored one
+// (sessionId must be the run's parent session) and the answer for a mismatch is the same
+// 404 as "no such run": anything else is an existence oracle for other sessions' runs.
+describe('workflow routes — P4-2 queries', () => {
+  async function liveRun() {
+    const { app, artifacts, journal } = makeApp()
+    const created = await json(await app.request('/api/workflow/runs', {
+      method: 'POST',
+      body: JSON.stringify({ scriptText: SCRIPT, cwd: dir, sessionId: 'ses_parent' }),
+    }))
+    const runId = created.runId as string
+    return { app, artifacts, journal, runId }
+  }
+
+  it('pages the journal and says whether there is more', async () => {
+    const { app, journal, runId } = await liveRun()
+    // The stub sandbox emits nothing of its own, so seed the events the page reads.
+    for (const ev of [
+      { type: 'node-executing', instance: { siteId: 'ask#1', ordinal: 1 } },
+      { type: 'usage-updated', spentTokens: 7 },
+    ] as const) journal.appendEvent(runId, ev as never)
+
+    const page = await json(await app.request(`/api/workflow/runs/${runId}/events/v4?sessionId=ses_parent&limit=1`))
+    expect(page.events).toHaveLength(1)
+    expect(page.events[0]).toMatchObject({ sequence: 1, type: 'node-executing' })
+    expect(page.events[0].payload).toMatchObject({ instance: { siteId: 'ask#1', ordinal: 1 } })
+    expect(page.hasMore).toBe(true)
+
+    const cursor = page.events[0].sequence
+    const next = await json(await app.request(`/api/workflow/runs/${runId}/events/v4?sessionId=ses_parent&afterSequence=${cursor}`))
+    expect(next.events.map((e: any) => e.sequence)).toEqual([2])
+    expect(next.events[0]).toMatchObject({ type: 'usage-updated', payload: { spentTokens: 7 } })
+    expect(next.hasMore).toBe(false)
+  })
+
+  it('enumerates runs for a session (the restart-safe discovery face)', async () => {
+    const { app, runId } = await liveRun()
+    const body = await json(await app.request('/api/workflow/runs/summaries?sessionId=ses_parent'))
+    expect(body.runs).toHaveLength(1)
+    expect(body.runs[0]).toMatchObject({ runId, status: 'completed', resumable: false })
+    expect(body.runs[0].label).toBeTypeOf('string')
+    expect((await app.request('/api/workflow/runs/summaries')).status).toBe(400)
+  })
+
+  it('answers a query for another session with the same 404 as an unknown run', async () => {
+    const { app, runId } = await liveRun()
+    for (const path of [
+      `/api/workflow/runs/${runId}/events/v4?sessionId=ses_other`,
+      `/api/workflow/runs/${runId}/workspace?sessionId=ses_other`,
+      `/api/workflow/runs/${runId}/artifacts/v4?sessionId=ses_other`,
+      `/api/workflow/runs/dwfrun-nope/events/v4?sessionId=ses_parent`,
+    ]) {
+      expect((await app.request(path)).status, path).toBe(404)
+    }
+  })
+
+  it('serves the workspace transcript, the node result and the display', async () => {
+    const { app, journal, runId } = await liveRun()
+    journal.putNode({
+      runId, siteId: 'world-read#1', ordinal: 1, kind: 'world-read', inputHash: 'h',
+      status: 'completed', input: { op: 'glob', args: ['src/**'] }, result: ['a.ts'],
+    })
+    const workspace = await json(await app.request(`/api/workflow/runs/${runId}/workspace?sessionId=ses_parent`))
+    expect(workspace.nodes).toHaveLength(1)
+    expect(workspace.nodes[0]).toMatchObject({ op: 'glob', status: 'completed' })
+
+    const nodeResult = await json(await app.request(`/api/workflow/runs/${runId}/nodes/world-read%231/1/result?sessionId=ses_parent`))
+    expect(nodeResult).toMatchObject({ status: 'completed', truncated: false })
+    expect(nodeResult.result).toEqual(['a.ts'])
+    expect((await app.request(`/api/workflow/runs/${runId}/nodes/world-read%231/9/result?sessionId=ses_parent`)).status).toBe(404)
+
+    const display = await json(await app.request(`/api/workflow/runs/${runId}/display?sessionId=ses_parent`))
+    expect(display.display).toMatchObject({ kind: 'create_workflow', ok: true })
+    expect(display.display.causalityGraph.steps.length).toBeGreaterThan(0)
+  })
+
+  it('serves artifact metadata and byte blocks', async () => {
+    const { app, artifacts, runId } = await liveRun()
+    await artifacts.publish({ runId, siteId: 'artifact#1', ordinal: 1, op: 'markdown', id: 'out.md', version: 1, content: 'hello world' } as never)
+    const list = await json(await app.request(`/api/workflow/runs/${runId}/artifacts/v4?sessionId=ses_parent`))
+    // The byte store's own index is not a journal event, so the metadata list is empty —
+    // the artifacts query reads the journal, which is the durable authority.
+    expect(list.artifacts).toEqual([])
+
+    const chunk = await json(await app.request(`/api/workflow/runs/${runId}/artifacts/out.md/versions/1/read?sessionId=ses_parent&offset=0&limit=5`))
+    expect(Buffer.from(chunk.dataBase64, 'base64').toString()).toBe('hello')
+    expect(chunk).toMatchObject({ totalBytes: 11, nextOffset: 5 })
+    expect((await app.request(`/api/workflow/runs/${runId}/artifacts/out.md/versions/1/read?sessionId=ses_parent&limit=0`)).status).toBe(400)
+    expect((await app.request(`/api/workflow/runs/${runId}/artifacts/nope/versions/1/read?sessionId=ses_parent&offset=0&limit=5`)).status).toBe(404)
+  })
+})

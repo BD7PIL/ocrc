@@ -90,7 +90,7 @@ export function cleanup() {
  * through the host's backend, and a session created directly on the engine lands in
  * whatever project that engine's cwd is — a session the sidebar would never show.
  */
-export async function startStack({ log = () => {} } = {}) {
+export async function startStack({ log = () => {}, script = SLOW_SCRIPT, name = 'p4-visible' } = {}) {
   rmSync(ROOT, { recursive: true, force: true })
   mkdirSync(join(ROOT, 'home', '.config', 'opencode', 'plugin'), { recursive: true })
   mkdirSync(join(ROOT, 'home', '.ocrc'), { recursive: true })
@@ -114,7 +114,7 @@ export async function startStack({ log = () => {} } = {}) {
 
   const plan = [
     { tool: 'GetWorkflowSkill', args: {} },
-    { tool: 'CreateWorkflow', args: { script: SLOW_SCRIPT, name: 'p4-visible', workspace: REPO } },
+    { tool: 'CreateWorkflow', args: { script, name, workspace: REPO } },
     { text: 'the workflow is running in the background' },
   ]
   start('stub', process.execPath, [join(HERE, 'stub-llm.mjs')], {
@@ -183,15 +183,18 @@ export async function startStack({ log = () => {} } = {}) {
  * the engine the panel reads, and a session created directly on the engine would land in
  * whatever project that engine's cwd is — a session the sidebar would never show.
  */
-export async function startRunThrough(sessionId, { auth, log = () => {} } = {}) {
+export async function startRunThrough(sessionId, { auth, log = () => {}, waitForStatus = 'running' } = {}) {
   await json(`${PANEL}/api/message`, {
     method: 'POST', headers: auth,
-    body: JSON.stringify({ sessionId, text: 'Start a workflow that will take a while.' }),
+    body: JSON.stringify({ sessionId, text: 'Start a workflow.' }),
   })
   const runId = await waitValue(async () => {
     const body = await json(`${PANEL}/api/workflow/projection?sessionId=${sessionId}`, { headers: auth })
-    return (body.runs ?? []).find((r) => r.status === 'running')?.runId
-  }, { label: 'a running workflow run', tries: 60 })
-  log('the tool call started a live run', Boolean(runId), String(runId))
+    const runs = body.runs ?? []
+    // A model-free script settles in a second, so a gate that only waits for `running`
+    // would miss it entirely — the caller says which it needs.
+    return (waitForStatus === 'any' ? runs[0] : runs.find((r) => r.status === 'running'))?.runId
+  }, { label: `a ${waitForStatus} workflow run`, tries: 60 })
+  log('the tool call started a run', Boolean(runId), String(runId))
   return runId
 }

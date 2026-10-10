@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { statSync } from 'node:fs'
 import { availableParallelism } from 'node:os'
 import {
   buildAskSpecs,
@@ -9,7 +10,9 @@ import {
   synthesizeAskSchemas,
   validate,
   type AskSpec,
+  type ActorRecord,
   type Caps,
+  type NodeRecord,
   type RunRecord,
   type RunEvent,
   type RunSettlement,
@@ -179,6 +182,13 @@ export interface WorkflowManager {
   /** The tool call that started a run (the panel's card join input). */
   runJoin(runId: string): RunToolJoin | undefined
   /**
+   * P4-2: everything the seven read faces need for one run, read once. The journal is
+   * the source; this is the accessor so the routes do not have to know its shape.
+   */
+  runSnapshot(runId: string): { record: RunRecord; events: StoredEvent[]; nodes: NodeRecord[]; actors: ActorRecord[]; createdAt: number } | undefined
+  /** The run enumeration face, newest first, bounded. */
+  runSummaries(sessionId: string, limit?: number): Array<{ record: RunRecord; updatedAt: number }>
+  /**
    * P4-1c: change one setting on a *live* run, in place — same runId, no successor, no
    * ask lost (the vendored `amendWorkflowRunSettings` command's semantics for the
    * concurrency knob). Returns the new caps, or a refusal reason.
@@ -249,6 +259,12 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
       contentType: v.contentType,
       bytes: v.bytes,
     }))
+  }
+
+  /** When this run's journal file was created. The journal has no row timestamps, and
+   *  0 would render as 1970 — the mtime is the honest "when did this run start". */
+  function journalCreatedAt(runId: string): number {
+    try { return statSync(deps.journal.filePath(runId)).mtimeMs } catch { return 0 }
   }
 
   function project(runId: string): ProjectedRun | undefined {
@@ -441,6 +457,23 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
 
     runJoin(runId) {
       return deps.journal.getRunJoin(runId)
+    },
+
+    runSnapshot(runId) {
+      const record = deps.journal.getRun(runId)
+      if (!record) return undefined
+      return {
+        record,
+        events: deps.journal.allEvents(runId),
+        nodes: deps.journal.listNodes(runId),
+        actors: deps.journal.listActors(runId),
+        createdAt: journalCreatedAt(runId),
+      }
+    },
+
+    runSummaries(sessionId, limit) {
+      const records = deps.journal.listRuns().filter((r) => r.parentSessionId === sessionId)
+      return records.slice(0, limit ?? records.length).map((record) => ({ record, updatedAt: journalCreatedAt(record.runId) }))
     },
 
     amendSettings(runId, patch) {

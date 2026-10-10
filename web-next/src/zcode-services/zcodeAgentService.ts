@@ -11,7 +11,7 @@ import {
   projectGoal, projectGoalAvailability, type GoalProjection, type OcrcGoalRecord,
 } from './goalProjection.js'
 import {
-  fetchWorkflowProjection, nextWorkflowRunsState, resolveToolCallIds, runsEqual,
+  fetchWorkflowDisplay, fetchWorkflowProjection, nextWorkflowRunsState, resolveToolCallIds, runsEqual,
 } from './workflowProjection.js'
 import { deriveSessionWorkflowActivity } from '@zcode/shared/zcode-protocol-v4/sessions-index-workflow-activity'
 import type { WorkflowRunState, WorkflowRunsState } from '@zcode/shared/zcode-protocol-v4/workflow-runs'
@@ -341,6 +341,30 @@ function feedbackFor(entityId?: string): { feedback?: 'like' | 'dislike' } {
 // 一个作者，socket 上不搬运第二份）。容器 revision 归消费侧，因为只有消费侧手里有
 // 「上一份」；键级增量用 vendor 自己的 diffWorkflowRunsState 算，不自己写补丁。
 const workflowRunsBySession = new Map<string, WorkflowRunsState>()
+
+/** 七条只读查询的统一取数：非 2xx 一律抛（vendor 的查询族没有「部分结果」这一档，
+ *  静默回空数组会让侧页显示成「这个 run 什么都没有」——那是假话）。 */
+async function workflowQuery(path: string): Promise<any> {
+  const res = await fetch(path, { headers: { Authorization: `Bearer ${token()}` } })
+  if (!res.ok) throw new Error(`workflow query ${path.split('?')[0]} → ${res.status}`)
+  return await res.json()
+}
+
+/**
+ * P4-2：把 run 的静态图挂到发起行的 `display` 上。面板的 run 侧页画的就是这张图，而它只
+ * 从工具行读（`readWorkflowDisplay(raw.display)`）——不挂上去，侧页就写「没有这张工作流程图」。
+ * 按 toolCallId 找行：join 已在 workflowRuns 里解析过。
+ */
+async function attachWorkflowDisplays(rows: any[], runs: WorkflowRunState[], sessionId: string): Promise<void> {
+  const byToolCallId = new Map(runs.filter((r) => r.toolCallId).map((r) => [r.toolCallId!, r.runId]))
+  for (const row of rows) {
+    if (row?.kind !== 'toolCall' || !row.toolCallId) continue
+    const runId = byToolCallId.get(String(row.toolCallId))
+    if (!runId) continue
+    const display = await fetchWorkflowDisplay(runId, sessionId)
+    if (display) row.display = display
+  }
+}
 
 /** 取一次投影并解析卡片 join 键。返回的是**本次读到的** run 列表；缓存里的容器由
  *  `workflowRunsContainer` 维护（它要保证 revision 单调）。
@@ -696,6 +720,7 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
   // (they are row-internal details).
   const workflowRuns = await refreshWorkflowRuns(taskId, rows)
   const backgroundWorks = collectBackgroundWorks(rows, workflowRuns)
+  await attachWorkflowDisplays(rows, workflowRuns, taskId)
   await enrichToolRows(rows, taskId)
   const seq = rows.length
   const snapshot = {
@@ -853,6 +878,10 @@ async function liveUpdate(sessionId: string): Promise<void> {
   const cards = await ocrcHistory(sessionId).catch(() => null)
   if (!cards) return
   const nextRows = buildRows(cards, goalUi(sessionId))
+  // The display is a pure function of the script, so a row rebuilt live gets it from the
+  // cache — but a run started since the last snapshot needs the fetch to happen here too,
+  // or its card would only gain its picture on the next full snapshot.
+  await attachWorkflowDisplays(nextRows, await refreshWorkflowRuns(sessionId, nextRows), sessionId)
   await enrichToolRows(nextRows, sessionId)
   const deltas = diffRows(prevRows, nextRows)
   // diff 空即不发：此前用整行 stringify 判等守卫，浅比较版直接以 deltas.length 为准。
@@ -1606,7 +1635,7 @@ export function createOcrcZcodeAgentService(): any {
         } catch { /* 存不了也不谎报成功 */ }
         return { commandId: envelope.commandId, status: 'accepted', revisionAtDecision: 0 }
       }
-      // ── P4-1c 四条 workflow 命令 ──
+    // ── P4-1c 四条 workflow 命令 ──
       // 四条都免 baseRevision（vendor：workflowRuns 面免 revision，假 CAS 失败只会误伤），
       // 且都以 workId ≡ runId 定位。拒绝一律回 vendor 自己的 fault 前缀 + 它那套 reason 词，
       // 因为 UI 拿 reasonCode 反查文案——换一个词就等于在面板上显示一句英文键名。
@@ -1740,6 +1769,48 @@ export function createOcrcZcodeAgentService(): any {
         revisionAtDecision: 0,
       }
     },
+    // ── P4-2 七条只读查询（run 侧页的取数面）──
+  // 七条都是 vendor 的「只读、无状态、超时重发安全」族，形状照 wire schema 逐字回。
+  // 宿主侧每条都按 vendor 的授权契约校验 `sessionId === run.parentSessionId`（不符与
+  // 「无此 run」同一个 404）。
+  async conversationWorkflowRunEventsV4(params: { sessionId?: string; runId?: string; afterSequence?: number; limit?: number }) {
+    const query = new URLSearchParams({ sessionId: String(params?.sessionId ?? '') })
+    if (params?.afterSequence !== undefined) query.set('afterSequence', String(params.afterSequence))
+    if (params?.limit !== undefined) query.set('limit', String(params.limit))
+    return await workflowQuery(`/api/workflow/runs/${encodeURIComponent(String(params?.runId))}/events/v4?${query}`)
+  },
+  async conversationWorkflowRunsV4(params: { sessionId?: string; limit?: number }) {
+    const query = new URLSearchParams({ sessionId: String(params?.sessionId ?? '') })
+    if (params?.limit !== undefined) query.set('limit', String(params.limit))
+    return await workflowQuery(`/api/workflow/runs/summaries?${query}`)
+  },
+  async conversationWorkflowRunArtifactsV4(params: { sessionId?: string; runId?: string }) {
+    const query = new URLSearchParams({ sessionId: String(params?.sessionId ?? '') })
+    return await workflowQuery(`/api/workflow/runs/${encodeURIComponent(String(params?.runId))}/artifacts/v4?${query}`)
+  },
+  async conversationWorkflowRunArtifactDataV4(params: { sessionId?: string; runId?: string; artifactId?: string; afterSequence?: number; limit?: number }) {
+    const query = new URLSearchParams({ sessionId: String(params?.sessionId ?? '') })
+    if (params?.afterSequence !== undefined) query.set('afterSequence', String(params.afterSequence))
+    if (params?.limit !== undefined) query.set('limit', String(params.limit))
+    return await workflowQuery(`/api/workflow/runs/${encodeURIComponent(String(params?.runId))}/artifacts/${encodeURIComponent(String(params?.artifactId))}/data?${query}`)
+  },
+  async conversationWorkflowRunArtifactReadV4(params: { sessionId?: string; runId?: string; artifactId?: string; version?: number; offset?: number; limit?: number }) {
+    const query = new URLSearchParams({
+      sessionId: String(params?.sessionId ?? ''),
+      offset: String(params?.offset ?? 0),
+      limit: String(params?.limit ?? 512 * 1024),
+    })
+    return await workflowQuery(`/api/workflow/runs/${encodeURIComponent(String(params?.runId))}/artifacts/${encodeURIComponent(String(params?.artifactId))}/versions/${String(params?.version)}/read?${query}`)
+  },
+  async conversationWorkflowRunWorkspaceV4(params: { sessionId?: string; runId?: string }) {
+    const query = new URLSearchParams({ sessionId: String(params?.sessionId ?? '') })
+    return await workflowQuery(`/api/workflow/runs/${encodeURIComponent(String(params?.runId))}/workspace?${query}`)
+  },
+  async conversationWorkflowRunNodeResultV4(params: { sessionId?: string; runId?: string; siteId?: string; ordinal?: number; maxBytes?: number }) {
+    const query = new URLSearchParams({ sessionId: String(params?.sessionId ?? '') })
+    if (params?.maxBytes !== undefined) query.set('maxBytes', String(params.maxBytes))
+    return await workflowQuery(`/api/workflow/runs/${encodeURIComponent(String(params?.runId))}/nodes/${encodeURIComponent(String(params?.siteId))}/${String(params?.ordinal)}/result?${query}`)
+  },
     async initializeConversationV4(_rawClientHello: unknown) {
       // ocrc：无独立握手校验面，接受即完成
       return undefined

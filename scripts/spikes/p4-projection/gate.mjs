@@ -134,21 +134,36 @@ async function main() {
     (await page.locator('[data-testid="workflow-run-configure"]').count()) > 0)
   await page.screenshot({ path: join(SHOTS, '2-run-pane-running.png') })
 
+
   await page.locator('[data-testid="workflow-run-cancel"]').click()
   const stopped = await waitFor(async () => (await statusOf()) === 'stopped', { tries: 40, delay: 500, label: 'the run to stop' })
-  check('q) Stop cancels the run through the v4 command', stopped, String(await statusOf()))
+  check('v) Stop cancels the run through the v4 command', stopped, String(await statusOf()))
   // Resume lives in the pane's status header and appears only from the projection's own
   // `resumable` bit — the panel never derives it from status + failure code.
   const resumable = await waitFor(async () => (await page.locator('[data-testid="workflow-run-resume"]').count()) > 0, { tries: 30, delay: 500, label: 'Resume' })
-  check('r) the stopped run offers Resume (the projection says resumable)', resumable)
+  check('w) the stopped run offers Resume (the projection says resumable)', resumable)
   await page.screenshot({ path: join(SHOTS, '3-run-pane-stopped.png') })
 
   await page.locator('[data-testid="workflow-run-resume"]').click()
   const resumed = await waitFor(async () => (await statusOf()) === 'running', { tries: 60, delay: 500, label: 'the run to resume' })
-  check('s) Resume restarts the run', resumed, String(await statusOf()))
+  check('x) Resume restarts the run', resumed, String(await statusOf()))
   await page.screenshot({ path: join(SHOTS, '4-run-pane-resumed.png') })
 
-  check('t) no page errors from the workflow surface', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '))
+  // P4-2 的 actor 侧页：它的入口是 run 面板里**在飞 ask 的花名册**药丸（终态 run 没有花名册），
+  // 所以只有活着的 run 才点得到——这里正是唯一能验它的地方。
+  const paneScope = `[data-workflow-run-id="${runId}"][data-workflow-run-status]`
+  const rosterPill = page.locator(`${paneScope} [data-testid="workflow-agent-pill"][data-agent-open="true"]`).first()
+  const pillOpenable = (await rosterPill.count()) > 0
+  const titlesBefore = await page.locator('[data-testid="v4-session-title"]').count()
+  if (pillOpenable) await rosterPill.click()
+  const actorPane = await waitFor(async () => {
+    if ((await page.locator('[data-testid="workflow-actor-not-started"]').count()) > 0) return true
+    return (await page.locator('[data-testid="v4-session-title"]').count()) > titlesBefore
+  }, { tries: 25, delay: 500, label: 'the actor side page' })
+  check('u) the actor side page opens from the live run pane', pillOpenable && actorPane,
+    `rosterPill=${pillOpenable} pane=${actorPane}`)
+  await page.screenshot({ path: join(SHOTS, '5-actor-pane.png') })
+  check('y) no page errors from the workflow surface', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '))
 
   await ctx.close()
   browser.close()

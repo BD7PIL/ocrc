@@ -220,26 +220,28 @@ typed 是必需的：缓存按 `(actor 名, actorSeq, inputHash)` 命中，而�
 # P4-2 侧页补记（第二轮，2026-10-10）
 
 第一轮的 31 项断言覆盖了七条查询，但计划里点名的五张侧页只实测了两张（run 详情、artifact）。
-补上 workspace 侧页后，**34/34 通过**（新增 `aa`/`ab`/`ac`）。
+补上 workspace 侧页后，**34/34 通过**（新增 `aa`/`ab`/`ac`）；actor 侧页在 P4-1 门禁的活 run 上补验
+（那道门禁因此变成 **23/23**）。五张侧页现在实测打开四张，只剩 directory（原因见下）。
 
 | 侧页 | 结论 | 证据 |
 |---|---|---|
 | run 详情 | ✅ 实测打开且有数据 | p4-queries `u`/`v`（脚本图渲染，不再写「没有这张工作流程图」） |
 | artifact | ✅ 实测打开且**真读到字节** | p4-queries `x`/`y`（代码块里是 markdown 原文） |
 | workspace | ✅ 实测打开且有数据 | p4-queries `aa`：`workflow-timeline-workspace-open` → 面板列出 `搜索 src/core/workflow/*.ts`（13 个文件 · 18ms）与 `读取 projection.ts`（22.4 KB）——即 workspace 查询的页面级证据（截图 `10-workspace-pane.png`） |
-| actor 会话 | ⚠️ **未实测打开**（见下） | `ab` 只断言入口已接线（pill 带 `data-agent-open="true"`、状态 `done`） |
-| directory | ⚠️ 未实测打开（见下） | `ac` 断言它的门（已结束 run 数 > 0）与数据面 |
+| actor 会话 | ✅ 实测打开（在 **P4-1 门禁**里，活着的 run 上） | p4-projection `u`：run 面板花名册药丸 → actor 的转录页挂载（`rosterPill=true pane=true`，截图 `5-actor-pane.png`） |
+| directory | ⚠️ 未实测打开（见下） | p4-queries `ac` 断言它的门（已结束 run 数 > 0）与数据面 |
 
 ## 如实说明：两张侧页没实测打开
 
-- **actor 会话侧页**：入口已接线（run 面板的 actor pill 是 `<button>`，带 `data-agent-open="true"`），
-  但在门禁里点它之后，actor 的转录页在等待窗口内没有出现——我没有把它写成通过。它背后的数据是
-  验过的：actor 行带 session id（p4-projection `i`）、那些会话真的跑过 typed ask（p4b-amend 的
-  `a`/`e`）。**这是一条待查项**：要么是点击目标（pill 本体 vs 它的箭头）不对，要么是侧页在
-  `/z/` 的这个状态下的挂载路径不同。
+- **actor 会话侧页**（已补验，见上表）：第一次在 p4-queries 里点它没开，原因是**状态**而不是
+  接线——它的入口是 run 面板里**在飞 ask 的花名册**药丸，而 p4-queries 的 run 已经结算、没有花名册
+  （digest 时间线上那枚同形药丸打开的是 workspace 转录，不是 actor 会话）。改到 p4-projection 的
+  **活着的 run** 上点，就开了。
 - **directory 侧页**：它的入口在**状态面板的 Workflows 分区**里（`workflow-run-directory-trigger`），
   而那个分区在 mini 变体下面板正文不排版（与 P4-1 `l` 同一条限制，Playwright 连 force click 都
   点不动）。所以只断言了它的门与数据面（已结束 run 数 > 0，投影 `endedRuns=1`）。
   页面本身读的是同一份 `workflowRuns` 投影。
 
-两条都不影响「七条查询已通」这个结论：查询是 HTTP 层实测的（`d`–`r`），侧页只是它们的渲染端。
+这两条都不影响「七条查询已通」这个结论：查询是 HTTP 层实测的（`d`–`r`），侧页只是它们的渲染端。
+`directory` 那一条也不是接线问题：它的入口按 vendor 的设计就在状态面板的 Workflows 分区里，而那个
+分区在 mini 变体下面板正文不排版——与 P4-1 `l` 是同一条限制。

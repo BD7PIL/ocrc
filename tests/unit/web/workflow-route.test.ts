@@ -22,13 +22,14 @@ const SCRIPT = 'const a = await agent("first").ask("hi");\nreturn { a };\n'
 let dir: string
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'ocrc-wf-route-')) })
 
-function fakeBackend(): AgentBackend {
+function fakeBackend(history: unknown[] = [], throwOnHistory = false): AgentBackend {
   return {
     id: 'opencode', capabilities: {} as AgentBackend['capabilities'],
     prompt: async () => {}, abort: async () => {}, hasSession: async () => true,
     listSessions: async () => [], listSessionSummaries: async () => [],
     createSession: async () => ({ id: 'ses_actor' }), deleteSession: async () => {}, renameSession: async () => {},
-    getSessionMeta: async () => ({}), getContext: async () => ({}), getHistory: async () => [],
+    getSessionMeta: async () => ({}), getContext: async () => ({}),
+    getHistory: async () => { if (throwOnHistory) throw new Error('engine busy'); return history },
     getMessageBlocks: async () => [], getDiff: async () => [], getTodos: async () => [],
     getSessionsStatus: async () => ({}), ping: async () => true, getAgents: async () => [],
     getModels: async () => [], getMcp: async () => [], listWorkspaces: async () => [],
@@ -36,7 +37,7 @@ function fakeBackend(): AgentBackend {
   } as AgentBackend
 }
 
-function makeApp(opts: { hold?: boolean } = {}) {
+function makeApp(opts: { hold?: boolean; history?: unknown[]; historyThrows?: boolean } = {}) {
   const journal = createWorkflowJournal({ dir })
   const artifacts = createArtifactStore({ dir, cwd: dir })
   const saved = createSavedWorkflowsStore(join(dir, 'saved.json'))
@@ -54,13 +55,17 @@ function makeApp(opts: { hold?: boolean } = {}) {
     return { status: 'completed', artifact: { ok: true } } as RunSettlement
   }
   const manager = createWorkflowManager({
-    registry: singleBackendRegistry(fakeBackend()),
+    registry: singleBackendRegistry(fakeBackend(opts.history, opts.historyThrows)),
     journal, world: createWorldReader({ cwd: dir }), artifacts,
     runScript: runScript as never,
   })
   const escalations = createEscalationRegistry()
   const app = new Hono()
-  registerWorkflow(app, { manager, artifacts, saved, registry: singleBackendRegistry(fakeBackend()), escalations })
+  registerWorkflow(app, {
+    manager, artifacts, saved,
+    registry: singleBackendRegistry(fakeBackend(opts.history, opts.historyThrows)),
+    escalations,
+  })
   return { app, journal, artifacts, saved, manager, escalations }
 }
 
@@ -357,6 +362,63 @@ describe('workflow routes — P4-2 queries', () => {
     expect(body.runs[0]).toMatchObject({ runId, status: 'completed', resumable: false })
     expect(body.runs[0].label).toBeTypeOf('string')
     expect((await app.request('/api/workflow/runs/summaries')).status).toBe(400)
+  })
+
+  // The vendored run-directory model drops any summary without a `toolCallId`
+  // (`buildWorkflowRunDirectory` → `hasDetailAnchor`), and the directory page reads this
+  // face alone: no anchor, no row — and with no rows the status panel's Workflows section
+  // never renders at all. The plugin cannot know the id (the engine mints it after the
+  // tool call returns), so the face resolves the pair against the parent's own cards.
+  it('anchors a run to its tool card by resolving the join against the session rows', async () => {
+    const history = [{
+      kind: 'assistant', messageId: 'msg_1',
+      blocks: [{ type: 'tool', tool: 'CreateWorkflow', args: '{}', status: 'done', partId: 'prt_1', messageId: 'msg_1' }],
+    }]
+    const { app } = makeApp({ history })
+    const created = await json(await app.request('/api/workflow/runs', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        scriptText: SCRIPT, cwd: dir, name: 'anchored', sessionId: 'ses_parent',
+        messageId: 'msg_1', toolName: 'CreateWorkflow',
+      }),
+    }))
+    await new Promise((r) => setTimeout(r, 20))
+    const body = await json(await app.request('/api/workflow/runs/summaries?sessionId=ses_parent'))
+    expect(body.runs[0]).toMatchObject({ runId: created.runId, toolCallId: 'tool-prt_1' })
+  })
+
+  it('leaves the anchor absent when the join does not match any row', async () => {
+    // A run started over HTTP has no join at all; a card with the same message id but a
+    // different tool name is not a match either. Neither may borrow another row's id.
+    const history = [{
+      kind: 'assistant', messageId: 'msg_1',
+      blocks: [{ type: 'tool', tool: 'AmendWorkflow', args: '{}', status: 'done', partId: 'prt_9', messageId: 'msg_1' }],
+    }]
+    const { app } = makeApp({ history })
+    await json(await app.request('/api/workflow/runs', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scriptText: SCRIPT, cwd: dir, name: 'no-anchor', sessionId: 'ses_parent', messageId: 'msg_1', toolName: 'CreateWorkflow' }),
+    }))
+    await new Promise((r) => setTimeout(r, 20))
+    const rows = (await json(await app.request('/api/workflow/runs/summaries?sessionId=ses_parent'))).runs
+    expect(rows[0].toolCallId).toBeUndefined()
+  })
+
+  it('still answers the summaries when the transcript read fails', async () => {
+    // A busy engine must not turn the directory into a 500: the rows come back without
+    // anchors (the same shape a cold session produces) and the caller decides.
+    const { app } = makeApp({ historyThrows: true })
+    await json(await app.request('/api/workflow/runs', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scriptText: SCRIPT, cwd: dir, name: 'busy', sessionId: 'ses_parent', messageId: 'msg_1', toolName: 'CreateWorkflow' }),
+    }))
+    await new Promise((r) => setTimeout(r, 20))
+    const res = await app.request('/api/workflow/runs/summaries?sessionId=ses_parent')
+    expect(res.status).toBe(200)
+    const rows = (await json(res)).runs
+    expect(rows).toHaveLength(1)
+    expect(rows[0].toolCallId).toBeUndefined()
+    expect(rows[0].label).toBe('busy')
   })
 
   it('answers a query for another session with the same 404 as an unknown run', async () => {

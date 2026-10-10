@@ -10,6 +10,7 @@ import { createArtifactStore } from '../../src/core/workflow/artifacts'
 import {
   clampRunsLimit, projectArtifactItems, projectArtifacts, projectNodeResult, projectRunEvents,
   projectRunSummary, projectWorkspace, readArtifactChunk, runLabel, isResumable,
+  resolveRunToolCallIds, toolCardRows,
   WORKFLOW_QUERY_LIMITS,
 } from '../../src/core/workflow/queries'
 import { buildCreateWorkflowDisplay } from '../../src/core/workflow/display'
@@ -112,6 +113,44 @@ describe('② run summaries', () => {
     expect(clampRunsLimit(undefined)).toBe(WORKFLOW_QUERY_LIMITS.RUNS_LIMIT_MAX)
     expect(clampRunsLimit(0)).toBe(1)
     expect(clampRunsLimit(1_000)).toBe(WORKFLOW_QUERY_LIMITS.RUNS_LIMIT_MAX)
+  })
+
+  // The vendored directory model drops any row without `toolCallId` (`hasDetailAnchor`),
+  // so this join decides whether a run is visible at all — not a cosmetic field.
+  it('mints the anchor in the panel’s spelling from the session’s own tool cards', () => {
+    const rows = toolCardRows([
+      { kind: 'user', messageId: 'msg_0', text: 'hi' } as never,
+      {
+        kind: 'assistant', messageId: 'msg_1', blocks: [
+          { type: 'text', text: 'working' },
+          { type: 'tool', tool: 'CreateWorkflow', args: '{}', status: 'done', partId: 'prt_1' },
+        ],
+      } as never,
+      // A tool block with no partId (old engine) has no id to mint from.
+      { kind: 'assistant', messageId: 'msg_2', blocks: [{ type: 'tool', tool: 'CreateWorkflow', args: '{}', status: 'done' }] } as never,
+    ])
+    expect(rows).toEqual([{ toolCallId: 'tool-prt_1', toolName: 'CreateWorkflow', messageId: 'msg_1' }])
+  })
+
+  it('resolves the anchor only on an exact (messageId, toolName) match', () => {
+    const rows = toolCardRows([{
+      kind: 'assistant', messageId: 'msg_1',
+      blocks: [{ type: 'tool', tool: 'CreateWorkflow', args: '{}', status: 'done', partId: 'prt_1' }],
+    } as never])
+    expect(resolveRunToolCallIds({ runA: { messageId: 'msg_1', toolName: 'CreateWorkflow' } }, rows)).toEqual({ runA: 'tool-prt_1' })
+    // Same message, different tool: not a match — borrowing the neighbour's id would open
+    // a different run's page.
+    expect(resolveRunToolCallIds({ runA: { messageId: 'msg_1', toolName: 'AmendWorkflow' } }, rows)).toEqual({})
+    expect(resolveRunToolCallIds({ runA: { messageId: 'msg_other', toolName: 'CreateWorkflow' } }, rows)).toEqual({})
+    expect(resolveRunToolCallIds({}, rows)).toEqual({})
+  })
+
+  it('lets the resolved anchor win only when the record has none', () => {
+    const record = fixture({ status: 'completed' }).getRun(RUN)!
+    expect(projectRunSummary(record, { toolCallId: 'tool-prt_1' })).toMatchObject({ toolCallId: 'tool-prt_1' })
+    expect(projectRunSummary(record)).not.toHaveProperty('toolCallId')
+    expect(projectRunSummary({ ...record, toolCallId: 'tool-own' }, { toolCallId: 'tool-prt_1' }))
+      .toMatchObject({ toolCallId: 'tool-own' })
   })
 })
 

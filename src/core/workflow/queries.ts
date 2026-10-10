@@ -112,13 +112,17 @@ export function isResumable(record: RunRecord): boolean {
   return record.status === 'stopped' && record.stopReason !== 'superseded'
 }
 
-export function projectRunSummary(record: RunRecord, opts: { updatedAt?: number } = {}): RunSummaryView {
+export function projectRunSummary(record: RunRecord, opts: { updatedAt?: number; toolCallId?: string } = {}): RunSummaryView {
   const failure = record.failure as { code?: unknown; message?: unknown } | undefined
   const code = nonEmpty(failure?.code)
   const message = nonEmpty(failure?.message)
+  // `record.toolCallId` is the vendored record's own field and is absent for every run the
+  // plugin started (it knows only the message id — see journal.ts `RunToolJoin`). The route
+  // resolves that join against the parent session's tool cards and passes the answer here.
+  const toolCallId = nonEmpty(record.toolCallId) ?? nonEmpty(opts.toolCallId)
   return {
     runId: record.runId,
-    ...(nonEmpty(record.toolCallId) ? { toolCallId: record.toolCallId } : {}),
+    ...(toolCallId ? { toolCallId } : {}),
     label: runLabel(record),
     ...(opts.updatedAt !== undefined ? { updatedAt: opts.updatedAt } : {}),
     status: record.status,
@@ -129,6 +133,63 @@ export function projectRunSummary(record: RunRecord, opts: { updatedAt?: number 
     ...(message ? { failureMessage: clampText(message, 2048) } : {}),
     resumable: isResumable(record),
   }
+}
+
+/**
+ * The parent session's tool calls, as the run→tool-card join needs them.
+ *
+ * This is the host-side twin of the panel's `resolveToolCallIds` (web-next
+ * `workflowProjection.ts`) and it exists for the same vendored reason: a run summary
+ * without `toolCallId` has no detail page to open, so the vendored run-directory model
+ * drops the row entirely. The projection face hands the *pair* to the panel, which still
+ * holds the tool rows; this face is read by the directory page, which holds nothing but
+ * the answer — so the host resolves it here instead.
+ */
+export interface ToolCardRow {
+  /** The engine's tool call id, in the panel's own spelling (`tool-<partId>`). */
+  toolCallId: string
+  toolName: string
+  messageId?: string
+}
+
+/** `partId` → the panel's `tool-<partId>`; the only place the spelling is minted. */
+export function toolCardRows(cards: ReadonlyArray<{
+  kind?: string
+  messageId?: string
+  blocks?: ReadonlyArray<{ type: string; tool?: string; partId?: string; messageId?: string }>
+}>): ToolCardRow[] {
+  const rows: ToolCardRow[] = []
+  for (const card of cards) {
+    if (card.kind !== 'assistant' || !Array.isArray(card.blocks)) continue
+    for (const block of card.blocks) {
+      if (block.type !== 'tool' || !nonEmpty(block.partId)) continue
+      const messageId = nonEmpty(block.messageId) ?? nonEmpty(card.messageId)
+      rows.push({
+        toolCallId: `tool-${block.partId}`,
+        toolName: nonEmpty(block.tool) ?? 'tool',
+        ...(messageId ? { messageId } : {}),
+      })
+    }
+  }
+  return rows
+}
+
+/**
+ * Fill in each run's tool call id from `(messageId, toolName)` — the pair the plugin could
+ * know at launch. A join that does not match (an HTTP submit, or a card that has been
+ * folded out of the window) simply resolves to nothing: the row keeps no anchor, and the
+ * vendored model drops it. Never guessed, never borrowed from another row.
+ */
+export function resolveRunToolCallIds(
+  joins: Record<string, { messageId: string; toolName: string }>,
+  rows: readonly ToolCardRow[],
+): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [runId, join] of Object.entries(joins)) {
+    const row = rows.find((r) => r.messageId === join.messageId && r.toolName === join.toolName)
+    if (row) out[runId] = row.toolCallId
+  }
+  return out
 }
 
 export function clampRunsLimit(limit: number | undefined): number {

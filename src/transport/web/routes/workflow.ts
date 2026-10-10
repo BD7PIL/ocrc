@@ -12,6 +12,7 @@ import { compileScript } from '../../../core/workflow/manager.js'
 import {
   clampRunsLimit, projectArtifactItems, projectArtifacts, projectNodeResult, projectRunEvents,
   projectRunSummary, projectSavedWorkflowRun, projectWorkspace, readArtifactChunk,
+  resolveRunToolCallIds, toolCardRows,
 } from '../../../core/workflow/queries.js'
 import { buildCreateWorkflowDisplay } from '../../../core/workflow/display.js'
 
@@ -60,6 +61,43 @@ export function answerEscalation(deps: WorkflowRouteDeps, runId: string | undefi
 export function registerWorkflow(app: Hono, deps: WorkflowRouteDeps) {
   const { manager, artifacts, saved } = deps
 
+  /**
+   * The page the panel itself reads for a session's rows (`/api/session/:id` defaults to
+   * the same depth), so the two faces agree on which runs still have a card to open.
+   */
+  const ANCHOR_WINDOW = 200
+
+  /**
+   * runId → the engine's tool call id, resolved from the parent session's own tool cards.
+   *
+   * The run record cannot hold this id (the engine mints it *after* the tool call returns,
+   * so the plugin only ever knows the message — see journal.ts `RunToolJoin`), and the
+   * vendored summary is read by the run-directory page, which holds no rows of its own to
+   * join against. The host therefore answers the pair it was given against the transcript
+   * it already serves.
+   *
+   * Unresolved stays unresolved: a run submitted over HTTP has no join at all, and a card
+   * that has been folded out of the window cannot be matched — the vendored model drops
+   * such rows, and inventing an id would open the wrong page.
+   */
+  async function toolCallIdsFor(runIds: readonly string[], sessionId: string): Promise<Record<string, string>> {
+    const joins: Record<string, { messageId: string; toolName: string }> = {}
+    for (const runId of runIds) {
+      const join = manager.runJoin(runId)
+      if (join) joins[runId] = join
+    }
+    if (Object.keys(joins).length === 0) return {}
+    try {
+      const cards = await deps.registry.forSession(sessionId).getHistory(sessionId, ANCHOR_WINDOW)
+      return resolveRunToolCallIds(joins, toolCardRows(cards))
+    } catch {
+      // A busy or adopted engine can refuse the read. The summaries are still worth
+      // returning — they simply arrive without anchors, exactly as they would on a cold
+      // session, rather than turning the directory into a 500.
+      return {}
+    }
+  }
+
   app.get('/api/workflow/runs', (c) => {
     const sessionId = c.req.query('sessionId')
     const runs = sessionId ? manager.runsForSession(sessionId) : manager.list()
@@ -100,12 +138,13 @@ export function registerWorkflow(app: Hono, deps: WorkflowRouteDeps) {
   // Registered BEFORE `/runs/:id`: a literal path that comes after the parameterised one
   // is swallowed by it (`summaries` would match `:id` and 404 as an unknown run).
   /** ② workflowRuns — the restart-safe enumeration face (the projection is memory-only). */
-  app.get('/api/workflow/runs/summaries', (c) => {
+  app.get('/api/workflow/runs/summaries', async (c) => {
     const sessionId = c.req.query('sessionId')
     if (!sessionId) return c.json({ error: 'sessionId required' }, 400)
     const limitRaw = c.req.query('limit')
     const summaries = manager.runSummaries(sessionId, clampRunsLimit(limitRaw !== undefined ? Number(limitRaw) : undefined))
-    return c.json({ runs: summaries.map((s) => projectRunSummary(s.record, { updatedAt: s.updatedAt })) })
+    const toolCallIds = await toolCallIdsFor(summaries.map((s) => s.record.runId), sessionId)
+    return c.json({ runs: summaries.map((s) => projectRunSummary(s.record, { updatedAt: s.updatedAt, toolCallId: toolCallIds[s.record.runId] })) })
   })
 
   app.get('/api/workflow/runs/:id', (c) => {

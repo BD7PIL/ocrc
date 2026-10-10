@@ -216,3 +216,100 @@ describe('workflow manager', () => {
     expect(aborted).toBe(true)
   })
 })
+
+// P4-1a/P4-1c — the read face the panel uses, plus the one live-run setting that has a
+// real implementation. These are cheap on top of the P2 harness above, and they pin two
+// behaviours that would otherwise drift silently:
+//   - the projection's `resumable` and the manager's resume gate must agree;
+//   - `amendSettings` must write the caps row AND move the live seat gate (a resume reads
+//     the row back, so a row-only change would be undone by the next restart).
+describe('workflow manager — P4 projection + live settings', () => {
+  it('projects runs for one parent session only, with the tool-card join', async () => {
+    const { manager, journal } = makeManager()
+    const mine = await manager.submit({
+      scriptText: SCRIPT, cwd: dir, parentSessionId: 'ses_mine',
+      toolJoin: { messageId: 'msg_1', toolName: 'CreateWorkflow' },
+    })
+    await manager.submit({ scriptText: SCRIPT, cwd: dir, parentSessionId: 'ses_other' })
+    await settleTick()
+
+    const runs = manager.projectedRuns('ses_mine')
+    expect(runs).toHaveLength(1)
+    expect(runs[0]!.runId).toBe((mine as { runId: string }).runId)
+    expect(runs[0]!.status).toBe('completed')
+    expect(manager.runJoin(runs[0]!.runId)).toEqual({ messageId: 'msg_1', toolName: 'CreateWorkflow' })
+    expect(manager.runsForSession('ses_other')).toHaveLength(1)
+    // Actor sessions are recorded on the actor rows by the driver; the stub sandbox
+    // never creates one, so seed the row the lookup reads.
+    journal.putActor({ runId: runs[0]!.runId, siteId: 'agent#1', ordinal: 1, sessionId: 'ses_actor' })
+    expect(manager.runForActorSession('ses_actor')).toBe(runs[0]!.runId)
+    expect(manager.runForActorSession('ses_nobody')).toBeUndefined()
+    expect(journal.listRuns()).toHaveLength(2)
+  })
+
+  it('exposes the projected run by id', async () => {
+    const { manager } = makeManager()
+    const res = await manager.submit({ scriptText: SCRIPT, cwd: dir })
+    await settleTick()
+    const runId = (res as { runId: string }).runId
+    expect(manager.projectedRun(runId)?.status).toBe('completed')
+    expect(manager.projectedRun('dwfrun-nope')).toBeUndefined()
+  })
+
+  it('refuses to resume a superseded run (its revision is the live one)', async () => {
+    const { manager, journal } = makeManager()
+    const res = await manager.submit({ scriptText: SCRIPT, cwd: dir })
+    await settleTick()
+    const runId = (res as { runId: string }).runId
+    const amended = await manager.amend(runId, SCRIPT + '\nlog("v2");\n')
+    await settleTick()
+    expect(amended.ok).toBe(true)
+    expect(journal.getRun(runId)).toMatchObject({ status: 'stopped', stopReason: 'superseded' })
+    expect(manager.resume(runId)).resolves.toMatchObject({ ok: false, error: 'not_resumable:superseded' })
+    // The projection and the gate agree — that is the whole point of the assertion.
+    expect(manager.projectedRun(runId)?.resumable).toBeUndefined()
+  })
+
+  it('moves the live concurrency gate and writes the caps row in one step', async () => {
+    const { manager, journal } = makeManager({}, 'hold')
+    const res = await manager.submit({ scriptText: SCRIPT, cwd: dir, maxConcurrency: 2 })
+    const runId = (res as { runId: string }).runId
+    const seen: Array<{ previous: number; next: number }> = []
+    manager.driverFor(runId)!.setMaxConcurrency = ((n: number) => { seen.push({ previous: 0, next: n }) }) as never
+
+    expect(manager.amendSettings(runId, { maxConcurrency: 6 })).toEqual({ ok: true, maxConcurrency: 6 })
+    expect(seen).toEqual([{ previous: 0, next: 6 }])
+    expect(journal.getRun(runId)!.caps).toEqual({ maxConcurrency: 6 })
+
+    // Clamped to the process ceiling, and refused outright for a settled run.
+    expect(manager.amendSettings(runId, { maxConcurrency: 99 })).toEqual({ ok: true, maxConcurrency: 8 })
+    expect(manager.amendSettings('dwfrun-nope', { maxConcurrency: 2 })).toEqual({ ok: false, error: 'not_found' })
+  })
+
+  it('passes the declared phase table to the sandbox as run-launched metadata', async () => {
+    const seen: any[] = []
+    const journal = createWorkflowJournal({ dir })
+    const runScript = vi.fn(async (opts: any) => {
+      seen.push(opts.launch)
+      opts.makeDriver({} as never)
+      journal.updateRunStatus(opts.runId, 'completed', { result: null })
+      return { status: 'completed' } as RunSettlement
+    })
+    const manager = createWorkflowManager({
+      registry: singleBackendRegistry(fakeBackend()),
+      journal,
+      world: createWorldReader({ cwd: dir }),
+      artifacts: createArtifactStore({ dir, cwd: dir }),
+      runScript: runScript as never,
+      ceiling: 8,
+    })
+    await manager.submit({
+      scriptText: 'phase("collect");\nconst a = await agent("g").ask("hi");\nreturn a;',
+      cwd: dir,
+      inputId: 'in-42',
+      actorModel: { providerID: 'zai', modelID: 'glm-4.6' },
+    })
+    await settleTick()
+    expect(seen[0]).toEqual({ inputId: 'in-42', phaseNames: ['collect'], subagentModel: 'zai/glm-4.6' })
+  })
+})

@@ -19,8 +19,12 @@ import { runWorkflowScript } from '../../../vendor/zcode-dwf/dist/dynamic-workfl
 import type { BackendRegistry } from '../agent/registry.js'
 import type { ArtifactStore } from './artifacts.js'
 import type { WorkflowJournal } from './journal.js'
+import type { RunToolJoin } from './journal.js'
 import { createWorkflowDriver, type ActorModel, type WorkflowDriverHandle } from './driver.js'
 import type { WorldReader } from './world.js'
+import { analyzePhases } from './phases.js'
+import { projectRun, type ProjectedRun } from './projection.js'
+import type { EscalationRegistry } from './escalations.js'
 import { createLogger } from '../../utils/logger.js'
 
 const log = createLogger('workflow')
@@ -41,6 +45,9 @@ export interface CompileOutcome {
   lowered?: string
   scriptHash?: string
   declaredRunCommands?: string[]
+  /** The declared `phase("…")` table + parallelism map (`run-launched` metadata). */
+  phaseNames?: string[]
+  phaseAlongside?: number[][]
 }
 
 /** Mirrors the upstream run service's single compile pass (see PATCHES/notes). */
@@ -66,6 +73,11 @@ export function compileScript(scriptText: string): CompileOutcome {
   const worldRun = collectWorldRunCommands(workflow, table)
   if (worldRun.diagnostics.length > 0) return { ok: false, diagnostics: worldRun.diagnostics }
 
+  // The declared phase table rides `run-launched` (the engine never reads it, it only
+  // journals it), and the panel's mini rail draws from there. Cheap for the common case:
+  // a script with no `phase(` marker has no phase vocabulary to find.
+  const declaredPhases = analyzePhases(scriptText)
+
   return {
     ok: true,
     diagnostics: [],
@@ -75,6 +87,7 @@ export function compileScript(scriptText: string): CompileOutcome {
     // author text, so hashing what we happen to execute would silently misalign.
     scriptHash: createHash('sha256').update(scriptText, 'utf8').digest('hex'),
     declaredRunCommands: [...worldRun.commands],
+    ...declaredPhases,
   }
 }
 
@@ -92,7 +105,19 @@ export interface SubmitInput {
   cwd: string
   /** Session that asked for the run (provenance + notifications). */
   parentSessionId?: string
+  /**
+   * The turn that launched the run (`run-launched.inputId`). The engine journals it and
+   * the model-facing notification hangs off it; when the caller has no turn id (a CLI or
+   * HTTP submit) the manager mints one, because the field is host metadata either way.
+   */
+  inputId?: string
   toolCallId?: string
+  /**
+   * P4-1a: which tool call started this run. The panel joins the run to its tool card
+   * with this pair (the card's own `toolCallId` is minted by the engine after the call
+   * returns, so it cannot be known here).
+   */
+  toolJoin?: RunToolJoin
   args?: Record<string, unknown>
   /** Per-run actor model. */
   actorModel?: ActorModel
@@ -126,6 +151,8 @@ export interface WorkflowManagerDeps {
   now?: () => number
   /** Process concurrency ceiling; defaults to the vendored formula. */
   ceiling?: number
+  /** P4-1a: the escalation registry the run projection reads pending questions from. */
+  escalations?: EscalationRegistry
 }
 
 export interface WorkflowManager {
@@ -133,10 +160,34 @@ export interface WorkflowManager {
   list(): RunRecord[]
   get(runId: string): WorkflowRunView | undefined
   events(runId: string, opts?: { afterSequence?: number; limit?: number }): StoredEvent[]
+  /**
+   * P4-1a: the vendored run state the panel reads, for one session (or every run).
+   * Recomputed from the journal on every call — the journal is the single source of
+   * truth and the projection is a pure function of it.
+   */
+  projectedRuns(sessionId?: string): ProjectedRun[]
+  /** Same, for one run (the side pages). */
+  projectedRun(runId: string): ProjectedRun | undefined
+  /** The run that owns a parent session (tool-card join / notification anchor). */
+  runsForSession(sessionId: string): RunRecord[]
+  /**
+   * The run an *actor* session belongs to. Actor sessions are minted by the driver and
+   * recorded on the actor rows, so this is a journal read — and it is how an actor-side
+   * tool call (escalate / submit_result) finds the run to talk to.
+   */
+  runForActorSession(sessionId: string): string | undefined
+  /** The tool call that started a run (the panel's card join input). */
+  runJoin(runId: string): RunToolJoin | undefined
+  /**
+   * P4-1c: change one setting on a *live* run, in place — same runId, no successor, no
+   * ask lost (the vendored `amendWorkflowRunSettings` command's semantics for the
+   * concurrency knob). Returns the new caps, or a refusal reason.
+   */
+  amendSettings(runId: string, patch: { maxConcurrency?: number }): { ok: true; maxConcurrency: number } | { ok: false; error: string }
   cancel(runId: string, reason?: 'user' | 'model'): boolean
   resume(runId: string): Promise<{ ok: true } | { ok: false; error: string; diagnostics?: CompileOutcome['diagnostics'] }>
   /** Supersede a run with a revised script: new run, lineage pointer to the old. */
-  amend(runId: string, scriptText: string): Promise<{ ok: true; runId: string } | { ok: false; error: string; diagnostics?: CompileOutcome['diagnostics'] }>
+  amend(runId: string, scriptText: string, opts?: { toolJoin?: RunToolJoin }): Promise<{ ok: true; runId: string } | { ok: false; error: string; diagnostics?: CompileOutcome['diagnostics'] }>
   /** In-flight runs in this process (diagnostics / dispose). */
   live(): string[]
   /** P3: the live driver for a run, so actor-side tools can reach it. */
@@ -172,6 +223,48 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
     return `dwfrun-${randomUUID()}`
   }
 
+  /** `run-launched` metadata for a launch. The phase tables come from the compile pass
+   *  (the analyzer's own vocabulary), the model string is the host's pick for this run. */
+  function launchMetaFor(
+    compiled: CompileOutcome,
+    inputId: string | undefined,
+    actorModel?: ActorModel,
+  ): { inputId: string; phaseNames?: string[]; phaseAlongside?: number[][]; subagentModel?: string } {
+    return {
+      inputId: inputId ?? randomUUID(),
+      ...(compiled.phaseNames ? { phaseNames: compiled.phaseNames } : {}),
+      ...(compiled.phaseAlongside ? { phaseAlongside: compiled.phaseAlongside } : {}),
+      ...(actorModel ? { subagentModel: `${actorModel.providerID}/${actorModel.modelID}` } : {}),
+    }
+  }
+
+  /** The projection's artifact input: the byte store's index (content members) — the
+   *  event rows in the journal supply `kind` and the preset declarations. */
+  function artifactFacts(runId: string) {
+    return deps.artifacts.listVersions(runId).map((v) => ({
+      id: v.id,
+      // The store only ever holds content members; presets never reach it.
+      kind: 'file',
+      version: v.version,
+      contentType: v.contentType,
+      bytes: v.bytes,
+    }))
+  }
+
+  function project(runId: string): ProjectedRun | undefined {
+    const record = deps.journal.getRun(runId)
+    if (!record) return undefined
+    return projectRun({
+      record,
+      actors: deps.journal.listActors(runId),
+      nodes: deps.journal.listNodes(runId),
+      events: deps.journal.allEvents(runId),
+      artifacts: artifactFacts(runId),
+      escalations: deps.escalations?.all(runId) ?? [],
+      ceiling,
+    })
+  }
+
   /**
    * Kick a run off. Deliberately NOT awaited by its callers: a run outlives the
    * tool call that started it (the whole point of a background workflow), so
@@ -186,6 +279,8 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
     caps: Caps
     actorModel?: ActorModel
     tokenBudget?: number
+    /** `run-launched` metadata: the turn anchor and the declared phase tables. */
+    launchMeta?: { inputId: string; phaseNames?: string[]; phaseAlongside?: number[][]; subagentModel?: string }
   }): Promise<void> {
     const abort = new AbortController()
     // The engine hands us its report sink only when it constructs the driver
@@ -236,10 +331,14 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
       askSpecs: input.compiled.askSpecs as ReadonlyMap<string, AskSpec>,
       validate: (schema, value) => validate(schema as never, value),
       signal: abort.signal,
+      ...(input.launchMeta ? { launch: input.launchMeta } : {}),
     })
     live.delete(input.runId)
     const record = deps.journal.getRun(input.runId)
     if (record) deps.onSettled?.(record, settlement)
+    // A settled run has nobody listening: the escalation registry is in-memory by
+    // contract, and a terminal run "欠谁一个答案" is always false.
+    deps.escalations?.clear(input.runId)
     log.info(`run ${input.runId.slice(-8)} settled: ${settlement.status}`)
   }
 
@@ -267,6 +366,7 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
         ...(input.toolCallId ? { toolCallId: input.toolCallId } : {}),
         ...(input.args ? { args: input.args } : {}),
       })
+      if (input.toolJoin) deps.journal.updateRunJoin(runId, input.toolJoin)
       void launch({
         runId,
         scriptText: input.scriptText,
@@ -275,6 +375,7 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
         caps,
         ...(input.actorModel ? { actorModel: input.actorModel } : {}),
         ...(input.tokenBudget ? { tokenBudget: input.tokenBudget } : {}),
+        launchMeta: launchMetaFor(compiled, input.inputId, input.actorModel),
       })
       return { ok: true, runId }
     },
@@ -287,6 +388,56 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
       const record = deps.journal.getRun(runId)
       if (!record) return undefined
       return { record, actors: deps.journal.listActors(runId), nodes: deps.journal.listNodes(runId) }
+    },
+
+    projectedRuns(sessionId) {
+      const records = deps.journal.listRuns()
+      const scoped = sessionId ? records.filter((r) => r.parentSessionId === sessionId) : records
+      const out: ProjectedRun[] = []
+      for (const record of scoped) {
+        const projected = project(record.runId)
+        if (projected) out.push(projected)
+      }
+      return out
+    },
+
+    projectedRun(runId) {
+      return project(runId)
+    },
+
+    runsForSession(sessionId) {
+      return deps.journal.listRuns().filter((r) => r.parentSessionId === sessionId)
+    },
+
+    runForActorSession(sessionId) {
+      for (const record of deps.journal.listRuns()) {
+        if (deps.journal.listActors(record.runId).some((a) => a.sessionId === sessionId)) return record.runId
+      }
+      return undefined
+    },
+
+    runJoin(runId) {
+      return deps.journal.getRunJoin(runId)
+    },
+
+    amendSettings(runId, patch) {
+      const record = deps.journal.getRun(runId)
+      if (!record) return { ok: false, error: 'not_found' }
+      const entry = live.get(runId)
+      if (!entry) {
+        // A settled run has no in-flight asks to re-throttle; changing its row would
+        // only rewrite history. The honest answer is "start a run to change its caps".
+        return { ok: false, error: 'not_running' }
+      }
+      if (patch.maxConcurrency === undefined) return { ok: false, error: 'nothing_to_change' }
+      const next = Math.max(1, Math.min(Math.floor(patch.maxConcurrency), ceiling))
+      // The caps write and the seat-gate change are one step: the vendored contract
+      // requires them to agree (`run-caps-changed` carries both, and a resume reads
+      // the row back). The driver emits `run-caps-changed`; we own the row.
+      entry.driver.setMaxConcurrency(next)
+      const caps: Caps = { ...record.caps, maxConcurrency: next }
+      deps.journal.updateRunCaps(runId, caps)
+      return { ok: true, maxConcurrency: next }
     },
 
     events(runId, opts) {
@@ -308,6 +459,12 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
         // An errored run needs a revised script (amend), a completed one is done.
         return { ok: false, error: `not_resumable:${record.status}` }
       }
+      if (record.stopReason === 'superseded') {
+        // A superseded run was stopped *because* its revision is alive; resuming it
+        // would run two generations of the same lineage side by side. The projection
+        // says `resumable: false` for exactly this case, and the two must agree.
+        return { ok: false, error: 'not_resumable:superseded' }
+      }
       if (!record.scriptText) return { ok: false, error: 'no_script' }
       const compiled = compileScript(record.scriptText)
       if (!compiled.ok) return { ok: false, error: 'compile_failed', diagnostics: compiled.diagnostics }
@@ -321,11 +478,14 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
         compiled: compiled as CompileOutcome & { ok: true },
         cwd: record.cwd ?? process.cwd(),
         caps: record.caps,
+        // A resume re-runs the script; the actor model is pinned by the predecessor's
+        // records, so it is not re-supplied here.
+        launchMeta: launchMetaFor(compiled, undefined),
       })
       return { ok: true }
     },
 
-    async amend(runId, scriptText) {
+    async amend(runId, scriptText, opts) {
       const predecessor = deps.journal.getRun(runId)
       if (!predecessor) return { ok: false, error: 'not_found' }
       if (!TERMINAL.has(predecessor.status)) {
@@ -357,12 +517,14 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
         ...(predecessor.args ? { args: predecessor.args } : {}),
         resumedFrom: runId,
       })
+      if (opts?.toolJoin) deps.journal.updateRunJoin(nextRunId, opts.toolJoin)
       void launch({
         runId: nextRunId,
         scriptText,
         compiled: compiled as CompileOutcome & { ok: true },
         cwd: predecessor.cwd ?? process.cwd(),
         caps,
+        launchMeta: launchMetaFor(compiled, undefined),
       })
       return { ok: true, runId: nextRunId }
     },

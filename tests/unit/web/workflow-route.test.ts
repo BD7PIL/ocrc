@@ -13,6 +13,7 @@ import { createArtifactStore } from '../../../src/core/workflow/artifacts'
 import { createWorldReader } from '../../../src/core/workflow/world'
 import { createSavedWorkflowsStore } from '../../../src/core/workflow/saved'
 import { registerWorkflow } from '../../../src/transport/web/routes/workflow'
+import { createEscalationRegistry } from '../../../src/core/workflow/escalations'
 import { singleBackendRegistry } from '../../../src/core/agent/registry'
 import type { AgentBackend } from '../../../src/core/agent/backend'
 import type { RunSettlement } from '../../../vendor/zcode-dwf/dist/dynamic-workflow/src/index.js'
@@ -57,9 +58,10 @@ function makeApp(opts: { hold?: boolean } = {}) {
     journal, world: createWorldReader({ cwd: dir }), artifacts,
     runScript: runScript as never,
   })
+  const escalations = createEscalationRegistry()
   const app = new Hono()
-  registerWorkflow(app, { manager, artifacts, saved, registry: singleBackendRegistry(fakeBackend()) })
-  return { app, journal, artifacts, saved, manager }
+  registerWorkflow(app, { manager, artifacts, saved, registry: singleBackendRegistry(fakeBackend()), escalations })
+  return { app, journal, artifacts, saved, manager, escalations }
 }
 
 const json = async (res: Response) => await res.json() as any
@@ -207,5 +209,106 @@ describe('saved workflows', () => {
     const { app } = makeApp()
     expect((await app.request('/api/workflow/saved', { method: 'POST', body: JSON.stringify({ scriptText: SCRIPT }) })).status).toBe(400)
     expect((await app.request('/api/workflow/saved', { method: 'POST', body: JSON.stringify({ name: 'x' }) })).status).toBe(400)
+  })
+})
+
+// P4-1a/P4-1c — the read face the panel uses. The projection endpoint is what makes a
+// running run survive a refresh, so its shape (runs + the card join map) is pinned here
+// rather than only in the UI.
+describe('workflow routes — P4 projection + live settings', () => {
+  it('filters runs by parent session and returns the card join', async () => {
+    const { app } = makeApp()
+    const created = await json(await app.request('/api/workflow/runs', {
+      method: 'POST',
+      body: JSON.stringify({
+        scriptText: SCRIPT, cwd: dir, sessionId: 'ses_parent',
+        messageId: 'msg_9', toolName: 'CreateWorkflow',
+      }),
+    }))
+    await app.request('/api/workflow/runs', { method: 'POST', body: JSON.stringify({ scriptText: SCRIPT, cwd: dir, sessionId: 'ses_other' }) })
+
+    const mine = await json(await app.request('/api/workflow/runs?sessionId=ses_parent'))
+    expect(mine.runs).toHaveLength(1)
+    expect(mine.runs[0].runId).toBe(created.runId)
+    expect(mine.runs[0].parentSessionId).toBe('ses_parent')
+    expect((await json(await app.request('/api/workflow/runs'))).runs).toHaveLength(2)
+  })
+
+  it('projects a run into the vendored shape and hands over the join key', async () => {
+    const { app } = makeApp()
+    const created = await json(await app.request('/api/workflow/runs', {
+      method: 'POST',
+      body: JSON.stringify({ scriptText: SCRIPT, cwd: dir, sessionId: 'ses_parent', messageId: 'msg_9', toolName: 'CreateWorkflow' }),
+    }))
+    const body = await json(await app.request('/api/workflow/projection?sessionId=ses_parent'))
+    expect(body.joins[created.runId]).toEqual({ messageId: 'msg_9', toolName: 'CreateWorkflow' })
+    const run = body.runs[0]
+    expect(run.runId).toBe(created.runId)
+    expect(run.status).toBe('completed')
+    // The stub sandbox mints an actor session but never runs an ask, so there is no node
+    // row — and `nodesUsed: 0` is the honest count of that, not a placeholder.
+    expect(run.usage.nodesUsed).toBe(0)
+    expect(run.nodes).toEqual([])
+    expect(run.actors[0]).toMatchObject({ siteId: 'site-a', name: 'first', status: 'completed' })
+    // The stub settles with `{ ok: true }`, so the preview is the vendored
+    // pretty-printed form of the script's top-level return value.
+    expect(run.resultPreview).toBe('{\n  "ok": true\n}')
+
+    const single = await json(await app.request(`/api/workflow/projection/${created.runId}`))
+    expect(single.run.runId).toBe(created.runId)
+    expect((await app.request('/api/workflow/projection/dwfrun-nope')).status).toBe(404)
+  })
+
+  it('changes a live run\'s concurrency and refuses a live model change', async () => {
+    const { app } = makeApp({ hold: true })
+    const created = await json(await app.request('/api/workflow/runs', {
+      method: 'POST', body: JSON.stringify({ scriptText: SCRIPT, cwd: dir, maxConcurrency: 2 }),
+    }))
+    const ok = await json(await app.request(`/api/workflow/runs/${created.runId}/settings`, {
+      method: 'POST', body: JSON.stringify({ maxConcurrency: 3 }),
+    }))
+    expect(ok).toEqual({ ok: true, maxConcurrency: 3 })
+
+    const model = await app.request(`/api/workflow/runs/${created.runId}/settings`, {
+      method: 'POST', body: JSON.stringify({ subagentModel: 'zai/glm-4.6' }),
+    })
+    expect(model.status).toBe(409)
+    expect((await json(model)).error).toBe('subagent_model_immutable')
+  })
+
+  it('records an escalation against the actor\'s run and answers it', async () => {
+    const { app, manager } = makeApp()
+    const created = await json(await app.request('/api/workflow/runs', {
+      method: 'POST', body: JSON.stringify({ scriptText: SCRIPT, cwd: dir, sessionId: 'ses_parent' }),
+    }))
+    // The run's actor session is how the route finds the run (the actor rows hold it).
+    expect(manager.runForActorSession('ses_actor')).toBe(created.runId)
+
+    const raised = await json(await app.request('/api/workflow/escalate', {
+      method: 'POST', body: JSON.stringify({ sessionId: 'ses_actor', question: 'which config?' }),
+    }))
+    expect(raised.ok).toBe(true)
+    expect(raised.answer).toBeNull()
+
+    const pending = await json(await app.request(`/api/workflow/runs/${created.runId}/escalations`))
+    expect(pending.pending.map((e: any) => e.question)).toEqual(['which config?'])
+
+    const answered = await json(await app.request('/api/workflow/escalations/answer', {
+      method: 'POST', body: JSON.stringify({ runId: created.runId, question: 'which config?', answer: 'prod' }),
+    }))
+    expect(answered).toMatchObject({ ok: true, pending: [] })
+
+    const after = await json(await app.request(`/api/workflow/runs/${created.runId}/escalations`))
+    expect(after.pending).toHaveLength(0)
+    expect(after.answered[0].answer).toBe('prod')
+  })
+
+  it('refuses an escalation from a session that belongs to no run', async () => {
+    const { app } = makeApp()
+    const res = await app.request('/api/workflow/escalate', {
+      method: 'POST', body: JSON.stringify({ sessionId: 'ses_stray', question: 'hello?' }),
+    })
+    expect(res.status).toBe(409)
+    expect((await json(res)).error).toBe('no_run')
   })
 })

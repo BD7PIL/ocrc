@@ -38,6 +38,7 @@ import { createArtifactStore } from '../core/workflow/artifacts.js'
 import { createSavedWorkflowsStore } from '../core/workflow/saved.js'
 import { createWorkflowManager, type WorkflowManager } from '../core/workflow/manager.js'
 import { createWorkflowApproval } from '../core/workflow/approval.js'
+import { createEscalationRegistry } from '../core/workflow/escalations.js'
 import { selectAuthStrategy } from '../connectivity/auth/select.js'
 import type { Transport } from '../transport/interface.js'
 import { createLogger } from '../utils/logger.js'
@@ -143,6 +144,10 @@ export async function main(): Promise<void> {
   // N12 goal push channel: goal manager → WS hub (`goal` frames). Bound when the
   // web transport starts, like streamDeltaSink; a TG-only host simply drops them.
   const goalSink: { broadcast?: (frame: { sessionId: string; goal: import('../core/state.js').GoalRecord | undefined; verifying: boolean }) => void } = {}
+  // P4-1a: workflow run-progress hints → WS hub (`workflow` frames). Same shape and
+  // same binding moment as goalSink; the frame is a hint, the panel re-reads the
+  // projection over HTTP (one clock — see ws-hub.ts).
+  const workflowSink: { broadcast?: (frame: { sessionId: string; runId: string; status: string }) => void } = {}
   const remoteManager = createRemoteHostManager({ store: remotesStore })
 
   // Build every backend (spawning opencode server(s) + ACP agents) and wire each
@@ -216,6 +221,7 @@ export async function main(): Promise<void> {
   let workflowArtifacts: ReturnType<typeof createArtifactStore> | undefined
   let workflowSaved: ReturnType<typeof createSavedWorkflowsStore> | undefined
   let workflowApproval: ReturnType<typeof createWorkflowApproval> | undefined
+  const workflowEscalations = createEscalationRegistry()
   if (workflowEnabled) {
     const workflowJournal = createWorkflowJournal({ dir: workflowsDir })
     // P3: world.run's human gate. Fail-closed — an unanswered request is a deny.
@@ -252,6 +258,7 @@ export async function main(): Promise<void> {
         },
       }),
       artifacts: workflowArtifacts,
+      escalations: workflowEscalations,
       // Token accounting for the budget gate: the engine's own per-session
       // counters, summed for the actor session. Same source the panel shows, so
       // "over budget" means the same thing in both places.
@@ -263,7 +270,16 @@ export async function main(): Promise<void> {
           return { tokens: (tokens.input ?? 0) + (tokens.output ?? 0), toolCalls: 0, turns: 1 }
         } catch { return undefined }
       },
-      onEvent: () => { /* P4 projects these into the UI */ },
+      onEvent: (runId, event) => {
+        // P4-1a: a *hint* to the panel, not a payload. The run projection is derived
+        // from the journal (single clock), so the frame only says "this run moved" and
+        // the panel re-reads it over HTTP. Events without a status change (node
+        // progress, logs) still move the run's node table, so they count as movement.
+        if (!workflowSink.broadcast) return
+        const record = workflowJournal.getRun(runId)
+        if (!record?.parentSessionId) return
+        workflowSink.broadcast({ sessionId: record.parentSessionId, runId, status: record.status })
+      },
       onSettled: (record, settlement) => {
         const body = settlement.status === 'completed'
           ? `workflow 完成：${record.name ?? record.runId.slice(-8)}`
@@ -453,6 +469,8 @@ export async function main(): Promise<void> {
       workflowArtifacts,
       workflowSaved,
       workflowApproval,
+      workflowEscalations,
+      workflowSink,
       remoteManager,
       onRemoteEnabled: (r) => wireHandle.registerRemoteBackend(r),
       settingsConfigDir: process.env.OPENCODE_CONFIG_DIR ?? join(process.env.HOME ?? '', '.config', 'opencode'),

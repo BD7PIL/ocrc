@@ -32,6 +32,11 @@ export interface WebTransportConfig {
   workflowSaved?: import('../../core/workflow/saved.js').SavedWorkflowsStore
   /** P3: the world.run approval gate (the panel answers its cards). */
   workflowApproval?: import('../../core/workflow/approval.js').WorkflowApproval
+  /** P4-1a: the escalation registry (the run projection's pending questions). */
+  workflowEscalations?: import('../../core/workflow/escalations.js').EscalationRegistry
+  /** P4-1a: run-progress hints → WS hub (`workflow` frames). Same mutable-slot
+   *  reason as goalSink: the hub boots after the manager was constructed. */
+  workflowSink?: { broadcast?: (frame: { sessionId: string; runId: string; status: string }) => void }
   /** P2b-M7 cross-channel scheduled prompts (optional). */
   scheduler?: Scheduler
   /** M9 bot-channel settings store + live TG status (optional). */
@@ -92,6 +97,7 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
       if (cfg.streamDeltaSink) cfg.streamDeltaSink.broadcast = (frame) => wsHub.broadcastDelta(frame)
       if (cfg.statusSink) cfg.statusSink.broadcast = (frame) => wsHub.broadcastStatus(frame)
       if (cfg.goalSink) cfg.goalSink.broadcast = (frame) => wsHub.broadcastGoal(frame)
+      if (cfg.workflowSink) cfg.workflowSink.broadcast = (frame) => wsHub.broadcastWorkflow(frame)
       const app = buildServer({
         auth: cfg.auth,
         registry: cfg.registry,
@@ -119,6 +125,7 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
         workflowArtifacts: cfg.workflowArtifacts,
         workflowSaved: cfg.workflowSaved,
         workflowApproval: cfg.workflowApproval,
+        workflowEscalations: cfg.workflowEscalations,
       })
 
       // Immutable hashed assets cache forever; everything else (above all

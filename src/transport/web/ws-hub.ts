@@ -30,6 +30,14 @@ export interface WsHub {
    *  plus the transient verifying flag. Subscribers only — a goal belongs to one
    *  session's conversation, so it rides the same filter as status/delta. */
   broadcastGoal(frame: { sessionId: string; goal: GoalRecord | undefined; verifying: boolean }): void
+  /**
+   * P4-1a workflow frames: "this run changed, re-read it". Deliberately a *hint*
+   * rather than a payload — the run projection is derived from the journal, and pushing
+   * a second, differently-derived copy of run state over the socket is exactly the
+   * two-clock shape the vendored protocol spends a page arguing against. The panel
+   * re-fetches `/api/workflow/projection` and diffs against its own prior state.
+   */
+  broadcastWorkflow(frame: { sessionId: string; runId: string; status: string }): void
 }
 
 export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry; state: SessionState }): WsHub {
@@ -137,6 +145,16 @@ export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry;
       )
       if (targets.length === 0) return
       const payload = JSON.stringify({ type: 'goal', ...frame })
+      for (const state of targets) {
+        try { state.ws.send(payload) } catch {}
+      }
+    },
+    broadcastWorkflow(frame) {
+      const targets = [...clients.values()].filter(
+        (state) => state.ws.readyState === 1 && (state.subscribed.size === 0 || state.subscribed.has(frame.sessionId)),
+      )
+      if (targets.length === 0) return
+      const payload = JSON.stringify({ type: 'workflow', ...frame })
       for (const state of targets) {
         try { state.ws.send(payload) } catch {}
       }

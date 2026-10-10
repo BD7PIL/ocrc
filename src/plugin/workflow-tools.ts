@@ -154,6 +154,11 @@ export function createWorkflowTools(opts: AttachedOpts): Record<string, ReturnTy
               ...(args.workspace ? { cwd: args.workspace } : {}),
               ...(typeof args.tokenBudget === 'number' ? { tokenBudget: args.tokenBudget } : {}),
               ...(context?.sessionID ? { sessionId: context.sessionID } : {}),
+              // P4-1a: the run->tool-card join. The card's own toolCallId is minted by
+              // the engine after this call returns, so the host records the pair it can
+              // know and the panel resolves it against the row it holds.
+              ...(context?.messageID ? { messageId: context.messageID } : {}),
+              toolName: 'CreateWorkflow',
             }),
           },
         )
@@ -178,7 +183,12 @@ export function createWorkflowTools(opts: AttachedOpts): Record<string, ReturnTy
         if (refusal) return refusal
         const res = await callOr<{ runId?: string; error?: string; diagnostics?: Array<{ code: number; line?: number; column?: number; message: string }> }>(
           opts, `/api/workflow/runs/${encodeURIComponent(args.runId)}/amend`, {
-            method: 'POST', body: JSON.stringify({ scriptText: args.script }),
+            method: 'POST',
+            body: JSON.stringify({
+              scriptText: args.script,
+              ...(context?.messageID ? { messageId: context.messageID } : {}),
+              toolName: 'AmendWorkflow',
+            }),
           },
         )
         if ('error' in res) return down(opts, 'AmendWorkflow', res.error)

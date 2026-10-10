@@ -7,14 +7,16 @@ import type { ArtifactStore } from '../../../core/workflow/artifacts.js'
 import type { SavedWorkflowsStore } from '../../../core/workflow/saved.js'
 import type { BackendRegistry } from '../../../core/agent/registry.js'
 import type { WorkflowApproval } from '../../../core/workflow/approval.js'
+import type { EscalationRegistry } from '../../../core/workflow/escalations.js'
 import { compileScript } from '../../../core/workflow/manager.js'
 
 /**
  * P2 workflow surface. Deliberately thin: the manager owns run semantics and the
  * journal is the single source of truth, so these handlers only translate HTTP.
  *
- * The `/z/` projection (workflowRuns, deltas, the seven v4 query methods) is P4 and
- * layers on top of the same manager — nothing here is UI-shaped.
+ * P4-1a adds the projection endpoint (`/api/workflow/projection`), which is what the
+ * `/z/` panel reads: the manager turns the journal into the vendored run state and this
+ * route hands it over verbatim. Nothing here is UI-shaped — no route invents a field.
  */
 export interface WorkflowRouteDeps {
   manager: WorkflowManager
@@ -23,42 +25,62 @@ export interface WorkflowRouteDeps {
   registry: BackendRegistry
   /** P3: the world.run approval gate (absent = no run can start a command). */
   approval?: WorkflowApproval
+  /** P4-1a: the escalation registry (the run projection's pending questions). */
+  escalations?: EscalationRegistry
 }
 
 const SKILL_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../../../vendor/zcode-dwf/skills/dynamic-workflows')
 
 /**
- * Escalations raised by actor sessions. Deliberately in-memory: a question lives
- * exactly as long as the run that asked it, and a restarted host has no live run
- * to answer.
+ * Escalations raised by actor sessions. The records live in the host's registry
+ * (`src/core/workflow/escalations.ts`) so the run projection and this route read the
+ * same list — a question that the panel shows but the model cannot answer (or the
+ * reverse) is the one failure mode worth designing out.
  */
-const escalations = new Map<string, Array<{ question: string; answer?: string }>>()
-
-function recordEscalation(runId: string | undefined, question: string): void {
-  const key = runId ?? '*'
-  const list = escalations.get(key) ?? []
-  if (!list.some((e) => e.question === question)) list.push({ question })
-  escalations.set(key, list)
+function registryOf(deps: WorkflowRouteDeps): EscalationRegistry {
+  if (!deps.escalations) throw new Error('workflow escalations registry is not wired')
+  return deps.escalations
 }
 
 /** `ResolveWorkflowQuestion`: the parent-side answer to an actor's escalation. */
-export function answerEscalation(runId: string | undefined, question: string, answer: string): boolean {
-  const key = runId ?? '*'
-  const list = escalations.get(key) ?? []
-  const hit = list.find((e) => e.question === question)
-  if (hit) { hit.answer = answer; return true }
-  return false
-}
-
-/** Pending escalations for a run (surfaced in the run view). */
-export function pendingEscalations(runId: string): string[] {
-  return (escalations.get(runId) ?? []).filter((e) => !e.answer).map((e) => e.question)
+export function answerEscalation(deps: WorkflowRouteDeps, runId: string | undefined, question: string, answer: string): boolean {
+  if (!runId) return false
+  return registryOf(deps).answer(runId, question, answer)
 }
 
 export function registerWorkflow(app: Hono, deps: WorkflowRouteDeps) {
   const { manager, artifacts, saved } = deps
 
-  app.get('/api/workflow/runs', (c) => c.json({ runs: manager.list() }))
+  app.get('/api/workflow/runs', (c) => {
+    const sessionId = c.req.query('sessionId')
+    const runs = sessionId ? manager.runsForSession(sessionId) : manager.list()
+    return c.json({ runs })
+  })
+
+  /**
+   * The panel's read face (P4-1a): the vendored run state for a session, recomputed
+   * from the journal. The container revision is deliberately NOT here — the consumer
+   * owns it, because the consumer is the one coalescing deltas against a prior state.
+   *
+   * `joins` is our own extra (not part of the vendored wire): runId → the tool call that
+   * started it, so the panel can resolve the card join key against the rows it holds.
+   */
+  app.get('/api/workflow/projection', (c) => {
+    const sessionId = c.req.query('sessionId')
+    const runs = manager.projectedRuns(sessionId || undefined)
+    const joins: Record<string, { messageId: string; toolName: string }> = {}
+    for (const run of runs) {
+      const join = manager.runJoin(run.runId)
+      if (join) joins[run.runId] = join
+    }
+    return c.json({ runs, joins })
+  })
+
+  app.get('/api/workflow/projection/:id', (c) => {
+    const run = manager.projectedRun(c.req.param('id'))
+    if (!run) return c.json({ error: 'not_found' }, 404)
+    return c.json({ run })
+  })
 
   app.get('/api/workflow/runs/:id', (c) => {
     const view = manager.get(c.req.param('id'))
@@ -82,6 +104,7 @@ export function registerWorkflow(app: Hono, deps: WorkflowRouteDeps) {
       scriptText?: string; name?: string; cwd?: string; sessionId?: string
       tokenBudget?: number; maxConcurrency?: number
       actorModel?: { providerID: string; modelID: string }
+      messageId?: string; toolName?: string
     }
     if (typeof body.scriptText !== 'string' || !body.scriptText.trim()) {
       return c.json({ error: 'scriptText required' }, 400)
@@ -95,6 +118,9 @@ export function registerWorkflow(app: Hono, deps: WorkflowRouteDeps) {
       ...(typeof body.tokenBudget === 'number' ? { tokenBudget: body.tokenBudget } : {}),
       ...(typeof body.maxConcurrency === 'number' ? { maxConcurrency: body.maxConcurrency } : {}),
       ...(body.actorModel ? { actorModel: body.actorModel } : {}),
+      ...(body.messageId && body.toolName
+        ? { toolJoin: { messageId: body.messageId, toolName: body.toolName } }
+        : {}),
     })
     if (!res.ok) return c.json({ error: res.error, diagnostics: res.diagnostics }, 400)
     return c.json({ runId: res.runId })
@@ -112,11 +138,29 @@ export function registerWorkflow(app: Hono, deps: WorkflowRouteDeps) {
   })
 
   app.post('/api/workflow/runs/:id/amend', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { scriptText?: string }
+    const body = (await c.req.json().catch(() => ({}))) as { scriptText?: string; messageId?: string; toolName?: string }
     if (typeof body.scriptText !== 'string' || !body.scriptText.trim()) return c.json({ error: 'scriptText required' }, 400)
-    const res = await manager.amend(c.req.param('id'), body.scriptText)
+    const res = await manager.amend(c.req.param('id'), body.scriptText, {
+      ...(body.messageId && body.toolName ? { toolJoin: { messageId: body.messageId, toolName: body.toolName } } : {}),
+    })
     if (!res.ok) return c.json({ error: res.error, diagnostics: res.diagnostics }, 409)
     return c.json({ runId: res.runId })
+  })
+
+  /**
+   * P4-1c: a live run's settings, in place. Only the concurrency knob has a real
+   * implementation here; a model change on a live run is refused with a reason rather
+   * than accepted-and-ignored (the actors already own their sessions).
+   */
+  app.post('/api/workflow/runs/:id/settings', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { maxConcurrency?: number; subagentModel?: string }
+    if (typeof body.subagentModel === 'string' && body.subagentModel.trim()) {
+      return c.json({ error: 'subagent_model_immutable', message: 'A live run\'s subagent model cannot change: its actors already own their sessions. Amend the script to start a revision with a new model.' }, 409)
+    }
+    if (typeof body.maxConcurrency !== 'number') return c.json({ error: 'maxConcurrency required' }, 400)
+    const res = manager.amendSettings(c.req.param('id'), { maxConcurrency: body.maxConcurrency })
+    if (!res.ok) return c.json({ error: res.error }, res.error === 'not_found' ? 404 : 409)
+    return c.json({ ok: true, maxConcurrency: res.maxConcurrency })
   })
 
   /** Artifact bytes. The journal only ever holds `uri` + `bytes`; the bytes are
@@ -163,16 +207,32 @@ export function registerWorkflow(app: Hono, deps: WorkflowRouteDeps) {
    * judgment rather than block the run.
    */
   app.post('/api/workflow/escalate', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { sessionId?: string; question?: string; runId?: string }
+    const body = (await c.req.json().catch(() => ({}))) as { sessionId?: string; question?: string; runId?: string; context?: string }
     const question = typeof body.question === 'string' ? body.question.trim() : ''
     if (!question) return c.json({ error: 'question required' }, 400)
-    recordEscalation(body.runId, question)
-    const answered = (escalations.get(body.runId ?? '*') ?? []).find((e) => e.question === question)?.answer
+    // The actor's own session is the authoritative way back to the run (the actor rows
+    // record it); `runId` is a hint the actor's prompt carried and is only a fallback.
+    const runId = (body.sessionId ? manager.runForActorSession(body.sessionId) : undefined) ?? body.runId
+    if (!runId || !manager.get(runId)) {
+      return c.json({
+        ok: false,
+        error: 'no_run',
+        question,
+        note: 'This session is not attached to a workflow run, so there is nobody to answer. Continue with your best judgment and say what you assumed.',
+      }, 409)
+    }
+    const rec = registryOf(deps).raise({
+      runId,
+      question,
+      ...(body.sessionId ? { sessionId: body.sessionId } : {}),
+      ...(body.context ? { context: body.context } : {}),
+    })
     return c.json({
       ok: true,
+      qid: rec.qid,
       question,
-      answer: answered ?? null,
-      note: answered
+      answer: rec.answer ?? null,
+      note: rec.answer
         ? 'The user answered your question.'
         : 'No answer is available yet — continue with your best judgment and say what you assumed.',
     })
@@ -199,8 +259,19 @@ export function registerWorkflow(app: Hono, deps: WorkflowRouteDeps) {
     if (typeof body.question !== 'string' || typeof body.answer !== 'string' || !body.answer.trim()) {
       return c.json({ error: 'question and answer required' }, 400)
     }
-    const ok = answerEscalation(body.runId, body.question, body.answer)
-    return c.json({ ok, pending: body.runId ? pendingEscalations(body.runId) : [] }, ok ? 200 : 404)
+    const ok = answerEscalation(deps, body.runId, body.question, body.answer)
+    const pending = body.runId ? registryOf(deps).pending(body.runId).map((e) => e.question) : []
+    return c.json({ ok, pending }, ok ? 200 : 404)
+  })
+
+  /** Pending escalations of a run (the run view's "waiting on you" section). */
+  app.get('/api/workflow/runs/:id/escalations', (c) => {
+    const runId = c.req.param('id')
+    const all = registryOf(deps).all(runId)
+    return c.json({
+      pending: all.filter((e) => e.answer === undefined),
+      answered: all.filter((e) => e.answer !== undefined),
+    })
   })
 
   /** `EvalWorkflowSnippet`: compile-only, no run. This is the feedback loop the

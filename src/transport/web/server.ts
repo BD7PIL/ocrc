@@ -100,6 +100,8 @@ export interface BuildServerOpts {
   workflowSaved?: import('../../core/workflow/saved.js').SavedWorkflowsStore
   /** P3: the world.run approval gate. */
   workflowApproval?: import('../../core/workflow/approval.js').WorkflowApproval
+  /** P4-1a: the escalation registry (the run projection's pending questions). */
+  workflowEscalations?: import('../../core/workflow/escalations.js').EscalationRegistry
 }
 
 export function buildServer(opts: BuildServerOpts): Hono {
@@ -183,6 +185,7 @@ export function buildServer(opts: BuildServerOpts): Hono {
       saved: opts.workflowSaved,
       registry: opts.registry,
       ...(opts.workflowApproval ? { approval: opts.workflowApproval } : {}),
+      ...(opts.workflowEscalations ? { escalations: opts.workflowEscalations } : {}),
     })
   }
   // P0-3: the ATTACHED-plugin channel (status / notify / echo probe). Registered

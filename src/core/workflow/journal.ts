@@ -31,6 +31,7 @@ import type {
  *   run-status  {status, settlement?} — the terminal/again status transition
  *   run-usage   {spentTokens}
  *   run-caps    {caps}
+ *   run-join    {join} — host-only metadata: which tool call started this run
  *   actor       full ActorRecord snapshot (upsert by siteId/ordinal)
  *   node        full NodeRecord snapshot (upsert by siteId/ordinal)
  *   event       one Boundary C RunEvent (sequence = 1-based count of event lines)
@@ -44,17 +45,37 @@ export interface WorkflowJournalOptions {
   now?: () => number
 }
 
+/**
+ * Which tool call started a run.
+ *
+ * The vendored `RunRecord.toolCallId` is the join key between a run and its tool card,
+ * but the id itself (`tool-<partId>`) is minted by the engine *after* the tool call
+ * returns — the plugin's `ToolContext` carries only `sessionID` / `messageID`. So the
+ * host records the pair it does know, and the panel resolves it against the tool row
+ * it already has (that row carries both `toolCallId` and the message id). This lives
+ * outside `RunRecord` on purpose: it is ocrc's own bookkeeping, and the vendored
+ * record is the engine's shape, not ours to extend.
+ */
+export interface RunToolJoin {
+  /** The parent session's message that contained the tool call. */
+  messageId: string
+  /** Tool name as the model called it (`CreateWorkflow` / `AmendWorkflow`). */
+  toolName: string
+}
+
 type Line =
   | { k: 'run'; rec: RunRecord }
   | { k: 'run-status'; status: RunStatus; settlement?: RunSettlementRecord }
   | { k: 'run-usage'; spentTokens: number }
   | { k: 'run-caps'; caps: Caps }
+  | { k: 'run-join'; join: RunToolJoin }
   | { k: 'actor'; rec: ActorRecord }
   | { k: 'node'; rec: NodeRecord }
   | { k: 'event'; seq: number; at: number; ev: RunEvent }
 
 interface RunState {
   record?: RunRecord
+  join?: RunToolJoin
   actors: Map<string, ActorRecord>
   nodes: Map<string, NodeRecord>
   events: StoredEvent[]
@@ -69,6 +90,9 @@ export interface WorkflowJournal extends JournalStorePort {
   listRuns(): RunRecord[]
   /** All events of a run, oldest first (recovery + the UI event page). */
   allEvents(runId: string): StoredEvent[]
+  /** Host metadata: which tool call started this run (the card join key's input). */
+  updateRunJoin(runId: string, join: RunToolJoin): void
+  getRunJoin(runId: string): RunToolJoin | undefined
   /** Path of a run's journal file (diagnostics / artifact co-location). */
   filePath(runId: string): string
   /** Forget a run entirely (only used by tests and `ocrc wf prune`). */
@@ -115,6 +139,7 @@ export function createWorkflowJournal(opts: WorkflowJournalOptions): WorkflowJou
       }
       case 'run-usage': if (state.record) state.record = { ...state.record, spentTokens: line.spentTokens }; break
       case 'run-caps': if (state.record) state.record = { ...state.record, caps: line.caps }; break
+      case 'run-join': state.join = line.join; break
       case 'actor': state.actors.set(actorKey(line.rec.siteId, line.rec.ordinal), line.rec); break
       case 'node': state.nodes.set(actorKey(line.rec.siteId, line.rec.ordinal), line.rec); break
       case 'event': state.events.push({ sequence: line.seq, event: line.ev, timeCreated: line.at }); break
@@ -169,6 +194,14 @@ export function createWorkflowJournal(opts: WorkflowJournalOptions): WorkflowJou
       const state = load(runId)
       if (!state.record) throw new Error(`workflow journal: unknown run ${runId}`)
       append(runId, { k: 'run-caps', caps })
+    },
+    updateRunJoin(runId, join) {
+      const state = load(runId)
+      if (!state.record) throw new Error(`workflow journal: unknown run ${runId}`)
+      append(runId, { k: 'run-join', join })
+    },
+    getRunJoin(runId) {
+      return load(runId).join
     },
     putActor(record) {
       append(record.runId, { k: 'actor', rec: record })

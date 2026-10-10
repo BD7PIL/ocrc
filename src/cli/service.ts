@@ -321,7 +321,12 @@ export async function main(argv: string[]): Promise<void> {
     }
     console.log(`ready — server http://localhost:${cfg.port} · web panel http://localhost:${webPort}`)
     console.log('the ocrc plugin (Telegram + web) starts automatically inside this process')
-    await printAnchorLinks(webPort)
+    // Anchor links are meaningless without the web panel (default OFF —
+    // OCRC_WEB_ENABLED=true opts in), so honor the same switch.
+    const webOn = (process.env.OCRC_WEB_ENABLED ?? process.env.WEB_ENABLED) === 'true'
+      || readConfigEnv().OCRC_WEB_ENABLED === 'true'
+      || readConfigEnv().WEB_ENABLED === 'true'
+    if (webOn) await printAnchorLinks(webPort)
     return
   }
 

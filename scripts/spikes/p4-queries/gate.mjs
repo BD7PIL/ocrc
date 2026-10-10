@@ -196,6 +196,44 @@ async function main() {
     JSON.stringify(bodyText.slice(0, 90)))
   await page.screenshot({ path: join(ROOT, 'shots', '6-artifact-pane.png') })
 
+  // ── the remaining side pages ───────────────────────────────────────────────
+  // The run digest's timeline opens the workspace transcript (`workflow-timeline-workspace-open`);
+  // the pane reads the run's world calls through the workspace query, so this is that query's
+  // page-level proof.
+  const workspaceOpen = page.locator('[data-testid="workflow-timeline-workspace-open"]').first()
+  const workspaceOpenable = (await workspaceOpen.count()) > 0
+  if (workspaceOpenable) await workspaceOpen.click()
+  const workspacePane = page.locator('[data-testid="workflow-workspace-card-body"], [data-testid="workflow-workspace-chapter"], [data-testid="workflow-workspace-not-started"]')
+  const workspaceShown = workspaceOpenable
+    ? await waitFor(async () => (await workspacePane.count()) > 0, { tries: 30, delay: 500, label: 'the workspace side pane' })
+    : false
+  const workspaceText = workspaceShown ? await workspacePane.first().locator('xpath=ancestor::*[3]').innerText().catch(() => '') : ''
+  // The pane renders the world call with a localized op label (搜索 for `glob`) plus its
+  // args, so the assertion looks for the args — the fact, not the locale's word for it.
+  check('aa) the workspace side page opens and lists the run’s world calls',
+    workspaceShown && /src\/core\/workflow|glob|搜索/.test(workspaceText),
+    `openable=${workspaceOpenable} shown=${workspaceShown} text=${JSON.stringify(workspaceText.slice(0, 70))}`)
+  await page.screenshot({ path: join(ROOT, 'shots', '10-workspace-pane.png') })
+
+  // NOT asserted here: the actor-session side page. Its opener IS wired (the run pane's actor
+  // pill carries `data-agent-open="true"`), but clicking it in this gate did not surface the
+  // actor's pane within the window — so it is recorded as a gap in
+  // docs/workflow-p4-record.md rather than dressed up as a pass. The data behind it (the
+  // actor rows with their session ids, and their transcripts' existence) is verified in
+  // p4-projection and p4b-amend.
+  const pill = page.locator('[data-testid="workflow-agent-pill"][data-agent-open="true"]').first()
+  check('ab) the actor pill is wired as the opener for the actor side page',
+    (await pill.count()) > 0 && (await pill.getAttribute('data-agent-status')) !== null,
+    `pills=${await page.locator('[data-testid="workflow-agent-pill"]').count()} status=${await pill.getAttribute('data-agent-status').catch(() => null)}`)
+
+  // The run directory page is opened from the status panel's Workflows section, gated on
+  // `endedWorkflowRunCount > 0`. That count comes from the same projection we feed; the
+  // panel body is not laid out in the mini variant, so the honest reading is the data.
+  const ended = (await json(`${PANEL}/api/workflow/projection?sessionId=${sessionId}`, { headers: auth })).runs
+    .filter((r) => ['completed', 'errored', 'stopped'].includes(r.status)).length
+  check('ac) the run directory has rows to show (its gate is the ended-run count)',
+    ended > 0, `endedRuns=${ended}`)
+
   check('z) no page errors from the run pages', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '))
   await ctx.close()
   browser.close()

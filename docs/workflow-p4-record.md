@@ -214,3 +214,32 @@ typed 是必需的：缓存按 `(actor 名, actorSeq, inputHash)` 命中，而�
   `resumed_from` 链）。两代修订之后，祖辈的条目不在缓存里。
 - **缓存缺席不阻塞 amend**：preflight 失败只记一行 warn 并照常修订（代价是 token，不是功能）。
   这样 P4b 之前的历史 run 也还能被修订。
+
+---
+
+# P4-2 侧页补记（第二轮，2026-10-10）
+
+第一轮的 31 项断言覆盖了七条查询，但计划里点名的五张侧页只实测了两张（run 详情、artifact）。
+补上 workspace 侧页后，**34/34 通过**（新增 `aa`/`ab`/`ac`）。
+
+| 侧页 | 结论 | 证据 |
+|---|---|---|
+| run 详情 | ✅ 实测打开且有数据 | p4-queries `u`/`v`（脚本图渲染，不再写「没有这张工作流程图」） |
+| artifact | ✅ 实测打开且**真读到字节** | p4-queries `x`/`y`（代码块里是 markdown 原文） |
+| workspace | ✅ 实测打开且有数据 | p4-queries `aa`：`workflow-timeline-workspace-open` → 面板列出 `搜索 src/core/workflow/*.ts`（13 个文件 · 18ms）与 `读取 projection.ts`（22.4 KB）——即 workspace 查询的页面级证据（截图 `10-workspace-pane.png`） |
+| actor 会话 | ⚠️ **未实测打开**（见下） | `ab` 只断言入口已接线（pill 带 `data-agent-open="true"`、状态 `done`） |
+| directory | ⚠️ 未实测打开（见下） | `ac` 断言它的门（已结束 run 数 > 0）与数据面 |
+
+## 如实说明：两张侧页没实测打开
+
+- **actor 会话侧页**：入口已接线（run 面板的 actor pill 是 `<button>`，带 `data-agent-open="true"`），
+  但在门禁里点它之后，actor 的转录页在等待窗口内没有出现——我没有把它写成通过。它背后的数据是
+  验过的：actor 行带 session id（p4-projection `i`）、那些会话真的跑过 typed ask（p4b-amend 的
+  `a`/`e`）。**这是一条待查项**：要么是点击目标（pill 本体 vs 它的箭头）不对，要么是侧页在
+  `/z/` 的这个状态下的挂载路径不同。
+- **directory 侧页**：它的入口在**状态面板的 Workflows 分区**里（`workflow-run-directory-trigger`），
+  而那个分区在 mini 变体下面板正文不排版（与 P4-1 `l` 同一条限制，Playwright 连 force click 都
+  点不动）。所以只断言了它的门与数据面（已结束 run 数 > 0，投影 `endedRuns=1`）。
+  页面本身读的是同一份 `workflowRuns` 投影。
+
+两条都不影响「七条查询已通」这个结论：查询是 HTTP 层实测的（`d`–`r`），侧页只是它们的渲染端。

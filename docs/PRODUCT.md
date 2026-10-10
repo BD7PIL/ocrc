@@ -67,6 +67,14 @@ typed schema、repair/nudge、replay/resume 与 `vm` 沙箱；ocrc 写 driver �
 那条旧裁决一个字没动，改判的是「引擎自己的 dwf 面能不能整套用上」，答案是可以，且不用
 重造任何编排逻辑。
 
+**workflow 面板面落地**（2026-10-10，P4 + P4b）：`/z/` 里 workflow 面按 vendor 的验收表
+逐项对账完成——时间线 run 卡、状态面板 Workflows 分区、run/workspace/artifact 侧页、saved
+workflows 面板、侧栏轨道、冷快照不丢 run、4 条命令可用。**产品口径上「ZCode 有而我们没有的
+workflow 体验面」归零**，剩下的是产品裁决不做的项（见上）。两处**如实拒绝/降级**（写在 UI 与
+文档上，不留静默降级）：① `moveSavedWorkflow`（全局→项目）拒绝——ocrc 的已保存 workflow 是
+一个机器级 store，没有可搬的文件；② amend 的缓存只做**结果级复用**，分歧 actor 以空会话开场
+（全保真转录种子需要 message/part 存储，我们的是卡片式）。
+
 ## UI 原则（2026-10-06 裁决；2026-10-07 增补）
 
 - **右栏的显示能力 ≥ 中栏**：同一内容在右栏的渲染质量不得低于中栏（tool 输出含 md 切换，subagent 转写走统一 Card 管线）。

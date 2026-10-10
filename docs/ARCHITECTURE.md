@@ -228,7 +228,7 @@ inline buttons, and the ws `goal` frame → `state.updated` for the panel.
 Setting a goal kicks off its first turn (upstream's command runs its own turn);
 off-peak tasks pass `kickoff: false` because their own prompt is turn 1.
 
-## Dynamic workflows (P0–P3) — src/core/workflow/ + vendor/zcode-dwf/
+## Dynamic workflows (P0–P4) — src/core/workflow/ + vendor/zcode-dwf/
 
 ZCode 的 workflow 是**上游引擎 + 官方钩子工具面 + host 侧状态**的组合，不是自研编排
 执行引擎（PRODUCT.md 的硬边界）。三层各是谁的：
@@ -263,6 +263,39 @@ SaveWorkflow / ListSavedWorkflows / EvalWorkflowSnippet / GetWorkflowSkill`，ac
 URL；host 启动即取锁标 `role:'host'`；插件读到活着的 host 就进 **ATTACHED**——只注册工具、
 零 transport、零端口、连 Telegram token 都不需要（host 拥有 bot）。没有 host 时逐字维持
 旧行为。这是「引擎里的 ocrc 工具」能存在的前提。
+
+### P4：面板面（/z/ 里的 workflow）
+
+引擎与工具面（P0–P3）只解决「能用」；P4 解决「看得见」。四层各归各位：
+
+- **投影**（`src/core/workflow/projection.ts`）：journal → vendor 的 `WorkflowRunState`。
+  上游用增量 reducer 从实时进度事件喂出这份状态，冷回放另有一条「按 journal 行补种」的路径；
+  ocrc 是后者形状的生产者（journal 是唯一权威、每次读都重算），所以这是那条补种路径的对应物。
+  派生：`usage.nodesUsed`、`nodes[].phase`（事件）、`phases/phaseNames/currentPhase/phaseAlongside`、
+  `reports[]`、`pendingQuestions[]`（引擎事件 ∪ actor 侧 `escalate` 登记表）、`artifacts[]`、
+  `resumable`（与 `manager.resume` 同一谓词）、`resultPreview`。**每张表按 vendor 线上界裁剪并
+  置 `truncated`**——超界不是丢一个键，是整帧解析失败。
+- **相位表**（`phases.ts`）：`run-launched` 里的 `phaseNames/phaseAlongside` 由提交方从因果图填入，
+  上游在「run 行还不存在」时才转录这条事件；ocrc 刻意先建行再启动，所以**由宿主自己在
+  `run-started` 之后补写**（元数据本来就是宿主写的）。
+- **七条读面**（`queries.ts` + `display.ts`）：`workflowRunEvents` / `workflowRuns` /
+  `workflowRunArtifacts` / `workflowRunArtifactData` / `workflowRunArtifactRead` /
+  `workflowRunWorkspace` / `workflowRunNodeResult`，形状逐字照 vendor（渲染端会校验），
+  授权按 vendor 的契约（`sessionId` 必须是 run 的 parentSessionId，不符与「无此 run」同一个 404）。
+  另有 `display.ts`：工具卡的因果图（run 侧页画的就是它），用同一份 vendored 分析器产出。
+- **桥**（`web-next/src/zcode-services/{workflowProjection,zcodeAgentService}.ts`）：投影进
+  `snapshot.workflowRuns`、键级增量用 vendor 自己的 `diffWorkflowRunsState`（容器 revision 归
+  消费侧）、ws `workflow` 帧只是「这条 run 动了」的提示（面板回读投影，单一时钟）、
+  sessions-index 的 `workflowActivity`、`backgroundWorks` 的 `kind:'workflow'`（workId ≡ runId）、
+  4 条命令 + 6 条 saved 方法。**`display` 挂在发起行的 `display` 上**，join 键由宿主记下的
+  `(messageID, toolName)` 与桥自己的工具行解析（工具卡的 `toolCallId` 由引擎在调用返回后才铸出）。
+
+**P4b（amend 的导入缓存）**：driver 在 ask 交换结束时补写 `NodeRecord.messageBoundary`（typed 在
+`respondToSubmit` 的 accept、untyped 在 `notifyTurnEnd`，都写在引擎结算之后），
+`imported-cache.ts` 据此从前驱 journal 构建 `ImportedRunCache`（preflight 与上游同规：任一条
+缺边界即整体拒绝）。**只做结果级复用**：分歧 actor 以空会话开场（全保真转录种子需要 message/part
+存储与会话复制，我们两样都没有），不带 in-flight 条目，resume 只回看一代前驱——三处降级都写在
+`imported-cache.ts` 的文件头与 docs/workflow-p4-record.md 里。
 
 **未完成**：`/z/` 的完整投影（P4：workflowRuns/deltas/7 查询/命令/saved/index/侧页）与
 amend 的导入缓存（P4b）。引擎侧与工具侧已可用（CLI + HTTP + 模型工具面）。

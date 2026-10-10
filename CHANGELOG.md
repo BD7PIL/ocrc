@@ -1,5 +1,67 @@
 # Changelog
 
+## 1.0.0-rc.6 — workflow 面板面（P4 + P4b：/z/ 里看得见 + amend 的导入缓存）(2026-10-10)
+
+> 口径：**ZCode 有而我们没有的 workflow 体验面归零**。P4 把引擎/工具面（P0–P3）接进面板：
+> 时间线 run 卡、状态面板 Workflows 分区、run/workspace/artifact 侧页、saved workflows 面板、
+> 侧栏轨道、冷快照不丢 run、4 条命令可用。四道门禁实测：P4-1 **22/22**、P4-2 **31/31**、
+> P4-3 **20/20**、P4b **14/14**（记录：`docs/workflow-p4-record.md`）。
+
+### feat(web-next): 动态工作流的总闸（P4-0）
+- 新增 `codingPlanSubscriptionService`：vendor 的 workflow 入口**全部**挂在
+  `getDynamicWorkflowClientConfig()` 上且取数失败 fail-closed，而我们的 accessor 原先没有这个
+  服务（落到 ghost Proxy → 方法 reject → 快照恒 `enabled:false` → 卡片/按钮/侧页/Saved
+  Workflows 全隐藏）。ocrc 没有账号体系、workflow 是本地引擎能力，如实回 `alwaysOn/override`。
+
+### feat(core): run 投影与相位表（P4-1a）
+- `projection.ts`：journal → vendor 的 `WorkflowRunState`（`usage.nodesUsed`、`nodes[].phase`、
+  `phases/phaseNames/currentPhase`、`reports[]`、`pendingQuestions[]`、`artifacts[]`、
+  `resumable`、`resultPreview`），每张表按 vendor 线上界裁剪并置 `truncated`（超界会让整帧
+  解析失败，不是丢一个键）。
+- `phases.ts`：`phaseNames/phaseAlongside` 从分析器的因果图读出，由宿主在 `run-started` 之后
+  补写 `run-launched`——上游只在「run 行还不存在」时转录这条事件，而 ocrc 刻意先建行再启动
+  （实测：声明阶段表与 per-run 子模型从来没进过 journal）。
+- `escalations.ts`：问题登记表搬出路由，引擎的 `escalation-raised` 与 actor 侧 `escalate`
+  合成同一份 `pendingQuestions`；journal 新增 `run-join` 行（run→工具卡的 join 键输入）。
+
+### feat(web-next): /z/ 里的 run 面（P4-1b/P4-1c）
+- 快照加 `workflowRuns`；键级增量用 vendor 自己的 `diffWorkflowRunsState`（容器 revision 归
+  消费侧；无变化不抬 revision，否则 vendor 的 diff 会退回整键重发）；ws `workflow` 帧只是提示，
+  面板回读投影（单一时钟）；capability bit `workflowRunDeltas: true`；sessions-index 的
+  `workflowActivity`（vendor 的派生函数此前全仓无调用者）；`backgroundWorks` 的
+  `kind:'workflow'`（workId ≡ runId）。
+- 4 条命令接真：`cancelBackgroundWork` / `resumeWorkflowRun` / `amendWorkflowRunSettings`
+  （就地改并发上限；活体换模型如实拒 `model_unavailable`）/ `startSavedWorkflow`。拒绝一律回
+  vendor 自己的 fault 前缀 + reason 词（UI 拿 reasonCode 反查文案）。
+- **修一个真 bug**：首次快照时卡片 join 键永远解不出来（行缓存是快照构建**之后**才写入的），
+  时间线上一张卡都没有。
+
+### feat(core): 七条读面与侧页（P4-2）
+- `queries.ts` + `display.ts`：`workflowRunEvents` / `workflowRuns` / `workflowRunArtifacts` /
+  `workflowRunArtifactData` / `workflowRunArtifactRead` / `workflowRunWorkspace` /
+  `workflowRunNodeResult` 七条只读查询，形状逐字照 vendor、授权按 vendor 契约（sessionId 必须
+  是 parentSessionId，不符与「无此 run」同一个 404）。`display.ts` 用同一份 vendored 分析器产出
+  工具卡的因果图——run 侧页画的就是它（此前写着「没有这张工作流程图」）。
+
+### feat(core): saved workflows 面板（P4-3）
+- saved store 加 `scope`（默认 project，与面板默认档一致）与 `whenToUse`，新增
+  `setMeta/getByName/listScoped/filePath`；路由按 vendor 形状回（`{workflows, invalid, dir}`、
+  meta、scope 两档）并加 name-keyed 一族与运行历史（按 run 自己的名字从 journal 查，带产物 chips）。
+  `moveSavedWorkflow` 如实拒绝（501 + 原因）。
+- **修一个真 bug**：vendor 的列表视图用**不带 name** 的 `listSavedWorkflowRuns` 拉该作用域全部
+  历史；拼成 `/by-name/undefined/runs` 后回的是失败信封而非 `{runs: []}`，面板拿 `undefined`
+  去遍历，整段设置页被错误边界接走（「e is not iterable」）。
+
+### feat(core): amend 的导入缓存（P4b）
+- 硬前置：driver 从不写 `NodeRecord.messageBoundary`，而 vendored 的缓存构建对缺边界的条目
+  **整体拒绝**。现在 driver 在 ask 交换结束时补写（typed 在 `respondToSubmit` 的 accept、
+  untyped 在 `notifyTurnEnd`，都写在引擎结算之后）。
+- `imported-cache.ts` 从前驱 journal 构建 `ImportedRunCache`（具名 actor 的最长全 completed
+  ask 前缀 + 按 inputHash 排队的世界读）。amend 先 preflight 再 supersede（缓存缺席不阻塞修订）；
+  resume 在有 `resumedFrom` 时从直接前驱重建。
+- **三处如实降级**（写进代码注释与文档）：只做结果级复用（分歧 actor 空会话开场）、不带
+  in-flight 条目、resume 只回看一代前驱。
+
 ## 1.0.0-rc.5 — workflow 全量落地 P0–P3（vendored dwf 引擎 + 官方钩子工具面 + host journal）(2026-10-10)
 
 > 口径：**ZCode 的 workflow 整套用上，但不重造编排逻辑**——引擎 vendor 上游 dwf，

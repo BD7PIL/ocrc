@@ -340,12 +340,22 @@
   （会话内创建首跑 resume 绑定会话，会话没了回落新建）、失败/取消可 `continue` 重取号、任务可
   携带 goal（派发后挂目标，kickoff 由工单自己的 prompt 承担）。`tests/unit/offpeak.test.ts`
   补上 N5 欠下的 24 条单测。
-- 🔶 workflow：**引擎与工具面已可用**（P0–P3，见 [../../docs/workflow-p3-record.md](../../docs/workflow-p3-record.md)：
-  模型经 `CreateWorkflow` 等 16 个工具作者化、host 侧 journal/并发/预算/审批/产物全通，三份实测记录
-  14/14 + 30/30 + 14/14）。**面板里还没有它**——`/z/` 的完整投影是 P4（`snapshot.workflowRuns` +
-  `workflowRunDeltas` + 7 个 v4 查询 + 4 条命令 + saved 家族 + `getDynamicWorkflowClientConfig` +
-  sessions-index `workflowActivity`），与 amend 的导入缓存（P4b）同批。在此之前 workflow 只能从
-  模型工具面、HTTP 与 `ocrc wf` 使用。
+- ✅ workflow：**引擎、工具面与面板面都已可用**（P0–P4，见
+  [../../docs/workflow-p3-record.md](../../docs/workflow-p3-record.md) 与
+  [../../docs/workflow-p4-record.md](../../docs/workflow-p4-record.md)）。逐项对账 vendor 的验收表：
+  - 时间线 run 卡（工具卡 join）— 门禁 p4-projection `k`
+  - 状态面板 Workflows 分区 — p4-projection `l`（断言到徽标/面板模型/分区标题；分区正文在
+    mini 变体下不排版，不声称展开后的行渲染过）
+  - run 侧页（状态/结果/阶段/并发/待答问题 + 脚本因果图）— p4-projection `n`/`o`/`p`、p4-queries `v`
+  - workspace 侧页与 7 条 v4 查询 — p4-queries `d`–`r`
+  - artifact 侧页（真读到字节）— p4-queries `x`/`y`
+  - saved workflows 面板（列表/启动/运行历史）— p4-saved `g`–`n`
+  - 侧栏轨道（`workflowActivity`）— p4-projection `j`
+  - 冷快照不丢 run（刷新后仍在）— p4-projection `m`
+  - 4 条命令（Stop / Resume / Configure / 启动已保存）— p4-projection `o`/`q`/`r`、p4-saved `k`
+  - amend 的导入缓存（结果级复用）— p4b-amend `g`–`j`
+  两处**如实拒绝/降级**：`moveSavedWorkflow` 拒绝（机器级 store，没有可搬的文件）；amend 只做
+  结果级复用（分歧 actor 空会话开场），不带 in-flight 条目，resume 只回看一代前驱。
 - **spike 实测记录**：[docs/n12-spike-record.md](../../docs/n12-spike-record.md)——
   A/C/D/E/F/G 隔离栈实测通过（含 UI 截图与 DOM 断言）；B 的 /z/ 半场用真 UI 点按钮通过，
   **TG 半场待用户本人跑**（我没有 Telegram 客户端，无法以用户身份发消息）。spike 修出

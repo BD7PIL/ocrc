@@ -144,7 +144,7 @@ Web 默认 `0.0.0.0:4099`（token 门禁）。PWA 安装需要安全上下文：
 - **关停**：host `dispose()` 会先 `goalManager.stop()` 再拆传输——停机时不会有续跑派发进已拆的
   relay。
 
-## Dynamic workflows（P0–P3）——运维要点
+## Dynamic workflows（P0–P4）——运维要点
 
 - **开关**：`OCRC_WORKFLOW=off` 整面变暗（不读 journal、不注册路由）。host 日志里
   `workflow engine enabled — journal at <dir>` / `workflow engine disabled` 是判据。
@@ -171,6 +171,29 @@ Web 默认 `0.0.0.0:4099`（token 门禁）。PWA 安装需要安全上下文：
   fan-out 就是 3 份上下文。想省就在脚本里少扇出，或给 `tokenBudget`。
 - **CLI**：`ocrc wf list|show|events|cancel|resume|amend|run|compile|saved`（读面不需要
   引擎在跑；`run`/`resume` 指向 host 用的同一个引擎，`OCRC_SERVER_URL` 决定是哪个）。
+
+### 面板面（P4）——面板与命令
+
+- **workflow 面在 `/z/` 里是否可见**，唯一总闸是 `codingPlanSubscriptionService
+  .getDynamicWorkflowClientConfig()`（我们如实回 `alwaysOn/override`）。它 fail-closed：取数
+  失败即 `enabled:false`，卡片/按钮/侧页/Saved Workflows 全部隐藏——面板里「什么都没有」时
+  先查这一条。
+- **读面**：`GET /api/workflow/projection[?sessionId=]` 是面板读的那一份（journal 现算）；
+  另有七条 vendor 形状的只读查询（`/runs/:id/{events/v4,workspace,artifacts/v4,...}`），
+  每条都要求 `sessionId` 等于该 run 的 parentSessionId。
+- **`ocrc wf` 与面板读同一份 journal**，但路径不同：CLI 直接读文件，面板经 HTTP。所以 CLI 能
+  看到而面板看不到时，先确认 host 在跑、token 有效。
+- **amend 的缓存**（P4b）：日志里 `amend <id>: import cache {...}` 是命中；`no import cache
+  (missing_boundaries)` 表示前驱的 ask 没有 `messageBoundary`（P4b 之前的 run 都是这样），
+  修订照常进行、只是重跑——不是错误。`messageBoundary` 由 driver 在 ask 交换结束时补写，
+  单位是 actor 会话的**卡片条数**。
+- **saved workflows**：`~/.ocrc/workflows/saved.json` 是**机器级**一个 store（不是按项目分
+  目录的文件）。面板的 `dir`/`path` 报的就是这个文件；scope 是记录上的字段（默认 `project`）。
+  `moveSavedWorkflow`（全局→项目）如实拒绝——没有可搬的文件。
+- **门禁**（隔离栈 + 真实浏览器/CDP，全部在 `scripts/spikes/p4-*/`）：
+  `p4-projection` 22/22、`p4-queries` 31/31、`p4-saved` 20/20、`p4b-amend` 14/14。
+  每道都自起 host(:4199)+引擎(:4295)+stub 模型(:4300)，**生产引擎 :4096 零接触**，子进程 env
+  显式清空 Telegram 凭据。记录见 `docs/workflow-p4-record.md`。
 
 ## 诊断速查
 

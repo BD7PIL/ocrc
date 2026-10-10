@@ -344,6 +344,18 @@ const workflowRunsBySession = new Map<string, WorkflowRunsState>()
 
 /** 七条只读查询的统一取数：非 2xx 一律抛（vendor 的查询族没有「部分结果」这一档，
  *  静默回空数组会让侧页显示成「这个 run 什么都没有」——那是假话）。 */
+/** 同 workflowQuery，但把「失败信封」也当结果回（saved-workflow 族的失败是
+ *  `{ok:false, reason}` 而不是异常——vendor 的 schema 就是这么定义的，抛出去反而让面板
+ *  显示成「读取失败」而不是那句具体原因）。 */
+async function workflowQueryOrFailure(path: string, init?: RequestInit): Promise<any> {
+  const res = await fetch(path, {
+    ...init,
+    headers: { ...(init?.headers ?? {}), Authorization: `Bearer ${token()}` },
+  })
+  const body = await res.json().catch(() => ({ ok: false, reason: 'read_error' }))
+  return body
+}
+
 async function workflowQuery(path: string): Promise<any> {
   const res = await fetch(path, { headers: { Authorization: `Bearer ${token()}` } })
   if (!res.ok) throw new Error(`workflow query ${path.split('?')[0]} → ${res.status}`)
@@ -1726,21 +1738,17 @@ export function createOcrcZcodeAgentService(): any {
         if (!name) {
           return { commandId: envelope.commandId, status: 'rejected', reasonCode: 'fault.command.savedWorkflowStartRejected.invalid_name', message: 'startSavedWorkflow 需要 name', revisionAtDecision: 0 }
         }
-        // scope 只在能真正履行时才认：ocrc 的 saved store 目前全部是 global 作用域，
-        // 所以 project 作用域下没有任何可命中的条目——如实回 not_found（P4-3 落 scope）。
-        if (payload.scope === 'project') {
-          return { commandId: envelope.commandId, status: 'rejected', reasonCode: 'fault.command.savedWorkflowStartRejected.not_found', message: `没有项目作用域的已保存 workflow（ocrc 的 saved 面目前只有 global）：${name}`, revisionAtDecision: 0 }
+        // 名字 + 作用域一起解析（vendor 的 saved-workflow 族就是 name-keyed；scope 缺省
+        // 是 project，与面板的默认档一致）。
+        const scopeQuery = payload.scope ? `?scope=${payload.scope}` : ''
+        const getRes = await fetch(`/api/workflow/saved/by-name/${encodeURIComponent(name)}${scopeQuery}`, {
+          headers: { Authorization: `Bearer ${token()}` },
+        })
+        if (!getRes.ok) {
+          const reason = getRes.status === 404 ? 'not_found' : 'start_failed'
+          return { commandId: envelope.commandId, status: 'rejected', reasonCode: `fault.command.savedWorkflowStartRejected.${reason}`, message: `没有名为 ${name} 的已保存 workflow（scope=${payload.scope ?? 'project'}）`, revisionAtDecision: 0 }
         }
-        const listRes = await fetch('/api/workflow/saved', { headers: { Authorization: `Bearer ${token()}` } })
-        if (!listRes.ok) {
-          return { commandId: envelope.commandId, status: 'rejected', reasonCode: 'fault.command.savedWorkflowStartRejected.start_failed', message: `GET /api/workflow/saved ${listRes.status}`, revisionAtDecision: 0 }
-        }
-        const list = (await listRes.json()) as { workflows?: Array<{ id: string; name: string }> }
-        const wf = (list.workflows ?? []).find((w) => w.name === name)
-        if (!wf) {
-          return { commandId: envelope.commandId, status: 'rejected', reasonCode: 'fault.command.savedWorkflowStartRejected.not_found', message: `没有名为 ${name} 的已保存 workflow`, revisionAtDecision: 0 }
-        }
-        const runRes = await fetch(`/api/workflow/saved/${encodeURIComponent(wf.id)}/run`, {
+        const runRes = await fetch(`/api/workflow/saved/by-name/${encodeURIComponent(name)}/run${scopeQuery}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
           body: JSON.stringify({ ...(payload.args ? { args: payload.args } : {}), ...(sessionId ? { sessionId } : {}) }),
@@ -1811,6 +1819,53 @@ export function createOcrcZcodeAgentService(): any {
     if (params?.maxBytes !== undefined) query.set('maxBytes', String(params.maxBytes))
     return await workflowQuery(`/api/workflow/runs/${encodeURIComponent(String(params?.runId))}/nodes/${encodeURIComponent(String(params?.siteId))}/${String(params?.ordinal)}/result?${query}`)
   },
+    // ── P4-3 已保存工作流的 GUI 中枢 ──
+    // vendor 这一族是 **name-keyed**，形状照 zcode-protocol 的 saved-workflow schema 逐字回。
+    // ocrc 的 store 是机器级的一个 JSON（不是按项目分目录的 frontmatter 文件），所以：
+    // `dir`/`path` 报的是那个文件（记录确实住在那儿），`invalid` 恒空（JSON 不会解析失败），
+    // scope 是记录上的字段而不是目录推得的。这三条都写在路由的注释里，不假装是上游那种布局。
+    async listSavedWorkflows(params: { scope?: 'project' | 'global' } = {}) {
+      const query = params?.scope ? `?scope=${params.scope}` : ''
+      return await workflowQuery(`/api/workflow/saved${query}`)
+    },
+    async getSavedWorkflow(params: { name?: string; scope?: 'project' | 'global' }) {
+      const query = params?.scope ? `?scope=${params.scope}` : ''
+      return await workflowQueryOrFailure(`/api/workflow/saved/by-name/${encodeURIComponent(String(params?.name))}${query}`)
+    },
+    async updateSavedWorkflowMeta(params: { name?: string; scope?: 'project' | 'global'; meta?: Record<string, unknown> }) {
+      const query = params?.scope ? `?scope=${params.scope}` : ''
+      return await workflowQueryOrFailure(`/api/workflow/saved/by-name/${encodeURIComponent(String(params?.name))}/meta${query}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params?.meta ?? {}),
+      })
+    },
+    async deleteSavedWorkflow(params: { name?: string; scope?: 'project' | 'global' }) {
+      const query = params?.scope ? `?scope=${params.scope}` : ''
+      return await workflowQueryOrFailure(`/api/workflow/saved/by-name/${encodeURIComponent(String(params?.name))}${query}`, { method: 'DELETE' })
+    },
+    async listSavedWorkflowRuns(params: { name?: string; scope?: 'project' | 'global'; limit?: number }) {
+      const search = new URLSearchParams()
+      if (params?.scope) search.set('scope', params.scope)
+      if (params?.limit !== undefined) search.set('limit', String(params.limit))
+      const suffix = search.toString() ? `?${search}` : ''
+      // 无 name = 列表视图要的是**该作用域的全部** run（vendor 的 store 就是这么调的）。
+      // 这一条必须永远回 `{runs: [...]}`：消费侧直接 `result.runs` 并遍历，回一个失败信封
+      // 会让面板拿 undefined 去迭代并触发错误边界（实测「e is not iterable」）。
+      const path = params?.name
+        ? `/api/workflow/saved/by-name/${encodeURIComponent(params.name)}/runs${suffix}`
+        : `/api/workflow/saved/runs${suffix}`
+      const body = await workflowQueryOrFailure(path)
+      return { runs: Array.isArray(body?.runs) ? body.runs : [], ...(body?.truncated ? { truncated: true } : {}) }
+    },
+    /**
+     * `moveSavedWorkflow`（global → project）如实拒绝：上游是「把文件从全局目录搬到项目
+     * 目录」，ocrc 只有一个 store，没有可搬的文件。回 501 + reason，面板按 vendor 的失败
+     * 形状显示原因——假装成功会让面板显示成项目档而 store 里还是全局。
+     */
+    async moveSavedWorkflow(params: { name?: string }) {
+      return await workflowQueryOrFailure(`/api/workflow/saved/by-name/${encodeURIComponent(String(params?.name))}/move`, { method: 'POST' })
+    },
     async initializeConversationV4(_rawClientHello: unknown) {
       // ocrc：无独立握手校验面，接受即完成
       return undefined

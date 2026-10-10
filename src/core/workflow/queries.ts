@@ -422,4 +422,60 @@ function boundValue(value: unknown, budget: number): unknown {
   return value
 }
 
+// ── P4-3: saved-workflow run history ────────────────────────────────────────
+
+export interface SavedWorkflowRunView {
+  runId: string
+  name?: string
+  status: 'pending' | 'running' | 'completed' | 'errored' | 'stopped'
+  stopReason?: RunRecord['stopReason']
+  createdAt: number
+  updatedAt: number
+  spentTokens: number
+  parentSessionId?: string
+  toolCallId?: string
+  args?: Record<string, unknown>
+  cwd?: string
+  artifacts?: Array<{ id: string; kind: string; title?: string; version: number; contentType?: string }>
+}
+
+const RUN_STATUSES = new Set(['pending', 'running', 'completed', 'errored', 'stopped'])
+const SAVED_ARTIFACT_CHIPS = 8
+
+/**
+ * One run of a saved workflow, as the panel's run-history list wants it.
+ *
+ * `createdAt`/`updatedAt` come from the journal (the file's mtime and the last event's
+ * stamp) because the run row itself has no timestamps; `artifacts` is the ≤8 chips the
+ * list draws, taken from the same event rows the artifacts query reads.
+ */
+export function projectSavedWorkflowRun(input: { record: RunRecord; events: StoredEvent[]; createdAt: number }): SavedWorkflowRunView {
+  const { record, events, createdAt } = input
+  const lastEvent = events.length ? events[events.length - 1]!.timeCreated : undefined
+  const artifacts = projectArtifacts(events, createdAt)
+    .filter((a) => ARTIFACT_KINDS.has(a.kind))
+    .slice(0, SAVED_ARTIFACT_CHIPS)
+    .map((a) => ({
+      id: a.id,
+      kind: a.kind,
+      ...(a.title ? { title: a.title } : {}),
+      version: a.version,
+      ...(a.contentType ? { contentType: a.contentType } : {}),
+    }))
+  return {
+    runId: record.runId,
+    ...(nonEmpty(record.name) ? { name: record.name! } : {}),
+    status: RUN_STATUSES.has(record.status) ? record.status : 'running',
+    ...(record.stopReason ? { stopReason: record.stopReason } : {}),
+    createdAt,
+    updatedAt: lastEvent ?? createdAt,
+    spentTokens: record.spentTokens,
+    ...(nonEmpty(record.parentSessionId) ? { parentSessionId: record.parentSessionId } : {}),
+    ...(nonEmpty(record.toolCallId) ? { toolCallId: record.toolCallId } : {}),
+    ...(record.args ? { args: record.args } : {}),
+    ...(nonEmpty(record.cwd) ? { cwd: record.cwd } : {}),
+    ...(artifacts.length ? { artifacts } : {}),
+  }
+}
+
 export const WORKFLOW_QUERY_LIMITS = { WORKSPACE_LIMITS, ARTIFACT_LIMITS, RUNS_LIMIT_MAX, EVENT_PAYLOAD_MAX_BYTES }

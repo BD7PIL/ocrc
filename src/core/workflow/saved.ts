@@ -25,14 +25,28 @@ export interface SavedWorkflowArg {
   default?: unknown
 }
 
+/**
+ * P4-3: the vendored scope vocabulary. Upstream keeps two directories (`<workspace>/.zcode/
+ * workflows/` and `~/.zcode/workflows/`); ocrc keeps ONE machine-wide store, so the scope
+ * is a field on the record rather than a directory, and `project` means "authored in a
+ * workspace" rather than "stored under that workspace". The panel's default view is the
+ * project scope, so new saves default to `project` — an entry the user cannot see by
+ * default would be a worse lie than this one.
+ */
+export type SavedWorkflowScope = 'project' | 'global'
+
 export interface SavedWorkflow {
   id: string
   name: string
   description?: string
+  /** P4-3: the second half of the vendored meta (`description` + `whenToUse`). */
+  whenToUse?: string
   scriptText: string
   args?: SavedWorkflowArg[]
   /** Where the script was authored (workspace), so a run can default its cwd. */
   cwd?: string
+  /** P4-3: which scope the entry belongs to (see {@link SavedWorkflowScope}). */
+  scope?: SavedWorkflowScope
   createdAt: number
   updatedAt: number
   /** How many times it has been started (the list face sorts on it). */
@@ -44,15 +58,25 @@ export interface SavedWorkflowInput {
   name: string
   scriptText: string
   description?: string
+  whenToUse?: string
   args?: SavedWorkflowArg[]
   cwd?: string
+  scope?: SavedWorkflowScope
 }
 
 export interface SavedWorkflowsStore {
   list(): SavedWorkflow[]
+  /** P4-3: the scoped list face the panel's Automations tab reads. */
+  listScoped(scope?: SavedWorkflowScope): SavedWorkflow[]
   get(id: string): SavedWorkflow | undefined
+  /** The vendored saved-workflow API is name-keyed, so this is the lookup it uses. */
+  getByName(name: string, scope?: SavedWorkflowScope): SavedWorkflow | undefined
   /** Create or overwrite by name (the tool face is name-keyed, like upstream). */
   save(input: SavedWorkflowInput): SavedWorkflow
+  /** P4-3: the vendored `updateSavedWorkflowMeta` (description / whenToUse / args). */
+  setMeta(id: string, meta: { description: string; whenToUse?: string; args?: SavedWorkflowArg[] }): SavedWorkflow | undefined
+  /** Where the store keeps its records — the `dir`/`path` the panel reports. */
+  filePath(): string
   remove(id: string): boolean
   /** Validate + back-fill arguments against the saved declarations. */
   resolveArgs(id: string, provided: Record<string, unknown> | undefined):
@@ -103,13 +127,44 @@ export function createSavedWorkflowsStore(path: string): SavedWorkflowsStore {
     }
   }
 
+  const scopeOf = (w: SavedWorkflow): SavedWorkflowScope => w.scope ?? 'project'
+
   return {
     list() {
       return [...items].sort((a, b) => (b.lastRunAt ?? b.updatedAt) - (a.lastRunAt ?? a.updatedAt))
     },
 
+    listScoped(scope) {
+      const want = scope ?? 'project'
+      return this.list().filter((w) => scopeOf(w) === want)
+    },
+
     get(id) {
       return items.find((w) => w.id === id)
+    },
+
+    getByName(name, scope) {
+      const want = scope ?? 'project'
+      return items.find((w) => w.name === name.trim() && scopeOf(w) === want)
+    },
+
+    setMeta(id, meta) {
+      const existing = items.find((w) => w.id === id)
+      if (!existing) return undefined
+      const updated: SavedWorkflow = {
+        ...existing,
+        description: meta.description,
+        ...(meta.whenToUse !== undefined ? { whenToUse: meta.whenToUse } : {}),
+        ...(meta.args !== undefined ? { args: meta.args } : {}),
+        updatedAt: Date.now(),
+      }
+      items = items.map((w) => (w.id === id ? updated : w))
+      flush()
+      return updated
+    },
+
+    filePath() {
+      return path
     },
 
     save(input) {
@@ -123,6 +178,8 @@ export function createSavedWorkflowsStore(path: string): SavedWorkflowsStore {
           ...(input.description !== undefined ? { description: input.description } : {}),
           ...(input.args !== undefined ? { args: input.args } : {}),
           ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
+          ...(input.whenToUse !== undefined ? { whenToUse: input.whenToUse } : {}),
+          ...(input.scope !== undefined ? { scope: input.scope } : {}),
           updatedAt: now,
         }
         items = items.map((w) => (w.id === existing.id ? updated : w))
@@ -138,6 +195,8 @@ export function createSavedWorkflowsStore(path: string): SavedWorkflowsStore {
         ...(input.description !== undefined ? { description: input.description } : {}),
         ...(input.args !== undefined ? { args: input.args } : {}),
         ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
+        ...(input.whenToUse !== undefined ? { whenToUse: input.whenToUse } : {}),
+        scope: input.scope ?? 'project',
       }
       items = [...items, created]
       flush()

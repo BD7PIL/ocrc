@@ -123,3 +123,44 @@ ocrc host :4199  ←  引擎 :4295（装了 ocrc 插件，ATTACHED）  ←  stub
 - **产物 id 不合法 = 404，不是 500**：artifact store 对不安全 id 抛错；读面把抛出与「没有这件
   产物」归成同一个答案，既不是 500，也不做存在性预言。
 - **状态面板分区仍只断言到模型层**（P4-1 的说明不变）：mini 变体下面板正文不排版。
+
+---
+
+# P4-3 门禁记录 — saved workflows 面板
+
+门禁脚本：`scripts/spikes/p4-saved/gate.mjs`。最后一次运行：**20/20 通过**。
+
+## 20 项断言（摘要）
+
+| # | 断言 | 依据 |
+|---|---|---|
+| a | 宿主保存了一个带 meta 与声明实参的 workflow，scope=project | `/api/workflow/saved` |
+| b–c | 列表是 vendor 形状（`workflows` + `invalid` + `dir`），条目带 meta/scope/args | 同上 |
+| d | 首次运行前运行历史为空 | `/saved/by-name/<n>/runs` |
+| e–f | 壳渲染；自动化页给出「工作流」页签（P4-0 灰度为真） | `automations-page-tab-workflow` |
+| g–h | 页签列出该 workflow，卡片显示名字与说明 | `workflow-card-gate-audit` |
+| i–j | 「运行」打开启动弹层，弹层索要声明的实参 | `workflow-launch-dialog` / `workflow-launch-arg*` |
+| k | 提交后真的起了一个 run（`startSavedWorkflow`） | 按 name 查到该 run |
+| l–m | 运行历史按 run 自己的名字列出，带状态与产物 chips | 状态 completed + `report` chip |
+| n | 面板自己的运行历史页（定义/运行历史 页签）出现该行 | `workflow-run-row-<runId>` |
+| o | `moveSavedWorkflow` 如实拒绝并给出原因 | 501 + `reason: unsupported` |
+| p | 全程无页面错误 | `pageerror` 为空 |
+
+截图：`/tmp/ocrc-p4/shots/{7-saved-workflows,8-launch-dialog,9-saved-run-history}.png`。
+
+## 这一轮的关键决定与一处真 bug
+
+- **store 仍是一个机器级 JSON，但形状按 vendor 回**：`dir`/`path` 报的是那个文件（记录确实住
+  在那儿，面板照实显示成 `/…/.ocrc/workflows/saved.json`），`invalid` 恒空（JSON 不会解析失败），
+  `scope` 是记录上的字段而不是「文件在哪个目录」推得的。这三条都写在路由注释里，不假装是上游
+  那种「项目档 / 全局档两套目录」的布局。
+- **新保存默认 `project` 作用域**：面板的默认档就是 project，默认成 global 会让用户存完看不见。
+- **`moveSavedWorkflow` 如实拒绝**（501 + 原因）：上游是「把文件从全局目录搬到项目目录」，
+  ocrc 只有一个 store，没有可搬的文件。假装成功会让面板显示成项目档而 store 里还是全局。
+- **真 bug：列表视图的「无名字」运行历史调用**。vendor 的 store 在列表视图里用**不带 name**
+  的 `listSavedWorkflowRuns` 拉该作用域的全部历史；我最初把它拼成 `/by-name/undefined/runs`
+  → 404 → 回的是失败信封而不是 `{runs: []}` → 面板拿 `undefined` 去遍历，**整段设置页被错误
+  边界接走**（「e is not iterable」）。现在有一条无名路由（回该作用域的全部 run），桥侧也把
+  返回值强制成数组——消费侧直接 `result.runs` 并遍历，回信封就是崩。
+- **卡片/页签的 testid 带后缀**（`workflow-card-<name>`、`workflow-run-row-<runId>`），
+  「运行历史」在详情页的**分段页签**后面（定义 | 运行历史）。门禁按真实 DOM 走。

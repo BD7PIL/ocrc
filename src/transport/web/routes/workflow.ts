@@ -11,7 +11,7 @@ import type { EscalationRegistry } from '../../../core/workflow/escalations.js'
 import { compileScript } from '../../../core/workflow/manager.js'
 import {
   clampRunsLimit, projectArtifactItems, projectArtifacts, projectNodeResult, projectRunEvents,
-  projectRunSummary, projectWorkspace, readArtifactChunk,
+  projectRunSummary, projectSavedWorkflowRun, projectWorkspace, readArtifactChunk,
 } from '../../../core/workflow/queries.js'
 import { buildCreateWorkflowDisplay } from '../../../core/workflow/display.js'
 
@@ -450,12 +450,173 @@ export function registerWorkflow(app: Hono, deps: WorkflowRouteDeps) {
   })
 
   // ── saved workflows ───────────────────────────────────────────────────────
-  app.get('/api/workflow/saved', (c) => c.json({ workflows: saved.list() }))
+  // P4-3: the panel's saved-workflow hub reads the vendored shape
+  // (`{workflows, invalid, dir}`, meta = description + whenToUse + args, scope two-valued).
+  // ocrc keeps ONE machine-wide store, so `dir`/`path` report that store's file — the truth
+  // about where the record lives — and `invalid` is empty by construction (the store is
+  // JSON, not a directory of frontmattered markdown files that can fail to parse).
+  const savedEntry = (w: ReturnType<SavedWorkflowsStore['list']>[number]) => ({
+    name: w.name,
+    description: w.description ?? '',
+    ...(w.whenToUse ? { whenToUse: w.whenToUse } : {}),
+    ...(w.args?.length
+      ? {
+          args: Object.fromEntries(
+            w.args.map((a) => [a.name, { type: a.type, ...(a.description ? { description: a.description } : {}), ...(a.required ? { required: true } : {}), ...(a.default !== undefined ? { default: a.default } : {}) }]),
+          ),
+        }
+      : {}),
+    scope: w.scope ?? 'project',
+    path: saved.filePath(),
+  })
+
+  app.get('/api/workflow/saved', (c) => {
+    const scopeRaw = c.req.query('scope')
+    const scope = scopeRaw === 'global' || scopeRaw === 'project' ? scopeRaw : undefined
+    return c.json({
+      workflows: saved.listScoped(scope).map(savedEntry),
+      invalid: [],
+      dir: dirname(saved.filePath()),
+    })
+  })
+
+  /** The raw store list (ids included) — what `ocrc wf saved` and the tools use. */
+  app.get('/api/workflow/saved/raw', (c) => c.json({ workflows: saved.list() }))
+
+  // The vendored saved-workflow API is NAME-keyed; these are the routes the panel uses.
+  // (The id-keyed ones below stay for the model tool face and `ocrc wf`.)
+  const scopeOfQuery = (raw: string | undefined) => (raw === 'global' || raw === 'project' ? raw : undefined)
+
+  app.get('/api/workflow/saved/by-name/:name', (c) => {
+    const wf = saved.getByName(c.req.param('name'), scopeOfQuery(c.req.query('scope')))
+    if (!wf) return c.json({ ok: false, reason: 'not_found' }, 404)
+    return c.json({
+      ok: true,
+      name: wf.name,
+      path: saved.filePath(),
+      scope: wf.scope ?? 'project',
+      meta: {
+        description: wf.description ?? '',
+        ...(wf.whenToUse ? { whenToUse: wf.whenToUse } : {}),
+        ...(wf.args?.length ? { args: Object.fromEntries(wf.args.map((a) => [a.name, { type: a.type, ...(a.description ? { description: a.description } : {}), ...(a.required ? { required: true } : {}), ...(a.default !== undefined ? { default: a.default } : {}) }])) } : {}),
+      },
+      script: wf.scriptText,
+    })
+  })
+
+  /**
+   * The list view's history call: the vendored store asks for runs with NO name (it wants
+   * every run in the scope, not one workflow's). Answering that with a failure envelope
+   * made the panel iterate `undefined` and trip its error boundary ("e is not iterable") —
+   * so this route exists, and it always answers `{runs: [...]}`.
+   */
+  app.get('/api/workflow/saved/runs', (c) => {
+    const scope = scopeOfQuery(c.req.query('scope')) ?? 'project'
+    const names = new Set(saved.listScoped(scope).map((w) => w.name))
+    const limit = Math.max(1, Math.min(Number(c.req.query('limit') ?? 50) || 50, 64))
+    const runs = manager.list().filter((r) => r.name !== undefined && names.has(r.name))
+    const views = runs.slice(0, limit).map((record) => {
+      const snapshot = manager.runSnapshot(record.runId)
+      return projectSavedWorkflowRun({ record, events: snapshot?.events ?? [], createdAt: snapshot?.createdAt ?? 0 })
+    })
+    return c.json({ runs: views, ...(runs.length > limit ? { truncated: true } : {}) })
+  })
+
+  app.get('/api/workflow/saved/by-name/:name/runs', (c) => {
+    const wf = saved.getByName(c.req.param('name'), scopeOfQuery(c.req.query('scope')))
+    if (!wf) return c.json({ ok: false, reason: 'not_found' }, 404)
+    const limitRaw = c.req.query('limit')
+    const limit = Math.max(1, Math.min(Number(limitRaw ?? 20) || 20, 64))
+    const runs = manager.list().filter((r) => r.name === wf.name)
+    const views = runs.slice(0, limit).map((record) => {
+      const snapshot = manager.runSnapshot(record.runId)
+      return projectSavedWorkflowRun({ record, events: snapshot?.events ?? [], createdAt: snapshot?.createdAt ?? 0 })
+    })
+    return c.json({ runs: views, ...(runs.length > limit ? { truncated: true } : {}) })
+  })
+
+  app.post('/api/workflow/saved/by-name/:name/meta', async (c) => {
+    const wf = saved.getByName(c.req.param('name'), scopeOfQuery(c.req.query('scope')))
+    if (!wf) return c.json({ ok: false, reason: 'not_found' }, 404)
+    const body = (await c.req.json().catch(() => ({}))) as { description?: string; whenToUse?: string; args?: unknown }
+    if (typeof body.description !== 'string') return c.json({ ok: false, reason: 'invalid_meta' }, 400)
+    saved.setMeta(wf.id, {
+      description: body.description,
+      ...(typeof body.whenToUse === 'string' ? { whenToUse: body.whenToUse } : {}),
+      ...(Array.isArray(body.args) ? { args: body.args as never } : {}),
+    })
+    return c.json({ ok: true, path: saved.filePath() })
+  })
+
+  app.post('/api/workflow/saved/by-name/:name/move', (c) =>
+    c.json({
+      ok: false,
+      reason: 'unsupported',
+      detail: 'ocrc 的已保存 workflow 存在一个机器级 store 里（不是按项目分目录的文件），没有可搬动的文件。要换作用域请重新保存一次。',
+    }, 501))
+
+  app.delete('/api/workflow/saved/by-name/:name', (c) => {
+    const wf = saved.getByName(c.req.param('name'), scopeOfQuery(c.req.query('scope')))
+    if (!wf) return c.json({ ok: false, reason: 'not_found' }, 404)
+    return c.json({ ok: saved.remove(wf.id) })
+  })
+
+  /** P4-3: `getSavedWorkflow` — the entry plus its script (the detail page). */
+  app.get('/api/workflow/saved/:id', (c) => {
+    const scopeRaw = c.req.query('scope')
+    const scope = scopeRaw === 'global' || scopeRaw === 'project' ? scopeRaw : undefined
+    const byName = c.req.query('name')
+    const wf = byName ? saved.getByName(byName, scope) : saved.get(c.req.param('id'))
+    if (!wf) return c.json({ ok: false, reason: 'not_found' }, 404)
+    return c.json({
+      ok: true,
+      name: wf.name,
+      path: saved.filePath(),
+      scope: wf.scope ?? 'project',
+      meta: {
+        description: wf.description ?? '',
+        ...(wf.whenToUse ? { whenToUse: wf.whenToUse } : {}),
+        ...(wf.args?.length ? { args: Object.fromEntries(wf.args.map((a) => [a.name, { type: a.type, ...(a.description ? { description: a.description } : {}), ...(a.required ? { required: true } : {}), ...(a.default !== undefined ? { default: a.default } : {}) }])) } : {}),
+      },
+      script: wf.scriptText,
+    })
+  })
+
+  /** P4-3: `updateSavedWorkflowMeta`. */
+  app.post('/api/workflow/saved/:id/meta', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { description?: string; whenToUse?: string; args?: unknown }
+    if (typeof body.description !== 'string') return c.json({ ok: false, reason: 'invalid_meta' }, 400)
+    const updated = saved.setMeta(c.req.param('id'), {
+      description: body.description,
+      ...(typeof body.whenToUse === 'string' ? { whenToUse: body.whenToUse } : {}),
+      ...(Array.isArray(body.args) ? { args: body.args as never } : {}),
+    })
+    if (!updated) return c.json({ ok: false, reason: 'not_found' }, 404)
+    return c.json({ ok: true, path: saved.filePath() })
+  })
+
+  /** P4-3: `listSavedWorkflowRuns` — the run history, matched by the run's own name. */
+  app.get('/api/workflow/saved/:id/runs', (c) => {
+    const wf = saved.get(c.req.param('id'))
+    if (!wf) return c.json({ ok: false, reason: 'not_found' }, 404)
+    const limitRaw = c.req.query('limit')
+    const limit = Math.max(1, Math.min(Number(limitRaw ?? 20) || 20, 64))
+    const runs = manager.list().filter((r) => r.name === wf.name)
+    const views = runs.slice(0, limit).map((record) => {
+      const snapshot = manager.runSnapshot(record.runId)
+      return projectSavedWorkflowRun({
+        record,
+        events: snapshot?.events ?? [],
+        createdAt: snapshot?.createdAt ?? 0,
+      })
+    })
+    return c.json({ runs: views, ...(runs.length > limit ? { truncated: true } : {}) })
+  })
 
   app.post('/api/workflow/saved', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
-      name?: string; scriptText?: string; description?: string
-      args?: unknown; cwd?: string
+      name?: string; scriptText?: string; description?: string; whenToUse?: string
+      args?: unknown; cwd?: string; scope?: 'project' | 'global'
     }
     if (typeof body.name !== 'string' || !body.name.trim()) return c.json({ error: 'name required' }, 400)
     if (typeof body.scriptText !== 'string' || !body.scriptText.trim()) return c.json({ error: 'scriptText required' }, 400)
@@ -463,8 +624,10 @@ export function registerWorkflow(app: Hono, deps: WorkflowRouteDeps) {
       name: body.name,
       scriptText: body.scriptText,
       ...(typeof body.description === 'string' ? { description: body.description } : {}),
+      ...(typeof body.whenToUse === 'string' ? { whenToUse: body.whenToUse } : {}),
       ...(Array.isArray(body.args) ? { args: body.args as never } : {}),
       ...(typeof body.cwd === 'string' ? { cwd: body.cwd } : {}),
+      ...(body.scope === 'global' || body.scope === 'project' ? { scope: body.scope } : {}),
     })
     return c.json({ workflow: wf })
   })
@@ -472,6 +635,38 @@ export function registerWorkflow(app: Hono, deps: WorkflowRouteDeps) {
   app.delete('/api/workflow/saved/:id', (c) => {
     const ok = saved.remove(c.req.param('id'))
     return c.json({ ok }, ok ? 200 : 404)
+  })
+
+  /**
+   * P4-3: `moveSavedWorkflow` (global → project) is honestly refused. Upstream moves a
+   * file between two directories; ocrc has one store, so there is nothing to move — and
+   * "we did nothing but said yes" is the one answer the panel cannot recover from (it
+   * would show the entry as project-scoped while the store still says global).
+   */
+  app.post('/api/workflow/saved/:id/move', (c) =>
+    c.json({
+      ok: false,
+      reason: 'unsupported',
+      detail: 'ocrc 的已保存 workflow 存在一个机器级 store 里（不是按项目分目录的文件），没有可搬动的文件。要换作用域请重新保存一次。',
+    }, 501))
+
+  // The panel's launcher is name-keyed; the id-keyed route below stays for the tools.
+  app.post('/api/workflow/saved/by-name/:name/run', async (c) => {
+    const wf = saved.getByName(c.req.param('name'), scopeOfQuery(c.req.query('scope')))
+    if (!wf) return c.json({ error: 'not_found' }, 404)
+    const body = (await c.req.json().catch(() => ({}))) as { args?: Record<string, unknown>; sessionId?: string }
+    const resolved = saved.resolveArgs(wf.id, body.args)
+    if (!resolved.ok) return c.json({ error: resolved.error }, 400)
+    const res = await manager.submit({
+      scriptText: wf.scriptText,
+      cwd: wf.cwd ?? process.cwd(),
+      name: wf.name,
+      args: resolved.args,
+      ...(body.sessionId ? { parentSessionId: body.sessionId } : {}),
+    })
+    if (!res.ok) return c.json({ error: res.error, diagnostics: res.diagnostics }, 400)
+    saved.noteRun(wf.id)
+    return c.json({ runId: res.runId })
   })
 
   app.post('/api/workflow/saved/:id/run', async (c) => {

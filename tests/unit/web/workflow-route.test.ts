@@ -406,3 +406,76 @@ describe('workflow routes — P4-2 queries', () => {
     expect((await app.request(`/api/workflow/runs/${runId}/artifacts/nope/versions/1/read?sessionId=ses_parent&offset=0&limit=5`)).status).toBe(404)
   })
 })
+
+// P4-3 — the saved-workflow hub's wire shape. ocrc keeps one machine-wide store, so the
+// `dir`/`path` it reports is that store's file and `invalid` is empty by construction;
+// the meta is the vendored {description, whenToUse, args} and scope is two-valued.
+describe('workflow routes — P4-3 saved workflows', () => {
+  it('lists the vendored shape with scope and meta', async () => {
+    const { app, saved } = makeApp()
+    saved.save({
+      name: 'nightly', scriptText: SCRIPT, description: 'nightly audit', whenToUse: 'after a release',
+      args: [{ name: 'target', type: 'string', required: true, description: 'what to audit' }],
+    })
+    const body = await json(await app.request('/api/workflow/saved'))
+    expect(body.invalid).toEqual([])
+    expect(body.dir).toBeTypeOf('string')
+    expect(body.workflows).toHaveLength(1)
+    expect(body.workflows[0]).toMatchObject({
+      name: 'nightly', description: 'nightly audit', whenToUse: 'after a release', scope: 'project',
+    })
+    expect(body.workflows[0].args.target).toMatchObject({ type: 'string', required: true, description: 'what to audit' })
+    expect(body.workflows[0].path).toBeTypeOf('string')
+
+    // The global scope is a real filter (nothing is saved there yet).
+    expect((await json(await app.request('/api/workflow/saved?scope=global'))).workflows).toEqual([])
+    saved.save({ name: 'shared', scriptText: SCRIPT, scope: 'global' })
+    expect((await json(await app.request('/api/workflow/saved?scope=global'))).workflows.map((w: any) => w.name)).toEqual(['shared'])
+  })
+
+  it('gets an entry by name with its script and meta', async () => {
+    const { app, saved } = makeApp()
+    saved.save({ name: 'nightly', scriptText: SCRIPT, description: 'audit' })
+    const body = await json(await app.request('/api/workflow/saved/by-name/nightly'))
+    expect(body).toMatchObject({ ok: true, name: 'nightly', scope: 'project', meta: { description: 'audit' } })
+    expect(body.script).toBe(SCRIPT)
+    expect((await app.request('/api/workflow/saved/by-name/nope')).status).toBe(404)
+  })
+
+  it('updates the meta and deletes by name', async () => {
+    const { app, saved } = makeApp()
+    const wf = saved.save({ name: 'nightly', scriptText: SCRIPT, description: 'old' })
+    const updated = await json(await app.request('/api/workflow/saved/by-name/nightly/meta', {
+      method: 'POST', body: JSON.stringify({ description: 'new', whenToUse: 'when tests fail' }),
+    }))
+    expect(updated.ok).toBe(true)
+    expect(saved.get(wf.id)).toMatchObject({ description: 'new', whenToUse: 'when tests fail' })
+
+    expect((await json(await app.request('/api/workflow/saved/by-name/nightly', { method: 'DELETE' }))).ok).toBe(true)
+    expect(saved.get(wf.id)).toBeUndefined()
+  })
+
+  it('lists the run history by the run\'s own name, with artifact chips', async () => {
+    const { app, saved, journal } = makeApp()
+    const wf = saved.save({ name: 'nightly', scriptText: SCRIPT })
+    const created = await json(await app.request(`/api/workflow/saved/${wf.id}/run`, { method: 'POST', body: '{}' }))
+    journal.appendEvent(created.runId, {
+      type: 'artifact-published', instance: { siteId: 'artifact#1', ordinal: 1 },
+      artifact: { id: 'report', kind: 'markdown', version: 1, title: 'Report', publishedAt: 1 },
+    } as never)
+    const body = await json(await app.request('/api/workflow/saved/by-name/nightly/runs'))
+    expect(body.runs).toHaveLength(1)
+    expect(body.runs[0]).toMatchObject({ runId: created.runId, name: 'nightly', status: 'completed' })
+    expect(body.runs[0].artifacts).toEqual([{ id: 'report', kind: 'markdown', title: 'Report', version: 1 }])
+    expect(body.truncated).toBeUndefined()
+    expect((await app.request('/api/workflow/saved/by-name/nope/runs')).status).toBe(404)
+  })
+
+  it('honestly refuses moveSavedWorkflow (one machine-wide store, nothing to move)', async () => {
+    const { app, saved } = makeApp()
+    saved.save({ name: 'nightly', scriptText: SCRIPT, scope: 'global' })
+    const res = await app.request('/api/workflow/saved/by-name/nightly/move', { method: 'POST' })
+    expect(res.status).toBe(501)
+    expect((await json(res)).reason).toBe('unsupported')
+  })
+})

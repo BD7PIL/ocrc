@@ -22,6 +22,12 @@ export interface TokenAuthOptions {
   devBypass?: boolean
   /** Bind host, used as the bypass signal when the socket peer is unknown. */
   host?: string
+  /** Remote-control session credentials (structural — token.ts is imported BY
+   * pairing.ts, so the concrete store type would be a cycle). When wired, the
+   * middleware and the WS upgrade accept "anchor token OR live session
+   * credential"; the session lifecycle (refresh/stop) kicks phones without
+   * ever touching the anchor token. */
+  sessions?: { verifySession(credential: string): boolean }
 }
 
 function defaultTokenPath(): string {
@@ -78,7 +84,9 @@ export function loadOrCreateToken(opts: TokenAuthOptions = {}): string {
   return token
 }
 
-function isLoopbackAddr(addr?: string): boolean {
+/** True for 127.0.0.1/::1 (IPv4-mapped IPv6 and zone suffix normalized).
+ *  Exported for the loopback-only session management endpoints (P-remote). */
+export function isLoopbackAddr(addr?: string): boolean {
   if (!addr) return false
   const clean = addr.replace(/^::ffff:/, '').split('%')[0]
   return clean === '127.0.0.1' || clean === '::1'
@@ -136,6 +144,7 @@ function stampOf(path: string): string | undefined {
 export function createTokenAuth(opts: TokenAuthOptions): AuthStrategy {
   const tokenPath = opts.tokenPath ?? defaultTokenPath()
   let expected = loadOrCreateToken(opts)
+  const sessions = opts.sessions
   // The token file is shared state: `ocrc pair --reset` (another process) may
   // rotate it underneath us. Cache by (mtimeMs, size) — one cheap stat per
   // request buys cross-process revocation without a read per request. Size
@@ -188,6 +197,13 @@ export function createTokenAuth(opts: TokenAuthOptions): AuthStrategy {
         } catch { /* ignore */ }
         const candidate = extractToken(rawHeaders)
         if (tokenMatches(candidate, expected)) { c.set('user', user); return next() }
+        // Not the anchor token — a session phone perhaps. verifySession is a
+        // Map lookup (no crypto compare needed: these credentials are random
+        // 32B values that die with the session, not long-lived secrets).
+        if (sessions && candidate && sessions.verifySession(candidate)) {
+          c.set('user', user)
+          return next()
+        }
         return c.json({ error: 'Unauthorized' }, 401)
       }
     },
@@ -195,7 +211,9 @@ export function createTokenAuth(opts: TokenAuthOptions): AuthStrategy {
       refreshExpected()
       if (bypass(req.socket?.remoteAddress)) return user
       const candidate = extractToken(req.headers, req.url)
-      return tokenMatches(candidate, expected) ? user : null
+      if (tokenMatches(candidate, expected)) return user
+      if (sessions && candidate && sessions.verifySession(candidate)) return user
+      return null
     },
     rotate() {
       if (opts.token?.trim()) {
@@ -207,5 +225,6 @@ export function createTokenAuth(opts: TokenAuthOptions): AuthStrategy {
       cachedStamp = stampOf(tokenPath)
       log.info('web token rotated — all previously paired devices are logged out')
     },
+    sessionsAccepted: !!sessions,
   }
 }

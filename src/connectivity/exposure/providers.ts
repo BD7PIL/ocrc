@@ -13,7 +13,9 @@ export interface ResolveOptions {
   cloudflaredResolver?: () => string | undefined
 }
 
-function firstLanIpv4(): string | undefined {
+/** First non-internal IPv4 address, physical interfaces first. Exported for the
+ *  `ocrc start` anchor-link printing (localhost + LAN variants). */
+export function firstLanIpv4(): string | undefined {
   const ifaces = networkInterfaces()
   const skip = /^(utun|tun|tap|docker|br-|bridge|veth|vmnet|llw|awdl)/i
   const ipv4 = (name: string): string | undefined => {

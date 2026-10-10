@@ -1,59 +1,66 @@
 import type { Hono } from 'hono'
 import { hostname } from 'node:os'
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
-import type { PairingStore, PairContext } from '../../../connectivity/pairing.js'
-import { buildPairContext, buildPairUrlPending } from '../../../connectivity/pairing.js'
+import type { PairingStore, PairSessionStatus } from '../../../connectivity/pairing.js'
+import { buildPairUrlPending } from '../../../connectivity/pairing.js'
+import { isLoopbackAddr } from '../../../connectivity/auth/token.js'
 import type { AuthStrategy } from '../../../connectivity/auth/index.js'
 import type { ChannelsStore } from '../../../core/channels.js'
-
-const OCRC_RUN_DIR = process.env.OCRC_HOME
-  ? join(process.env.OCRC_HOME, 'run')
-  : join(process.env.HOME ?? '/tmp', '.ocrc', 'run')
 
 async function qrSvg(pairUrl: string): Promise<string> {
   const QRCode = (await import('qrcode')).default
   return QRCode.toString(pairUrl, { type: 'svg', margin: 1 })
 }
 
-async function pairBase(): Promise<PairContext> {
-  return buildPairContext()
-}
-
-// Completed-pairing counter (persisted): the onboarding landing page reads it
-// to flip from "waiting for scan" to "a device is already paired" once the
-// first exchange succeeds — otherwise the host-side browser looks stuck in
-// pairing mode forever even after the phone got in.
-function counterFile(): string {
-  return join(OCRC_RUN_DIR, 'paired-count')
-}
-function readPairedCount(): number {
-  try {
-    const n = Number(readFileSync(counterFile(), 'utf-8').trim())
-    return Number.isFinite(n) && n > 0 ? n : 0
-  } catch { return 0 }
-}
-function bumpPairedCount(): number {
-  const n = readPairedCount() + 1
-  try {
-    mkdirSync(OCRC_RUN_DIR, { recursive: true })
-    writeFileSync(counterFile(), String(n))
-  } catch { /* best effort */ }
-  return n
-}
-function resetPairedCount(): void {
-  try { writeFileSync(counterFile(), '0') } catch { /* best effort */ }
+/**
+ * POST /api/pair/session/start|refresh|stop — remote-control session lifecycle.
+ *
+ * Loopback-only BY DESIGN: whoever is already on the host console manages the
+ * gate (mirrors the official desktop dialog, where the owner drives 刷新/停止).
+ * A phone that holds a session credential must not be able to refresh (kick
+ * everyone incl. itself is tolerable) or — worse — re-open a stopped session.
+ * 409 when the auth strategy can't accept session credentials at all
+ * (CF Access mode) — a session there could never let a phone in.
+ */
+export function registerPairSession(
+  app: Hono,
+  deps: { pairing?: PairingStore; auth?: AuthStrategy; getPeer?: (c: { env?: unknown; req?: unknown }) => string | undefined },
+) {
+  if (!deps.pairing || !deps.auth) return
+  const supported = deps.auth.sessionsAccepted === true
+  const peerOf =
+    deps.getPeer ??
+    ((c: { env?: unknown; req?: unknown }): string | undefined => {
+      try {
+        return ((c.env as any)?.incoming ?? (c.req as any)?.raw)?.socket?.remoteAddress
+      } catch {
+        return undefined
+      }
+    })
+  const guarded = (c: any, op: () => PairSessionStatus): any => {
+    if (!supported) return c.json({ error: '当前认证方式（CF Access）不支持远控会话' }, 409)
+    if (!isLoopbackAddr(peerOf(c))) return c.json({ error: '远控会话管理仅限主机本机（loopback）操作' }, 403)
+    return c.json(op())
+  }
+  app.post('/api/pair/session/start', (c) => guarded(c, () => deps.pairing!.start()))
+  app.post('/api/pair/session/refresh', (c) => guarded(c, () => deps.pairing!.refresh()))
+  app.post('/api/pair/session/stop', (c) => guarded(c, () => deps.pairing!.stop()))
+  // Status is readable from any authed device (anchor or session phone): the
+  // panel card renders the greyed-out management buttons from the 403 the
+  // mutating endpoints return, and phones show "N connected".
+  app.post('/api/pair/session/status', (c) => {
+    if (!supported) return c.json({ error: '当前认证方式（CF Access）不支持远控会话' }, 409)
+    return c.json(deps.pairing!.status())
+  })
 }
 
 /**
  * M12: unauthenticated onboarding surface — the first-run landing page.
- * Owner decision: on a 0.0.0.0 bind, first-pairing convenience wins over the
- * LAN-stranger risk, and the page shows what ZCode's 移动端远程控制 dialog
- * shows: a live pending QR + bot-channel STATUS. Hard lines kept:
- *  - the QR carries a PENDING token (5 min, single-use, invalidated by the
- *    next issue) — never the permanent credential;
- *  - channel payload is STATUS ONLY (name/enabled/live) — no credentials,
- *    no granularity/scope; management stays behind auth.
+ * P-remote: while the remote-control session is OFF the page reports
+ * `{ status: 'off' }` (no QR — a closed gate must not render an open one).
+ * With a session live it shows the pending QR + bot-channel STATUS. Hard
+ * lines kept:
+ *  - the QR carries a PENDING token, never the permanent anchor credential;
+ *  - channel payload is STATUS ONLY — management stays behind auth.
  */
 export function registerPairOnboarding(
   app: Hono,
@@ -62,21 +69,26 @@ export function registerPairOnboarding(
   if (!deps.pairing) return
   app.get('/api/pair/onboarding', async (c) => {
     try {
-      const { url } = await pairBase()
-      const p = deps.pairing!.issue()
-      const pairUrl = buildPairUrlPending(url, p.token)
-      const svg = await qrSvg(pairUrl)
       const status = deps.telegramStatus?.() ?? null
       const channels = (deps.channels?.list() ?? []).map((b) => ({
         channel: b.channel,
         enabled: b.enabled,
         live: b.channel === 'telegram' && status ? { connected: status.connected, username: status.username } : null,
       }))
+      if (!deps.pairing!.status().active) {
+        return c.json({ status: 'off', paired: 0, channels, host: { hostname: hostname(), platform: process.platform, arch: process.arch } })
+      }
+      const p = deps.pairing!.issue()
+      if (!p) return c.json({ status: 'off', paired: 0, channels, host: { hostname: hostname(), platform: process.platform, arch: process.arch } })
+      const { url } = await pairBase()
+      const pairUrl = buildPairUrlPending(url, p.token)
+      const svg = await qrSvg(pairUrl)
       return c.json({
+        status: 'on',
         url: pairUrl,
         svg,
         expiresAt: p.expiresAt,
-        paired: readPairedCount(),
+        paired: deps.pairing!.status().paired,
         channels,
         host: { hostname: hostname(), platform: process.platform, arch: process.arch },
       })
@@ -86,16 +98,22 @@ export function registerPairOnboarding(
   })
 }
 
+async function pairBase(): Promise<{ url: string }> {
+  const { buildPairContext } = await import('../../../connectivity/pairing.js')
+  const { url } = await buildPairContext()
+  return { url }
+}
+
 /**
- * M11: pending-token pairing routes.
+ * M11 → P-remote: pending-token pairing routes.
  *
  *  - POST /api/pair/exchange — registered BEFORE the auth guard (the device
- *    holding a pending token has no real token yet). The pending token IS the
- *    credential: short-lived, single-use, invalidated by the next issue().
- *  - GET /api/pair/qr — still behind the auth guard (only an already-paired
- *    session onboards another device): issues a fresh pending token and
- *    renders the QR for its `#pair=` URL. Without a pairing store (standalone
- *    hosts that didn't wire one) it falls back to the legacy static-token URL.
+ *    holding a pending token has no credential yet). While the session lives
+ *    the pending is MULTI-USE: each device gets its own random session
+ *    credential; the anchor token never crosses this endpoint.
+ *  - GET /api/pair/qr — behind the auth guard: issues (or reuses) the live
+ *    pending and renders the QR for its `#pair=` URL. Without a pairing store
+ *    it falls back to the legacy static-token URL (anchor re-pair surface).
  */
 export function registerPairExchange(app: Hono, pairing?: PairingStore) {
   if (!pairing) return
@@ -104,7 +122,6 @@ export function registerPairExchange(app: Hono, pairing?: PairingStore) {
     if (typeof body.pending !== 'string' || !body.pending) return c.json({ error: 'pending required' }, 400)
     const token = pairing.exchange(body.pending)
     if (!token) return c.json({ error: 'expired' }, 404)
-    bumpPairedCount()
     return c.json({ token })
   })
 }
@@ -112,15 +129,17 @@ export function registerPairExchange(app: Hono, pairing?: PairingStore) {
 export function registerPairQr(app: Hono, pairing?: PairingStore) {
   app.get('/api/pair/qr', async (c) => {
     try {
-      const { token, url } = await pairBase()
       if (pairing) {
         const p = pairing.issue()
+        if (!p) return c.json({ error: '远控会话未开启 — 先在面板或 ocrc pair 打开会话' }, 409)
+        const { url } = await pairBase()
         const pairUrl = buildPairUrlPending(url, p.token)
         const svg = await qrSvg(pairUrl)
         return c.json({ url: pairUrl, svg, expiresAt: p.expiresAt })
       }
-      // Legacy fallback (no store wired): static-token URL, no expiry.
-      const { buildPairUrl } = await import('../../../connectivity/pairing.js')
+      // Legacy fallback (no store wired): the anchor `#token=` URL, no expiry.
+      const { buildPairContext, buildPairUrl } = await import('../../../connectivity/pairing.js')
+      const { token, url } = await buildPairContext()
       const pairUrl = buildPairUrl(url, token)
       const svg = await qrSvg(pairUrl)
       return c.json({ url: pairUrl, svg })
@@ -131,14 +150,14 @@ export function registerPairQr(app: Hono, pairing?: PairingStore) {
 }
 
 /**
- * POST /api/pair/reset — revoke ALL paired devices. Devices share the single
- * web token, so revocation = rotate that token (every existing device 401s on
- * its next request and lands back on the pairing page) + zero the paired
- * counter. Per-device revocation would need per-device credentials — a
- * different trust model, deliberately not built. Auth-gated like /api/pair/qr.
- * 409 when the active strategy holds no app-side credential (CF Access).
+ * POST /api/pair/reset — revoke ALL devices: rotates the anchor token (every
+ * anchor 401s on its next request and lands back on a fresh `ocrc start`
+ * link) and closes the remote-control session (phones die with it). Session
+ * credentials are per-device already; per-DEVICE anchor revocation remains
+ * deliberately not built. Auth-gated like /api/pair/qr. 409 when the active
+ * strategy holds no app-side credential (CF Access).
  */
-export function registerPairReset(app: Hono, deps: { auth?: AuthStrategy } = {}) {
+export function registerPairReset(app: Hono, deps: { pairing?: PairingStore; auth?: AuthStrategy } = {}) {
   app.post('/api/pair/reset', (c) => {
     if (!deps.auth?.rotate) return c.json({ error: '当前认证方式没有可轮换的令牌' }, 409)
     try {
@@ -146,7 +165,7 @@ export function registerPairReset(app: Hono, deps: { auth?: AuthStrategy } = {})
     } catch (err) {
       return c.json({ error: (err as Error).message }, 409)
     }
-    resetPairedCount()
-    return c.json({ ok: true, paired: 0 })
+    deps.pairing?.stop()
+    return c.json({ ok: true })
   })
 }

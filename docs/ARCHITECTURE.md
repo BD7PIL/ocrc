@@ -337,9 +337,20 @@ resume 只回看一代前驱。
 
 - **Auth**: pluggable `AuthStrategy` — `token` (constant-time compare) or
   `cf-access`. devBypass requires a real loopback *socket peer*.
-- **Pairing (M11)**: 1-minute single-use PENDING tokens (`#pair=` fragment);
-  exchange at POST /api/pair/exchange.
-- **REST**: ~45 endpoints under /api.
+- **Pairing (P-remote, aligns ZCode v3.15.1; no relay, LAN direct)**: two
+  credential tiers. ANCHOR devices hold the permanent token (`#token=` links
+  `ocrc start` prints; session refresh/stop never kick them — revocation =
+  `ocrc pair --reset`). PHONES pair through the remote-control SESSION
+  (`connectivity/pairing.ts` store): while live, the `#pair=` pending QR is
+  multi-use and exchange mints per-device in-memory session credentials
+  (never the anchor token); `refresh` opens a new epoch (all phones kicked —
+  the official 刷新二维码), `stop` closes the gate, host restart clears all.
+  Session lifecycle endpoints (`POST /api/pair/session/start|refresh|stop`)
+  are auth-gated + loopback-only (403 non-loopback, 409 under cf-access);
+  `/status` is readable by any authed device. The same store rides the token
+  auth strategy (`sessions` opt), so middleware/verifyUpgrade accept "anchor
+  token OR live session credential".
+- **REST**: ~48 endpoints under /api.
 - **WS protocol** (ws-hub.ts): `{subscribe,unsubscribe,ping}` up; `hello`,
   `card`, `sdelta`, `replayEnd{lastSeq,complete}` down; `complete:false` →
   REST resync. Monotonic per-session `seq`. maxPayload 64KB. **This wire
@@ -384,7 +395,7 @@ registration. Design detail in
 | File | Owner | Notes |
 |---|---|---|
 | `state.json` | core/state.ts | last/pinned/tui session, next agent/model, active workspace, session→backend map, /z/ sidebar bookmarks+unread+archived, task groups, **per-session goals** (N12); 100ms debounced atomic write |
-| `token` | connectivity/auth/token.ts | web access token, 0600 |
+| `token` | connectivity/auth/token.ts | web access token (ANCHOR devices), 0600. Remote-control SESSION credentials are in-memory only (connectivity/pairing.ts store, shared into the token auth strategy) — restart clears them |
 | `primary.lock` | core/primary-election.ts | PRIMARY election |
 | `channels.json` | core/channels.ts | per-channel bot settings (0600) |
 | `schedules.json` | core/scheduler.ts | scheduled prompts (cron semantics — TG /tasks) |
@@ -393,7 +404,7 @@ registration. Design detail in
 | `acp-sessions.json` | agent/acp-store.ts | ACP sessions + history (standalone host) |
 | `config.env` | installer/CLI | KEY=VALUE, 0600 |
 | `ocrc.log` (+`.old`) | utils/logger.ts | 10MB rotate; ring buffer at /api/logs |
-| `run/` | cli/service.ts | pid files, last.json (restore), paired-count |
+| `run/` | cli/service.ts | pid files, last.json (restore) |
 | `bin-cache/` | core/remote-host.ts (0.27 规划) | pinned official opencode artifacts, per-platform |
 
 All stores share the same pattern: in-memory cache → 100-200ms debounced

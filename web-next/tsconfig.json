@@ -33,7 +33,8 @@
       "@zcode/zcode-cua/*": ["./vendor/zcode/cua/*"],
       "@zcode/model-option-map": ["./vendor/zcode/model-option-map/src/index.ts"],
       "@zcode/model-option-map/*": ["./vendor/zcode/model-option-map/src/*"],
-      "@/*": ["./vendor/zcode/ui/src/*"]
+      "@/*": ["./vendor/zcode/ui/src/*"],
+      "@/WebRemoteControlDialog.js": ["./src/zcode/remoteControl/WebRemoteControlDialog.tsx"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts", "../src/core/structured-card.ts"]

@@ -154,6 +154,39 @@ function lastWorkDir(): string | null {
   } catch { return null }
 }
 
+/**
+ * P-remote: after the web panel is up, print the ANCHOR links — permanent
+ * `#token=` URLs for the owner's desktop (localStorage persists; refresh/
+ * stop of a remote-control session never kicks these). One localhost variant
+ * + one LAN variant (LAN is the user's trust boundary; the token rides the
+ * fragment so it never hits server/proxy logs). Skipped when the token file
+ * cannot be read — the panel's pairing gate remains the fallback path.
+ */
+export async function printAnchorLinks(webPort: string): Promise<void> {
+  try {
+    const { loadOrCreateToken } = await import('../connectivity/auth/token.js')
+    const { buildPairUrl } = await import('../connectivity/pairing.js')
+    const { firstLanIpv4 } = await import('../connectivity/exposure/providers.js')
+    const token = loadOrCreateToken({})
+    const loopback = buildPairUrl(`http://localhost:${webPort}`, token)
+    const lanIp = firstLanIpv4()
+    console.log('')
+    console.log('桌面（锚设备，长期有效）— 复制链接进入：')
+    console.log(`  ${loopback}`)
+    if (lanIp && webPublicReachable(lanIp)) console.log(`  ${buildPairUrl(`http://${lanIp}:${webPort}`, token)}`)
+    console.log('手机：面板侧栏 ▸ 远程控制 开启会话后扫码（或主机上 ocrc pair）；重置锚设备：ocrc pair --reset')
+  } catch (err) {
+    console.log(`(anchor links unavailable: ${(err as Error).message})`)
+  }
+}
+
+/** WEB_HOST is 0.0.0.0 (LAN-first) in every supported shape — a LAN link is
+ *  then meaningful. An explicit loopback bind makes the LAN variant a lie. */
+function webPublicReachable(_lanIp: string): boolean {
+  const host = readConfigEnv().OCRC_WEB_HOST ?? process.env.OCRC_WEB_HOST ?? process.env.WEB_HOST ?? ''
+  return host !== '127.0.0.1' && host !== 'localhost' && host !== '::1'
+}
+
 // ── supervisor (the run-N.sh equivalent): an internal, detached self-spawn ──
 
 async function supervisorLoop(cfg: ServiceConfig, workDir: string): Promise<void> {
@@ -288,6 +321,7 @@ export async function main(argv: string[]): Promise<void> {
     }
     console.log(`ready — server http://localhost:${cfg.port} · web panel http://localhost:${webPort}`)
     console.log('the ocrc plugin (Telegram + web) starts automatically inside this process')
+    await printAnchorLinks(webPort)
     return
   }
 

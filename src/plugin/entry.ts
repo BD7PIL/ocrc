@@ -21,7 +21,6 @@ import { createRemotesStore } from '../core/remotes.js'
 import { createRemoteHostManager } from '../core/remote-host.js'
 import { startRemoteEvents, type RemoteEventsHandle } from '../core/remote-events.js'
 import { buildBasicHeaders } from '../utils/oc-server-auth.js'
-import { loadOrCreateToken } from '../connectivity/auth/token.js'
 import type { OcEvent } from '../core/opencode-events.js'
 import type { Transport } from '../transport/interface.js'
 import { createLogger } from '../utils/logger.js'
@@ -326,9 +325,10 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
     // its onboarding page carry the product on their own.
     const tgEnabled = (tgChannelCfg?.enabled ?? true) && !!tgToken && allowedUserIds.length > 0
 
-    // M11: pending-token pairing — /pair surfaces (TG + web QR) issue a
-    // short-lived single-use token instead of the permanent access token.
-    const pairing = createPairingStore(() => loadOrCreateToken({ token: config.webToken }))
+    // M11 → P-remote: the pairing store IS the remote-control session — the
+    // exchange issues session credentials (not the anchor token), and the same
+    // store rides the auth strategy so refresh/stop kick phones instantly.
+    const pairing = createPairingStore()
     let tgTransport: ReturnType<typeof createTelegramTransport> | undefined
     const transports: Transport[] = []
     if (tgEnabled) {
@@ -387,6 +387,7 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
         devEmail: config.webCfAccessDevEmail,
         devBypass: config.webCfAccessDevBypass,
         host: config.webHost,
+        sessions: pairing,
         cfAccess: {
           team: config.webCfAccessTeam,
           aud: config.webCfAccessAud,

@@ -53,7 +53,7 @@ import { registerChannels } from './routes/channels.js'
 import { registerRemotes } from './routes/remotes.js'
 import { registerSubagents } from './routes/subagents.js'
 import { registerM8 } from './routes/m8.js'
-import { registerPairExchange, registerPairQr, registerPairOnboarding, registerPairReset } from './routes/pairing.js'
+import { registerPairExchange, registerPairQr, registerPairOnboarding, registerPairReset, registerPairSession } from './routes/pairing.js'
 import { registerAttach } from './routes/attach.js'
 import { registerWorkflow } from './routes/workflow.js'
 import type { PairingStore } from '../../connectivity/pairing.js'
@@ -76,7 +76,8 @@ export interface BuildServerOpts {
   /** Boot facts for the channels panel (0.27): whether an env token exists
    *  (the panel token overrides it at boot) and the allowlist size. */
   telegramMeta?: { hasEnvToken: boolean; allowUsers: number; envTokenHint?: string }
-  /** M11 pending-token pairing store (optional; QR falls back to legacy URL). */
+  /** M11 → P-remote: the remote-control session store (optional; QR falls
+   *  back to the legacy anchor URL and session routes are absent). */
   pairing?: PairingStore
   /** 0.26.0 SSH remote hosts: store + lifecycle manager (optional). */
   remotes?: import('../../core/remotes.js').RemotesStore
@@ -120,6 +121,9 @@ export function buildServer(opts: BuildServerOpts): Hono {
   if (opts.shares) registerSharePublic(app, opts.shares)
   registerPairOnboarding(app, { pairing: opts.pairing, channels: opts.channels, telegramStatus: opts.telegramStatus })
   app.use('/api/*', opts.auth.httpMiddleware())
+  // Session lifecycle management: AUTH-GUARDED + loopback-only (the owner on
+  // the host console drives the gate — a paired phone must not refresh/stop).
+  registerPairSession(app, { pairing: opts.pairing, auth: opts.auth })
   app.get('/api/me', (c) => {
     const user = c.get('user') as { email: string } | undefined
     if (!user) return c.json({ error: 'unauthorized' }, 401)
@@ -231,6 +235,6 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerSubagents(app, reg, opts.state)
   registerM8(app, reg, opts.state)
   registerPairQr(app, opts.pairing)
-  registerPairReset(app, { auth: opts.auth })
+  registerPairReset(app, { pairing: opts.pairing, auth: opts.auth })
   return app
 }

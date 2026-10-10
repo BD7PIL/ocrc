@@ -529,12 +529,19 @@ export function registerHandlers(deps: HandlersDeps): void {
       const { buildPairContext, buildPairUrl, buildPairUrlPending } = await import('../../connectivity/pairing.js')
       const { url } = await buildPairContext()
       if (deps.pairing) {
-        // M11: short-lived single-use pending token — the chat log only ever
-        // holds a credential that dies in 1 minute or on first use.
+        // P-remote: /pair JOINS the remote-control session — the chat link
+        // carries a `#pair=` pending token that mints a session credential
+        // (dies on session refresh/stop). Never the permanent anchor token:
+        // a chat log must not hold a credential outliving the session.
+        deps.pairing.start()
         const p = deps.pairing.issue()
+        if (!p) {
+          await ctx.reply('❌ 远控会话未能开启（内部状态异常）——请在面板重试。', { parse_mode: 'HTML' })
+          return
+        }
         const pairUrl = buildPairUrlPending(url, p.token)
         await ctx.reply(
-          `🔗 <b>Pair a device</b>\n\nOpen this link on the device within <b>1 minute</b> (single use — sending /pair again invalidates it):\n<code>${pairUrl}</code>`,
+          `🔗 <b>Pair a device</b> (remote-control session)\n\nOpen this link within <b>1 minute</b>:\n<code>${pairUrl}</code>\n\nThe device gets a <b>session credential</b>: refreshing or stopping the session kicks it (start again with /pair). Anchor devices (desktop <code>#token=</code> links) are not affected.`,
           { parse_mode: 'HTML' },
         )
       } else {

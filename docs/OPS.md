@@ -103,11 +103,27 @@ Web 默认 `0.0.0.0:4099`（token 门禁）。PWA 安装需要安全上下文：
 | cloudflared | ingress `service: http://localhost:4099` | 稳定域名；改后 `kill -HUP <pid>` 热重载 |
 | cloudflared 快速隧道 | `cloudflared tunnel --url http://localhost:4099` | 免费，URL 轮换；配 `OCRC_WEB_PUBLIC_URL` |
 
-配对：`ocrc pair` / TG `/pair` / 首次打开面板的 onboarding 页。链接带
-**1 分钟一次性 pending token**（`#pair=`），设备端换取正式 token；正式 token
-持久化在 `~/.ocrc/token`，轮换 = 删文件重启。**隧道后严禁**
-`OCRC_WEB_CF_ACCESS_DEV_BYPASS=true`（cloudflared 从 127.0.0.1 连入，等于对
-全网免认证）。
+### 配对与远控会话（P-remote，对齐 ZCode v3.15.1 语义）
+
+两层凭据，生命周期完全解耦：
+
+| 层 | 凭据 | 进入方式 | 失效时机 |
+|---|---|---|---|
+| **锚设备**（桌面） | 永久 token（`~/.ocrc/token`） | `ocrc start` 末尾打印的 `#token=` 链接 | 仅 `ocrc pair --reset` / 撤销配对轮换 |
+| **手机**（会话） | 会话凭证（内存态，主机重启即清） | 面板侧栏 ▸ 远程控制 扫码 / `ocrc pair` / TG `/pair` | 会话**刷新**（新 epoch 踢全部手机）或**停止** |
+
+远控会话管理**仅限主机本机**（loopback 403 兜底）：面板远程控制弹层左栏
+（开启/刷新二维码/停止/复制链接，刷新与停止有官方同款确认弹窗），或 CLI：
+
+- `ocrc pair` — 开启/刷新会话并打印二维码（再跑一次 = 刷新 = 踢人）
+- `ocrc pair --stop` — 停止会话（锚设备不受影响）
+- `ocrc pair --reset` — 轮换锚 token（锚设备与手机全部失效；TG bot 通道不受影响）
+
+会话存续期二维码可**多台手机**扫（每台各得一个会话凭证）；会话关闭后
+onboarding 页显示「已关闭」而非二维码。`WEB_AUTH=cf-access` 模式无会话
+（相关端点 409）。**隧道后严禁** `OCRC_WEB_CF_ACCESS_DEV_BYPASS=true`
+（cloudflared 从 127.0.0.1 连入，等于对全网免认证——也会绕过会话管理的
+loopback 门）。
 
 ## 环境变量（`~/.ocrc/config.env` 或 `.env`，0600）
 

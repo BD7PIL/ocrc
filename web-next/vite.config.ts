@@ -52,6 +52,9 @@ export default defineConfig({
       { find: /^@zcode\/zcode-cua\/broker\/helperHealth$/, replacement: fileURLToPath(new URL('./vendor/zcode/cua/broker-helper-health.js', import.meta.url)) },
       // ui 包内部用 '@/' 指自身 src（其 tsconfig paths）。
       { find: /^@\/(.*)/, replacement: fileURLToPath(new URL('./vendor/zcode/ui/src/$1', import.meta.url)) },
+      // P-remote：远控对话框整体换 ocrc 实现（双栏：扫码会话卡 + Bot Channel）。
+      // alias 覆盖 = vendor 零字节改动（PATCHES.md 不登记；re-vendor 免重放）。
+      { find: /^@\/WebRemoteControlDialog\.js$/, replacement: fileURLToPath(new URL('./src/zcode/remoteControl/WebRemoteControlDialog.tsx', import.meta.url)) },
     ],
   },
   server: {

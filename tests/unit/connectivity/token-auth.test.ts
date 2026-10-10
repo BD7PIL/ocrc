@@ -127,3 +127,65 @@ describe('createTokenAuth.rotate (revoke all paired devices)', () => {
     expect(() => auth.rotate!()).toThrow(/WEB_TOKEN/)
   })
 })
+
+// P-remote: the anchor/session split. The token middleware additionally
+// accepts live SESSION credentials (never touching the anchor token) when a
+// session store is wired — refresh/stop in the store kicks phones without
+// any file/config change.
+describe('createTokenAuth — remote-control session credentials', () => {
+  function fakeStore() {
+    const live = new Set<string>()
+    return {
+      live,
+      verifySession: (c: string) => live.has(c),
+    }
+  }
+
+  it('accepts a live session credential as Bearer + WS upgrade; garbage still rejected', async () => {
+    const store = fakeStore()
+    const auth = createTokenAuth({ token: 'anchor-secret', sessions: store })
+    const app = new Hono()
+    app.use('*', auth.httpMiddleware())
+    app.get('/x', (c) => c.json({ ok: true }))
+
+    store.live.add('sess-cred-1')
+    expect((await app.request('/x', { headers: { authorization: 'Bearer sess-cred-1' } })).status).toBe(200)
+    expect(await auth.verifyUpgrade({ headers: {}, url: '/ws?token=sess-cred-1' })).not.toBeNull()
+    expect((await app.request('/x', { headers: { authorization: 'Bearer garbage' } })).status).toBe(401)
+    expect(await auth.verifyUpgrade({ headers: {}, url: '/ws?token=garbage' })).toBeNull()
+  })
+
+  it('refresh/stop semantics: removing the credential from the store revokes the device', async () => {
+    const store = fakeStore()
+    const auth = createTokenAuth({ token: 'anchor-secret', sessions: store })
+    const app = new Hono()
+    app.use('*', auth.httpMiddleware())
+    app.get('/x', (c) => c.json({ ok: true }))
+
+    store.live.add('ephemeral')
+    expect((await app.request('/x', { headers: { authorization: 'Bearer ephemeral' } })).status).toBe(200)
+    store.live.clear() // session.refresh()/stop()
+    expect((await app.request('/x', { headers: { authorization: 'Bearer ephemeral' } })).status).toBe(401)
+    // anchor token unaffected throughout
+    expect((await app.request('/x', { headers: { authorization: 'Bearer anchor-secret' } })).status).toBe(200)
+  })
+
+  it('no sessions store wired → session-looking credentials are plain 401s', async () => {
+    const auth = createTokenAuth({ token: 'anchor-secret' })
+    const app = new Hono()
+    app.use('*', auth.httpMiddleware())
+    app.get('/x', (c) => c.json({ ok: true }))
+    expect((await app.request('/x', { headers: { authorization: 'Bearer whatever-cred' } })).status).toBe(401)
+  })
+
+  it('session acceptance does not weaken ?token= on plain HTTP (still WS-only)', async () => {
+    const store = fakeStore()
+    store.live.add('sess-cred-1')
+    const auth = createTokenAuth({ token: 'anchor-secret', sessions: store })
+    const app = new Hono()
+    app.use('*', auth.httpMiddleware())
+    app.get('/x', (c) => c.json({ ok: true }))
+    const res = await app.request('/x?token=sess-cred-1')
+    expect(res.status).toBe(401)
+  })
+})

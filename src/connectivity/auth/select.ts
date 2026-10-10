@@ -10,6 +10,9 @@ export interface AuthSelection {
   devEmail?: string
   devBypass?: boolean
   host?: string
+  /** Remote-control session credential store (token mode only — CF Access
+   *  has no app-side credential for session phones to ride). */
+  sessions?: { verifySession(credential: string): boolean }
   cfAccess?: CfAccessOpts
 }
 
@@ -27,5 +30,6 @@ export function selectAuthStrategy(sel: AuthSelection): AuthStrategy {
     devEmail: sel.devEmail,
     devBypass: sel.devBypass,
     host: sel.host,
+    sessions: sel.sessions,
   })
 }

@@ -19,7 +19,6 @@ import { createRemotesStore } from '../core/remotes.js'
 import { createSharesStore } from '../core/shares.js'
 import { createRemoteHostManager } from '../core/remote-host.js'
 import { createPairingStore } from '../connectivity/pairing.js'
-import { loadOrCreateToken } from '../connectivity/auth/token.js'
 import type { AcpPermissionRequest } from '../core/agent/acp-backend.js'
 import { createBackendRegistry } from '../core/agent/registry.js'
 import { createAcpStore } from '../core/agent/acp-store.js'
@@ -373,7 +372,10 @@ export async function main(): Promise<void> {
   })
   offpeak.start()
   const channels = createChannelsStore(join(dataDir, 'channels.json'))
-  const pairing = createPairingStore(() => loadOrCreateToken({ token: config.webToken }))
+  // P-remote: one session store shared by the web routes (pair/exchange,
+  // onboarding, loopback management) AND the token auth strategy — phones hold
+  // session credentials, anchors keep the permanent token.
+  const pairing = createPairingStore()
 
   // opencode permission events arrive on the SSE stream → forward to the same
   // approval UX (Telegram buttons + Web card). Web-only: publish the card directly.
@@ -441,6 +443,7 @@ export async function main(): Promise<void> {
       devEmail: config.webCfAccessDevEmail,
       devBypass: config.webCfAccessDevBypass,
       host: config.webHost,
+      sessions: pairing,
       cfAccess: {
         team: config.webCfAccessTeam,
         aud: config.webCfAccessAud,

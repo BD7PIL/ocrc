@@ -1,5 +1,64 @@
 # Changelog
 
+## 1.0.0-rc.7 — 远控会话（P-remote：对齐 ZCode v3.15.1 配对语义，无中继，桌面锚不受控）(2026-10-10)
+
+> 口径：官方 v3.15.1 加了手机扫码连接的半个远控弹层；ocrc 把这半补齐成
+> **LAN 直连的远控会话**——无中继（隧道用户自理），两层凭据生命周期完全解耦。
+> 用户裁决记录在 PRODUCT 第零点八条。
+
+### feat(connectivity): 会话模型（锚/会话两层）
+- `connectivity/pairing.ts` 重写：单用 60 秒 pending → **远控会话 store**——
+  `start()`（幂等，二次开启不踢已连手机）/`refresh()`（**新 epoch**：旧 pending
+  与已发会话凭证全废——官方「刷新二维码」语义）/`stop()`/`status()`。会话存续
+  期 pending **多台手机可扫**，exchange 每台发独立会话凭证（随机 32B base64url、
+  内存态、主机重启即清），**永久锚 token 不再过 exchange**（每 epoch 设备上限 64）。
+- `auth/token.ts`：`createTokenAuth` 加可选 `sessions`（结构化类型防循环依赖）——
+  middleware 与 WS 升级接受「锚 token **或** 存活会话凭证」；`rotate()` 语义不变
+  （锚轮换）。`isLoopbackAddr` 导出给会话管理端点复用。
+- 组合根（`cli/host.ts` + `plugin/entry.ts`）：同一 store 接进 web 路由**和**
+  auth 策略；`selectAuthStrategy` 透传。`AuthStrategy.sessionsAccepted` 能力位
+  = CF Access 模式会话端点 409 的判据。
+
+### feat(transport/web): 会话路由
+- **loopback 限定** `POST /api/pair/session/start|refresh|stop`（非 loopback 403，
+  fail-closed：拿不到 socket peer 也 403）；`/status` 任何已认证设备可读
+  （面板「已连接 N 台」与远端置灰兜底）。免认证路由顺序不变（exchange/onboarding
+  仍在 auth 门之前）。
+- onboarding：会话开 → 出码（`status:'on'`），关 → `{status:'off'}`（关门不
+  出码）；`paired` = **本会话已连接设备数**（原 paired-count 文件退役）。
+- `GET /api/pair/qr` 会话关时 409（不再静默发锚 token 链接）；无 store 的遗留
+  回退（`#token=` 静态链接）保留。`POST /api/pair/reset` 轮换锚 token 并顺带
+  停会话（手机随锚轮换一起失效）。
+
+### feat(cli): 锚链接与会话 CLI
+- **`ocrc start`**：web 就绪后打印**锚链接**两条（localhost + LAN，`#token=`
+  fragment，LAN 变体在显式 loopback bind 时不打）+ 手机/重置提示。
+- **`ocrc pair`**：无参 = 经 loopback 端点 start/refresh 会话（再跑一次 = 刷新
+  = 踢人）并打印 onboarding 二维码；`--stop` 停会话；`--reset` 保持锚轮换语义
+  （WEB_TOKEN 配置拒绝不变），并打印新锚卡。非本机/CF Access 分别 403/409 文案。
+- TG `/pair`：进会话语义（发 `#pair=` 链接 + 会话凭证说明）；订阅快捷按钮
+  （锚 token 消费方）不动。Bot 通道生命周期全程零改动。
+
+### feat(web-next): 远程控制弹层双栏化（vendor 零字节改动）
+- `src/zcode/remoteControl/WebRemoteControlDialog.tsx`（ocrc 层新组件）经
+  **alias 覆盖**（vite + tsconfig 把 `@/WebRemoteControlDialog.js` 指过来）
+  替换对话框内容——不进 PATCHES.md（登记制只管 vendor 文件字节改动）：
+  左栏**扫码连接**会话卡（状态 · 已连接 N 台 / 刷新二维码（官方同款确认弹窗）/
+  复制链接 / 停止；403/409 时按钮置灰并显示服务端原因）；右栏 Bot Channel
+  原样。入口触发器与 `webRemoteControlAvailable` 能力位不动；vendor 快照
+  升级（3.14.3→3.15.1）单独立项。
+
+### tests + docs
+- 测试重写/新增：pairing-store 12（会话生命周期/多兑/epoch 踢人/stop/重启即
+  stop/URL 双 scheme 不撞）；pairing-route 13（生命周期链路/onboarding off 态/
+  loopback 403（含 IPv4-mapped、会话凭证也不能改）/CF 409/reset 联动/exchange
+  形状不变/无 store 回退）；token-auth +4（会话凭证收/踢/未接线拒/?token= 仍
+  WS-only）；CLI start 打链单测随 service。旧「单用 60 秒」断言按计划退役。
+  后端 **965/965**、web-next **173/173** 全绿。
+- 文档：OPS 配对段重写（两层凭据表 + 命令表）、PRODUCT 第零点八条（对齐
+  v3.15.1、无中继、LAN 信任边界）、ARCHITECTURE Web surface 配对段 +
+  `~/.ocrc/` 表（token = 锚；会话凭证纯内存）。
+
 ## 1.0.0-rc.6 — workflow 面板面（P4 + P4b：/z/ 里看得见 + amend 的导入缓存）(2026-10-10)
 
 > 口径：**ZCode 有而我们没有的 workflow 体验面归零**。P4 把引擎/工具面（P0–P3）接进面板：

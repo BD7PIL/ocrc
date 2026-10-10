@@ -20,4 +20,8 @@ export interface AuthStrategy {
    * every previously paired device is logged out. Optional: strategies with no
    * app-side credential (e.g. CF Access) can't rotate. */
   rotate?(): void
+  /** True when this strategy also accepts remote-control SESSION credentials
+   * (token mode with the session store wired). Session-management routes 409
+   * without it: a session opened under CF Access could never let a phone in. */
+  sessionsAccepted?: boolean
 }

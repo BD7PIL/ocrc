@@ -62,6 +62,33 @@
 - **三处如实降级**（写进代码注释与文档）：只做结果级复用（分歧 actor 空会话开场）、不带
   in-flight 条目、resume 只回看一代前驱。
 
+### fix(workflow): 收口两处「没做到」+ 一个自己留下的假数字（rc.6 补，2026-10-10 晚）
+- **directory 侧页**（第一轮记成「打不开」的第五张侧页）：门禁补上真实路径——先把状态面板
+  从 `auto` 展开成 `panel`，再开 Workflows 分区，点目录入口，断言侧页里列出这个 run。
+  **原记录的理由是错的**：面板正文的可见性是 CSS 容器查询（`auto` → `min-width:1280px`
+  才 `flex`），而门禁的展开分支写在 `data-state === 'collapsed'` 上、那个值只在字面 `mini`
+  出现，于是分支从未执行——能点开的路径一直存在，是门禁不会点。P4-2 门禁 **37/37**。
+- **修一个真 bug（门禁抓出来的）**：`/api/workflow/runs/summaries` 的每行缺 `toolCallId`
+  锚点，而 vendored 的目录模型会把无锚点的行**整行丢掉**——目录页读的只有这一面，所以行不
+  存在；状态面板的 Workflows 分区又挂在同一个计数上，于是入口和面板本身都不渲染。
+  ocrc 的 run 记录放不下这个 id（引擎在工具调用返回**之后**才铸），改为宿主按
+  `(messageId, toolName)` 在父会话的工具卡片里解析；解析不到就不给锚点，绝不猜。
+- **`messageBoundary` 不再有假数字**：它原先读 `getHistory(sessionId)`，页面默认 50——超过
+  50 条之后**恒为 50**。现在读 1000 条的窗口（读满时记 warn），并新增宿主记账行
+  `ask-boundary`（count + 边界消息 id），导入缓存从该行取数（旧 run 回落到节点字段）。
+- **边界的时机也修了**：vendored 契约把它定义在「完整交换（含 repair/nudge 与 submit 之后的
+  收尾消息）结束之后」，而 typed ask 在值被接受那刻就结算。现在 accept 写临时值、turn end
+  写权威值；权威值所属的 turn end 常常在 run 结算**之后**才到，而引擎在 `run-settled` 后立刻
+  `dispose()`（会清空在飞表）——边界义务因此存在一张不随 dispose 清空的队列里，由 manager 的
+  `settledDrivers` 接住，且按**每会话 FIFO** 归属（到达的 turn end 属于最老的在飞交换）。
+- **amend 的降级项 ① 实现**（不再是「空会话开场」）：分歧 actor 的会话由
+  `forkSession(sourceSessionId, …)` 从**前驱转录**复制而来，按后端能力降级——没有
+  `forkSession`（v2/ACP）就铸空会话并记一行日志，**不拒绝 amend**。门禁实测钉死引擎语义：
+  fork 的切点是**不含**被指消息（6 条消息在 `message[3]` 上 fork 回来 3 条），所以 driver 读
+  一次源转录、把 fork 指向边界**之后**那条消息；源会话正好停在边界时用尾拷。P4b 门禁
+  **18/18**（按**内容**比对前缀——复制会重铸所有 message id，那正是 count offset 存在的理由）。
+  降级项 ②（无 in-flight 条目）与 ③（只回看一代）保持不变。
+
 ## 1.0.0-rc.5 — workflow 全量落地 P0–P3（vendored dwf 引擎 + 官方钩子工具面 + host journal）(2026-10-10)
 
 > 口径：**ZCode 的 workflow 整套用上，但不重造编排逻辑**——引擎 vendor 上游 dwf，

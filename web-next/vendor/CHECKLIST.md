@@ -344,18 +344,22 @@
   [../../docs/workflow-p3-record.md](../../docs/workflow-p3-record.md) 与
   [../../docs/workflow-p4-record.md](../../docs/workflow-p4-record.md)）。逐项对账 vendor 的验收表：
   - 时间线 run 卡（工具卡 join）— 门禁 p4-projection `k`
-  - 状态面板 Workflows 分区 — p4-projection `l`（断言到徽标/面板模型/分区标题；分区正文在
-    mini 变体下不排版，不声称展开后的行渲染过）
+  - 状态面板 Workflows 分区与目录入口 — p4-projection `l`（徽标/面板模型/分区标题）+
+    **p4-queries `ad`/`ae`**（`auto → panel` 后正文排版可见、分区开出 `workflow-run-directory-trigger`；
+    第一轮那句「mini 变体下正文不排版」是门禁自己点错了按钮——`data-state` 在 `auto` 下一直是
+    `expanded`，展开分支从未执行，见 workflow-p4-record 第三轮）
   - run 侧页（状态/结果/阶段/并发/待答问题 + 脚本因果图）— p4-projection `n`/`o`/`p`、p4-queries `v`
   - workspace 侧页与 7 条 v4 查询 — p4-queries `d`–`r`
   - artifact 侧页（真读到字节）— p4-queries `x`/`y`
+  - run 目录侧页（已结束 run 列表 → 开详情页）— p4-queries `af`（`endedCount=1`，行就是本次 run）
   - saved workflows 面板（列表/启动/运行历史）— p4-saved `g`–`n`
   - 侧栏轨道（`workflowActivity`）— p4-projection `j`
   - 冷快照不丢 run（刷新后仍在）— p4-projection `m`
   - 4 条命令（Stop / Resume / Configure / 启动已保存）— p4-projection `o`/`q`/`r`、p4-saved `k`
   - amend 的导入缓存（结果级复用）— p4b-amend `g`–`j`
-  两处**如实拒绝/降级**：`moveSavedWorkflow` 拒绝（机器级 store，没有可搬的文件）；amend 只做
-  结果级复用（分歧 actor 空会话开场），不带 in-flight 条目，resume 只回看一代前驱。
+  - amend 的转录种子（分歧 actor 的会话带前驱前缀）— p4b-amend `k`–`n`
+  两处**如实拒绝/降级**：`moveSavedWorkflow` 拒绝（机器级 store，没有可搬的文件）；amend 不带
+  in-flight 条目、resume 只回看一代前驱（转录种子**已实现**，按后端 `forkSession` 能力降级）。
 - **spike 实测记录**：[docs/n12-spike-record.md](../../docs/n12-spike-record.md)——
   A/C/D/E/F/G 隔离栈实测通过（含 UI 截图与 DOM 断言）；B 的 /z/ 半场用真 UI 点按钮通过，
   **TG 半场待用户本人跑**（我没有 Telegram 客户端，无法以用户身份发消息）。spike 修出

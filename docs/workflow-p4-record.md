@@ -182,36 +182,58 @@ ocrc host :4199  ←  引擎 :4295（装了 ocrc 插件，ATTACHED）  ←  stub
 typed 是必需的：缓存按 `(actor 名, actorSeq, inputHash)` 命中，而只有 typed ask 才有引擎
 可校验的 schema 与逐条落库的结果。
 
-## 14 项断言（摘要）
+## 18 项断言（摘要）
 
 | # | 断言 | 依据 |
 |---|---|---|
 | a | 前驱跑完，三个提交值都在结果里 | `record.result` |
-| b | driver 给每条完结的 ask 补了 `messageBoundary` | `[["ask#1",2],["ask#2",3],["ask#3",4]]` |
+| b | 每条完结的 ask 的 `messageBoundary` **等于它会话的真实长度** | `[{"ask#1":3/3},{"ask#2":4/4},{"ask#3":2/2}]`（第三轮起：不再是「有数就行」） |
 | c | 前驱三条都是 live 跑的（基线：无命中） | 投影 `cached` 全空 |
 | d | amend 被接受并铸出后继 | 新 runId |
-| e | 修订跑完，四个值都在 | `{a:1,b:2,c:3,d:4}` |
+| e | 修订跑完，五个值都在 | `{a:1,b:2,c:3,d:4,a2:5}` |
 | f | 修订带 lineage 指针 | `resumedFrom` = 前驱 |
 | g | **前驱三条在修订里是缓存命中** | 投影 `cached: true` ×3 |
-| h | 新那条是 live 跑的（缓存不是一刀切跳过） | `cached` 空、`phase: settled`、`outcome: ok` |
+| h | 两条新 ask 都是 live 跑的（缓存不是一刀切跳过） | `cached` 空、`phase: settled`、`outcome: ok` |
 | i | 前驱被 supersede 且不可恢复 | 投影 `resumable` 缺席 |
-| j | **修订只派发了新那一条** | 事件日志里 `node-dispatched` 只有 `ask#4` |
+| j | **修订只派发了新的那两条** | 事件日志里 `node-dispatched` 只有 `ask#4`/`ask#5` |
+| k | 前驱 journal 里的边界行同时带 count 与 message id | `ask-boundary` 行 vs 转录长度 |
+| l | 分歧 actor 拿到的是**新**会话（种子是复制，不是重挂） | 前驱/修订的 alpha session id 不同 |
+| m | **种出来的会话带着前驱的完整前缀** | 按**内容**逐条比对 `prefix=3 boundary=3` |
+| n | 复制的那段是源会话的开头、按序 | 前缀逐条相等（不是集合相等） |
+
+**为什么按内容比、不按 message id 比**：vendored 的 count offset 之所以成立，正是因为「把前 N 条
+消息复制进新会话，消息 id 全变而 count 不变」。比 id 就是比一个复制**本来就允许改**的东西。
+
+**引擎的 fork 切在哪（实测写死）**：`POST /session/:id/fork {messageID}` **不含**被指的那条
+（6 条消息的会话在 `message[3]` 上 fork 回来是 3 条；不带 id 则拷整个尾巴）。所以 driver 不能把
+fork 指向边界消息（那会正好丢掉这条 ask 产出的那条消息），而是**读一次源转录、把 fork 指向边界之后
+的那条消息**；源会话正好停在边界时（后面没有消息）就用不带 id 的尾拷——两者都得到契约要的
+「前 N 条」。这一步由 `seedActorSession` 完成，结论钉在它的注释里。
 
 ## 硬前置与如实降级
 
 - **硬前置（已做）**：driver 从不写 `NodeRecord.messageBoundary`，而 vendored 的缓存构建
   **整体拒绝**没有边界的条目（`missing_boundaries`）。现在 driver 在 ask 交换结束时补写：
-  typed ask 在 `respondToSubmit` 的 accept 分支（交换在值被接受那刻结束），untyped ask 在
-  `notifyTurnEnd`。两处都写在引擎结算之后，免得被引擎自己的行写入盖掉。
-  边界数的单位是**我们自己的转录单位**（`backend.getHistory` 返回的 `StructuredCard` 条数，
-  也就是将来做种子复制时真正要搬的东西）——数一个我们没有的东西（引擎的消息行）才是编数字。
-- **如实降级 ①（结果级复用）**：vendored 的缓存还能给「分歧 actor」的新会话播种前驱转录前缀。
-  我们的转录是卡片式的、driver 也不做会话复制，所以分歧 actor 以**空会话**开场、不带前驱上下文。
-  省下的仍然是贵的那一半：已完成的 ask 不再重跑。
-- **如实降级 ②（无 in-flight 条目）**：上游能把「停下时还在飞」的那半场对话交出去续跑，
-  同样需要转录复制，故省略——在飞的那条重跑一次。
+  typed ask 在 `respondToSubmit` 的 accept 分支写**临时值**，`notifyTurnEnd` 写**权威值**
+  （vendored 契约把边界定义在「完整交换」结束之后）。两处都写在引擎结算之后，免得被引擎自己的
+  行写入盖掉。边界数的单位是**我们自己的转录单位**（`backend.getHistory` 返回的
+  `StructuredCard` 条数，也就是种子复制真正要搬的东西）——数一个我们没有的东西（引擎的消息行）
+  才是编数字。宿主自己的一行记账（`ask-boundary`，与 `run-join` 同族）连同**边界消息 id** 一起
+  落库，好让只能按消息边界复制的后端有确切位置可切。
+- **④ 结算之后的 turn end（已修）**：引擎在 `run-settled` 后立刻 `driver.dispose()`，而权威边界
+  所属的那个 turn end 常常在那之后才到（typed ask 在值被接受时就结算）。边界义务因此存在一张
+  **不随 dispose 清空**的队列里，由 manager 的 `settledDrivers` 接住结算后的 turn end；队列是
+  每会话 FIFO（到达的 turn end 属于最老的那条在飞交换）。
+- **已实现 ①（转录种子）**：vendored 的缓存还能给「分歧 actor」的新会话播种前驱转录前缀。现在
+  由 `forkSession` 实现，**按后端能力降级**：没有 `forkSession`（v2 / ACP）就铸空会话并记一行
+  `no transcript seeding (backend lacks forkSession)`——**绝不因此拒绝 amend**。缺能力要如实降级，
+  不能把用户挡在外面。
+- **如实降级 ②（无 in-flight 条目）**：上游能把「停下时还在飞」的那半场对话交出去续跑（
+  `ImportedInFlightAsk`），我们仍然省略——在飞的那条重跑一次。注意这与 ① 不是同一件事：**已完结**
+  的前缀现在会复制（①），只有「半场」不复制。
 - **如实降级 ③（只回看一代）**：resume 时从**直接前驱**重建缓存（上游会走整条
-  `resumed_from` 链）。两代修订之后，祖辈的条目不在缓存里。
+  `resumed_from` 链）。两代修订之后，祖辈的条目不在缓存里，种子也因此找不到对应边界（会记一行
+  warn 并退回空会话）。
 - **缓存缺席不阻塞 amend**：preflight 失败只记一行 warn 并照常修订（代价是 token，不是功能）。
   这样 P4b 之前的历史 run 也还能被修订。
 
@@ -229,7 +251,7 @@ typed 是必需的：缓存按 `(actor 名, actorSeq, inputHash)` 命中，而�
 | artifact | ✅ 实测打开且**真读到字节** | p4-queries `x`/`y`（代码块里是 markdown 原文） |
 | workspace | ✅ 实测打开且有数据 | p4-queries `aa`：`workflow-timeline-workspace-open` → 面板列出 `搜索 src/core/workflow/*.ts`（13 个文件 · 18ms）与 `读取 projection.ts`（22.4 KB）——即 workspace 查询的页面级证据（截图 `10-workspace-pane.png`） |
 | actor 会话 | ✅ 实测打开（在 **P4-1 门禁**里，活着的 run 上） | p4-projection `u`：run 面板花名册药丸 → actor 的转录页挂载（`rosterPill=true pane=true`，截图 `5-actor-pane.png`） |
-| directory | ⚠️ 未实测打开（见下） | p4-queries `ac` 断言它的门（已结束 run 数 > 0）与数据面 |
+| directory | ✅ 实测打开且有数据（第三轮补验，见下） | p4-queries `ad`–`af`：面板展开 → Workflows 分区 → 目录入口 → 侧页列出 `p4-queries`（`endedCount=1`，截图 `12-directory-pane.png`） |
 
 ## 如实说明：两张侧页没实测打开
 
@@ -237,11 +259,61 @@ typed 是必需的：缓存按 `(actor 名, actorSeq, inputHash)` 命中，而�
   接线——它的入口是 run 面板里**在飞 ask 的花名册**药丸，而 p4-queries 的 run 已经结算、没有花名册
   （digest 时间线上那枚同形药丸打开的是 workspace 转录，不是 actor 会话）。改到 p4-projection 的
   **活着的 run** 上点，就开了。
-- **directory 侧页**：它的入口在**状态面板的 Workflows 分区**里（`workflow-run-directory-trigger`），
-  而那个分区在 mini 变体下面板正文不排版（与 P4-1 `l` 同一条限制，Playwright 连 force click 都
-  点不动）。所以只断言了它的门与数据面（已结束 run 数 > 0，投影 `endedRuns=1`）。
-  页面本身读的是同一份 `workflowRuns` 投影。
+- **directory 侧页**（第三轮已补验，见下）：第一轮把它记成「mini 变体下面板正文不排版」——**这个
+  理由是错的**，见下一节。
 
 这两条都不影响「七条查询已通」这个结论：查询是 HTTP 层实测的（`d`–`r`），侧页只是它们的渲染端。
-`directory` 那一条也不是接线问题：它的入口按 vendor 的设计就在状态面板的 Workflows 分区里，而那个
-分区在 mini 变体下面板正文不排版——与 P4-1 `l` 是同一条限制。
+
+---
+
+# P4-2 第三轮 — directory 侧页 + 两个真缺陷（2026-10-10）
+
+第一轮把 directory 侧页记成「打不开」，理由写成「状态面板正文在 mini 变体下不排版」。**那个理由
+是我自己门禁的错误**，不是产品限制：
+
+- 面板正文的可见性是 **CSS 容器查询**（`ConversationStatusPanel.tsx`：`variant === "auto" ?
+  "hidden @min-[1280px]/conversation:flex" : "flex"`）。显式 `panel` 变体下正文**恒可见**，
+  与列宽无关。
+- 我的展开分支写的是 `if (data-state === 'collapsed')`，而 `data-state="collapsed"` 只在字面
+  `mini` 变体出现；`auto` 下它一直是 `"expanded"`——于是展开分支**从未执行**，门禁去点了一个
+  从未被排版过的按钮（Playwright 的 `force click` 也点不动一个 `display:none` 子树）。
+- 用户的一句「为什么不做」让我回头读了 vendor 的样式，才看到这一点：**能点开的路径一直存在，
+  是门禁不会点。**
+
+## 门禁补了什么（37/37）
+
+| # | 断言 | 依据 |
+|---|---|---|
+| ac | 目录查询给每行带上 `toolCallId` 锚点 | summaries 面首行的 `toolCallId` |
+| ad | 状态面板能从 `auto` 展开成 `panel`（点 mini 行唯一的控件） | `data-display-mode`：`auto → panel` |
+| ae | Workflows 分区开出目录入口 | `[data-testid="workflow-run-directory-trigger"]` |
+| af | **目录侧页打开并列出这个 run** | `section[data-workflow-directory-section="ended"]` 里的 `[data-run-id]` 行，`endedCount=1` |
+
+## 这一轮抓出来的两个真缺陷（都已修）
+
+1. **summaries 面缺 `toolCallId` 锚点。** vendored 的目录模型（`buildWorkflowRunDirectory` →
+   `hasDetailAnchor`）会把没有 `toolCallId` 的摘要**整行丢掉**，而目录页读的只有这一面；更糟的是
+   状态面板的 Workflows 分区挂在同一个计数上（`endedWorkflowRunCount` 来自同一条查询），行全被丢
+   就等于**入口和面板本身都不渲染**。ocrc 没法把 id 放进 run 记录（引擎在工具调用返回**之后**才铸
+   `tool-<partId>`，插件只知道 message），所以由宿主按 `(messageId, toolName)` 这对在**父会话自己的
+   工具卡片**里解析——和投影面交给面板的那对是同一对，只是这一面没有行可拿。解析不到就不给锚点
+   （HTTP 提交的 run 没有 join，窗口外的卡片也匹配不上），绝不猜。
+2. **`messageBoundary` 是个假数字。** 原先读 `getHistory(sessionId)`，而它的默认页是 50——**超过
+   50 条之后这个边界恒为 50**。它带着契约含义（种子复制按这个数截断前缀），所以改成读一个足够大的
+   窗口（1000），读满窗口时记 warn 而不是把「下限」当计数发出去。
+   顺带修掉了它的**时机**：vendored 契约把边界定义在「完整交换（含 repair/nudge 与 submit 之后的
+   收尾消息）结束之后」，而 typed ask 在**值被接受**那刻就结算——收尾消息还没落地。于是：
+   - accept 时写一版**临时值**（好让刚跑完的 run 能被 amend——preflight 拒绝没有边界的条目）；
+   - **turn end 时写权威值**，且这个 turn end 经常在 run 结算**之后**才到——引擎在 `run-settled`
+     后立刻 `driver.dispose()`，原先会把在飞表清空、让这个值永远落不了地。现在边界义务存在一张
+     **不随 dispose 清空**的队列里，由 manager 的 `settledDrivers` 接收结算后的 turn end；
+   - 队列是**每个会话的 FIFO**：typed ask 在值被接受时就结算，所以下一条 ask 会在上一条的 turn
+     end 之前被派发，而到达的 turn end 属于**最老的那条**（单槽位会把老的那条覆盖掉，让它永远停在
+     临时值上）。
+
+---
+
+# P4b 门禁记录 — amend 的导入缓存与转录种子（第二轮）
+
+第一轮 14/14 只验了「已完成的 ask 不再重跑」（结果级复用），并把转录种子记成如实降级。第二轮把
+降级项 ① 补上了，门禁扩到 **18/18**。

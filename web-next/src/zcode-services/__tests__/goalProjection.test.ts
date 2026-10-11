@@ -303,7 +303,8 @@ describe('goal 帧 → state.updated（live 路径）', () => {
       .map((f) => f?.frame?.payload)
       .filter((p) => p?.kind === 'deltas')
       .flatMap((p: any) => p.deltas)
-      .filter((d: any) => d.op === 'state.updated')
+      // P5 起 ws 重连自愈会先推一条 control 清口 patch（合法流流量）；goal 断言只看 goal patch。
+      .filter((d: any) => d.op === 'state.updated' && d.patch.goal)
     expect(patches.length).toBeGreaterThanOrEqual(1)
     expect(patches[0].patch.goal).toMatchObject({ targetId: 'goal_1', status: 'verifying', iteration: 1 })
     // availability 是整键替换 —— 必须带齐八个键，否则 zod 丢帧
@@ -350,7 +351,8 @@ describe('goal 帧 → state.updated（live 路径）', () => {
       .map((f) => f?.frame?.payload)
       .filter((p) => p?.kind === 'deltas')
       .flatMap((p: any) => p.deltas)
-      .find((d: any) => d.op === 'state.updated')
+      // P5 的 control patch 不带 goal 键；goal:null 的清场 patch 带。
+      .find((d: any) => d.op === 'state.updated' && 'goal' in d.patch)
     expect(patch.patch.goal).toBeNull()
     expect(patch.patch.availability.resumeGoal).toEqual({ allowed: false, reasonCode: 'noGoalToResume' })
   })

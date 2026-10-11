@@ -2,6 +2,7 @@ import type { StructuredCard, SessionSummary, ConfigSummary, ProjectOverview } f
 import { clearAuthReloadFlag } from '../auth-reload.js'
 import { onUnauthorized } from '../auth.js'
 import { getToken } from '../auth-token.js'
+import { hostConn } from '../../zcode-services/hostConnection.js'
 
 let base = ''
 
@@ -23,8 +24,22 @@ function authHeaders(extra?: Record<string, string>): Record<string, string> {
 // promise — the session loading dots spin on `!feed` and would never clear.
 const FETCH_TIMEOUT_MS = 20_000
 
+// P5：REST 层向 host 连接状态机做佐证上报。分流铁律：401 = host 可达（走
+// onUnauthorized 认证分流，绝不触碰连接状态机）；只有网络层失败（断连/超时）
+// 才计入 restFail 连击（达到阈值由状态机强制 ws 重验）。
+async function trackedFetch(url: string, init: RequestInit): Promise<Response> {
+  try {
+    const res = await fetch(url, init)
+    hostConn.restOk()
+    return res
+  } catch (e) {
+    hostConn.restFail()
+    throw e
+  }
+}
+
 async function jsonGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${base}${path}`, { credentials: 'include', headers: authHeaders(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+  const res = await trackedFetch(`${base}${path}`, { credentials: 'include', headers: authHeaders(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
   if (res.status === 401) { onUnauthorized(); throw new Error(`GET ${path} 401`) }
   if (!res.ok) throw new Error(`GET ${path} ${res.status}`)
   clearAuthReloadFlag()
@@ -32,7 +47,7 @@ async function jsonGet<T>(path: string): Promise<T> {
 }
 
 async function jsonPost<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${base}${path}`, {
+  const res = await trackedFetch(`${base}${path}`, {
     method: 'POST',
     headers: authHeaders({ 'content-type': 'application/json' }),
     credentials: 'include',
@@ -46,7 +61,7 @@ async function jsonPost<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function jsonMethod<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${base}${path}`, {
+  const res = await trackedFetch(`${base}${path}`, {
     method,
     headers: authHeaders(body === undefined ? undefined : { 'content-type': 'application/json' }),
     credentials: 'include',
@@ -64,7 +79,7 @@ async function jsonPatch<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function jsonPut<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${base}${path}`, {
+  const res = await trackedFetch(`${base}${path}`, {
     method: 'PUT',
     headers: authHeaders({ 'content-type': 'application/json' }),
     credentials: 'include',

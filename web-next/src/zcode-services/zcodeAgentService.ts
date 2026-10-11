@@ -15,6 +15,7 @@ import {
 } from './workflowProjection.js'
 import { deriveSessionWorkflowActivity } from '@zcode/shared/zcode-protocol-v4/sessions-index-workflow-activity'
 import type { WorkflowRunState, WorkflowRunsState } from '@zcode/shared/zcode-protocol-v4/workflow-runs'
+import { hostConn, HOST_RECONNECT_MS, type HostPhase } from './hostConnection.js'
 
 const V4_WIRE_PROTOCOL_VERSION = 3 as const
 
@@ -36,15 +37,20 @@ interface OcrcBlock { type: string; text?: string; tool?: string; args?: string;
 interface OcrcCard { kind: string; text?: string; ts?: number; blocks?: OcrcBlock[]; meta?: { model?: string; agent?: string }; thinkingText?: string; messageId?: string; origin?: string }
 
 async function ocrcHistory(taskId: string): Promise<OcrcCard[]> {
+  let res: Response
   try {
-    const res = await fetch(`/api/session/${taskId}?limit=200`, {
+    res = await fetch(`/api/session/${taskId}?limit=200`, {
       headers: { Authorization: `Bearer ${token()}` },
     })
-    if (!res.ok) return []
-    return ((await res.json()) as { cards: OcrcCard[] }).cards ?? []
-  } catch {
-    return []
+  } catch (e) {
+    // P5：网络层失败不再吞成空历史（那会以「空会话」假象掩盖掉线）——向调用方
+    // 如实抛出（快照构建走重试补投），同时给连接状态机记一次 REST 连击。
+    hostConn.restFail()
+    throw e
   }
+  hostConn.restOk()
+  if (!res.ok) return []
+  return ((await res.json()) as { cards: OcrcCard[] }).cards ?? []
 }
 
 // 状态面板（PlanHud）的两块数据：ocrc 早就有 REST 面（/todo、/subagents），
@@ -646,7 +652,7 @@ function insertGoalVerifyRows(rows: any[], continuationStarts: number[], goalArg
 
 // ── 通知通道：per-frame 监听器注册表 + 订阅登记（resync 回显同一 subscriptionId）──
 const frameListeners = new Set<(frame: any) => void>()
-const subscriptions = new Map<string, { sessionId: string; topic: string }>()
+const subscriptions = new Map<string, { sessionId: string; topic: string; workspaceKey?: string }>()
 const lastSeqBySub = new Map<string, number>()
 // assembler 每 route 维护单调 ordinal tombstone（不淘汰）：同订阅第 N 个 logical
 // frame 的 ordinal 必须严格递增，旧 ordinal + 新 logicalFrameId 会触发
@@ -673,7 +679,7 @@ function deliverWire(
   const frame = { topic, subscriptionId, fromSeq, toSeq, sentAt: Date.now(), payload }
   const check = conversationTopicFrameSchema.safeParse(frame)
   if (!check.success) {
-    console.info('[ocrc-trace] frame zod FAIL:', JSON.stringify(check.error.issues.slice(0, 6).map((i) => ({ path: i.path.join('.'), msg: i.message }))))
+    console.warn('frame zod FAIL:', JSON.stringify(check.error.issues.slice(0, 6).map((i) => ({ path: i.path.join('.'), msg: i.message }))))
     return
   }
   const wire = {
@@ -686,9 +692,8 @@ function deliverWire(
     subscriptionId,
     frame: check.data,
   }
-  console.info('[ocrc-trace] wire candidate OK (' + deliveryKind + ') ordinal=' + wire.logicalFrameOrdinal + ', delivering to', frameListeners.size, 'listeners')
   for (const l of frameListeners) {
-    try { l(wire) } catch (e) { console.info('[ocrc-trace] listener threw', String(e).slice(0, 200)) }
+    try { l(wire) } catch (e) { console.warn('frame listener threw', String(e).slice(0, 200)) }
   }
 }
 
@@ -721,10 +726,6 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
     fetchGoal(taskId),
   ])
 
-  console.info(
-    '[ocrc-trace] snapshot subagents =',
-    subagents ? `children=${subagents.childSessionIds.length} running=${subagents.running.length} ended=${subagents.endedTotal}` : '(none)',
-  )
   const rows = buildRows(cards, goalUiState)
   // P4-1b: this session's workflow runs, resolved against the rows we just built. Both
   // this and the background-work collection must happen BEFORE enrichToolRows — the card
@@ -742,12 +743,9 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
     seq,
     revision: 1,
     control: {
-      phase: 'completedSuccess',
-      sessionEnded: true,
-      canStop: false,
-      stopState: 'idle',
-      stopTargetKind: 'unknown',
-      activeWorks: [],
+      // P5：CONTROL_BASE 与 hostConn 的 control patch 共用一个基线（单点真相）；
+      // lastError/apiRetry 的动态面由 zcodeAgentService 的连接状态机增量下发。
+      ...CONTROL_BASE,
       lastError: null,
       apiRetry: null,
     },
@@ -776,9 +774,28 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
   return { snapshot, seq, rows }
 }
 
-async function emitConversationSnapshot(taskId: string, topic: string, subscriptionId: string, deliveryKind: 'initial' | 'recovery' | 'online'): Promise<void> {
-  const { snapshot, seq, rows } = await buildSnapshotPayload(taskId)
-  console.info('[ocrc-trace] emitConversationSnapshot rows =', rows.length, 'listeners =', frameListeners.size)
+/** 快照构建失败（host 不可达等）后的有界补投：host 恢复后自动收敛，5 次后放弃
+ *  （store 侧的恢复阶梯 / available 事件是并行的兜底，不依赖这条链活着）。 */
+const SNAPSHOT_RETRY_DELAYS_MS = [1500, 4000, 8000, 15000, 30000] as const
+
+async function emitConversationSnapshot(taskId: string, topic: string, subscriptionId: string, deliveryKind: 'initial' | 'recovery' | 'online', retryIndex = 0): Promise<void> {
+  let built: SnapshotBuild
+  try {
+    built = await buildSnapshotPayload(taskId)
+  } catch (e) {
+    // P5：历史取不到（典型 = host 不可达）时拒绝投「空会话」假快照——那会把掉线
+    // 伪装成空对话。改为有界重试补投。
+    console.warn(`[ocrc-agent] snapshot build failed (${taskId}):`, String(e).slice(0, 200))
+    const delay = SNAPSHOT_RETRY_DELAYS_MS[retryIndex]
+    if (delay !== undefined) {
+      setTimeout(() => {
+        if (!frameListeners.size) return
+        void emitConversationSnapshot(taskId, topic, subscriptionId, deliveryKind, retryIndex + 1)
+      }, delay)
+    }
+    return
+  }
+  const { snapshot, seq, rows } = built
   // 水位/rows 记账先于投递：retry 路径与 live diff 都依赖这份基线。
   lastSeqBySub.set(subscriptionId, seq)
   lastRowsBySession.set(taskId, rows)
@@ -809,6 +826,149 @@ const liveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const watchedSessions = new Set<string>()
 let liveWs: WebSocket | null = null
 let liveWsRetry: ReturnType<typeof setTimeout> | null = null
+
+// ── P5: host 掉线可见化 ──────────────────────────────────────────────────
+// 检测：liveWs 是唯一事实源（client.ts 的 REST 佐证只强制重验，不改相位）。
+// 展示：相位变化 → control patch（composer 横幅 + 「重新连接中 N/M」条）；
+// 确认死亡（重连封顶）→ runtime lifecycle unavailable → vendor 恢复阶梯
+// （subscribe/resync 探测裁决 → 有界退避 → SessionSubscriptionErrorPanel 整页）。
+// 自愈：ws 回来 → 清口 patch + available（store 按水位 resync / 重订阅全量收敛）。
+const CONTROL_BASE = {
+  phase: 'completedSuccess',
+  sessionEnded: true,
+  canStop: false,
+  stopState: 'idle',
+  stopTargetKind: 'unknown',
+  activeWorks: [],
+} as const
+
+function hostNetworkError(): Record<string, unknown> {
+  return {
+    code: 'fault.host.unreachable',
+    message: '无法连接 ocrc 主机——数据通道已断开，正在尝试恢复（host unreachable）',
+    recoverable: true,
+    at: Date.now(),
+    source: 'network',
+  }
+}
+
+/** control 是 statePatch 的整键替换（Object.assign，无深合并），patch 必须携带完整对象。 */
+function fullControl(lastError: unknown, apiRetry: unknown) {
+  return { ...CONTROL_BASE, lastError, apiRetry }
+}
+
+/** control-only 增量帧：seq 是快照对齐水位，control 帧同样推进 1（store 的重复帧/断档规则都按 toSeq/fromSeq 判定）。 */
+function deliverControlPatch(sessionId: string, lastError: Record<string, unknown> | null, apiRetry: Record<string, unknown> | null): void {
+  for (const [subId, sub] of subscriptions) {
+    if (sub.sessionId !== sessionId) continue
+    const seq = lastSeqBySub.get(subId) ?? 0
+    deliverWire(sub.topic, subId, seq, seq + 1, { kind: 'deltas', deltas: [{ op: 'state.updated', patch: { control: fullControl(lastError, apiRetry) } }] }, 'online')
+    lastSeqBySub.set(subId, seq + 1)
+  }
+}
+
+const lifecycleListeners = new Set<(event: { workspaceKey: string; state: 'available' | 'unavailable' }) => void>()
+
+/** transport 按 workspaceKey（= workspaceIdentity || workspacePath，subscribe 时登记）过滤事件。 */
+function emitLifecycle(state: 'available' | 'unavailable'): void {
+  const keys = new Set<string>()
+  for (const sub of subscriptions.values()) {
+    if (sub.workspaceKey) keys.add(sub.workspaceKey)
+  }
+  for (const key of keys) {
+    for (const l of [...lifecycleListeners]) {
+      try { l({ workspaceKey: key, state }) } catch { /* 监听器自负 */ }
+    }
+  }
+}
+
+let prevPhase: HostPhase = 'up'
+let episodeError: Record<string, unknown> | null = null
+hostConn.subscribe((s) => {
+  if (s.phase === 'up') {
+    episodeError = null
+    if (prevPhase !== 'up') {
+      for (const sessionId of watchedSessions) {
+        deliverControlPatch(sessionId, null, null)
+        // ws 期间落下的引擎事件由 refetch+diff 收敛（available 的 forceSnapshot 是 store 侧兜底）。
+        scheduleLive(sessionId)
+      }
+      emitLifecycle('available')
+    }
+  } else if (s.phase === 'degraded') {
+    // episode 内 lastError 对象复用（at 稳定 → 横幅错误指纹不变，不反复重闪）。
+    if (prevPhase === 'up') episodeError = hostNetworkError()
+    for (const sessionId of watchedSessions) {
+      deliverControlPatch(
+        sessionId,
+        episodeError,
+        { attempt: s.attempt, maxAttempts: s.maxAttempts, nextRetryAt: Date.now() + HOST_RECONNECT_MS, reasonCode: 'host_unreachable' },
+      )
+    }
+  } else if (prevPhase !== 'down') {
+    // down（确认死亡）只在转入时发一次；此后 attempt 继续涨但界面不再刷。
+    for (const sessionId of watchedSessions) deliverControlPatch(sessionId, episodeError ?? hostNetworkError(), null)
+    emitLifecycle('unavailable')
+  }
+  prevPhase = s.phase
+})
+// REST 佐证连击达到阈值（疑似半开连接）→ 强制 ws 重验：close 后由 onclose 重连梯子接管。
+hostConn.setForceRecheck(() => {
+  try { liveWs?.close() } catch { /* onclose 接管 */ }
+})
+
+const HEARTBEAT_INTERVAL_MS = 15_000
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+let pingInFlight = false
+
+function stopHeartbeat(): void {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null }
+  pingInFlight = false
+}
+
+function startHeartbeat(): void {
+  stopHeartbeat()
+  // 半开探测：app 级 ping/pong（ws-hub 原生支持）。上一拍 ping 未获任何回声
+  // （pong 或任意业务帧都算活性）→ REST 探测裁决——后台节流页可能只是定时器饿着，
+  // 误杀会闪断，所以由 HTTP 层裁决是否真的断网，再决定要不要撕掉这条 ws。
+  heartbeatTimer = setInterval(() => {
+    if (pingInFlight) {
+      pingInFlight = false
+      void probeHost().then((ok) => {
+        if (ok) return
+        try { liveWs?.close() } catch { /* onclose 接管 */ }
+      })
+      return
+    }
+    try {
+      liveWs?.send(JSON.stringify({ type: 'ping' }))
+      pingInFlight = true
+    } catch { /* onclose 接管 */ }
+  }, HEARTBEAT_INTERVAL_MS)
+}
+
+async function probeHost(): Promise<boolean> {
+  try {
+    // 任何 HTTP 响应（含 401/5xx）都证明 host 进程可达；只有网络层失败才算不可达。
+    await fetch('/api/version', { headers: { Authorization: `Bearer ${token()}` }, signal: AbortSignal.timeout(4000) })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** subscribe/resync 的探测闸门：常态（up 且 ws 已开）零开销放行；否则 REST 探测裁决。
+ *  探测失败按 vendor「runtime 回收」语义 reject——store 有界退避重试（fresh subscribe
+ *  和 unavailable 阶梯都吃这套），额度耗尽落整页错误面板。消息尾串是对 store 的
+ *  isRuntimeRecycleError 的显式命中（auto-retry 与自愈路径靠它分诊）。 */
+async function ensureHostReachable(): Promise<void> {
+  if (hostConn.phase() === 'up' && liveWs?.readyState === WebSocket.OPEN) return
+  if (await probeHost()) {
+    hostConn.restOk()
+    return
+  }
+  throw new Error('与 ocrc 主机的连接已断开（host unreachable）— ZCode Agent runtime is not running')
+}
 
 /** rows diff（N9-1 键控版）：rowId 现在是内容身份——同位置 rowId 不同 =
  *  中间插入/删除（协议无 row.inserted，键控补丁表达不了）→ null 全量收敛。
@@ -947,10 +1107,12 @@ function liveWsEnsure(): void {
   try {
     liveWs = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token())}`)
   } catch {
-    liveWsRetry = setTimeout(liveWsEnsure, 3000)
+    liveWsRetry = setTimeout(liveWsEnsure, HOST_RECONNECT_MS)
     return
   }
   liveWs.onopen = () => {
+    hostConn.wsUp()
+    startHeartbeat()
     // attach 时 wsHub 会推 hello；对每个受管会话显式订阅（sinceSeq 0 → 完整 replay，
     // 首帧 replay 经 liveUpdate 的 rows diff 自然去重）。
     for (const sessionId of watchedSessions) {
@@ -958,6 +1120,9 @@ function liveWsEnsure(): void {
     }
   }
   liveWs.onmessage = (ev) => {
+    // 任何服务端帧（pong/卡片/状态）都是活性证据：重置心跳与 REST 佐证连击。
+    hostConn.restOk()
+    pingInFlight = false
     let msg: { type?: string; sessionId?: string; card?: { sessionId?: string } }
     try {
       msg = JSON.parse(typeof ev.data === 'string' ? ev.data : '') as typeof msg
@@ -979,8 +1144,13 @@ function liveWsEnsure(): void {
     if (msg.type === 'card' || msg.type === 'sdelta' || msg.type === 'session.status') scheduleLive(sid)
   }
   liveWs.onclose = () => {
+    stopHeartbeat()
     liveWs = null
-    if (watchedSessions.size > 0) liveWsRetry = setTimeout(liveWsEnsure, 3000)
+    if (watchedSessions.size > 0) {
+      // P5：掉线进入可见状态机（degraded → 封顶 down）；重连仍由本模块 3s 梯子驱动。
+      hostConn.wsDown()
+      liveWsRetry = setTimeout(liveWsEnsure, HOST_RECONNECT_MS)
+    }
   }
   liveWs.onerror = () => {
     try { liveWs?.close() } catch { /* onclose 接管重连 */ }
@@ -1065,7 +1235,7 @@ function deliverIndexWire(
   const frame = { topic, subscriptionId, fromSeq, toSeq, sentAt: Date.now(), payload }
   const check = sessionsIndexTopicFrameSchema.safeParse(frame)
   if (!check.success) {
-    console.info('[ocrc-trace] index frame zod FAIL:', JSON.stringify(check.error.issues.slice(0, 6).map((i) => ({ path: i.path.join('.'), msg: i.message }))))
+    console.warn('index frame zod FAIL:', JSON.stringify(check.error.issues.slice(0, 6).map((i) => ({ path: i.path.join('.'), msg: i.message }))))
     return
   }
   const wire = {
@@ -1115,7 +1285,10 @@ function publishIndexStatus(sessionId: string, busy: boolean): void {
 export function createOcrcZcodeAgentService(): any {
   const impl: Record<string, unknown> = {
     // ── v4 conversation 订阅三件套 + ACK 后异步下发初始 snapshot 通知 ──
-    async subscribeConversationV4(params: { sessionId?: string; workspacePath?: string }) {
+    async subscribeConversationV4(params: { sessionId?: string; workspacePath?: string; workspaceIdentity?: string }) {
+      // P5 探测闸门：host 不可达时如实 reject（vendor 恢复阶梯接管），不回 ACK 后让
+      // 快照静默失败——那会让 store 永远停在 connecting 转圈。
+      await ensureHostReachable()
       const ack = {
         subscriptionId: `ocrc-sub-${uuid()}`,
         mode: 'snapshot',
@@ -1124,9 +1297,13 @@ export function createOcrcZcodeAgentService(): any {
       // transport 不传 topic——topic 由会话侧构造：conversation/<sessionId>
       const sessionId = params?.sessionId
       const topic = sessionId ? `conversation/${sessionId}` : undefined
-      console.info('[ocrc-trace] subscribeConversationV4 sessionId =', sessionId, 'topic =', topic)
       if (topic && sessionId) {
-        subscriptions.set(ack.subscriptionId, { sessionId, topic })
+        subscriptions.set(ack.subscriptionId, {
+          sessionId,
+          topic,
+          // lifecycle 事件按此 key 过滤（transport 侧 = workspaceIdentity || workspacePath）。
+          workspaceKey: String(params?.workspaceIdentity ?? '').trim() || String(params?.workspacePath ?? ''),
+        })
         liveWatch(sessionId)
         // post-response owned notification：ACK 先回，snapshot 异步补发
         void emitConversationSnapshot(sessionId, topic, ack.subscriptionId, 'initial')
@@ -1141,11 +1318,12 @@ export function createOcrcZcodeAgentService(): any {
       const subId = params?.subscriptionId
       const sub = subId ? subscriptions.get(subId) : undefined
       const lastSeq = subId ? lastSeqBySub.get(subId) : undefined
-      console.info('[ocrc-trace] resyncConversationV4 subId =', subId?.slice(-8), 'sub =', Boolean(sub), 'base =', JSON.stringify(params?.base ?? null), 'force =', Boolean(params?.forceSnapshot), 'lastSeq =', lastSeq)
       if (!sub || !subId) {
         // 未登记的订阅（世代/重启后残留）：notOwned 让 store fresh subscribe 自愈
         throw new Error('fault.subscription.notOwned')
       }
+      // P5 探测闸门（与 subscribe 同语义）：host 不可达 → 如实 reject，走恢复阶梯。
+      await ensureHostReachable()
       const baseSeq = params?.base?.seq
       if (!params?.forceSnapshot && typeof baseSeq === 'number' && baseSeq === lastSeq) {
         // base 仍是当前水位：resume 收口。空增量帧 (N,N] 走 store 的重复帧规则
@@ -1343,6 +1521,12 @@ export function createOcrcZcodeAgentService(): any {
         frameListeners.add(listener)
         return () => frameListeners.delete(listener)
       }
+    },
+    // P5：host 连接生命周期事件（transport 过滤 workspaceKey 后交给 store 的恢复阶梯：
+    // unavailable → 有界退避探测重连 → 额度耗尽整页面板；available → 按水位 resync 自愈）。
+    onAgentRuntimeLifecycle(listener: (event: { workspaceKey: string; state: 'available' | 'unavailable' }) => void) {
+      lifecycleListeners.add(listener)
+      return { dispose: () => { lifecycleListeners.delete(listener) } }
     },
     async helloConversationV4() {
       return {

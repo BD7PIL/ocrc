@@ -133,15 +133,8 @@ export function createQuickPickCommands({
       keywords: ["sidebar", "left sidebar", "toggle sidebar", "侧栏", "侧边栏", "切换侧栏"],
       run: handlers.toggleSidebar,
     },
-    {
-      id: "toggle-terminal",
-      sectionId: "panels",
-      titleId: "quickPick.command.toggleTerminal",
-      icon: "terminal",
-      shortcut: shortcuts.toggleTerminal,
-      keywords: ["terminal", "shell", "console", "终端"],
-      run: handlers.toggleTerminal,
-    },
+    // ocrc fork (PATCHES #13)：终端入口 ocrc 裁决不做——toggle-terminal /
+    // add-terminal-tab 两条命令摘除（与 header 按钮、快捷键同闸）。
     ...(supportsEmbeddedBrowser
       ? [
           {
@@ -165,14 +158,6 @@ export function createQuickPickCommands({
           } satisfies QuickPickCommand,
         ]
       : []),
-    {
-      id: "add-terminal-tab",
-      sectionId: "panels",
-      titleId: "quickPick.command.addTerminalTab",
-      icon: "terminal",
-      keywords: ["add", "terminal", "tab", "new terminal", "添加终端", "终端标签"],
-      run: handlers.openTerminalTab,
-    },
     ...(supportsEmbeddedBrowser
       ? [
           {
@@ -230,24 +215,8 @@ export function createQuickPickCommands({
     },
   ];
 
-  commands.push({
-    id: "feedback",
-    sectionId: "app",
-    titleId: "quickPick.command.feedback",
-    icon: "feedback",
-    keywords: [
-      "feedback",
-      "issue",
-      "support",
-      "tickets",
-      "问题上报",
-      "问题反馈",
-      "反馈",
-      "我的反馈",
-      "工单",
-    ],
-    run: handlers.openFeedback,
-  });
+  // ocrc fork (PATCHES #13)：反馈面 ocrc 不做（platform.openFeedback 是 no-op，
+  // 点了没反应）——命令面板反馈条目摘除。
 
   if (canOpenCommunity) {
     commands.push({

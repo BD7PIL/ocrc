@@ -92,3 +92,31 @@
   - `WindowsTopLeftLogo.tsx` / `DesktopTopOverlay.tsx` / `WorkspaceSidebarCollapsedRail.tsx` /
     `WelcomeScreen.tsx` —— `alt/aria-label="ZCode"` → `"ocrc"`（各一行）。
 - **原因**：同 U2。index.html title 与 favicon.svg 本就是 ocrc（不动）。
+
+## 13. 清理：不做面的入口摘除（U3，2026-10-11）
+ocrc 侧（2 文件）：
+- `src/zcode/accessor.ts` —— `marketingTouchService` / `feedbackService` / `skillSyncService` /
+  `pluginSyncService` 显式 `undefined`（缺席分支先例 cuaPermissionService）。skillSync/pluginSync
+  的缺席让设置页同步入口的 `Boolean(baseServices.xxx)` 门如实为假（ghost Proxy 恒真才需要补丁），
+  **同步按钮零 vendor 补丁消失**。
+- `src/zcode/platform.ts` —— `executeDesktopCommand` 置 `undefined`（类型断言绕开必填签名）：
+  上游 no-op 真值函数让 `cuaPlatform.ts` 的 `typeof === "function"` CUA 门对 Windows UA 放行，
+  门如实关闭（CUA 裁决不做）。
+
+vendor 侧（6 文件，全部摘除类一行/一块 + ocrc 注释）：
+- `WorkspaceSidebarFooter.tsx` —— 奖励菜单项 `{false && user ? ...}`（直连 ZAI 站，快捷键/CSS 藏不住）。
+- `WorkspaceHelpMenuButton.tsx` —— 社区（platform no-op 死点击）+ 问题上报 + 产品建议
+  （feedbackService 缺席必拒绝）三条摘除。
+- `ChatErrorBanner.tsx` —— 反馈按钮摘除（同 feedbackService），复制按钮保留。
+- `WorkspaceHeaderActionSection.tsx` + `quickpick/quickPickCommands.ts` + `App.tsx` —— 终端入口三闸：
+  header 按钮、命令面板 toggle-terminal / add-terminal-tab 两条、toggleTerminal 快捷键 no-op
+  （PRODUCT 裁决终端不做；terminalService 缺席，点开=空终端+reject）。
+- `quickpick/quickPickCommands.ts` —— 命令面板 feedback 条目摘除（platform.openFeedback no-op 死点击）。
+- `SettingsPage.tsx` + `settingsPageHelpers.tsx` —— 新用户引导两处入口摘除（ZCode 账号迁移向导；
+  newUserOnboardingOpen 无渲染承接=死点击）。
+
+**如实残留（留待，不遮掩）**：插件商店/安装按钮（商店 tab 面深织 10+ 处；mutation 全部
+withGhosts 如实拒绝且文案注明真实机制=编辑 opencode.json，无静默失败）——摘除归独立小批。
+设置页「终端字体」行同理（功能保存正常、特征无消费者）。
+**验证**：CDP 隔离栈——rewards 不在 DOM、命令面板「终端」0 命中、设置页无新用户引导、
+技能/插件分区无同步按钮；console 零错误；对照项（终端字体行）仍在场证明探针真实打开页面。

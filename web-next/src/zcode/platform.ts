@@ -143,7 +143,10 @@ export function createWebPlatform(): IPlatformService {
     quitAndInstallUpdate: () => Promise.resolve(),
     getInstalledEditors: () => Promise.resolve([]),
     openInEditor: () => Promise.resolve({ success: false, error: 'Not supported in web mode' }),
-    executeDesktopCommand: () => Promise.resolve(),
+    // U3 CUA 残留洞：上游 no-op（resolve 真值函数）会让 cuaPlatform 的
+    // `typeof === "function"` 门对 Windows UA 放行。置 undefined（类型断言绕开
+    // 必填签名）= 门如实关闭；桌面专属调用点全部在 isDesktop 分支内，不会触雷。
+    executeDesktopCommand: undefined as unknown as IPlatformService['executeDesktopCommand'],
     setApplicationLocale: (_locale: string) => Promise.resolve(),
     setTitleBarTheme: () => Promise.resolve(),
     getDeviceId: () => {

@@ -122,6 +122,14 @@ export function createGhostAccessor(): IServiceAccessor {
     // CUA 是 ocrc 的产品裁决不做项（PRODUCT.md 第五条）：服务缺席让 UI 走隐藏
     // 分支，而不是渲染一个权限查询必然失败的入口。接口里它本就是 optional。
     cuaPermissionService: undefined,
+    // U3 清理（不做面的入口）：显式 undefined = vendor 缺席分支。skillSync/pluginSync
+    // 的缺席让设置页同步入口的 `Boolean(baseServices.xxx)` 门为假（ghost Proxy 恒真），
+    // 同步按钮不再出现；marketingTouch/feedback 缺席短路轮询与反馈面（帮助菜单两条
+    // 与 ChatErrorBanner 反馈项已随 vendor 补丁摘除，见 PATCHES #13）。
+    marketingTouchService: undefined,
+    feedbackService: undefined,
+    skillSyncService: undefined,
+    pluginSyncService: undefined,
   }
   return new Proxy(
     real as Record<string, unknown>,

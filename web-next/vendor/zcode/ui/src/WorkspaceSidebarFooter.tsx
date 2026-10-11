@@ -436,7 +436,9 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
               onUsageClick={usageButtonClick}
               onUpgradeClick={onUpgradeClick}
             />
-            {user ? (
+            {/* ocrc fork (PATCHES #13)：奖励入口直连 ZAI 站，ocrc 裁决不做；
+                false 门连键盘路径一起关（CSS 藏不住键盘）。 */}
+            {false && user ? (
               <DropdownMenuItem onSelect={() => openRewards?.()} data-testid="rewards-menu-item">
                 <Gift className="size-4" />
                 {intl.formatMessage({ id: "rewards.menuTitle" })}

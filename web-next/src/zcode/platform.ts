@@ -1,7 +1,7 @@
 // zcode/platform.ts — vendored from packages/web/src/main.tsx createWebPlatform
 // (Apache-2.0, ZCode). Web 平台层的合法 stub 集合——他们自己就这样跑 web 模式；
 // ocrc 的桌面级能力（选目录、终端、窗口控制）同样显式不可用。
-import type { IPlatformService, RemoteTarget, SaveCliMcpToUserDirectoryRequest, ServerRemoteInfo } from '@zcode/shared'
+import type { IPlatformService, RemoteTarget, SaveCliMcpToUserDirectoryRequest, ServerRemoteInfo, WebRemoteControlStatus } from '@zcode/shared'
 import { putWebFile } from '../zcode-services/webAttachments.js'
 import { saveMcpToUserDirectory } from '../zcode-services/mcpWrite.js'
 
@@ -62,6 +62,16 @@ export function createWebPlatform(): IPlatformService {
     },
     cancelPendingRemoteConnection: (_requestId?: string) => Promise.resolve(),
     disposeRemoteSession: () => Promise.resolve(),
+    // Web 端不作为 Web 远程控制的发起端（与上游 web/main.tsx 的 stub 同形）。
+    // ocrc 的远控发起走自有 fork（alias 覆盖 WebRemoteControlDialog → pair-session
+    // loopback API），不经 platform 链。getWebRemoteControlStatus 必须在场：
+    // 页脚触发器挂载后 useWebRemoteControlStatus 每秒轮询一次，缺失 = 1Hz TypeError 噪音。
+    startWebRemoteControl: () =>
+      Promise.reject(new Error('Web remote control can only be started from desktop')),
+    refreshWebRemoteControlPairing: () =>
+      Promise.reject(new Error('Web remote control pairing can only be refreshed from desktop')),
+    stopWebRemoteControl: () => Promise.resolve(),
+    getWebRemoteControlStatus: () => Promise.resolve({ status: 'idle' } as WebRemoteControlStatus),
     isDockerAvailable: () => Promise.resolve(false),
     listWSLDistros: () => Promise.resolve([]),
     listDockerContainers: () => Promise.resolve([]),

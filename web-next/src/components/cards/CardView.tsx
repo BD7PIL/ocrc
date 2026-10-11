@@ -73,21 +73,28 @@ function UserCard({ card }: { card: Extract<StructuredCard, { kind: 'user' }> })
 
 function AssistantCard({ card }: { card: Extract<StructuredCard, { kind: 'assistant' }> }) {
   const [copied, setCopied] = useState(false)
+  const [copyError, setCopyError] = useState(false)
   const copy = () => {
     const text = card.blocks.filter((b) => b.type === 'text').map((b) => (b as { text: string }).text).join('\n\n')
-    void navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
+    // 非安全上下文（http://LAN）下 writeText 由 lib/insecure-context.ts 垫片补齐；
+    // 这里仍守卫（垫片装不上时按钮不能无反应），失败给明确反馈。
+    const write = navigator.clipboard?.writeText?.(text)
+    if (!write) { setCopyError(true); setTimeout(() => setCopyError(false), 1500); return }
+    write.then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
+      .catch(() => { setCopyError(true); setTimeout(() => setCopyError(false), 1500) })
   }
   return (
     <AssistantShell>
       <Blocks blocks={card.blocks} />
-      {/* hover 显现动作行（ZCode ConversationAssistantTextActions register） */}
-      <div className="mt-1 flex items-center gap-3 opacity-0 transition-opacity focus-within:opacity-100 group-hover/assistant-row:opacity-100">
+      {/* 动作行：桌面 hover 显现；触屏（hover:none）常驻——否则手机上不可发现。
+          ZCode ConversationAssistantTextActions register；官方手机远控同语义。 */}
+      <div className="mt-1 flex items-center gap-3 opacity-0 transition-opacity focus-within:opacity-100 group-hover/assistant-row:opacity-100 [@media(hover:none)]:opacity-100">
         {card.meta?.model && <span className="mono text-ui-2xs text-foreground-subtlest">{card.meta.model}</span>}
         {typeof card.meta?.cost === 'number' && card.meta.cost > 0 && (
           <span className="mono text-ui-2xs text-foreground-subtlest">${card.meta.cost.toFixed(4)}</span>
         )}
         <button type="button" className="ml-auto text-ui-2xs text-foreground-subtle transition-colors hover:text-foreground" onClick={copy}>
-          {copied ? <span className="text-success">已复制</span> : '复制'}
+          {copied ? <span className="text-success">已复制</span> : copyError ? <span className="text-destructive">复制失败</span> : '复制'}
         </button>
       </div>
     </AssistantShell>

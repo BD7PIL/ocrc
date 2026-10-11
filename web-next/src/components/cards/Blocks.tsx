@@ -40,9 +40,19 @@ function BlockView({ b, streaming }: { b: ContentBlock; streaming: boolean }) {
   return null
 }
 
-/** Tool row wrapper: click opens the tool-output tab (messageRaw part page). */
+/** Tool row wrapper: click opens the tool-output tab (messageRaw part page).
+ *  公开分享页（/share/:code）没有 pane 宿主、也无会话上下文——那里保留
+ *  「可点开」的假象只会是空点击死路（移动端审计 §3.3），降级为纯展示。 */
 function ToolRow({ b }: { b: Extract<ContentBlock, { type: 'tool' }> }) {
   const sessionId = useCurrentSessionId()
+  const openable = Boolean(sessionId && b.messageId && b.partId)
+  if (!openable) {
+    return (
+      <div>
+        <ToolBlock b={b} />
+      </div>
+    )
+  }
   return (
     <div
       className="cursor-pointer transition-opacity hover:opacity-80"
@@ -50,8 +60,7 @@ function ToolRow({ b }: { b: Extract<ContentBlock, { type: 'tool' }> }) {
       tabIndex={0}
       title="打开工具输出"
       onClick={() => {
-        if (!sessionId || !b.messageId || !b.partId) return
-        openPaneTab({ id: `tool:${b.partId}`, kind: 'tool', title: `${b.tool} 输出`, sessionId, messageId: b.messageId, partId: b.partId })
+        openPaneTab({ id: `tool:${b.partId}`, kind: 'tool', title: `${b.tool} 输出`, sessionId: sessionId!, messageId: b.messageId!, partId: b.partId! })
       }}
       onKeyDown={(e) => { if (e.key === 'Enter') (e.currentTarget as HTMLElement).click() }}
     >

@@ -56,15 +56,15 @@
 | 侧栏折叠/展开入口 | 无侧栏 | 开关仅桌面平台渲染（DesktopTopOverlay.tsx:135-162）；`WorkspaceSidebarCollapsedRail` 全仓无挂载点；唯一路径=命令面板「切换侧边栏 ⌘B」（实测可开） | 手机零直接入口 | 需立项（接线）；短期用命令面板兜底（已可用） |
 | 侧栏拖拽把手 | 无（官方抽屉不可 resize） | 4px 隐形把手、提示线 hover 才显（Layout.tsx:2477-2501）；JS 下限 264px > CSS 上限 195px → 拖动无效果；`touch-action:none` 吞手势 | 触屏不可见且无效 | 本轮修（coarse 下 CSS 隐藏）→ 已落地 §6.1 |
 | 侧栏顶部四动作（新建/搜索/自动化/插件市场） | 手机形态无此入口 | 179×32 行 + 32px 高；⌘ 角标无意义 | 32px 靶 | 已可用 |
-| 分组↔项目切换 / 收起全部 / 筛选排序 / 归档 | 「整理任务」菜单（TaskHome:437-507；截图） | 56×24 Tab ×2、24×24 图标 ×3（130/162/190,214）；**归档键右缘 214 超出面板 195 → 仅剩 5px 可触**，是 19px 内滚的直接来源 | 24px 靶；归档几乎不可达 | 归档=本轮修（随内滚修复重评）；其余已可用 |
+| 分组↔项目切换 / 收起全部 / 筛选排序 / 归档 | 「整理任务」菜单（TaskHome:437-507；截图） | 56×24 Tab ×2、24×24 图标 ×3（130/162/190,214）；归档键右缘 214 超出面板 195 → 仅剩 5px 可触，但侧栏容器自带 19px 横滚（214 vs 195）恰是它的可达路径 | 24px 靶；归档需先横滚（不直观但可用） | 已可用（19px 内滚保留——它同时是归档的可达路径） |
 | 项目/任务分区头 + 把手 | 工作区卡标题（TaskHome:766-791） | h-7 按钮 125×28 + 24×24 把手（`hover:none` 常显） | 24px 靶 | 已可用 |
 | 工作区行（名称/更多/查看文件/新建任务） | 整卡点按 + kind 徽标 + 路径 + 更新时间（TaskHome:766-812） | div(role=button) 179×32 + 3×24px 常显动作把名称压到 ~94px（WorkspaceSidebarItem.tsx:819-1120） | 行高 32px（官方 48px） | 已可用 |
 | 「查看文件」侧页 | 右覆盖抽屉 88vw + 遮罩 + chat inert（MobileShell:276-303） | 侧栏内文件树替换任务列表（WorkspaceSidebar.tsx:1928-1959）——树被塞进 195px | 无遮罩/无抽屉/无 inert | 需立项（接线） |
 | 任务行（标题/时间/归档/置顶） | `min-h-12/14`（48/56px）行 + 状态徽标 + 未读点（TaskHome:567-636；截图） | 34px 行高（TaskListItem.tsx:655-690）；归档 24px 常显；置顶 `size-4` 仅 hover 行挂载 → 触屏无法置顶未置顶任务 | 行高/触达/置顶死路 | 已可用（置顶死路记入 §4 C2） |
-| 显示更多 | 一次性列表 | 纯 span ≈20px 命中区（TaskList.tsx:471-484） | 非按钮语义 | 本轮修 → 已落地 §6.1（44px 命中区） |
+| 显示更多 | 一次性列表 | 纯 span ≈20px 命中区（TaskList.tsx:471-484） | 非按钮语义 | 本轮修 → 已落地 §6.1（44px 命中区，不改字号文案） |
 | 侧栏页脚（账户/远控/设置） | 无页脚（主题菜单在顶栏） | 89×32 + 32×32 ×2 @(16/113/151,796)（WorkspaceSidebarFooter.tsx:229-491） | 32px 靶 | 已可用 |
 | 会话头部-工作区按钮/标题 | 官方头部精简为返回+标题 | 28×28；标题 `@max-[420px] max-w-[22vw]` → ~86px（WorkspaceHeaderSections.tsx:480-501） | 28px；标题过窄 | 需立项（随接线 simplifyForNarrowRemote） |
-| 会话头部-更多菜单 | 官方隐藏桌面专属项 | 28×28 @(338,11) 唯一屏内动作；菜单含文件管理器/provider 配置等桌面项（TaskActionMenuContent.tsx:145-215，`simplifyForNarrowRemote=false` 未隐藏） | 桌面菜单项泄漏到手机 | 本轮修（vendor 一行，登记 PATCHES）→ 立项候选（遵 D4） |
+| 会话头部-更多菜单 | 官方隐藏桌面专属项 | 28×28 @(338,11) 唯一屏内动作；菜单含文件管理器/provider 配置等桌面项（TaskActionMenuContent.tsx:145-215，`simplifyForNarrowRemote=false` 未隐藏） | 桌面菜单项泄漏到手机 | 需立项（vendor 一行，遵 D4 随接线） |
 | 会话头部-分享/帮助/切换终端/展开侧边面板 | 分享与帮助/终端在手机隐藏（WorkspaceHeaderActionSection.tsx:53-74） | **全部屏外**：28×28 @x=392/422/452/482（视口 390） | 4 个入口 100% 不可达；侧页面板/终端/分享链整体死路 | 需立项（接线后隐藏或全宽可见） |
 | 状态面板 capsule（展开状态） | 手机浮层纵向翻转（ConversationStatusPanel.tsx:1953） | 284×32 @x=217 → 右缘 501（111px 出屏）；触碰展开可用 | 摘要被切；浮层方向分支未激活 | 需立项（布局随接线） |
 | 分屏入口/面板 resize | 官方手机无分屏、无 resize | `enabled=false`（Layout.tsx:2401-2405）行为一致；终端面板 4px 把手入口屏外 | 无差距/不可达 | 已可用 |
@@ -76,20 +76,20 @@
 | 控件 | 官方移动设计 | ocrc 手机实际 | 差距 | 归属 |
 |---|---|---|---|---|
 | 移动 composer 分支总开关 | `compactForRemoteControl/isWebRemoteControl` 全套（ConversationComposer.tsx:662-680） | `isWebRemoteControl=false` 贯穿（不传 switcher） | 桌面语义 | 需立项（接线） |
-| 输入区本体 | 16px token + 两行截断占位（mobileTextInput.ts:100-110） | 内容盒 229+260→489（360：474）；16px 由 ocrc CSS 兜住（实测 0 违例） | 盒越界（根因在壳）；占位层 div 不吃 coarse 16px 规则 | 本轮修（占位字号）→ 已落地 §6.1 |
-| Enter 语义 | 手机 Enter=换行、按钮发送（preferEnterNewline） | `enterSubmits=true` → 裸 Enter 即发送；而发送键默认屏外 → 误触即发 | 语义与官方相反 | 本轮修（coarse+窄视口 Enter=换行，ocrc 垫片）→ 已落地 §6.1 |
+| 输入区本体 | 16px token + 两行截断占位（mobileTextInput.ts:100-110） | 内容盒 229+260→489（360：474）；批次 D 后封顶回屏内（§6.1）；16px 由 ocrc CSS 兜住（实测 0 违例） | 占位层 div 是 14px、正文 16px（观感差，无缩放风险） | 明确不做（低优观感）；盒尺寸本轮修 → 已落地 §6.1 |
+| Enter 语义 | 手机 Enter=换行、按钮发送（preferEnterNewline） | `enterSubmits=true` → 裸 Enter 即发送；而发送键默认屏外 → 误触即发。语义由 `isWebRemoteControl` 门控决定（ConversationComposer.tsx:668-672），ocrc 侧无法触达 | 语义与官方相反 | 需立项（随接线 D15；批次 D 实测后确认不可 CSS 化，见 §6.1） |
 | 自动聚焦 | 手机 skip（composerAutoFocus.ts:24-32） | 同 vendor 生效 | 无 | 已可用 |
-| 提交后回焦 | 无手机门（LexicalChatInput.tsx:1429-1436） | 同 vendor：发送后键盘被立刻拉回 | 与「跳过自动聚焦」自相矛盾 | 本轮修（coarse 下跳过回焦）→ 已落地 §6.1 |
+| 提交后回焦 | 无手机门（LexicalChatInput.tsx:1429-1436） | 同 vendor：发送后键盘被立刻拉回 | 与「跳过自动聚焦」自相矛盾 | 需立项（vendor JS，随接线；批次 D 确认 ocrc 无干净挂点） |
 | 添加上下文按钮 + 浮层 | Popover 锚=composer 宽度（ChatPromptActionMenu.tsx:259-306） | 28×28；面板宿主右缘 489 | 28px；浮层一半屏外 | 本轮修（面板宽按可视宽）；触达随接线 |
 | @ 提及 / slash 菜单 | MentionPanel max-h-56 虚拟列表 | 数据链可用（fileService/commandsService）；面板同越界锚点 | 越界；32px 行 | 本轮修（面板宽度）；数据已可用 |
 | 切换模式按钮 | 菜单 w-64 side=top；coarse 跳过回焦 | 28×28；回显/写回已接线（policy GET/POST） | 28px；图标语义不可发现 | 已可用（数据）；触达随接线 |
 | 模型选择按钮 | 手机收窄二级菜单+隐藏「管理模型」（modelSelection.ts:5-11） | 欢迎页 93px @x=324→417；会话态 28px @x=397 屏外；「管理模型」始终在（上游漏传参） | 屏外；管理入口把手机带进设置深链 | 需立项 |
 | 上下文 pill | icon-md 28 + 触摸 pointerdown 兜底 | 数据已接线（/context）；28×28 @x=365→393 屏外 3px | 数据可用、入口屏外 | 本轮修（随 hover/布局）→ 布局部分立项 |
 | 发送/停止按钮 | 同槽位 icon-md；canStop 换停止 | 发送 x=461→489 完全屏外（空草稿 disabled:pointer-events-none）；停止链路已接线（POST /api/abort） | 默认不可见不可点 | 本轮修（横滚抑制后可达）；终值随接线 |
-| 附件选择 | 隐藏 file input 兜底 | `canSelectFilePath:false` → 走系统选择器（手机可取相册）；input 无 `accept` → 可选任意类型 | 非图片选了才报错 | 本轮修（`accept="image/*"`）→ 已落地 §6.1 |
+| 附件选择 | 隐藏 file input 兜底 | `canSelectFilePath:false` → 走系统选择器（手机可取相册）；input 无 `accept` → 可选任意类型，非图片选了才报错 | 提前过滤缺失 | 需立项（`accept="image/*"` 属 vendor 一行，遵 D4） |
 | 非图片附件发送 | 桌面可发任意附件 | sendText 只收图片，其余 `ocrc_attachment_unsupported`（zcodeAgentService.ts:1620-1633） | chip 正常出现、发送必败 | 需立项 |
 | 附件 chip 删除 | `size-3.5` + hover:none 常显（ConversationComposer.tsx:2049-2068） | 同 vendor：14×14 贴着 chip 本体 | 触达过小、易误触 | 需立项（随接线统一触达） |
-| ContextAttachmentPill 删除 | `size-5` 仅 group-hover 显形（ContextAttachmentPill.tsx:57-70），**无 hover:none 兜底**（同文件族已知模式漏改） | 同 vendor：触屏看不到删除入口 | 官方自身缺口在 ocrc 同样暴露 | 本轮修（ocrc CSS 兜底）→ 已落地 §6.1 |
+| ContextAttachmentPill 删除 | `size-5` 仅 group-hover 显形（ContextAttachmentPill.tsx:57-70），**无 hover:none 兜底**（同文件族已知模式漏改） | 同 vendor：批次 D 前 touch 看不到删除入口 | 官方自身缺口在 ocrc 同样暴露 | 本轮修 → 已落地 §6.1（ocrc CSS 兜底） |
 | 权限 dock | 键盘提示 Tab/上下键（官方自身缺口；截图印证） | `pendingInteractions` 恒 `[]`（zcodeAgentService.ts:788）→ 永不挂载 | 授权交互在 /z/ 不存在 | 需立项 |
 | 提问 dock | ElicitationDialog 可折叠 | 同上不可达 | 引擎提问无法在壳内回答 | 需立项 |
 | 快捷键提示 | 手机隐去 Enter 提示（mobileTextInput.ts:82-88） | 发送 tooltip 仍带 Enter、停止带 Esc | 触屏无这些键 | 本轮修（coarse 下隐藏）→ 已落地 §6.1 |
@@ -244,12 +244,26 @@
 
 ### 6.1 本轮修（批次 D 已落地，独立提交）
 
-| 项 | 覆盖的审计行 | 提交 |
+| 项 | 覆盖的审计行 | 证据 |
 |---|---|---|
-| insecure-context 垫片（`ensureClipboardWrite/ensureRandomUUID/ensureSha256Hex` 单模块，bootstrap 最先接线，vendor 零改动 + PATCHES 登记 0 处——全部走 ocrc 侧） | C4 全部；/share/ CardView 复制、ToolLayout tooltip 复制、远控复制链接、附件指纹 | （见批次 D 提交） |
-| `/share/` CardView（ocrc 自有）：clipboard 守卫 + 动作栏 `hover:none` 常显 + 工具行死路改造 | §3.3 末两行 | （同上） |
-| zcode-mobile.css 增补：消息动作栏/ContextAttachmentPill/reasoning chevron 的 hover:none 兜底、coarse 下隐藏 4px 拖拽把手、composer Enter 语义与提交回焦垫片、附件 input accept、Toast top safe-area、显示更多 44px 命中区 | C2、§3.1 把手、§3.2 七行、§3.4 Toast | （同上） |
-| apple-touch-icon.png 补齐 | §3.5 图标行 | （同上） |
+| insecure-context 垫片（`web-next/src/lib/insecure-context.ts`，bootstrap 最先接线；缺 `clipboard.writeText` 补 execCommand 回退、缺 `randomUUID` 补 v4、缺 `subtle` 补 SHA-256 回退〔复用 vendor sha256Pure，PATCHES #4 同源〕；有原生 API 时零改动） | C4 全部；vendor 12 文件复制按钮、7 处 randomUUID、pptx 指纹 digest 自动受益 | 单测 8 条（缺 API 回退/有 API 不动/已知向量/其他算法拒绝） |
+| `/share/` CardView（ocrc 自有）：clipboard 守卫 + 失败「复制失败」反馈 + 动作栏 `[@media(hover:none)]` 常显 | §3.3 末两行 | 代码 |
+| `/share/` Blocks 工具行死路改造：无会话上下文（公开页）时降级为纯展示，去掉空点击 | §3.3 工具行 | 代码 |
+| zcode-mobile.css 增补（选择器挂语义钩子，vendor 改名优雅降级）：<br>① hover:none 常显兜底（user-row/assistant-turn 动作栏、reasoning chevron、ContextAttachmentPill 删除键）<br>② `.chat-composer-region` 触屏窄视口按可视宽度封顶 → 工具栏收纳按真实宽度工作、发送键回屏内<br>③ 隐藏 4px 侧栏拖拽把手（触屏不可见且拖动必然无效）<br>④ Toast 顶部档避让刘海<br>⑤ 「显示更多」44px 命中区 | C2、§3.1 把手、§3.2 添加上下文/发送/工具栏收纳、§3.4 Toast、§3.1 显示更多 | 批次 D before/after 探针对照（下表） |
+| apple-touch-icon.png 补齐（enso 标记，180×180，favicon 暗色盘） | §3.5 图标行 | 文件在位，`/apple-touch-icon.png?v=2` 不再 404 |
+
+**批次 D before/after 探针对照**（390×844，同一隔离栈）：
+
+| 指标 | before | after（预期实测） |
+|---|---|---|
+| home 越界交互元素 | 2（composer 盒→489、模型键→417） | 0（composer 封顶回屏内） |
+| session hover-only | 10（动作栏整组不可见） | 0（常显兜底） |
+| 侧栏拖拽把手 | 在 DOM（touch-none 吞手势） | 无（display:none） |
+| console 报错 / 4xx | 0 / 0 | 0 / 0 |
+
+**本轮修候选中被证据否决/移出的两行（如实记录）**：
+- composer Enter=换行（§3.2）：`enterSubmits = resolveChatEnterSubmits({ isMobileTextInputViewport, preferEnterNewline: isWebRemoteControl })`（ConversationComposer.tsx:668-672）——语义完全由 `isWebRemoteControl`（switcher 门控）决定，ocrc 侧 CSS/垫片无法触达，硬截获 Enter 再注入换行有 Lexical 状态损坏风险。→ 移入 §6.3 接线（D15）。
+- 提交后回焦（§3.2）：vendor `requestAnimationFrame(focus())`（LexicalChatInput.tsx:1429-1436），ocrc 无干净挂点。→ 移入 §6.3（随接线）。
 
 ### 6.2 后续小批候选（ocrc 侧、零 vendor 改动，待点头）
 

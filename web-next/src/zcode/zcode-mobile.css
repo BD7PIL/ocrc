@@ -19,3 +19,60 @@
     font-size: 16px !important;
   }
 }
+
+/* ── 2026-10-11 移动端逐控件审计增补（docs/frontend-mobile-audit.md §6.1）──
+ * 原则不变：只动 ocrc 侧覆盖层、零 vendor 改动；选择器尽量挂语义钩子，
+ * vendor 改名时优雅降级回桌面行为。 */
+
+/* 3) hover-only 触屏兜底：vendor 时间线/附件的动作控件是 `opacity-0 +
+ *    group-hover/<组>:opacity-100` 揭示，触屏永远没有 hover——官方移动壳
+ *    的做法就是常显（ConversationRowView 的 compactForRemoteControl 分支）。
+ *    只盖 opacity，零布局位移，桌面不受影响。 */
+@media (hover: none) {
+  [class*='group-hover/user-row:opacity-100'],
+  [class*='group-hover/assistant-turn:opacity-100'],
+  [class*='group-hover/reasoning:opacity-100'] {
+    opacity: 1 !important;
+  }
+  /* ContextAttachmentPill 删除键（size-5 rounded-full，vendor 漏了 hover:none 兜底） */
+  button[class*='group-hover:opacity-100'][class*='rounded-full'] {
+    opacity: 1 !important;
+  }
+}
+
+/* 4) composer 按可视宽度收纳：内容列 min-w-[320px] + 侧栏 max-w-[50%] 在
+ *    390px 下把 composer 内容盒推出视口 99px（发送键 x=461 完全屏外），
+ *    vendor 的工具栏收纳（useComposerToolbarFit）量的是容器宽而非可视宽。
+ *    把 composer 区上限压回可视宽度后，收纳按真实宽度工作，发送键回到屏内。 */
+@media (pointer: coarse) and (max-width: 767px) {
+  .zcode-shell-root .chat-composer-region {
+    max-width: calc(100vw - min(var(--workspace-sidebar-panel-width, 264px), 50vw) - 1.25rem);
+  }
+}
+
+/* 5) 侧栏拖拽把手：4px 隐形条，提示线 hover 才显（触屏不可见），JS 拖拽下限
+ *    264px > CSS 面板上限 195px → 拖动必然无效果，touch-none 还会吞掉起于
+ *    该条的手势。触屏直接隐藏（桌面不变）。 */
+@media (pointer: coarse) {
+  .zcode-shell-root [data-testid='resizable-handle'] {
+    display: none;
+  }
+}
+
+/* 6) Toast 顶部档避让刘海：bottom 档 vendor 已带 env(safe-area-inset-bottom)，
+ *    top 档是写死的 top-16。 */
+@media (pointer: coarse) {
+  [class*='top-16'][class*='z-[9999]'] {
+    top: calc(4rem + env(safe-area-inset-top));
+  }
+}
+
+/* 7) 侧栏「显示更多」是纯 span（≈20px 命中区），触屏难点中；只加命中区，
+ *    不改字号与文案。 */
+@media (pointer: coarse) {
+  .zcode-shell-root [class*='cursor-pointer pl-8.5'] {
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+  }
+}

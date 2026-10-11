@@ -703,6 +703,35 @@ interface SnapshotBuild {
   rows: any[]
 }
 
+/** composer 策略下拉的回显源（批次 3）：ocrc 审批策略 → ZCode 协作模式。
+ *  写路径是 switchCollaborationMode → POST /policy；这里只读，失败按 build 兜底。 */
+async function sessionMode(sessionId: string): Promise<string> {
+  try {
+    const res = await fetch(`/api/session/${sessionId}/policy`, { headers: { Authorization: `Bearer ${token()}` } })
+    if (!res.ok) return 'build'
+    const body = (await res.json()) as { policy?: string }
+    return body.policy === 'yolo' ? 'yolo' : body.policy === 'edit' ? 'edit' : 'build'
+  } catch {
+    return 'build'
+  }
+}
+
+/** context usage pill（批次 3）：引擎 token 统计（opencode getContext 的 used/max 估算，
+ *  含「引擎忙窗口归零」的 lastKnown 兜底）。used/max 任一未知 → null（vendor 语义的「未知」）。 */
+async function contextWindowOf(sessionId: string): Promise<{ usedTokens: number; maxTokens: number; autoCompactThresholdTokens: null } | null> {
+  try {
+    const res = await fetch(`/api/session/${sessionId}/context`, { headers: { Authorization: `Bearer ${token()}` } })
+    if (!res.ok) return null
+    const body = (await res.json()) as { tokens?: { used?: number; max?: number } }
+    const used = body.tokens?.used
+    const max = body.tokens?.max
+    if (typeof used !== 'number' || typeof max !== 'number' || max <= 0 || used < 0) return null
+    return { usedTokens: used, maxTokens: max, autoCompactThresholdTokens: null }
+  } catch {
+    return null
+  }
+}
+
 async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
   const [sessionTitle, cards, providers, overrides] = await Promise.all([
     fetch('/api/sessions', { headers: { Authorization: `Bearer ${token()}` } })
@@ -720,10 +749,12 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
   const curProvider = overrides.model?.providerID ?? providers.find((p) => (p.models ?? []).length > 0)?.id ?? ''
   const curModel = overrides.model?.modelID ?? providers.find((p) => p.id === curProvider)?.models?.[0]?.id ?? ''
   const curThought = (providers.find((p) => p.id === curProvider)?.models?.find((m) => m.id === curModel)?.variants ?? [])[0] ?? ''
-  const [plan, subagents, goalUiState] = await Promise.all([
+  const [plan, subagents, goalUiState, mode, contextWindow] = await Promise.all([
     conversationPlan(taskId),
     conversationSubagents(taskId),
     fetchGoal(taskId),
+    sessionMode(taskId),
+    contextWindowOf(taskId),
   ])
 
   const rows = buildRows(cards, goalUiState)
@@ -742,19 +773,17 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
     logEpoch: 'ocrc-1',
     seq,
     revision: 1,
-    control: {
-      // P5：CONTROL_BASE 与 hostConn 的 control patch 共用一个基线（单点真相）；
-      // lastError/apiRetry 的动态面由 zcodeAgentService 的连接状态机增量下发。
-      ...CONTROL_BASE,
-      lastError: null,
-      apiRetry: null,
-    },
+    // P5/批次 3：control 是 busy 感知的（引擎存续期 = running + canStop 三连），
+    // lastError/apiRetry 的动态面由 hostConn 的连接状态机增量下发。
+    control: controlFor(taskId),
     // goal 门对齐 vendor projection-state.ts：pause 只在目标可续时开，resume 只在
     // paused 时开；无 goal 时带 noGoalToPause/Resume 原因码（驱动禁用态 tooltip）。
     availability: availabilityState(goalUiState.goal ? projectGoal(goalUiState.goal, goalUiState.verifying, goalUiState.anchors).status : null),
     inputRouting: { mode: 'startNow' },
-    config: { provider: curProvider, model: curModel, thought: curThought, thoughtLevels: providers.find((p) => p.id === curProvider)?.models?.find((m) => m.id === curModel)?.variants ?? [], followupMode: 'queue' },
-    usage: { contextWindow: null, cumulative: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } },
+    // 批次 3：mode 回显——写路径 switchCollaborationMode → POST /policy，读路径在 sessionMode。
+    config: { provider: curProvider, model: curModel, thought: curThought, thoughtLevels: providers.find((p) => p.id === curProvider)?.models?.find((m) => m.id === curModel)?.variants ?? [], followupMode: 'queue', mode },
+    // 批次 3：context usage pill——引擎 token 统计（used/max 同缺则整键 null = vendor 语义的「未知」）。
+    usage: { contextWindow, cumulative: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } },
     queue: { items: [], autoDrain: true },
     pendingInteractions: [],
     pendingCommands: [],
@@ -852,17 +881,40 @@ function hostNetworkError(): Record<string, unknown> {
   }
 }
 
-/** control 是 statePatch 的整键替换（Object.assign，无深合并），patch 必须携带完整对象。 */
-function fullControl(lastError: unknown, apiRetry: unknown) {
-  return { ...CONTROL_BASE, lastError, apiRetry }
+// 批次 3：引擎存续期（ws session.status 的 busy 帧）→ running control——canStop 一发亮三
+// （停止按钮 / 运行中排队 placeholder / Esc 停止）。busy 态与 P5 掉线态可以同时成立：
+// extra 把 lastError/apiRetry 叠进当前基线，谁都不清掉谁。
+const busyConversations = new Map<string, boolean>()
+
+function controlFor(sessionId: string, extra: { lastError?: Record<string, unknown> | null; apiRetry?: Record<string, unknown> | null } = {}) {
+  if (busyConversations.get(sessionId) === true) {
+    return {
+      phase: 'running',
+      sessionEnded: false,
+      canStop: true,
+      stopState: 'stoppable',
+      stopTargetKind: 'assistant',
+      activeWorks: [{ kind: 'primaryTurn', startedAt: Date.now() }],
+      lastError: extra.lastError ?? null,
+      apiRetry: extra.apiRetry ?? null,
+    }
+  }
+  return { ...CONTROL_BASE, lastError: extra.lastError ?? null, apiRetry: extra.apiRetry ?? null }
+}
+
+/** ws session.status（引擎忙/闲翻转）→ conversation control patch（仅 subscribed 会话有帧）。 */
+function setConversationBusy(sessionId: string, busy: boolean): void {
+  if (busyConversations.get(sessionId) === busy) return
+  busyConversations.set(sessionId, busy)
+  deliverControlPatch(sessionId, controlFor(sessionId))
 }
 
 /** control-only 增量帧：seq 是快照对齐水位，control 帧同样推进 1（store 的重复帧/断档规则都按 toSeq/fromSeq 判定）。 */
-function deliverControlPatch(sessionId: string, lastError: Record<string, unknown> | null, apiRetry: Record<string, unknown> | null): void {
+function deliverControlPatch(sessionId: string, control: Record<string, unknown>): void {
   for (const [subId, sub] of subscriptions) {
     if (sub.sessionId !== sessionId) continue
     const seq = lastSeqBySub.get(subId) ?? 0
-    deliverWire(sub.topic, subId, seq, seq + 1, { kind: 'deltas', deltas: [{ op: 'state.updated', patch: { control: fullControl(lastError, apiRetry) } }] }, 'online')
+    deliverWire(sub.topic, subId, seq, seq + 1, { kind: 'deltas', deltas: [{ op: 'state.updated', patch: { control } }] }, 'online')
     lastSeqBySub.set(subId, seq + 1)
   }
 }
@@ -889,7 +941,7 @@ hostConn.subscribe((s) => {
     episodeError = null
     if (prevPhase !== 'up') {
       for (const sessionId of watchedSessions) {
-        deliverControlPatch(sessionId, null, null)
+        deliverControlPatch(sessionId, controlFor(sessionId))
         // ws 期间落下的引擎事件由 refetch+diff 收敛（available 的 forceSnapshot 是 store 侧兜底）。
         scheduleLive(sessionId)
       }
@@ -901,13 +953,15 @@ hostConn.subscribe((s) => {
     for (const sessionId of watchedSessions) {
       deliverControlPatch(
         sessionId,
-        episodeError,
-        { attempt: s.attempt, maxAttempts: s.maxAttempts, nextRetryAt: Date.now() + HOST_RECONNECT_MS, reasonCode: 'host_unreachable' },
+        controlFor(sessionId, {
+          lastError: episodeError,
+          apiRetry: { attempt: s.attempt, maxAttempts: s.maxAttempts, nextRetryAt: Date.now() + HOST_RECONNECT_MS, reasonCode: 'host_unreachable' },
+        }),
       )
     }
   } else if (prevPhase !== 'down') {
     // down（确认死亡）只在转入时发一次；此后 attempt 继续涨但界面不再刷。
-    for (const sessionId of watchedSessions) deliverControlPatch(sessionId, episodeError ?? hostNetworkError(), null)
+    for (const sessionId of watchedSessions) deliverControlPatch(sessionId, controlFor(sessionId, { lastError: episodeError ?? hostNetworkError() }))
     emitLifecycle('unavailable')
   }
   prevPhase = s.phase
@@ -1134,6 +1188,8 @@ function liveWsEnsure(): void {
     // 相位先于订阅范围更新：sessions-index 的订阅者要的是"任一会话的状态"，
     // 不只是当前打开的会话（侧栏状态点）。
     if (msg.type === 'session.status') publishIndexStatus(sid, (msg as { busy?: boolean }).busy === true)
+    // 批次 3：busy 帧同时驱动 conversation control（running 基线 + canStop 三连）。
+    if (msg.type === 'session.status') setConversationBusy(sid, (msg as { busy?: boolean }).busy === true)
     if (!watchedSessions.has(sid)) return
     // goal 帧：先落缓存（含把每轮验收锚到当前行尾），再推 state.updated 让 goal 面
     // 与 availability 立刻刷新；rows 侧由 scheduleLive 的 diff 补上 marker 行。
@@ -1723,6 +1779,21 @@ export function createOcrcZcodeAgentService(): any {
         return res.ok
           ? { commandId: envelope.commandId, status: 'accepted', revisionAtDecision: 0 }
           : { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_switch_mode_failed', message: `POST /api/session/:id/policy ${res.status}`, revisionAtDecision: 0 }
+      }
+      if (envelope.type === 'stop') {
+        // 批次 3 canStop 三连的执行端：停止按钮 / Esc / 运行中排队 placeholder 都汇聚到
+        // 这条命令 → 引擎 /api/abort；busy=false 的 session.status 帧随后把 control 拉回 idle。
+        if (!sessionId) {
+          return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_bad_payload', message: 'stop 缺 sessionId', revisionAtDecision: 0 }
+        }
+        const res = await fetch('/api/abort', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+          body: JSON.stringify({ sessionId }),
+        })
+        return res.ok
+          ? { commandId: envelope.commandId, status: 'accepted', revisionAtDecision: 0 }
+          : { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_stop_failed', message: `POST /api/abort ${res.status}`, revisionAtDecision: 0 }
       }
       if (envelope.type === 'renameSession' || envelope.type === 'deleteSession') {
         if (!sessionId) {

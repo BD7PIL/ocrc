@@ -406,6 +406,13 @@
   **2026-10-11 移动端逐控件审计**：[docs/frontend-mobile-audit.md](../docs/frontend-mobile-audit.md)
   （CDP 探针实测 12 状态 × 2 档 + 六组深审；结论——官方移动壳族在本仓是死代码，接线规格
   实现就绪且零 vendor 改动；本轮修仅 ocrc 侧垫片/CSS/图标，vendor 布局手术维持 D4 不做）。
+  **2026-10-11 W1/W2 移动壳接线已落地**：官方移动壳族全量激活（switcher prop 仅移动视口
+  传入，matchMedia 与 vendor 同查询串；跨工作区切换 = Root 重挂，与 ?session= 深链同路）。
+  后端 SessionSummary 补 createdAt/busy 真数据。**vendor 改动仍为零**（D4 口径如实保留，
+  PATCHES 不新增条目；接线时揭露的 `onDynamicConversationFrame` 裸函数违约是 ocrc 幽灵
+  服务自身 bug，ocrc 侧一行修）。取舍（手机无设置/自动化/插件市场/命令面板入口=官方
+  配套语义）与回退预案（listWorkspaces 降级单工作区）见审计文档 §5。探针新增壳判定 +
+  跨工作区重挂 E2E（390/360 实测过）+ 桌面回归档。
 - ✅ i18n 切换（N8-5 核实——此前勾"未做"是误记）：vendor 自带 zh-CN/en-US 全套
   （5874/5875 条）+ 两处切换入口（侧栏头像菜单、设置→General），localStorage
   （zcode-locale-preference）持久。ocrc 侧自研 service 的硬编码中文错误串在英文模式下

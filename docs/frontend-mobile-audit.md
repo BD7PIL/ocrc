@@ -6,7 +6,7 @@
 
 ## 0. 结论速览
 
-1. **官方移动壳族在 ocrc 是死代码**（门控 `webRemoteControlWorkspaceSwitcher` 不传，`ZCodeApp.tsx:99-110`）→ 手机拿到的是 264px 桌面壳被 `max-w-[50%]` 裁成半屏：390px 下侧栏 195px 恒驻、内容列恒 320px（可视仅 191px）、右缘 129px 内容被 `overflow-hidden` 静默裁掉（`docOverflowX=0` 掩盖）。**接线 = 6 个方法的 switcher 对象，零 vendor 改动**（§5，规格已实现就绪）。
+1. **官方移动壳族在 ocrc 是死代码**（门控 `webRemoteControlWorkspaceSwitcher` 不传，`ZCodeApp.tsx:99-110`）→ 手机拿到的是 264px 桌面壳被 `max-w-[50%]` 裁成半屏：390px 下侧栏 195px 恒驻、内容列恒 320px（可视仅 191px）、右缘 129px 内容被 `overflow-hidden` 静默裁掉（`docOverflowX=0` 掩盖）。**→ 已落地（W1/W2 批次，2026-10-11）：switcher 仅移动视口传入 + Root 重挂跨工作区切换，手机 /z/ 即官方移动壳**（实施与规格的差异、取舍与回退预案见 §5）。
 2. **死路清单**（触屏完全无入口）：会话头部 4 个动作按钮（分享/帮助/切换终端/展开侧边面板，x=392/422/452/482 全部屏外）、消息动作栏（hover-only 且整组 x=478 屏外）、任务行右键族（pin/重命名/删除/轨迹）、查找浮层（唯一入口是快捷键）、权限 dock 与提问 dock（`pendingInteractions` 恒 `[]`）。
 3. **长按无兜底**（CDP touchStart 700ms 实测 0 菜单）→ 长按→右键垫片按计划移入立项清单（§6.3）。
 4. **非安全上下文（http://LAN）**：`navigator.clipboard` undefined 时复制静默失败/抛错（ocrc `/share/` CardView ×1 无守卫 + vendor ×8 已守卫但无反馈）；`crypto.randomUUID` ×7、`crypto.subtle.digest` ×1 无守卫。→ 本轮已加统一垫片（§6.1）。
@@ -50,7 +50,7 @@
 
 | 控件 | 官方移动设计 | ocrc 手机实际 | 差距 | 归属 |
 |---|---|---|---|---|
-| 整体壳选择 | 移动壳族全屏单列两页（MobileShell.tsx:221-347；截图=任务首页） | 不传 switcher（ZCodeApp.tsx:99-110）→ `mobileChatSurface=null`（实测），桌面壳被裁半屏 | 官方手机形态整族未启用 | 需立项（接线，§5） |
+| 整体壳选择 | 移动壳族全屏单列两页（MobileShell.tsx:221-347；截图=任务首页） | 不传 switcher（ZCodeApp.tsx:99-110）→ `mobileChatSurface=null`（实测），桌面壳被裁半屏 | 官方手机形态整族未启用 | **已落地**（接线，§5；探针实测三档：移动壳 home/chat + 桌面回归标准壳） |
 | 标题栏-后退/前进/新建任务 | h-11 顶栏只有返回（MobileShell:243-259） | 后退/前进 28×28 @(0,14)/(32,14)；「新建任务」在 `w-0 opacity-0` 容器内不可见（DesktopTopOverlay.tsx:88,189-205；探针已修正不再误报） | 28px 靶；无首页↔会话两级结构 | 已可用 |
 | 侧栏容器与宽度 | 手机无侧栏 | `w-[var(--workspace-sidebar-panel-width)] max-w-[50%]`（WorkspaceShellLayout.tsx:2358）→ 195px/180px 恒占半屏；内部横滚 214 vs 195（19px） | 无收起入口、正文可视 191px、右缘 129px 静默裁切 | 需立项（接线） |
 | 侧栏折叠/展开入口 | 无侧栏 | 开关仅桌面平台渲染（DesktopTopOverlay.tsx:135-162）；`WorkspaceSidebarCollapsedRail` 全仓无挂载点；唯一路径=命令面板「切换侧边栏 ⌘B」（实测可开） | 手机零直接入口 | 需立项（接线）；短期用命令面板兜底（已可用） |
@@ -224,21 +224,25 @@
 | C6 | 设置页标签列 192px 固定控件列（~50px 标签断行） | 截图 + SettingsPageParts.tsx:127-131 | 需立项（vendor 一行或接线后布局重排；遵 D4 不在本轮动 vendor） |
 | C7 | 探针方法学（已修，记录防复发）：pointer-events 祖先误判、hover-only 具名组漏配、「返回工作区」aria-label 漏测 | §1 | 已修入探针（201ba636、3ad5fcf1） |
 
-## 5. 接线规格（实现就绪 —— 零 vendor 改动）
+## 5. 接线规格（**已落地** —— W1 数据面 + W2 激活，零 vendor 改动）
 
-**做法**：`web-next/src/zcode/ZCodeApp.tsx` 给 `<Root>` 加 `webRemoteControlWorkspaceSwitcher={...}`（实现层建议 `src/zcode/remoteControl/switcher.ts`）。门控自动放行（手机视口 <768px 恒真）。**注意：接线会整体替换手机上的桌面侧栏/头部/时间线布局（D30/D7 等），属产品级变更，等你点头再立批次。**
+**落地状态（2026-10-11，commit 3078d6e2 + 240cec42）**：`web-next/src/zcode/remoteControl/workspaceSwitcher.ts`（switcher 实现）+ `ZCodeApp.tsx`（`matchMedia('(max-width: 767px)'` 与 vendor 同查询串；**switcher prop 仅移动视口传入**——vendor 的 isWebRemoteControlShell/Root/Sidebar 族全以「prop 是否存在」为开关，无条件传会翻转桌面九项行为）。下表为规格→实施的逐条核对：
 
-| 方法（root/types.ts:25-42） | 必需性 | ocrc 端点映射 | Fallback | 缺口/注意 |
-|---|---|---|---|---|
-| `listWorkspaces()` | 必需 | `GET /api/sessions`（routes/sessions.ts:10 → session-summary.ts:19-41）合成 WorkspaceListResult：workspaceLabel=directory basename、updatedAt=lastActiveAt、unreadAt←unread、pinned/archived、displayStatus: error→error 其余 idle；workspaces 按 directory 去重（kind=local）；可加 `GET /api/workspaces` 补维度 | 无（无列表整壳空白） | SessionSummary 无 createdAt/updatedAt（「创建时间」排序用 lastActiveAt 近似）；无 running/completed → 两档徽标恒缺（可用 ws 会话状态补） |
-| `onWorkspaceListUpdated?(cb)` | 可选 | 无任务索引推送帧（ws-hub 是会话级卡片流，replayEnd 仅会话粒度） | **建议不实现**：靠返回首页 refreshKey + 打开时拉取 | 如要推送需新增 ws 帧（另立项） |
-| `switchWorkspace(key, opts)` | 必需 | 无「按目录切 workspace」运行时端点；Root 只吃一次性 `initialWorkspaceAbsPath`（ZCodeApp.tsx:74,102） | vendor 无 fallback（TaskHome:107-113 直接 await） | **最大缺口**：需 A) ocrc 宿主新增「按 directory 重设 Root workspace」能力，或 B) 移动壳降级为「单工作区 + 全局会话首页」语义 |
-| `markTaskRead?(task)` | 可选 | **现成**：`POST /api/sessions/:id/unread {unread:false}`（routes/sessions.ts:62-68） | 不实现则未读点不消失（vendor 仅 warn） | 无 |
-| `updateMobileViewState?(key, taskId)` | 可选 | 无桌面窗口消费方；等价物=「会话已查看」可复用 /unread | **建议 no-op**（未提供即跳过，Shell:184） | 跨端已读同步属另立项 |
-| `reconnectWorkspace?(key)` | 可选 | 无 SSH 远端重连端点（/api/remotes/* 是 provision/inspect） | **不实现**：按钮仅 kind=remote 渲染，ocrc 全 local 自然隐藏 | 无功能损失 |
-| `startDraft?(key, opts)` | 可选（强烈建议） | **现成**：`POST /api/session {directory}`（routes/create-session.ts:8；client.ts:122）→ 拿 id 进 chat | vendor 内建 fallback=switchWorkspace+updateMobileViewState | 与 ZCodeApp.tsx:76-89 草稿回收逻辑共存 |
+| 方法（root/types.ts:25-42） | 规格 | 实施 |
+|---|---|---|
+| `listWorkspaces()` | 合成 WorkspaceListResult | **按规格落地** + 真数据：后端 SessionSummary 新增 `createdAt`（opencode `s.time.created`）与 `busy`（session-summary 聚合层 overlay，与 error/unread 同模式）→ 排序/「运行中」徽标不再近似。**不设 activeWorkspaceKey/activeTaskId**（vendor 实时 props 更准）。displayStatus=error/running/idle 三态（无 completed 闩锁，ocrc 不追 finished 事件） |
+| `onWorkspaceListUpdated?` | 建议不实现 | 未实现（无推送；返回首页 refreshKey + 刷新按钮覆盖） |
+| `switchWorkspace(key, opts)` | **最大缺口**：A) 宿主重设 Root 能力 或 B) 降级单工作区 | **A 案落地，零 vendor 改动**：Root 重挂（`<Root key={nonce}>` + initialWorkspaceAbsPath/initialTaskId/intent）——vendor 的活动工作区权威 state 是 Root 内部闭包，而重挂重新走引导（didBootstrapInitialWorkspaceRef 实例级），与 `?session=` 深链同一通路。同 key 纯切换短路；带 taskId 一律重挂（游标偏差安全侧）并顺手清未读；intent 缺省兜底 'chat' |
+| `markTaskRead?(task)` | 现成端点 | `POST /api/sessions/:id/unread {unread:false}` |
+| `updateMobileViewState?` | 建议 no-op | no-op resolve |
+| `reconnectWorkspace?` | 不实现 | 未实现（全 local，按钮不渲染） |
+| `startDraft?(key, opts)` | 现成端点 | `POST /api/session {directory}` → 拿 id 发重挂信号（intent 默认 'chat'） |
 
-**接线后原样继承的官方自身缺口**（如实记录，不在 ocrc 修）：抽屉无 swipe、无下拉刷新、任务行无长按操作（pin/归档/删除只在宽屏菜单且 hover 发现）、hover 提示无兜底、权限 dock 键盘提示无意义、主题菜单固定三选项。
+**接线时揭露并修复的 ocrc 幽灵服务违约**：`onDynamicConversationFrame` 订阅返回裸函数，违反 vendor `Event<T> = (listener) => IDisposable`（rpc/foundation.ts:71）——移动壳「聊天页 → 返回首页」卸载 chat 触发退订即抛 `g?.dispose is not a function`，错误边界把整个内容区换掉（vendor mermaid chunk 的 dispose 路径首个踩中）。已改双形状句柄（可调用 + .dispose，ocrc 侧一行修，PATCHES 不新增）。官方自身缺口（无 swipe/无下拉刷新/无长按菜单等）照 §5 原样继承。
+
+**回退预案（如真机不稳）**：`listWorkspaces` 降级单工作区语义（一行改动），切换路径即消失。
+
+**已知取舍（官方配套语义 + 本轮裁决）**：手机移动壳 = 官方远控配套——设置页/自动化/插件市场/命令面板**无 UI 入口**（探针实测四项均 no-entry，如 ok:false 所记；键盘快捷键手机不可达）。若用后需要，可后续在 TaskHome 登记一条 PATCHES 加入口（本轮不做，避免首个接线批混入 vendor 改动）。
 
 ## 6. 归属汇总
 
@@ -271,7 +275,7 @@ PairGate safe-area/提交钮/autoFocus/inputMode、分享页头 safe-area、启�
 
 ### 6.3 立项候选（需裁决/体量原因不进本轮）
 
-1. **移动壳族接线**（§5 全部；含 D4-D31 分支生效、触达统一重估、C1/C3/C5/C6 随之消解）——头号候选，规格实现就绪。
+1. ~~**移动壳族接线**（§5 全部；含 D4-D31 分支生效、触达统一重估、C1/C3/C5/C6 随之消解）~~ —— **已落地**（W1/W2 批次，见 §5 落地状态）。
 2. 权限 dock / 提问 dock（`pendingInteractions` 打通——引擎交互在 /z/ 可答）。
 3. 侧页右覆盖抽屉 + 查找浮层入口 + 右键族触屏化（含长按→右键垫片：实测无兜底，按计划回退条款移入此清单）。
 4. 非图片附件发送、长文本粘贴转附件、分享页图片 block。
@@ -297,20 +301,35 @@ PairGate safe-area/提交钮/autoFocus/inputMode、分享页头 safe-area、启�
 ### 8.1 CDP 探针（可复跑）
 
 ```bash
-cd web-next && node scripts/mobile-audit.mjs            # 390x844 + 360x740 全量
+cd web-next && node scripts/mobile-audit.mjs            # 390x844 + 360x740 + 桌面回归档全量
 node scripts/mobile-audit.mjs --device 390              # 单档
+node scripts/mobile-audit.mjs --device desktop          # 桌面回归（标准壳 + 右键菜单断言）
 MOBILE_AUDIT_BASE=http://127.0.0.1:4199 …               # 指定隔离栈
 ```
 自起 headless_shell（9333，自起自清，不碰既有 9222）；token 运行时读 `/tmp/ocrc-z-home/.ocrc/token`（不入库不打印）；产物写 `/tmp/mobile-audit/`（report.json / report.md / 截图）；跑完自清自身造成的空草稿。产出列：横向溢出、越界交互元素、触达<44px、hover-only、<16px 可编辑、内部横滚、已横滚容器、侧栏/内容列/composer 几何、媒体查询命中、console 与 4xx。
 
-### 8.2 手机真机核对清单（5 分钟，LAN http 直连）
+**W2 起新增**：壳判定（报告行 `壳=移动壳home/移动壳chat/标准壳`：sidebarPanel 在=标准壳、side-pane overlay 在=移动壳 chat）；跨工作区 E2E（`cross-workspace-switch`：git-init 造 /tmp 第二工作区〔非 git 目录归引擎 "global" 项目，隔离栈 db 发现失灵，见 `src/opencode/list-sessions.ts`〕→ 首页展开其分组 → 点行 → 断言重挂落进新工作区 chat——390/360 两档实测 ok:true）；桌面回归档（标准壳 264px 侧栏 + 右键菜单 13 项弹出 + 无移动壳锚点）。每状态测量含 `taskHomeRows` / `mobileChatSurface` / `sidePaneOverlayPresent`。
 
-1. 打开 `/z/`：侧栏是否占半屏？右侧内容是否被裁？
-2. 进入会话：顶部分享/帮助/终端按钮是否可见（预期：不见）？
-3. 点输入框：页面是否横向移动？发送键是否可见？
-4. 按住任务行 ~1 秒：是否出现菜单（预期：无）？
-5. 打开设置：中文标签是否断行成 2-3 字？左上「返回工作区」能否退出？
-6. 添加到主屏：是否有图标（本轮修后应有）？standalone 下设置能否退出（页内返回）？
-7. 任意「复制」操作：是否有失败/成功反馈（http 下本轮修前静默）？
-8. 侧栏「移动端远程控制」：对话框能否开关？
-9. 侧栏「搜索」：命令面板能否打开并用「切换侧边栏」收起侧栏？
+### 8.2 手机真机核对清单（5 分钟，LAN http 直连 —— 移动壳版，W2 后）
+
+**任务首页**
+1. 打开 `/z/`：应见全屏任务首页（标题+主题菜单+提示卡+计数行），**不再是**半屏桌面壳（旧病：侧栏占半屏、右缘裁切）。
+2. 「整理任务」菜单：按工作区/按时间线分组、创建/更新排序是否可切换？
+3. 工作区卡：本地目录是否逐个列出（含 basename 标签 + local 徽标）？「新建任务」是否创建并直接落入该工作区 chat？
+4. 运行中的会话是否带「运行中」徽标（W1 busy 真数据）；出错会话是否红「错误」徽标？
+
+**跨工作区切换（重挂路径）**
+5. 点另一工作区的任务行：全屏切换遮罩 → 1-2s 后应落入该工作区的 chat（标题为该任务名）。回退预期：若卡住/错位，见 §5 回退预案。
+
+**任务会话页**
+6. 顶栏 = 返回箭头 +「任务会话」+ 主题菜单；任务标题行下内容是否全宽（不再被侧栏压半屏）？
+7. composer：发送键是否屏内、占位是否「向 ZCode 提问…」、Enter=换行（compact 语义）？
+8. 发消息 → 时间线卡片流正常滚动；复制按钮有成功/失败反馈（http 垫片）。
+9. 右上文件/侧页按钮：右覆盖抽屉是否滑出、chat 是否转 inert、遮罩点击能否关闭？
+
+**主题与外观**
+10. 主题菜单（首页 + 会话页两处）：亮/暗/跟随系统三选项；选「跟随系统」后切系统深色模式页面是否跟随？
+
+**边界（预期行为，非 bug）**
+11. 设置/自动化/插件市场/命令面板在手机上**无入口**（官方配套语义，§5 取舍）；任务行右键/长按无菜单（官方自身缺口）。
+12. http 直连下复制可用（垫片）、添加到主屏有图标（apple-touch-icon）。

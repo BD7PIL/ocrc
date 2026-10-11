@@ -1661,6 +1661,31 @@ export function createOcrcZcodeAgentService(): any {
           }
           images.push({ data: await toBase64(file), mimeType: file.type })
         }
+        // ── U5：斜杠命令执行链 ──
+        // vendor composer 的 `/` 面板选中命令 = 插入 markdown `/<name>` 的 mention，
+        // 发送即 "/name args" 文本。引擎不认识斜杠（那是 CLI 语义）——这里拦下首个
+        // token 命中 ocrc 命令目录的文本，转 POST /api/command（引擎原生
+        // session.command）；未命中照常走 /api/message（引擎收到字面 "/foo" 无害）。
+        const slashMatch = /^(\/)([a-zA-Z0-9_-]+)(?:\s+([\s\S]*))?$/.exec(text.trim())
+        if (slashMatch) {
+          try {
+            const cat = await fetch('/api/commands', { headers: { Authorization: `Bearer ${token()}` } })
+            const commands = cat.ok ? ((await cat.json()) as Array<{ name?: string }>) : []
+            const name = commands.find((c) => c.name === slashMatch[2])?.name
+            if (name) {
+              const res = await fetch('/api/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+                body: JSON.stringify({ sessionId, command: name, arguments: slashMatch[3] ?? '' }),
+              })
+              if (!res.ok) {
+                const body = (await res.json().catch(() => ({}))) as { error?: string }
+                return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_command_failed', message: body.error ?? `POST /api/command ${res.status}`, revisionAtDecision: 0 }
+              }
+              return { commandId: envelope.commandId, status: 'accepted', revisionAtDecision: 0 }
+            }
+          } catch { /* 目录不可达 → 按普通消息发送 */ }
+        }
         // 计划模式（composer 选「计划」时 payload.planEnabled=true，见 vendor
         // execution-state.ts：mode 会被归一成 build，plan 只体现在 planEnabled）。
         // ocrc 的等价物 = 引擎原生 plan agent（只读规划、不落改动），按消息下发

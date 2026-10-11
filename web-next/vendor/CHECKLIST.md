@@ -342,6 +342,18 @@
 - ✅ **clientConfigService / clientScenesService 小件（U4）**：静态 null 快照 / 空 scenes
   （clientScenes 不能 undefined——useClientScenesResource 对 undefined WeakMap.set 会
   TypeError）。帮助菜单 URL 与商店排序两处 ghost reject 消失。
+- ✅ **斜杠命令执行链（U5，2026-10-11）**：vendor composer 的 `/` 面板选中命令 = 插入
+  markdown `/<name>` mention、发送即 "/name args" 文本；引擎不认识斜杠（CLI 语义）——
+  桥的 sendText 分支拦下首 token 命中 ocrc 命令目录（GET /api/commands）的文本，转
+  `POST /api/command`（引擎原生 session.command）；未命中照常 /api/message。
+  CDP 实测：`/review` 面板选中 → 发送 → POST /api/command → 回合启动，零 console 错误。
+- ✅ **侧栏会话管理动作（U5 核对结论：早已接真）**：任务行右键菜单的 pin / rename /
+  archive / unread 全部走 zcodeTaskService 的真映射（setTaskPinned/archiveTask/
+  setTaskUnread → host /api/sessions/:id/* 路由），无 ghost 落点，无需改动。
+- ✅ **workflow 深水面（U5 评估结论：均已接真）**：artifact 字节查看 =
+  conversationWorkflowRunArtifacts/Data/Read V4 三查询（P4-2，桥↔host 路由全通）；
+  escalation 答复 = ResolveWorkflowQuestion 工具卡链（P3 workflow tools，模型在卡内
+  应答，宿主 registry.answer 落地）+ 运行侧页展示。无新增接线。
 - ✅ **U4 拒绝类登记（如实不接）**：usageStatsService / highspeedCardService /
   credentialService（ZCode 账号/订阅体系，硬映射=造假）；hooksService（opencode 1.18 无
   用户级 hooks 配置面）；memoryService / gitCheckpointService / outputStyleService /

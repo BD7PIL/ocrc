@@ -388,7 +388,7 @@ function buildFlow(sessions) {
         attempts.push({ method: 'Escape 键', exited: !(await settingsOpen(page)) })
 
         // 找任何语义为「关闭/返回」的可点控件
-        const closeLabels = ['关闭', '返回', 'Close', '关闭设置', '返回任务']
+        const closeLabels = ['返回工作区', '关闭', '返回', 'Close', '关闭设置', '返回任务']
         let clicked = null
         for (const lbl of closeLabels) {
           const loc = page.locator(`[aria-label="${lbl}"]`)

@@ -22,7 +22,7 @@ export function WindowsTopLeftLogo({
     >
       <img
         src={zaiLogoUrl}
-        alt="ZCode"
+        alt="ocrc"
         className={cn("pointer-events-none size-5 select-none", imageClassName)}
         draggable={false}
       />

@@ -62,3 +62,33 @@
 - **修改**：`isDesktop && workspacePath ?` → `(isDesktop || (platform as { webRemoteControlAvailable?: boolean }).webRemoteControlAvailable === true) && workspacePath ?`（附 2 行 ocrc 注释）。
 - **原因**：远程控制/bots 弹层入口上游只在 desktop 客户端亮；ocrc web 壳需要它。能力位 `webRemoteControlAvailable` 由 ocrc 的 platform service 实现（web-next 侧）显式声明——vendor 的 platform.ts 零改动；不强开 `isDesktop`，避免连带桌面缩放等 UX。
 - **验证**：/z/ 左栏页脚出现远程控制入口；点开是 ocrc 双栏对话框（alias 覆盖，见 vite.config.ts 注释，不在本清单）。
+
+## 10. i18n 品牌覆盖注册表（U2 去品牌，2026-10-11）
+- **文件（4）**：
+  - `vendor/zcode/ui/src/i18n/IntlProvider.tsx` —— 模块级 `brandMessages` 注册表 +
+    `setZCodeBrandMessages()` 导出；`createIntl` 在 locale 词表取出后合并 brand 层（键级覆盖，vendor 词条零触碰）。
+  - `vendor/zcode/ui/src/i18n/index.ts` + `src/index.ts` —— barrel 再导出 `setZCodeBrandMessages`（各一行）。
+- **原因**：ocrc 面板去除 ZCode 品牌字样。放 IntlProvider 而非逐实例传 prop：vendor 内部还有三个独立
+  `ZCodeIntlProvider` 实例（ErrorBoundary 崩溃屏、UpdateStatusWindowRoot、分享只读页——后者是公开页，
+  必须盖），注册表对全部实例（含未来新增）零成本生效。
+- **ocrc 侧**：`web-next/src/zcode/brandMessages.ts`（zh 101 键 / en 102 键 = vendor 词表全部 ZCode 键机械替换收口；
+  唯二不覆盖的是带 zcode.z.ai 下载外链的外向分享文案（该面在 ocrc 不存在，覆盖反而留下指向外站的句子））；
+  `ZCodeApp.tsx` 模块渲染前 `setZCodeBrandMessages(BRAND_MESSAGES)`。
+- **验证**：`src/zcode/__tests__/brandMessages.test.ts`（覆盖值零 ZCode 残留 / 键在 vendor 词表存在 /
+  `{placeholder}` 占位符守恒）；隔离栈 CDP 品牌残留核对。
+
+## 11. 页脚身份兜底（U2，2026-10-11）
+- **文件**：`vendor/zcode/ui/src/WorkspaceSidebarFooter.tsx`（两处）
+- **修改**：`getSidebarProfileName` 兜底 `"ZCode"` → `"ocrc"`；`getAvatarFallbackText` 兜底 `"Z"` → `"O"`。
+- **原因**：ocrc 无 ZCode 账号体系，oauthService 幽灵返回本地身份，但 displayName/username 双缺时
+  页脚仍会露出上游兜底名。
+
+## 12. Logo/字标 enso 化（U2，2026-10-11）
+- **文件（5）**：
+  - `assets/provider-icons/logo-zai.svg` + `logo-zai-square.svg` —— 内容换成 ocrc enso mark
+    （currentColor 环 + `#e4580f` 点，随主题配色；**文件名保留**，import 点零改动）。
+  - `components/ui/ZCodeAboutLogo.tsx` —— Z 字标两组件换成 enso + ocrc 文本（组件名保留，
+    WelcomeScreen/Onboarding/HighspeedShareNoticeCard 调用点零改动）。
+  - `WindowsTopLeftLogo.tsx` / `DesktopTopOverlay.tsx` / `WorkspaceSidebarCollapsedRail.tsx` /
+    `WelcomeScreen.tsx` —— `alt/aria-label="ZCode"` → `"ocrc"`（各一行）。
+- **原因**：同 U2。index.html title 与 favicon.svg 本就是 ocrc（不动）。

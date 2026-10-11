@@ -35,7 +35,7 @@ export function WorkspaceSidebarCollapsedRail({
             >
               <img
                 src={appLogoUrl}
-                alt="ZCode"
+                alt="ocrc"
                 className="size-5 transition-opacity group-hover:opacity-0"
                 draggable={false}
               />

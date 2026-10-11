@@ -73,7 +73,7 @@ export {
   useGitActions,
 } from "./hooks/index.js";
 
-export { ZCodeIntlProvider, useZCodeIntl, LocaleSwitcher } from "./i18n/index.js";
+export { ZCodeIntlProvider, useZCodeIntl, LocaleSwitcher, setZCodeBrandMessages } from "./i18n/index.js";  // ocrc fork (PATCHES #10)
 export { ResourceManagerApp } from "./resource-manager/ResourceManagerApp.js";
 export type {
   ResourceManagerAppProps,

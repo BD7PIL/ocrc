@@ -71,7 +71,8 @@ function getSidebarProfileName(user?: UserInfo | null): string {
     return username;
   }
 
-  return "ZCode";
+  // ocrc fork (PATCHES #11)：无账号体系下的兜底名——上游写死 "ZCode"。
+  return "ocrc";
 }
 
 function getSidebarProfileBadge(
@@ -86,8 +87,9 @@ function getSidebarProfileBadge(
 }
 
 function getAvatarFallbackText(user: UserInfo | null | undefined): string {
-  const source = user?.displayName?.trim() || user?.username?.trim() || "Z";
-  return source[0]?.toUpperCase() ?? "Z";
+  // ocrc fork (PATCHES #11)：头像兜底字母同步 ocrc。
+  const source = user?.displayName?.trim() || user?.username?.trim() || "O";
+  return source[0]?.toUpperCase() ?? "O";
 }
 
 export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterComponent({

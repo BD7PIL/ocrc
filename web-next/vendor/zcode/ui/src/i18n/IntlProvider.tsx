@@ -14,6 +14,20 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
   "en-US": enUS,
 };
 
+// ── ocrc fork (PATCHES #10)：品牌文案覆盖注册表 ──
+// fork 壳（web-next）在渲染前调用 setZCodeBrandMessages 注入 ocrc 品牌文案；
+// createIntl 合并时 brand 层最后写入（键级覆盖）。放在 IntlProvider 而不是
+// 逐实例传 prop：vendor 内部还有三个独立 ZCodeIntlProvider 实例（ErrorBoundary
+// 崩溃屏、UpdateStatusWindowRoot、分享只读页），prop 穿线要动 vendor 深层，
+// 注册表对全部实例（含未来新增）零成本生效。
+let brandMessages: Partial<Record<Locale, Record<string, string>>> | undefined;
+
+export function setZCodeBrandMessages(
+  map: Partial<Record<Locale, Record<string, string>>> | undefined,
+): void {
+  brandMessages = map;
+}
+
 /** 简易 intl 工具：根据 id 查找翻译，支持 {key} 占位符替换 */
 export interface IntlInstance {
   formatMessage(descriptor: { id: string }, values?: Record<string, string | number>): string;
@@ -104,7 +118,10 @@ export function shouldApplyLocaleBroadcastMessage(
 
 function createIntl(locale: Locale): IntlInstance {
   // noUncheckedIndexedAccess：用 ?? 回退到默认语言的翻译
-  const messages = MESSAGES[locale] ?? MESSAGES[DEFAULT_LOCALE]!;
+  const base = MESSAGES[locale] ?? MESSAGES[DEFAULT_LOCALE]!;
+  // ocrc fork (PATCHES #10)：品牌层最后合并（键级覆盖，不触碰 vendor 词条本身）。
+  const brand = brandMessages?.[locale];
+  const messages = brand ? { ...base, ...brand } : base;
   return {
     formatMessage({ id }, values) {
       let msg = messages[id] ?? id;

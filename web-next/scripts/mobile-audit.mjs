@@ -49,10 +49,21 @@ function collectMeasurements() {
   const W = window.innerWidth
   const H = window.innerHeight
   const all = [...document.querySelectorAll('*')]
+  // 祖先感知可见性 —— 但分两条规则：
+  //  - display/visibility/opacity 逐级复合，任一祖先为 0 子树即不可见；
+  //  - pointer-events 只看元素自身：它可继承，但 `pointer-events:auto` 的后代
+  //    会重新命中（Radix 开 modal 时给 body 设 none、给内容设 auto；composer
+  //    区也是 pointer-events-none 外壳 + auto 内层）。查祖先会把这些可点元素
+  //    全部误判成不可交互（实测：远控对话框 80 个按钮全灭）。
   const vis = (e) => {
     const r = e.getBoundingClientRect()
-    const s = getComputedStyle(e)
-    return r.width > 1 && r.height > 1 && s.display !== 'none' && s.visibility !== 'hidden' && Number(s.opacity) > 0.05
+    if (!(r.width > 1 && r.height > 1)) return false
+    if (getComputedStyle(e).pointerEvents === 'none') return false
+    for (let n = e; n && n !== document.documentElement; n = n.parentElement) {
+      const s = getComputedStyle(n)
+      if (s.display === 'none' || s.visibility === 'hidden' || Number(s.opacity) < 0.05) return false
+    }
+    return true
   }
   const rect = (e) => {
     const r = e.getBoundingClientRect()
@@ -64,6 +75,12 @@ function collectMeasurements() {
       .trim()
       .slice(0, 48)
   const cls = (e) => (typeof e.className === 'string' ? e.className : '').slice(0, 120)
+  // 自身可见（不查祖先）—— 用于 hover-only 判定，因为 hover-only 元素本来就是
+  // 靠自身 opacity-0 藏起来的。
+  const selfHidden = (e) => {
+    const s = getComputedStyle(e)
+    return Number(s.opacity) < 0.05 || s.visibility === 'hidden' || s.display === 'none'
+  }
 
   const INTERACTIVE =
     'button, a[href], [role="button"], input, select, textarea, [contenteditable="true"], [role="tab"], [role="menuitem"], [role="option"], [role="switch"], [role="checkbox"], [data-slot="button"]'
@@ -72,18 +89,15 @@ function collectMeasurements() {
 
   const tapTargets = boxes.filter((b) => b.w < 44 || b.h < 44)
   const offscreen = boxes.filter((b) => b.x + b.w > W + 1 || b.x < -1)
-  const clippedRight = boxes.filter((b) => b.x + b.w > W + 1)
 
-  // hover-only：带 hover 揭示类名、当前不可见的元素（触屏永远揭示不了）
+  // hover-only：带 hover 揭示类名、当前自身不可见的元素（触屏永远揭示不了）。
+  // 必须匹配**具名**组变体 `group-hover/assistant-turn:opacity-100` —— 只认
+  // `group-hover:` 会漏掉 vendor 时间线动作栏的全部实况（实测假阴性 0）。
+  const HOVER_RE = /\bgroup-hover(\/[A-Za-z0-9_-]+)?:(opacity-100|visible|flex|block|inline|inline-flex|grid)\b|\bhover:(opacity-100|visible|flex|block|inline|inline-flex|grid)\b/
   const hoverOnly = all
-    .filter((e) => {
-      const c = cls(e)
-      if (!/group-hover:|hover:opacity-100|hover:visible|hover:flex|hover:block/.test(c)) return false
-      const s = getComputedStyle(e)
-      return Number(s.opacity) < 0.05 || s.visibility === 'hidden' || s.display === 'none'
-    })
+    .filter((e) => HOVER_RE.test(cls(e)) && selfHidden(e))
     .map((e) => ({ label: label(e), cls: cls(e), ...rect(e) }))
-    .slice(0, 60)
+    .slice(0, 80)
 
   const smallFontEditable = [...document.querySelectorAll('input, textarea, select, [contenteditable="true"]')]
     .filter(vis)
@@ -93,6 +107,12 @@ function collectMeasurements() {
   const hScroll = all
     .filter((e) => e.scrollWidth > e.clientWidth + 2 && vis(e) && ['auto', 'scroll'].includes(getComputedStyle(e).overflowX))
     .map((e) => ({ cls: cls(e), scrollW: e.scrollWidth, clientW: e.clientWidth }))
+    .slice(0, 20)
+
+  // 已经发生横向位移的可滚容器 —— 用于定「聚焦导致整壳平移」的滚动源
+  const scrolledX = all
+    .filter((e) => e.scrollLeft !== 0)
+    .map((e) => ({ cls: cls(e), scrollLeft: Math.round(e.scrollLeft), scrollW: e.scrollWidth, clientW: e.clientWidth }))
     .slice(0, 20)
 
   const shell = document.querySelector('[data-workspace-shell="true"]')
@@ -136,11 +156,11 @@ function collectMeasurements() {
     tapTargets: tapTargets.slice(0, 40),
     offscreenCount: offscreen.length,
     offscreen: offscreen.slice(0, 40),
-    clippedRightCount: clippedRight.length,
     hoverOnlyCount: hoverOnly.length,
     hoverOnly,
     smallFontEditable,
     hScroll,
+    scrolledX,
     bodyText: text,
   }
 }
@@ -247,6 +267,34 @@ function buildFlow(sessions) {
       },
     },
     {
+      id: 'session-longpress',
+      desc: '任务行长按 ~700ms（触屏等价右键 —— 验证是否有长按兜底）',
+      run: async (page, ctx) => {
+        const title = ctx?.lastSessionTitle
+        if (!title) return { ok: false, reason: 'no session opened' }
+        const loc = page.getByText(title, { exact: true })
+        if (!(await loc.count())) return { ok: false, reason: 'row gone' }
+        const box = await loc.first().boundingBox()
+        if (!box) return { ok: false, reason: 'no bounding box' }
+        const x = box.x + box.width / 2
+        const y = box.y + box.height / 2
+        const cdp = await page.context().newCDPSession(page)
+        await cdp.send('Input.dispatchTouchEvent', {
+          type: 'touchStart',
+          touchPoints: [{ x, y, id: 1 }],
+        })
+        await page.waitForTimeout(700)
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+        await page.waitForTimeout(1500)
+        const popped = await page.evaluate(() => ({
+          menus: document.querySelectorAll('[role="menu"]:not([hidden])').length,
+          dialogs: document.querySelectorAll('[role="dialog"]').length,
+          menuitems: document.querySelectorAll('[role="menuitem"]').length,
+        }))
+        return { ok: true, longPressAt: { x: Math.round(x), y: Math.round(y) }, popped }
+      },
+    },
+    {
       id: 'session-composer-focus',
       desc: '会话页聚焦 composer（软键盘弹出后的可视区与输入行布局）',
       run: async (page) => {
@@ -258,9 +306,32 @@ function buildFlow(sessions) {
       },
     },
     {
+      id: 'command-palette',
+      desc: '命令面板（侧栏「搜索」入口：输入框 + 结果分组 + 关闭路径）',
+      run: async (page) => {
+        const btn = page.getByRole('button', { name: /搜索/ }).first()
+        if (!(await btn.count())) return { ok: false, reason: 'no 搜索 button' }
+        try { await btn.click({ timeout: 5000 }) } catch (e) { return { ok: false, reason: String(e.message).slice(0, 120) } }
+        await page.waitForTimeout(1500)
+        const state = await page.evaluate(() => {
+          const dlg = document.querySelector('[role="dialog"]')
+          const input = dlg?.querySelector('input')
+          const rows = dlg ? dlg.querySelectorAll('[role="option"], [cmdk-item]').length : 0
+          return {
+            dialogOpen: Boolean(dlg),
+            inputVisible: input ? { w: Math.round(input.getBoundingClientRect().width), h: Math.round(input.getBoundingClientRect().height) } : null,
+            optionRows: rows,
+            groups: dlg ? dlg.querySelectorAll('[cmdk-group]').length : 0,
+          }
+        })
+        return { ok: true, ...state }
+      },
+    },
+    {
       id: 'session-side-pane',
       desc: '会话页侧页（文件浏览器；官方移动壳族设计为右覆盖抽屉）',
       run: async (page) => {
+        await closeOverlays(page) // 上一状态可能还开着命令面板
         for (const lbl of ['查看文件', '文件', '侧栏', '切换侧栏']) {
           const r = await clickByLabel(page, lbl)
           if (r.ok) { await page.waitForTimeout(1800); return { ok: true, via: lbl } }

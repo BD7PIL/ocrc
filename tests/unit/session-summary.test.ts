@@ -19,7 +19,7 @@ function makeBackend(summaries: any[], sessions: any[] = []) {
   return { backend, deleted }
 }
 
-const state = { getSessionCost: () => 0, isSessionError: () => false, isSessionUnread: () => false, isTaskPinned: () => false, isSessionArchived: () => false } as unknown as SessionState
+const state = { getSessionCost: () => 0, isSessionError: () => false, isSessionUnread: () => false, isSessionBusy: () => false, isTaskPinned: () => false, isSessionArchived: () => false } as unknown as SessionState
 const flush = () => new Promise((r) => setTimeout(r, 0))
 
 describe('fetchSessionSummaries', () => {
@@ -37,7 +37,7 @@ describe('fetchSessionSummaries', () => {
   })
 
   it('cost from state overrides summary cost', async () => {
-    const costState = { getSessionCost: (id: string) => id === 'x' ? 0.5 : undefined, isSessionError: () => false, isSessionUnread: () => false, isTaskPinned: () => false, isSessionArchived: () => false } as unknown as SessionState
+    const costState = { getSessionCost: (id: string) => id === 'x' ? 0.5 : undefined, isSessionError: () => false, isSessionUnread: () => false, isSessionBusy: () => false, isTaskPinned: () => false, isSessionArchived: () => false } as unknown as SessionState
     const summaries = [{ id: 'x', title: 'X', lastActiveAt: 1, unread: false, cost: 0.1 }]
     const { backend } = makeBackend(summaries)
     const out = await fetchSessionSummaries(singleBackendRegistry(backend), costState)
@@ -45,7 +45,7 @@ describe('fetchSessionSummaries', () => {
   })
 
   it('M9: error latch surfaces as summary.error', async () => {
-    const errorState = { getSessionCost: () => undefined, isSessionError: (id: string) => id === 'bad', isSessionUnread: () => false, isTaskPinned: () => false, isSessionArchived: () => false } as unknown as SessionState
+    const errorState = { getSessionCost: () => undefined, isSessionError: (id: string) => id === 'bad', isSessionUnread: () => false, isSessionBusy: () => false, isTaskPinned: () => false, isSessionArchived: () => false } as unknown as SessionState
     const summaries = [
       { id: 'bad', title: 'Bad', lastActiveAt: 1, unread: false },
       { id: 'good', title: 'Good', lastActiveAt: 2, unread: false },
@@ -54,6 +54,19 @@ describe('fetchSessionSummaries', () => {
     const out = await fetchSessionSummaries(singleBackendRegistry(backend), errorState)
     expect(out.find((s) => s.id === 'bad')?.error).toBe(true)
     expect(out.find((s) => s.id === 'good')?.error).toBe(false)
+  })
+
+  it('busy overlays from state (task-home running badge); createdAt passes through untouched', async () => {
+    const busyState = { getSessionCost: () => undefined, isSessionError: () => false, isSessionUnread: () => false, isSessionBusy: (id: string) => id === 'run', isTaskPinned: () => false, isSessionArchived: () => false } as unknown as SessionState
+    const summaries = [
+      { id: 'run', title: 'Run', lastActiveAt: 10, createdAt: 5, unread: false },
+      { id: 'idle', title: 'Idle', lastActiveAt: 20, createdAt: 8, unread: false },
+    ]
+    const { backend } = makeBackend(summaries)
+    const out = await fetchSessionSummaries(singleBackendRegistry(backend), busyState)
+    expect(out.find((s) => s.id === 'run')?.busy).toBe(true)
+    expect(out.find((s) => s.id === 'idle')?.busy).toBe(false)
+    expect(out.find((s) => s.id === 'run')?.createdAt).toBe(5)
   })
 })
 

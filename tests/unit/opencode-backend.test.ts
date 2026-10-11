@@ -90,6 +90,7 @@ describe('OpencodeBackend', () => {
     expect(active).toMatchObject({
       title: 'A', agent: 'build', model: 'prov/k2', cost: undefined,
       directory: '/repo', additions: 5, deletions: 2, unread: false,
+      createdAt: now - 1000,
     })
   })
 

@@ -32,6 +32,8 @@ export async function fetchSessionSummaries(
         // The backends hardcode unread:false and have no pin concept — OCRC state
         // is the only source for the /z/ sidebar's unread dot and pinned section.
         unread: state.isSessionUnread(s.id) || s.unread,
+        // Same pattern: busy lives only in OCRC's in-memory turn tracking.
+        busy: state.isSessionBusy(s.id),
         pinned: state.isTaskPinned(s.id),
         archived: state.isSessionArchived(s.id),
       })

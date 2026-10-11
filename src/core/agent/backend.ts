@@ -30,6 +30,9 @@ export interface SessionSummary {
   model?: string
   cost?: number
   lastActiveAt: number
+  /** Engine-side creation time (opencode `s.time.created`) — task-home "created"
+   *  sort; falls back to lastActiveAt when absent. */
+  createdAt?: number
   unread: boolean
   directory?: string
   additions?: number
@@ -38,6 +41,9 @@ export interface SessionSummary {
   backendId?: string
   /** M9: last turn failed (error card seen, no user card since) — task-row red dot. */
   error?: boolean
+  /** Turn in flight right now (OCRC in-memory state overlay; backends leave it
+   *  undefined) — task-home "running" badge. */
+  busy?: boolean
   /** /z/ sidebar bookmark (OCRC state overlay; backends leave it undefined). */
   pinned?: boolean
   /** /z/ archived tasks (OCRC state overlay). */

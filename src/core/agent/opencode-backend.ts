@@ -275,6 +275,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
       model: typeof s.model === 'string' ? s.model : s.model?.id,
       cost: undefined,
       lastActiveAt: s.time?.updated ?? s.time?.created ?? 0,
+      createdAt: s.time?.created,
       unread: false,
       directory: typeof s.directory === 'string' ? s.directory : undefined,
       additions: s.summary?.additions,

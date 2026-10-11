@@ -25,6 +25,20 @@ async function getJson<T>(path: string): Promise<T | null> {
 
 let revision = 0
 
+/**
+ * Vendor 的提交校验器（validateModelSelectionOptions）把 `reasoningLevel`
+ * 当硬性字段：selection.options 缺它 → `reasoning-level-missing` →
+ * createComposerSubmissionConfig 返回 null → composer 的发送键/回车全灭。
+ * ocrc 引擎目录里 88/114 个模型没有 variants（思考档位）——给这些模型兜底
+ * 一个恒可过的占位档，思考档下拉照常渲染（单选项）；有真实 variants 的模型
+ * 原样透传。
+ */
+const DEFAULT_VARIANT = 'standard'
+
+function variantsOf(m: OcrcModel): string[] {
+  return m.variants && m.variants.length > 0 ? m.variants : [DEFAULT_VARIANT]
+}
+
 export function createOcrcModelSelectionService(): IModelSelectionService {
   const listeners = new Set<() => void>()
   return {
@@ -46,7 +60,10 @@ export function createOcrcModelSelectionService(): IModelSelectionService {
       const preferred = overrides?.model ?? (firstWithModels
         ? { providerID: firstWithModels.id, modelID: firstWithModels.models[0].id }
         : undefined)
-      const preferredVariant = preferred ? (list.find((x) => x.id === preferred.providerID)?.models ?? []).find((m) => m.id === preferred.modelID)?.variants?.[0] : undefined
+      const preferredVariant = preferred
+        ? (list.find((x) => x.id === preferred.providerID)?.models ?? [])
+            .find((m) => m.id === preferred.modelID)?.variants?.[0] ?? DEFAULT_VARIANT
+        : undefined
       return {
         revision,
         effectiveSelection: preferred
@@ -74,9 +91,10 @@ export function createOcrcModelSelectionService(): IModelSelectionService {
             modelId: m.id,
             config: {
               displayName: m.name ?? m.id,
-              // 校验入口 validateModelSelectionOptions 读 optionSpecs.reasoningLevel.values
-              optionSpecs: { reasoningLevel: { values: m.variants ?? [] } },
-              variants: m.variants ?? [],
+              // 校验入口 validateModelSelectionOptions 读 optionSpecs.reasoningLevel.values；
+              // 空 variants 会让提交校验打回 reasoning-level-missing（发送键全灭）→ 兜底占位档。
+              optionSpecs: { reasoningLevel: { values: variantsOf(m) } },
+              variants: variantsOf(m),
             } as any,
           })),
         })),

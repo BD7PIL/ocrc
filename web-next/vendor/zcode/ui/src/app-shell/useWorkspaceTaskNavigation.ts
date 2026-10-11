@@ -71,7 +71,6 @@ export function useWorkspaceTaskNavigation({
       targetWorkspaceIdentityHint?: string,
       selectedRowUnreadAt?: number,
     ) => {
-      console.info('[ocrc-trace] handleSelectTask ENTER', targetWorkspacePath, taskId);
       const targetWorkspaceState = useZCodeSessionStore
         .getState()
         .getWorkspaceState(targetWorkspacePath, targetWorkspaceIdentityHint);

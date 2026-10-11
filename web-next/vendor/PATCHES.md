@@ -7,7 +7,7 @@
 ## 1. 全量 @ts-nocheck 横幅
 - **文件**：所有 vendored `*.ts` / `*.tsx`（首行插入 `// @ts-nocheck`）
 - **原因**：上游代码按其自身 tsconfig（无 verbatimModuleSyntax、宽松度不同）通过；我们的 tsc 配置更严，全量类型检查会产生海量噪音。@ts-nocheck 只静音类型错误，类型信息仍流入我们的代码（accessor 等消费 `IServiceAccessor` 等接口）。
-- **重放脚本要点**：遍历 vendor 树，未以横幅开头的文件插入一行。
+- **重放脚本要点**：遍历 vendor 树，未以横幅开头的文件插入一行。**已脚本化**：`node scripts/vendor-ts-nocheck.mjs`（幂等；`--check` 只报告；自动排除 `cua/**/*.d.ts`），见 [VENDOR_BASELINE.md](VENDOR_BASELINE.md) 升级操作序。
 
 ## 2. Root.tsx 摘除 OnboardingDialog 挂载
 - **文件**：`vendor/zcode/ui/src/Root.tsx`（约 L1076–1090）
@@ -45,3 +45,19 @@
   - **mermaid 的静态残留 = 622 kB**（唯一另一条静态链是 `message.tsx:16` 的 `import { mermaid } from "@streamdown/mermaid"` → `streamdownPlugins`，删掉实测 8,688 → 8,066 kB）。**该链未动**：它挂在核心消息渲染器的 plugins 入参上，延后会让首遍 markdown 解析拿不到 mermaid 插件，需单独批次 + 渲染实测。
   - 其余重件（pdf-viewer / pptx、xlsx 预览引擎 / prism 语言包 / wasm）上游**已经**各自独立懒 chunk——分包结构本身是对的；8 MB 壳层是 vendor UI + streamdown/remark/shiki/katex/zod 的热图，缩表需要 bundle-visualizer 级的归因批次。
 - **验证**：`npm run build` 通过；`mermaid-block-*.js`（4.4 kB）成为独立懒 chunk；非 mermaid 代码块路径无 Suspense 命中（`shouldRenderMermaid` 门内）。
+
+## 8. 设置页：远程主机分区（N5 remotes，2026-10-09）
+- **文件（5 + 1 新增）**：
+  - `vendor/zcode/ui/src/settings/RemotesSection.tsx` —— **ocrc 新增文件**（223 行，管理远程主机：增删/探测/升级推送）。⚠️ 覆盖快照会丢，重放时从 git 恢复（与条目 4 的 sha256Pure.ts 同列保留清单）。
+  - `vendor/zcode/ui/src/SettingsPage.tsx` —— import `RemotesSection` + 渲染分支 `activeSection === "remotes"`。
+  - `vendor/zcode/ui/src/lib/settingsNavigation.ts` —— `SettingsSectionId` union 追加 `"remotes"`。
+  - `vendor/zcode/ui/src/settings/settingsPageConfig.ts` —— lucide import 加 `Globe`；`BASE_SETTINGS_SECTIONS` 追加 remotes 项（`groupId: "agentCapabilities"`）。
+  - `vendor/zcode/ui/src/i18n/locales/en-US.ts` / `zh-CN.ts` —— 各加一行 `"settings.remotes.title"`（Remote Hosts / 远程主机）。
+- **原因**：N5 把远程主机收进 /z/ 设置页管理（用户裁决②：remote hosts 在 /z/ 原生管理）。
+- **验证**：/z/ → 设置 → 远程主机：列表/新增/探测/升级推送可用；i18n 两语言标题正常。
+
+## 9. 页脚：web 模式远程控制入口能力位（N5 remotes，2026-10-09）
+- **文件**：`vendor/zcode/ui/src/WorkspaceSidebarFooter.tsx`（约 L371，一处条件）
+- **修改**：`isDesktop && workspacePath ?` → `(isDesktop || (platform as { webRemoteControlAvailable?: boolean }).webRemoteControlAvailable === true) && workspacePath ?`（附 2 行 ocrc 注释）。
+- **原因**：远程控制/bots 弹层入口上游只在 desktop 客户端亮；ocrc web 壳需要它。能力位 `webRemoteControlAvailable` 由 ocrc 的 platform service 实现（web-next 侧）显式声明——vendor 的 platform.ts 零改动；不强开 `isDesktop`，避免连带桌面缩放等 UX。
+- **验证**：/z/ 左栏页脚出现远程控制入口；点开是 ocrc 双栏对话框（alias 覆盖，见 vite.config.ts 注释，不在本清单）。

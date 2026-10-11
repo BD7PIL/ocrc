@@ -264,7 +264,6 @@ function GroupedTaskRowComponent({
     loadTaskPaths: contextMenuOpen,
   });
   const handleSelect = () => {
-    console.info('[ocrc-trace] task-row handleSelect', task.taskId, 'onSelectTask type =', typeof onSelectTask);
     onSelectTask(task.workspacePath, task.taskId, task.workspaceIdentity);
   };
   const handleCloseTask = (event: MouseEvent<HTMLButtonElement>) => {

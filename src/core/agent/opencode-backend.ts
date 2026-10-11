@@ -482,6 +482,17 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     try { await client.session.status(); return true } catch { return false }
   }
 
+  /** U4: the whole `agent` config node (global+project merged by the engine),
+   *  unfiltered — the /z/ subagents panel lists every configured agent, not
+   *  just the ones with a model pinned. */
+  async function getAgentsFull(directory?: string): Promise<Record<string, Record<string, unknown>>> {
+    try {
+      const data = (await client.config.get(directory ? { query: { directory } } : {})).data as any
+      const agents = data?.agent ?? {}
+      return agents && typeof agents === 'object' ? agents : {}
+    } catch { return {} }
+  }
+
   async function getAgents(directory?: string): Promise<AgentInfo[]> {
     let agents: Record<string, { model?: string; description?: string }> = {}
     try { agents = (((await client.config.get(directory ? { query: { directory } } : {})).data as any)?.agent ?? {}) } catch { /* empty */ }
@@ -860,7 +871,7 @@ export function createOpencodeBackend(deps: OpencodeBackendDeps): AgentBackend {
     getMessageRaw,
     ...(deps.remote ? {} : { getVcs, getVcsDiff }),
     revertSession, unrevertSession, forkSession, getSessionRevert,
-    listQuestions, answerQuestion, rejectQuestion,
+    listQuestions, answerQuestion, rejectQuestion, getAgentsFull,
     listWorkspaces, listCommands, runCommand,
     resolvePermission,
     selectTuiSession,

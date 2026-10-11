@@ -323,6 +323,31 @@
   设置页「已安装」真数据，enabled 如实；marketplace/安装/卸载等 mutation 如实拒绝——
   PRODUCT.md 2026-10-07 裁决"插件市场不做"，文案注明真相源=编辑 opencode.json + 重启引擎；
   getPluginReferenceCatalog 诚实空 catalog——ocrc 的 sendText 通道不携带插件引用语义）
+- ✅ **子智能体面读侧 + model 覆盖（U4，2026-10-11）**：subagentsService 接真——list 走
+  引擎合并配置（`GET /api/agents-full`，global+project、无 model 门槛）+ 项目 agent 节
+  （`GET /api/settings/project/agents`）标 projectPath 落点；model 覆盖
+  （setBuiltInModelOverride/setPluginAgentModelOverride）→ `POST …/agents` merge patch
+  写项目 `agent.<name>.model`（备份+原子写，prompt/description 保留；清空=删项目条目回落
+  全局）。ZCode 专有字段（color/permissionMode/maxTurns/skills/mcpServers）不带——硬映射
+  =造假。setEnabled/create/update/delete withGhosts 如实拒绝（分期二）。
+  单测 6 条钉投影与回写（`__tests__/subagentsService.test.ts`）。已知边界：设置页
+  「子智能体」默认作用域=用户级（vendor 判据=设置上下文里有 workspace tab），ocrc 的
+  agent 全部 workspace scope——默认 tab 显示诚实的空态 + 「仅桌面端」提示；工作区作用域
+  下列表与 model 下拉生效（服务层+端点已实测）。
+- ✅ **fileWatcherService 接真（U4）**：/ws 新 `file-watch` 帧（host `src/core/file-watcher.ts`：
+  node fs.watch，300ms 防抖合并、目录上限 64、拒绝 `/` 与相对路径；ws detach 释放该客户端
+  全部注册）。web-next fileWatcherService 自带懒 ws + 断线重连重登记；git 自动刷新/文件树/
+  pptx 消费面的 unhandledrejection 根除。原生 ws 客户端实测：watched 确认帧、双写去抖成
+  1 帧/带 changedPath、unwatch 后写入无事件。
+- ✅ **clientConfigService / clientScenesService 小件（U4）**：静态 null 快照 / 空 scenes
+  （clientScenes 不能 undefined——useClientScenesResource 对 undefined WeakMap.set 会
+  TypeError）。帮助菜单 URL 与商店排序两处 ghost reject 消失。
+- ✅ **U4 拒绝类登记（如实不接）**：usageStatsService / highspeedCardService /
+  credentialService（ZCode 账号/订阅体系，硬映射=造假）；hooksService（opencode 1.18 无
+  用户级 hooks 配置面）；memoryService / gitCheckpointService / outputStyleService /
+  promptAttachmentTransferService（isDesktop 闸死或全仓 0 消费者，留幽灵零成本）；
+  terminalService（PRODUCT 裁决不做，入口已随 U3 摘除）；pluginsService mutation 与
+  settingsSync 引导（插件市场不做 / OnboardingDialog 已摘）。
 
 ## 9. 通道与自动化（N4）
 - ✅ 自动化主视图（offPeakTaskService → ocrc /api/schedules：list/create/pause/continue/delete 映射；空态忠实）

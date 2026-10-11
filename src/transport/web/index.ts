@@ -9,6 +9,7 @@ import type { Transport, TransportStartDeps } from '../interface.js'
 import type { StreamDeltaFrame, StructuredCard } from '../../core/structured-card.js'
 import { buildServer } from './server.js'
 import { createWsHub } from './ws-hub.js'
+import { createFileWatcherHub } from '../../core/file-watcher.js'
 import { createLogger } from '../../utils/logger.js'
 import type { AuthStrategy } from '../../connectivity/auth/index.js'
 import type { Scheduler } from '../../core/scheduler.js'
@@ -93,7 +94,10 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
       if (!existsSync(cfg.staticRoot)) {
         throw new Error(`Web static root not found: ${cfg.staticRoot}. Run 'cd web && npm run build' first.`)
       }
-      const wsHub = createWsHub({ cardBus: deps.cardBus, registry: cfg.registry, state: deps.state })
+      // U4: file watchers live only where the ws hub lives (host mode); the
+      // plugin-mode hub (if any) just runs without the file-watch channel.
+      const fileWatcher = createFileWatcherHub((frame) => wsHub.broadcastFileWatch(frame))
+      const wsHub = createWsHub({ cardBus: deps.cardBus, registry: cfg.registry, state: deps.state, fileWatcher })
       if (cfg.streamDeltaSink) cfg.streamDeltaSink.broadcast = (frame) => wsHub.broadcastDelta(frame)
       if (cfg.statusSink) cfg.statusSink.broadcast = (frame) => wsHub.broadcastStatus(frame)
       if (cfg.goalSink) cfg.goalSink.broadcast = (frame) => wsHub.broadcastGoal(frame)

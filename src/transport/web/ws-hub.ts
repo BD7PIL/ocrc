@@ -4,6 +4,7 @@ import type { StreamDeltaFrame, StructuredCard } from '../../core/structured-car
 import type { SessionState } from '../../core/state.js'
 import type { GoalRecord } from '../../core/state.js'
 import type { BackendRegistry } from '../../core/agent/registry.js'
+import type { FileWatcherHub } from '../../core/file-watcher.js'
 import { fetchSessionSummaries } from './session-summary.js'
 
 interface ClientState {
@@ -38,10 +39,20 @@ export interface WsHub {
    * re-fetches `/api/workflow/projection` and diffs against its own prior state.
    */
   broadcastWorkflow(frame: { sessionId: string; runId: string; status: string }): void
+  /** U4: file-change events (fileWatcherService subscribers, all clients). */
+  broadcastFileWatch(frame: { id: string; dirPath: string; changedPath?: string }): void
 }
 
-export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry; state: SessionState }): WsHub {
+/** Per-client file-watch registrations (U4): the panel's fileWatcherService
+ *  registers ids over /ws; events broadcast to ALL clients (the id is the
+ *  subscription key, client-side filtered). Detach releases them. */
+interface FileWatchClientState {
+  ids: Set<string>
+}
+
+export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry; state: SessionState; fileWatcher?: FileWatcherHub }): WsHub {
   const clients = new Map<WebSocket, ClientState>()
+  const fileWatchClients = new Map<WebSocket, FileWatchClientState>()
 
   // Proactive cards (push notifications: test-failure, session-finished) are a
   // Telegram delivery concern. The web shows the full turn live, so rendering a
@@ -78,6 +89,24 @@ export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry;
       const state = clients.get(ws)
       if (!state) return
       if (msg.type === 'ping') { ws.send(JSON.stringify({ type: 'pong' })); return }
+      // U4: fileWatcherService registration frames (absent hub = plugin-mode ws).
+      if (msg.type === 'file-watch' && opts.fileWatcher) {
+        let fw = fileWatchClients.get(ws)
+        if (!fw) { fw = { ids: new Set() }; fileWatchClients.set(ws, fw) }
+        try {
+          if (msg.op === 'watch' && typeof msg.path === 'string') {
+            const { id } = opts.fileWatcher.watch(msg.path, msg.recursive === true)
+            fw.ids.add(id)
+            try { ws.send(JSON.stringify({ type: 'file-watch', op: 'watched', requestId: msg.requestId, id })) } catch {}
+          } else if (msg.op === 'unwatch' && typeof msg.id === 'string') {
+            opts.fileWatcher.unwatch(msg.id)
+            fw.ids.delete(msg.id)
+          }
+        } catch (err) {
+          try { ws.send(JSON.stringify({ type: 'file-watch', op: 'error', requestId: msg.requestId, error: (err as Error).message })) } catch {}
+        }
+        return
+      }
       if (msg.type === 'unsubscribe' && typeof msg.sessionId === 'string') {
         state.subscribed.delete(opts.state.normalizeSessionId(msg.sessionId))
         return
@@ -119,7 +148,14 @@ export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry;
         try { state.ws.send(JSON.stringify({ type: 'replayEnd', sessionId: sid, lastSeq: current, complete, epoch: opts.cardBus.epoch() })) } catch {}
       }
     },
-    detach(ws) { clients.delete(ws) },
+    detach(ws) {
+      clients.delete(ws)
+      const fw = fileWatchClients.get(ws)
+      if (fw) {
+        opts.fileWatcher?.unwatchAllFor(fw.ids)
+        fileWatchClients.delete(ws)
+      }
+    },
     broadcast(card) { /* cards flow via CardBus.publish */ },
     broadcastStatus(frame) {
       const targets = [...clients.values()].filter(
@@ -156,6 +192,14 @@ export function createWsHub(opts: { cardBus: CardBus; registry: BackendRegistry;
       if (targets.length === 0) return
       const payload = JSON.stringify({ type: 'workflow', ...frame })
       for (const state of targets) {
+        try { state.ws.send(payload) } catch {}
+      }
+    },
+    broadcastFileWatch(frame) {
+      if (clients.size === 0) return
+      const payload = JSON.stringify({ type: 'file-watch', ...frame })
+      for (const state of clients.values()) {
+        if (state.ws.readyState !== 1) continue
         try { state.ws.send(payload) } catch {}
       }
     },

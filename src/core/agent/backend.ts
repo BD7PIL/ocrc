@@ -230,6 +230,8 @@ export interface AgentBackend {
 
   // ── catalog / commands ──────────────────────────────────────────────────────
   getAgents(directory?: string): Promise<AgentInfo[]>
+  /** U4: full agent-config entries (unfiltered) for the /z/ subagents panel. */
+  getAgentsFull?(directory?: string): Promise<Record<string, Record<string, unknown>>>
   getModels(directory?: string): Promise<ModelProvider[]>
   getMcp(directory?: string): Promise<McpServer[]>
   /** Subagent (child) sessions of a turn with todo progress — gates the plan-HUD badge/list. */

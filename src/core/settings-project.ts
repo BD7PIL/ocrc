@@ -195,6 +195,41 @@ export function readMcpEntries(dir: string): Record<string, Record<string, unkno
   }
 }
 
+/** U4: read the project-level `agent` config node (the /z/ subagents write target). */
+export function readAgentEntries(dir: string): Record<string, Record<string, unknown>> {
+  const oc = join(dir, '.opencode')
+  const cfgPath = [join(oc, 'opencode.json'), join(oc, 'opencode.jsonc')].find((p) => existsSync(p))
+  if (!cfgPath) return {}
+  try {
+    const doc = JSON.parse(stripJsoncLite(readText(cfgPath))) as Record<string, Record<string, Record<string, unknown>>>
+    return doc.agent ?? {}
+  } catch {
+    return {}
+  }
+}
+
+/** U4: merge `patch` into `agent.<name>` (or remove the entry on null) in the
+ *  project config — model overrides must preserve prompt/description etc. */
+export function setAgentEntry(dir: string, name: string, patch: Record<string, unknown> | null): { ok: boolean; error?: string } {
+  const oc = opencodeDir(dir)
+  const cfgPath = [join(oc, 'opencode.json'), join(oc, 'opencode.jsonc')].find((p) => existsSync(p)) ?? join(oc, 'opencode.json')
+  let doc: Record<string, unknown> = {}
+  try {
+    doc = JSON.parse(stripJsoncLite(readText(cfgPath))) as Record<string, unknown>
+  } catch {
+    return { ok: false, error: '项目配置不是合法 JSONC' }
+  }
+  const agents = (doc.agent ??= {}) as Record<string, Record<string, unknown>>
+  if (patch === null) delete agents[name]
+  else agents[name] = { ...(agents[name] ?? {}), ...patch }
+  try {
+    atomicWrite(cfgPath, `${JSON.stringify(doc, null, 2)}\n`)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: (err as Error).message }
+  }
+}
+
 /** Local JSONC strip (subset of settings-service.stripJsonc — kept local to
  *  avoid importing provider-specific pieces). */
 function stripJsoncLite(text: string): string {

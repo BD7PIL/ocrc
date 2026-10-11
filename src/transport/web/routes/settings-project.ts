@@ -1,8 +1,7 @@
 import type { Hono } from 'hono'
 import {
   projectOverview, readProjectFile, writeProjectFile, readMapping, applyMapping,
-  readMcpEntries, setMcpEntry,
-} from '../../../core/settings-project.js'
+  readMcpEntries, setMcpEntry, readAgentEntries, setAgentEntry } from '../../../core/settings-project.js'
 
 /**
  * 0.27 M5-2 routes — project `.opencode/` management, agent model-mapping
@@ -60,5 +59,18 @@ export function registerSettingsProject(app: Hono, stateDir: string, globalConfi
     const body = await c.req.json().catch(() => ({})) as { dir?: string; id?: string; entry?: Record<string, unknown> | null }
     if (!body.dir || !body.id || body.entry === undefined) return c.json({ error: 'dir, id, entry required' }, 400)
     return c.json(setMcpEntry(body.dir, body.id, body.entry))
+  })
+
+  // U4: the /z/ subagents panel's read/write face (project-level agent node).
+  app.get('/api/settings/project/agents', (c) => {
+    const dir = c.req.query('dir')
+    if (!dir) return c.json({ error: 'dir required' }, 400)
+    return c.json({ agents: readAgentEntries(dir) })
+  })
+
+  app.post('/api/settings/project/agents', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { dir?: string; id?: string; patch?: Record<string, unknown> | null }
+    if (!body.dir || !body.id || body.patch === undefined) return c.json({ error: 'dir, id, patch required' }, 400)
+    return c.json(setAgentEntry(body.dir, body.id, body.patch))
   })
 }

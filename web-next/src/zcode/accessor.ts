@@ -27,6 +27,9 @@ import { createOcrcShareService } from '../zcode-services/shareService.js'
 import { createOcrcPluginsManagementService } from '../zcode-services/pluginsManagementService.js'
 import { createOcrcCodingPlanSubscriptionService } from '../zcode-services/codingPlanSubscriptionService.js'
 import { ghostMethod, withGhosts } from '../zcode-services/ghost.js'
+import { createOcrcClientConfigService, createOcrcClientScenesService } from '../zcode-services/clientServices.js'
+import { createOcrcSubagentsService } from '../zcode-services/subagentsService.js'
+import { createOcrcFileWatcherService } from '../zcode-services/fileWatcherService.js'
 
 // 同名服务/方法必须返回同一实例——Root 的 useMemo/useEffect 依赖
 // services.xxxService 的引用相等性，每次新建 ghost 会触发无限重渲染（#185）。
@@ -130,6 +133,16 @@ export function createGhostAccessor(): IServiceAccessor {
     feedbackService: undefined,
     skillSyncService: undefined,
     pluginSyncService: undefined,
+    // U4 幽灵清账小件：clientConfig（公开配置→静态 null 快照）与 clientScenes
+    // （运营场景位→空列表；不能 undefined——useClientScenesResource 对 undefined
+    // WeakMap.set 会 TypeError）。
+    // U4 主件：subagents 接真（list + model 覆盖走 opencode.json agent 节；
+    // create/update/delete/setEnabled 由 withGhosts 如实拒绝——分期二）。
+    subagentsService: createOcrcSubagentsService(),
+    // U4：fileWatcher 接真（/ws file-watch 帧；git 自动刷新/文件树/pptx 预览的消费面）。
+    fileWatcherService: createOcrcFileWatcherService(),
+    clientConfigService: createOcrcClientConfigService(),
+    clientScenesService: createOcrcClientScenesService(),
   }
   return new Proxy(
     real as Record<string, unknown>,

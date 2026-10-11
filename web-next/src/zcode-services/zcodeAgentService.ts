@@ -16,6 +16,7 @@ import {
 import { deriveSessionWorkflowActivity } from '@zcode/shared/zcode-protocol-v4/sessions-index-workflow-activity'
 import type { WorkflowRunState, WorkflowRunsState } from '@zcode/shared/zcode-protocol-v4/workflow-runs'
 import { hostConn, HOST_RECONNECT_MS, type HostPhase } from './hostConnection.js'
+import { projectPendingInteractions, decisionFromOptionId, contentToAnswerRows } from './pendingInteractions.js'
 
 const V4_WIRE_PROTOCOL_VERSION = 3 as const
 
@@ -34,7 +35,12 @@ function token(): string {
 
 // ── ocrc 历史 → v4 conversation rows ──
 interface OcrcBlock { type: string; text?: string; tool?: string; args?: string; status?: string; partId?: string; messageId?: string }
-interface OcrcCard { kind: string; text?: string; ts?: number; blocks?: OcrcBlock[]; meta?: { model?: string; agent?: string }; thinkingText?: string; messageId?: string; origin?: string }
+interface OcrcCard {
+  kind: string; text?: string; ts?: number; blocks?: OcrcBlock[]; meta?: { model?: string; agent?: string }; thinkingText?: string; messageId?: string; origin?: string
+  // U1 dock：approval/question 卡的交互字段（structured-card.ts）。
+  requestId?: string; title?: string; args?: unknown; resolved?: string
+  questions?: Array<{ question: string; header?: string; options?: Array<{ label: string; description?: string }>; multiple?: boolean; custom?: boolean }>
+}
 
 async function ocrcHistory(taskId: string): Promise<OcrcCard[]> {
   let res: Response
@@ -785,7 +791,9 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
     // 批次 3：context usage pill——引擎 token 统计（used/max 同缺则整键 null = vendor 语义的「未知」）。
     usage: { contextWindow, cumulative: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } },
     queue: { items: [], autoDrain: true },
-    pendingInteractions: [],
+    // U1 权限/提问 dock：cardBus 的 approval/question 卡投影成 vendor
+    // PendingInteraction（dock 渲染 + resolveInteraction 回程，见下）。
+    pendingInteractions: projectPendingInteractions(cards),
     pendingCommands: [],
     backgroundWorks,
     // P4-1b: the run projection. Absent (not an empty container) when the session has no
@@ -828,6 +836,7 @@ async function emitConversationSnapshot(taskId: string, topic: string, subscript
   // 水位/rows 记账先于投递：retry 路径与 live diff 都依赖这份基线。
   lastSeqBySub.set(subscriptionId, seq)
   lastRowsBySession.set(taskId, rows)
+  lastInteractionsBySession.set(taskId, JSON.stringify(snapshot.pendingInteractions))
   const payload = { kind: 'snapshot' as const, snapshot }
   if (!frameListeners.size) {
     // transport 尚未挂 upstream——延时重试；成功投递一次后取消余下重试
@@ -851,6 +860,9 @@ async function emitConversationSnapshot(taskId: string, topic: string, subscript
 // row.appended/row.upserted 增量帧（seq 前进 1）；前缀失配或截断（fork/edit）→
 // 全量 online snapshot 收敛。全部走 nextOrdinal（单调契约，见 ordinalBySub 注释）。
 const lastRowsBySession = new Map<string, any[]>()
+// U1 dock 的 live 基线：与 rows 分开记——resolved 重发布不改 rows（buildRows 不投影
+// 交互卡），只有这份签名能驱动 dock 清除的 state.updated 补丁。
+const lastInteractionsBySession = new Map<string, string>()
 const liveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const watchedSessions = new Set<string>()
 let liveWs: WebSocket | null = null
@@ -1110,19 +1122,30 @@ async function liveUpdate(sessionId: string): Promise<void> {
   await attachWorkflowDisplays(nextRows, await refreshWorkflowRuns(sessionId, nextRows), sessionId)
   await enrichToolRows(nextRows, sessionId)
   const deltas = diffRows(prevRows, nextRows)
-  // diff 空即不发：此前用整行 stringify 判等守卫，浅比较版直接以 deltas.length 为准。
-  if (deltas && deltas.length === 0) return
+  // U1：dock 投影独立于 rows diff——approval/question 卡的发布与 resolved 重发布
+  // 都不改 rows，签名变了也要补一帧 state.updated（键级整替，见 delta.ts）。
+  const nextInteractions = projectPendingInteractions(cards)
+  const interactionsSig = JSON.stringify(nextInteractions)
+  const interactionsChanged = lastInteractionsBySession.get(sessionId) !== interactionsSig
+  // diff 空且投影未变即不发：此前用整行 stringify 判等守卫，浅比较版直接以 deltas.length 为准。
+  if ((!deltas || deltas.length === 0) && !interactionsChanged) return
   lastRowsBySession.set(sessionId, nextRows)
+  lastInteractionsBySession.set(sessionId, interactionsSig)
   for (const [subId, sub] of subs) {
     const lastSeq = lastSeqBySub.get(subId) ?? 0
     if (deltas) {
-      if (deltas.length === 0) continue
-      deliverWire(sub.topic, subId, lastSeq, lastSeq + 1, { kind: 'deltas', deltas }, 'online')
+      const batch = interactionsChanged
+        ? [...deltas, { op: 'state.updated', patch: { pendingInteractions: nextInteractions } }]
+        : deltas
+      if (batch.length === 0) continue
+      deliverWire(sub.topic, subId, lastSeq, lastSeq + 1, { kind: 'deltas', deltas: batch }, 'online')
       lastSeqBySub.set(subId, lastSeq + 1)
     } else {
       const { snapshot, seq } = await buildSnapshotPayload(sessionId)
       deliverWire(sub.topic, subId, 0, seq, { kind: 'snapshot', snapshot }, 'online')
       lastSeqBySub.set(subId, seq)
+      // 快照自带最新投影——基线以它为准（否则下个 tick 会误判「又变了」多发一帧）。
+      lastInteractionsBySession.set(sessionId, JSON.stringify(snapshot.pendingInteractions))
     }
   }
 }
@@ -1149,6 +1172,7 @@ function liveWatch(sessionId: string): void {
 function liveUnwatch(sessionId: string): void {
   watchedSessions.delete(sessionId)
   lastRowsBySession.delete(sessionId)
+  lastInteractionsBySession.delete(sessionId)
   if (liveWs?.readyState === WebSocket.OPEN) {
     try { liveWs.send(JSON.stringify({ type: 'unsubscribe', sessionId })) } catch { /* noop */ }
   }
@@ -2031,6 +2055,52 @@ export function createOcrcZcodeAgentService(): any {
           revisionAtDecision: 0,
           result: { type: 'startSavedWorkflow', runId: started.runId, toolCallId: `launch-${uuid()}` },
         }
+      }
+      // ── U1 交互回程：权限 → /api/approval；提问 → /api/question/reply|reject ──
+      // vendor 侧：PermissionDialog onRespond({optionId}) / ElicitationDialog
+      // onRespond({action, content})。optionId 与 host decision 同词（投影时约定）。
+      if (envelope.type === 'resolveInteraction') {
+        if (!sessionId) throw new Error('[ocrc-fork] resolveInteraction 缺 sessionId')
+        const interactionId = String((envelope.payload as { interactionId?: string }).interactionId ?? '')
+        const answer = (envelope.payload as { answer?: { optionId?: string; freeText?: string; action?: string; content?: Record<string, unknown> } }).answer ?? {}
+        if (!interactionId) {
+          return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_bad_payload', message: 'resolveInteraction 缺 interactionId', revisionAtDecision: 0 }
+        }
+        const post = async (path: string, body: Record<string, unknown>) =>
+          fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` }, body: JSON.stringify(body) })
+        // 权限：optionId→decision（once/always/reject）。freeText 反馈 host 无承接
+        // 字段（TG 同样只传 decision）——如实忽略，不伪造。
+        if (answer.optionId !== undefined) {
+          const decision = decisionFromOptionId(answer.optionId)
+          if (!decision) {
+            return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_unknown_option', message: `未知权限选项 ${answer.optionId}`, revisionAtDecision: 0 }
+          }
+          const res = await post('/api/approval', { sessionId, requestId: interactionId, decision })
+          if (!res.ok) {
+            return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_approval_failed', message: `POST /api/approval ${res.status}`, revisionAtDecision: 0 }
+          }
+          return { commandId: envelope.commandId, status: 'accepted', revisionAtDecision: 0 }
+        }
+        // 提问：accept → 组 answers 矩阵回复；decline/cancel → 拒答（TG 同款）。
+        if (answer.action !== undefined) {
+          if (answer.action === 'accept') {
+            const cards = await ocrcHistory(sessionId).catch(() => null)
+            const card = cards?.find((c) => c.kind === 'question' && c.requestId === interactionId)
+            const answers = contentToAnswerRows(card?.questions, answer.content)
+            const res = await post('/api/question/reply', { sessionId, requestId: interactionId, answers })
+            if (!res.ok) {
+              const body = (await res.json().catch(() => ({}))) as { error?: string }
+              return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_question_failed', message: body.error ?? `POST /api/question/reply ${res.status}`, revisionAtDecision: 0 }
+            }
+            return { commandId: envelope.commandId, status: 'accepted', revisionAtDecision: 0 }
+          }
+          const res = await post('/api/question/reject', { sessionId, requestId: interactionId })
+          if (!res.ok) {
+            return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_question_failed', message: `POST /api/question/reject ${res.status}`, revisionAtDecision: 0 }
+          }
+          return { commandId: envelope.commandId, status: 'accepted', revisionAtDecision: 0 }
+        }
+        return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_bad_payload', message: 'resolveInteraction.answer 缺 optionId/action', revisionAtDecision: 0 }
       }
       return {
         commandId: envelope.commandId,

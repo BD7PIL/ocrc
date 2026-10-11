@@ -284,6 +284,21 @@
   markdown 首行）→ 点开 `plan-detail:…:plan-msg_…` 侧页渲染全文。
   已知取舍：plan 回合的正文同时以消息行 + 计划卡出现（同一文本两处可见）；澄清性提问
   回合也会成计划条目（不做文本嗅探过滤）。
+- ✅ **权限/提问 dock 全接（U1，2026-10-11）**：cardBus approval/question 卡 →
+  vendor `PendingInteraction` 投影（`zcode-services/pendingInteractions.ts`，14 条单测对
+  vendor zod schema 钉死形状）→ 快照 `pendingInteractions` + live `state.updated` 键级
+  整替。回程 `resolveInteraction` 分支：permission optionId（与 host decision 同词）
+  → `/api/approval`；userInput action accept→`/api/question/reply`（ElicitationDialog
+  content → `answers:string[][]` 换算，跳题留空行保位）、decline/cancel→`/api/question/reject`。
+  host 侧补齐三处：①host 模式 question 事件此前被 INTERACTION_TYPES 闸掉（只放行
+  permission 族），现 question.asked/replied/rejected 同管道发卡 + TG 转发（plugin 模式
+  原本就有）；②三处 approval 发布点补显式 id `approval:${requestId}`，resolution 时
+  （permission.replied / `/api/approval` 路由回执）原 id 重发布 resolved 卡 =
+  dock 权威清除信号；③cardBus 新增交互卡驻留区（latest per id，resolved 先逐出）并
+  由 `GET /api/session/:id` 并回——桥的取数路径是 REST 历史，交互卡原本只活在 /ws。
+  **零 vendor 改动**。隔离栈双 dock UI 实测：permission（external_directory ask）渲染
+  →点「允许一次」→dock 清除→「已处理」→引擎落盘；question（引擎 question 工具）
+  渲染→选 staging 提交→dock 清除→卡 resolved=replied answers=[['staging']]。
 - ⬜ 终端页（🚫 ocrc 裁决不做）
 
 ## 8. 设置页族

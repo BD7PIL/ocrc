@@ -147,7 +147,13 @@ export interface BuiltHostBackends {
   }
 }
 
-const PERMISSION_TYPES = new Set(['permission.asked', 'permission.updated', 'permission.replied'])
+// Interaction events routed to the host approval/question bridge (host.ts) —
+// permission family feeds the approval card, question family feeds the question
+// card (U1 dock). Everything else normalizes into relay rows.
+const INTERACTION_TYPES = new Set([
+  'permission.asked', 'permission.updated', 'permission.replied',
+  'question.asked', 'question.replied', 'question.rejected',
+])
 
 /** How many consecutive ports to probe when spawning an opencode server. */
 const PORT_PROBE_ATTEMPTS = 10
@@ -302,7 +308,7 @@ export async function buildHostBackends(specs: BackendSpec[], deps: BuildHostBac
             deps.state?.setSessionBusy?.(p.sessionID, p.status?.type === 'busy')
           }
         }
-        if (PERMISSION_TYPES.has((ev as { type?: string }).type ?? '')) { onOpencodePermission(ev as never); return }
+        if (INTERACTION_TYPES.has((ev as { type?: string }).type ?? '')) { onOpencodePermission(ev as never); return }
         const ae = normalizeOpencodeEvent(ev)
         if (ae) relay.handleEvent(ae).catch((err) => log.error('relay.handleEvent failed', err as Error))
       }

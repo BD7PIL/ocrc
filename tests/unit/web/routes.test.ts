@@ -87,7 +87,7 @@ function fakeBackend(overrides: Record<string, any> = {}) {
 const baseOpts = (state: any, backend: any) => ({
   auth: createTokenAuth({ token: 'test-token', devBypass: true, devEmail: 'd@l', host: '127.0.0.1' }),
   registry: singleBackendRegistry(backend), state,
-  cardBus: { publish: vi.fn(), subscribeAll: () => () => {}, currentSeq: () => 7 } as any,
+  cardBus: { publish: vi.fn(), subscribeAll: () => () => {}, currentSeq: () => 7, interactionCards: () => [] } as any,
 })
 
 const LOOPBACK = { incoming: { socket: { remoteAddress: '127.0.0.1' } } }

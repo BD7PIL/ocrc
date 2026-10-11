@@ -92,4 +92,37 @@ describe('CardBus', () => {
     bus.drop('ses_1')
     expect(bus.oldestSeq('ses_1')).toBeUndefined()
   })
+
+  it('interactionCards keeps the latest card per id and survives buffer churn', () => {
+    const bus = createCardBus(3) // tiny transcript buffer: a busy turn evicts everything
+    const perm = (resolved?: 'approved' | 'rejected'): StructuredCard =>
+      ({ kind: 'approval', sessionId: 'ses_1', title: 'edit', args: {}, requestId: 'per_1', id: 'approval:per_1', ...(resolved ? { resolved } : {}) })
+    bus.publish(perm()) // pending
+    for (let i = 0; i < 6; i++) bus.publish(card('ses_1')) // transcript churn evicts the buffer
+    expect(bus.recent('ses_1').some((c) => c.kind === 'approval')).toBe(false)
+    expect(bus.interactionCards('ses_1')).toHaveLength(1)
+    // Resolution republish (same id) overwrites the pending twin in place.
+    bus.publish(perm('approved'))
+    const after = bus.interactionCards('ses_1')
+    expect(after).toHaveLength(1)
+    expect((after[0] as { resolved?: string }).resolved).toBe('approved')
+    // Non-interaction kinds never enter the resident set; other sessions isolated.
+    bus.publish(card('ses_1', 'error'))
+    bus.publish({ kind: 'approval', sessionId: 'ses_2', title: 'x', args: {}, requestId: 'per_9', id: 'approval:per_9' })
+    expect(bus.interactionCards('ses_1')).toHaveLength(1)
+    bus.drop('ses_1')
+    expect(bus.interactionCards('ses_1')).toHaveLength(0)
+  })
+
+  it('interactionCards evicts resolved entries first when over the cap', () => {
+    const bus = createCardBus()
+    for (let i = 0; i < 45; i++) {
+      bus.publish({ kind: 'question', sessionId: 'ses_1', requestId: `q${i}`, id: `question:q${i}`, questions: [], resolved: 'replied' })
+    }
+    bus.publish({ kind: 'approval', sessionId: 'ses_1', title: 'edit', args: {}, requestId: 'per_live', id: 'approval:per_live' })
+    const cards = bus.interactionCards('ses_1')
+    expect(cards).toHaveLength(40) // cap holds
+    expect(cards.some((c) => (c as { requestId?: string }).requestId === 'per_live')).toBe(true)
+    expect(cards.some((c) => (c as { requestId?: string }).requestId === 'q0')).toBe(false) // oldest resolved evicted
+  })
 })

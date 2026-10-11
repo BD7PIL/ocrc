@@ -4,6 +4,11 @@ import { createLogger } from '../utils/logger.js'
 const log = createLogger('card-bus')
 
 const DEFAULT_BUFFER = 256
+// Resident interaction cards (approval/question): the /z/ bridge projects its
+// permission dock from REST history, and a busy turn can push 256 cards — a
+// pending approval must never be evicted by transcript churn. Latest per card
+// id wins (resolution republishes the same id); resolved entries evict first.
+const MAX_INTERACTIONS_PER_SESSION = 40
 // Minted once per process (see epoch()).
 const BUS_EPOCH = 'x4397h2u'
 
@@ -20,6 +25,9 @@ export interface CardBus {
   epoch(): string
   /** Current max sequence number assigned for a session (0 if none). */
   currentSeq(sessionId: string): number
+  /** Resident approval/question cards for a session (latest per id, publish
+   *  order) — the /z/ bridge's dock projection reads these from REST history. */
+  interactionCards(sessionId: string): StructuredCard[]
   /** Drop the buffer + subscribers for a deleted session (frees memory). */
   drop(sessionId: string): void
 }
@@ -28,7 +36,26 @@ export function createCardBus(bufferSize: number = DEFAULT_BUFFER): CardBus {
   const perSession = new Map<string, Set<(c: StructuredCard) => void>>()
   const all = new Set<(c: StructuredCard) => void>()
   const buffers = new Map<string, StructuredCard[]>()
+  const interactions = new Map<string, Map<string, StructuredCard>>()
   const seqCounters = new Map<string, number>()
+
+  function rememberInteraction(sid: string, card: StructuredCard): void {
+    if (card.kind !== 'approval' && card.kind !== 'question') return
+    let m = interactions.get(sid)
+    if (!m) { m = new Map(); interactions.set(sid, m) }
+    m.set(card.id ?? `${card.kind}:${card.seq ?? Date.now()}`, card)
+    if (m.size <= MAX_INTERACTIONS_PER_SESSION) return
+    // Over cap: evict resolved entries (oldest first); if all pending, evict oldest.
+    for (const [key, c] of m) {
+      if (m.size <= MAX_INTERACTIONS_PER_SESSION) break
+      if ('resolved' in c && c.resolved) m.delete(key)
+    }
+    while (m.size > MAX_INTERACTIONS_PER_SESSION) {
+      const oldest = m.keys().next().value
+      if (oldest === undefined) break
+      m.delete(oldest)
+    }
+  }
 
   function sessionIdOf(c: StructuredCard): string | undefined {
     return 'sessionId' in c ? c.sessionId : undefined
@@ -58,6 +85,7 @@ export function createCardBus(bufferSize: number = DEFAULT_BUFFER): CardBus {
         buf.push(card)
         if (buf.length > bufferSize) buf.shift()
         buffers.set(sid, buf)
+        rememberInteraction(sid, card)
         perSession.get(sid)?.forEach((fn) => safe(fn, card))
       }
       all.forEach((fn) => safe(fn, card))
@@ -83,8 +111,13 @@ export function createCardBus(bufferSize: number = DEFAULT_BUFFER): CardBus {
     currentSeq(sessionId) {
       return seqCounters.get(sessionId) ?? 0
     },
+    interactionCards(sessionId) {
+      const m = interactions.get(sessionId)
+      return m ? [...m.values()] : []
+    },
     drop(sessionId) {
       buffers.delete(sessionId)
+      interactions.delete(sessionId)
       perSession.delete(sessionId)
       seqCounters.delete(sessionId)
     },

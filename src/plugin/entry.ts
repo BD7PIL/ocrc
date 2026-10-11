@@ -484,11 +484,23 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
       switch (eventType) {
         case 'permission.asked':
         case 'permission.replied':
-        case 'permission.updated':
+        case 'permission.updated': {
+          const pp = (ev as any)?.properties ?? {}
+          // Resolution republish (plugin-mode parity with host.ts): the /z/ dock
+          // drops the interaction when the card flips to resolved (same id upsert).
+          if (eventType === 'permission.replied' && pp.permissionID && pp.sessionID) {
+            cardBus.publish({
+              kind: 'approval', sessionId: pp.sessionID, requestId: pp.permissionID,
+              id: `approval:${pp.permissionID}`,
+              title: typeof pp.title === 'string' ? pp.title : 'Permission', args: pp.metadata ?? {},
+              resolved: /reject|deny/i.test(String(pp.response ?? '')) ? 'rejected' : 'approved',
+            })
+          }
           tgTransport?.handlePluginPermissionEvent({ type: eventType, properties: (ev as any).properties } as any).catch((err) =>
             log.error('handlePluginPermissionEvent failed', err as Error),
           )
           break
+        }
         case 'tui.session.select': {
           const sid = (ev as any)?.properties?.sessionID
           if (typeof sid === 'string' && sid) {

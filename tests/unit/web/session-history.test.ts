@@ -45,7 +45,7 @@ function appWith(backend: any) {
     auth: createTokenAuth({ token: 'test-token', devBypass: true, devEmail: 'd@l', host: '127.0.0.1' }),
     registry: singleBackendRegistry(backend),
     state: fakeState(),
-    cardBus: { publish: vi.fn(), subscribeAll: () => () => {}, currentSeq: () => 3 } as any,
+    cardBus: { publish: vi.fn(), subscribeAll: () => () => {}, currentSeq: () => 3, interactionCards: () => [] } as any,
   } as any)
 }
 

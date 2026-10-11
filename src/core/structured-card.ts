@@ -73,7 +73,10 @@ export type StructuredCard = CardMeta & (
   | { kind: 'error';        sessionId: string;  message: string }
   | { kind: 'status';       sessionId: string;  fields: Record<string, string>; buttons?: Button[][] }
   | { kind: 'info';         title: string;      sections: InfoSection[]; sessionId?: string;  proactive?: boolean }
-  | { kind: 'approval';     sessionId: string;  title: string;  args: unknown;  requestId: string }
+  | { kind: 'approval';     sessionId: string;  title: string;  args: unknown;  requestId: string;
+      /** Set on resolution (same card id republished → upsert in place): the /z/
+       *  dock reads this as the authoritative "no longer pending" signal. */
+      resolved?: 'approved' | 'rejected' }
   | {
       kind: 'question'
       sessionId: string

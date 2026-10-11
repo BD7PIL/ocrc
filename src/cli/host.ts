@@ -121,7 +121,7 @@ export async function main(): Promise<void> {
         })
         .catch((err: unknown) => log.error('failed to surface permission', err as Error))
     } else {
-      cardBus.publish({ kind: 'approval', sessionId: req.sessionId, title: req.title, args: { options: req.options }, requestId: req.requestId })
+      cardBus.publish({ kind: 'approval', sessionId: req.sessionId, title: req.title, args: { options: req.options }, requestId: req.requestId, id: `approval:${req.requestId}` })
     }
     // Resolution arrives out-of-band via backend.resolvePermission (Telegram
     // button callback / Web POST /api/approval). Here we only enforce a timeout.
@@ -377,8 +377,11 @@ export async function main(): Promise<void> {
   // session credentials, anchors keep the permanent token.
   const pairing = createPairingStore()
 
-  // opencode permission events arrive on the SSE stream → forward to the same
-  // approval UX (Telegram buttons + Web card). Web-only: publish the card directly.
+  // opencode interaction events arrive on the SSE stream → forward to the same
+  // approval/question UX (Telegram buttons + Web card). Web-only: publish cards
+  // directly. Cards carry the explicit id `approval:${requestId}` /
+  // `question:${requestId}` so a resolution republish upserts in place — that
+  // republish is the /z/ dock's authoritative cleanup signal.
   const onOpencodePermission = (ev: OcEvent) => {
     const p = (ev as any).properties ?? {}
     // 0.27 权限四档: session-level host approval routing (PRODUCT.md). 'edit'
@@ -402,13 +405,45 @@ export async function main(): Promise<void> {
         return
       }
     }
+    // Resolution (from any surface — TG / TUI / our own /api/approval): republish
+    // the approval card resolved so the /z/ dock drops it. The original publish
+    // sites stamp id `approval:${requestId}`, so this upserts in place.
+    if (ev.type === 'permission.replied' && p.permissionID && p.sessionID) {
+      cardBus.publish({
+        kind: 'approval', sessionId: p.sessionID, requestId: p.permissionID,
+        id: `approval:${p.permissionID}`,
+        title: typeof p.title === 'string' ? p.title : 'Permission', args: p.metadata ?? {},
+        resolved: /reject|deny/i.test(String(p.response ?? '')) ? 'rejected' : 'approved',
+      })
+    }
     if (tgTransport) {
       tgTransport.handlePluginPermissionEvent({ type: ev.type!, properties: (ev as any).properties })
         .catch((err: unknown) => log.error('opencode permission surface failed', err as Error))
     } else {
       if (ev.type === 'permission.asked' && p.id && p.sessionID) {
-        cardBus.publish({ kind: 'approval', sessionId: p.sessionID, title: p.title ?? 'Permission', args: p.args ?? {}, requestId: p.id })
+        cardBus.publish({ kind: 'approval', sessionId: p.sessionID, title: p.title ?? 'Permission', args: p.args ?? {}, requestId: p.id, id: `approval:${p.id}` })
       }
+    }
+    // M10 question tool: same pipeline as plugin mode (entry.ts) — card for the
+    // /z/ dock + TG wizard. Resolution republishes the card resolved (upsert).
+    if (ev.type === 'question.asked' && typeof p.sessionID === 'string' && typeof p.id === 'string' && p.sessionID && p.id) {
+      cardBus.publish({
+        kind: 'question', sessionId: p.sessionID, requestId: p.id, id: `question:${p.id}`,
+        questions: Array.isArray(p.questions) ? p.questions : [],
+      })
+      tgTransport?.handlePluginQuestionEvent({ type: ev.type, properties: p }).catch((err: unknown) =>
+        log.error('handlePluginQuestionEvent failed', err as Error),
+      )
+    } else if ((ev.type === 'question.replied' || ev.type === 'question.rejected') && typeof p.sessionID === 'string' && typeof p.requestID === 'string' && p.sessionID && p.requestID) {
+      cardBus.publish({
+        kind: 'question', sessionId: p.sessionID, requestId: p.requestID, id: `question:${p.requestID}`,
+        questions: [],
+        resolved: ev.type === 'question.replied' ? 'replied' : 'rejected',
+        answers: Array.isArray(p.answers) ? p.answers : undefined,
+      })
+      tgTransport?.handlePluginQuestionEvent({ type: ev.type, properties: p }).catch((err: unknown) =>
+        log.error('handlePluginQuestionEvent failed', err as Error),
+      )
     }
   }
   const wireHandle = built.wire(relay, push, onOpencodePermission)

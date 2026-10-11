@@ -176,7 +176,7 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerTaskGroups(app, opts.state)
   registerFiles(app, reg, opts.state)
   registerContext(app, reg, opts.state)
-  registerApproval(app, reg, opts.state)
+  registerApproval(app, reg, opts.cardBus, opts.state)
   registerQuestion(app, reg, opts.state)
   registerVersion(app)
   registerLogs(app)

@@ -25,6 +25,11 @@ export function registerSession(app: Hono, reg: BackendRegistry, cardBus: CardBu
       cards = []
       historyError = (e as Error).message ?? 'history read failed'
     }
+    // Interaction cards (approval/question) live only in the card bus — the
+    // engine never sees them as messages. The /z/ bridge projects its dock from
+    // THIS response, so append the resident cards (latest per id; resolved
+    // republishes overwrite their pending twin in place).
+    cards = [...cards, ...cardBus.interactionCards(id)]
     // Heuristic: a full page means older messages may exist. Card count can
     // fall below message count (roles without cards), so this errs toward an
     // extra empty page — the client hides the button when a page comes back

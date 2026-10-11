@@ -921,7 +921,9 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
           }
         }
 
-        // Publish to CardBus so Web UI can also show the approval modal
+        // Publish to CardBus so Web UI can also show the approval modal.
+        // Explicit id: the resolution republish (host.ts permission.replied /
+        // /api/approval) upserts THIS card in place — the /z/ dock's cleanup key.
         try {
           cardBusRef?.publish({
             kind: 'approval',
@@ -929,6 +931,7 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
             title,
             args: props.args ?? props.permission ?? {},
             requestId: permId,
+            id: `approval:${permId}`,
           })
         } catch (err) {
           log.warn('[plugin] failed to publish approval card', err as Error)

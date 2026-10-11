@@ -43,9 +43,11 @@
 /* 4) composer 按可视宽度收纳：内容列 min-w-[320px] + 侧栏 max-w-[50%] 在
  *    390px 下把 composer 内容盒推出视口 99px（发送键 x=461 完全屏外），
  *    vendor 的工具栏收纳（useComposerToolbarFit）量的是容器宽而非可视宽。
- *    把 composer 区上限压回可视宽度后，收纳按真实宽度工作，发送键回到屏内。 */
+ *    把 composer 区上限压回可视宽度后，收纳按真实宽度工作，发送键回到屏内。
+ *    [data-workspace-shell] 前缀（W2）：只匹配标准壳（它才有侧栏宽度变量）；
+ *    官方移动壳无侧栏，不吃 264px 回退值、composer 保持全宽。 */
 @media (pointer: coarse) and (max-width: 767px) {
-  .zcode-shell-root .chat-composer-region {
+  .zcode-shell-root [data-workspace-shell='true'] .chat-composer-region {
     max-width: calc(100vw - min(var(--workspace-sidebar-panel-width, 264px), 50vw) - 1.25rem);
   }
 }

@@ -82,7 +82,7 @@ describe('switchWorkspace', () => {
     await sw.switchWorkspace('/w1')
     expect(requests).toEqual([])
     await sw.switchWorkspace('/w1', { taskId: 'ses_1' })
-    expect(requests).toEqual([{ workspacePath: '/w1', taskId: 'ses_1', nonce: 1 }])
+    expect(requests).toEqual([{ workspacePath: '/w1', taskId: 'ses_1', intent: 'chat', nonce: 1 }]) // 缺省 intent 兜底 'chat'
     expect(calls.some((c) => c.url === '/api/sessions/ses_1/unread')).toBe(true)
   })
 

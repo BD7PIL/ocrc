@@ -1575,7 +1575,14 @@ export function createOcrcZcodeAgentService(): any {
     onDynamicConversationFrame(_workspace: unknown) {
       return (listener: (frame: any) => void) => {
         frameListeners.add(listener)
-        return () => frameListeners.delete(listener)
+        // vendor 的 Event<T> 契约（rpc/foundation.ts:71）：Event(listener) 返回
+        // IDisposable —— agentConversationTransport 退订时调 upstream?.dispose()。
+        // 此前返回裸函数，移动壳「聊天页 → 返回首页」卸载 chat 触发退订即抛
+        // TypeError（g?.dispose is not a function），错误边界把整个内容区换掉。
+        // 同时保持可调用（ghost.ts 的双形状约定）。
+        const unsubscribe: any = () => { frameListeners.delete(listener) }
+        unsubscribe.dispose = () => { frameListeners.delete(listener) }
+        return unsubscribe
       }
     },
     // P5：host 连接生命周期事件（transport 过滤 workspaceKey 后交给 store 的恢复阶梯：

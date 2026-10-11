@@ -2,7 +2,7 @@
 // (Apache-2.0, ZCode). 真 ZCode Root 跑在 ocrc 的幽灵 accessor 上；N1+ 逐服务
 // 填实。主题默认 zai-dark（与其 WEB_DEFAULT_THEME 一致），偏好存 localStorage
 // 'zcode-theme'。
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { AppErrorBoundary, ZCodeIntlProvider, generateMobileDeviceFingerprint, setStreamClientId } from '@zcode/ui'
 // ZCode 原生样式表（独立 Tailwind 入口：自带 source 扫描域 + zai 双主题）。
 import '../../vendor/zcode/ui/src/styles.css'
@@ -11,6 +11,8 @@ import './zcode-mobile.css'
 import { onUnauthorized } from '$lib/auth.js'
 import { createGhostAccessor } from './accessor.js'
 import { createWebPlatform } from './platform.js'
+import { createOcrcWorkspaceSwitcher, type WorkspaceSwitchRequest } from './remoteControl/workspaceSwitcher.js'
+import type { WebRemoteControlMobileNavigationIntent } from '@zcode/shared'
 
 const Root = lazy(() =>
   import('@zcode/ui')
@@ -18,10 +20,34 @@ const Root = lazy(() =>
     .catch((e) => { console.error('[zcode-fork] @zcode/ui import FAILED:', e); throw e }),
 )
 
+// 与 vendor WorkspaceShellLayout 的 WEB_REMOTE_CONTROL_MOBILE_QUERY 保持同一查询串——
+// switcher prop 的有无必须与 vendor 自己的移动视口判定同步，官方移动壳的早退
+// 分支（isWebRemoteControlShell && isWebRemoteControlMobileViewport）才恰好闭合。
+const WEB_REMOTE_CONTROL_MOBILE_QUERY = '(max-width: 767px)'
+
+function useIsMobileViewport(): boolean {
+  const [mobile, setMobile] = useState(
+    () => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(WEB_REMOTE_CONTROL_MOBILE_QUERY).matches,
+  )
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const mq = window.matchMedia(WEB_REMOTE_CONTROL_MOBILE_QUERY)
+    const onChange = (e: MediaQueryListEvent) => setMobile(e.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return mobile
+}
+
 function resolveThemePreference(): 'zai-dark' | 'zai-light' {
   try {
     const saved = localStorage.getItem('zcode-theme')
     if (saved === 'zai-light' || saved === 'light') return 'zai-light'
+    // 语义与 vendor useTheme 对齐：认 'system'（跟随 prefers-color-scheme）。
+    // 写路径归 vendor setTheme 单一写者——这里只做 Root chunk 加载前的防闪预涂。
+    if (saved === 'system') {
+      return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'zai-dark' : 'zai-light'
+    }
   } catch {
     /* private mode */
   }
@@ -45,6 +71,31 @@ export function ZCodeApp() {
     try { return new URLSearchParams(window.location.search).get('session') ?? undefined } catch { return undefined }
   })
   const [settled, setSettled] = useState(false)
+  // ── 官方移动壳接线（W2）：switcher 只在移动视口传。桌面零变化——vendor 的
+  // isWebRemoteControlShell/Root/Sidebar 族全部以「prop 是否存在」为开关（无
+  // viewport 条件），无条件传会翻转桌面九项行为（分享链、分屏、CUA、自动化/
+  // 插件页可达性等），移动视口门控是硬约束。
+  const isMobileViewport = useIsMobileViewport()
+  // 跨工作区切换 = Root 重挂（vendor 的活动工作区权威 state 是 Root 内部闭包，
+  // 无对外 API；重挂重新走引导，didBootstrapInitialWorkspaceRef 是实例级的），
+  // 与 ?session= 深链同一条已验证通路。ocrc 服务层单例在 Root 之外，重挂不断流。
+  const [switchRequest, setSwitchRequest] = useState<WorkspaceSwitchRequest | null>(null)
+  const activePathRef = useRef<string | undefined>(undefined)
+  const [switcher] = useState(() =>
+    createOcrcWorkspaceSwitcher({
+      getActiveWorkspacePath: () => activePathRef.current,
+      onRequestSwitch: (req) => setSwitchRequest(req),
+    }),
+  )
+  useEffect(() => {
+    const effective = switchRequest?.workspacePath ?? workspacePath
+    if (effective) activePathRef.current = effective
+  }, [workspacePath, switchRequest])
+  // 重挂请求覆盖引导解析值；无请求时维持原深链/引导行为。
+  const initialWorkspaceAbsPath = switchRequest?.workspacePath ?? workspacePath
+  const initialTaskId = switchRequest?.taskId ?? initialSessionId
+  const mobileNavigationIntent: WebRemoteControlMobileNavigationIntent | undefined =
+    switchRequest?.intent ?? (initialSessionId ? 'chat' : undefined)
 
   useEffect(() => {
     applyZCodeTheme()
@@ -97,16 +148,23 @@ export function ZCodeApp() {
           {settled && (
             <Suspense fallback={<div className="p-8 text-ui-sm text-foreground-subtle">ZCode fork loading…</div>}>
               <Root
+                key={switchRequest?.nonce ?? 0}
                 services={services}
                 platform={platform}
-                initialWorkspaceAbsPath={workspacePath}
-                initialTaskId={initialSessionId}
+                initialWorkspaceAbsPath={initialWorkspaceAbsPath}
+                initialTaskId={initialTaskId}
                 // ocrc 没有跨启动的 tab 持久化——关闭恢复机制，让
                 // hasCompletedInitialRestore 立即完成、initialWorkspace 引导生效
                 restoreSession={false}
                 preferDirectoryBrowser
                 supportsEmbeddedBrowser={false}
                 allowRemoteWorkspace={false}
+                {...(isMobileViewport
+                  ? {
+                      webRemoteControlWorkspaceSwitcher: switcher,
+                      ...(mobileNavigationIntent ? { initialWebRemoteControlMobileNavigationIntent: mobileNavigationIntent } : {}),
+                    }
+                  : {})}
               />
             </Suspense>
           )}

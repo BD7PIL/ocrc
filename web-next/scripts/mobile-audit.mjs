@@ -29,8 +29,11 @@ const SHELL_LIB = process.env.MOBILE_AUDIT_SHELL_LIB ?? '/home/demo/chromium'
 const SETTLE_MS = Number(process.env.MOBILE_AUDIT_SETTLE_MS ?? 7000)
 
 const DEVICES = {
-  390: { width: 390, height: 844, deviceScaleFactor: 3, label: 'iPhone 14/15 档 390x844' },
-  360: { width: 360, height: 740, deviceScaleFactor: 3, label: 'Android 小屏档 360x740' },
+  390: { width: 390, height: 844, deviceScaleFactor: 3, label: 'iPhone 14/15 档 390x844', isMobile: true, hasTouch: true },
+  360: { width: 360, height: 740, deviceScaleFactor: 3, label: 'Android 小屏档 360x740', isMobile: true, hasTouch: true },
+  // W2：桌面回归档 —— 非移动视口下 switcher prop 不传，必须是标准壳
+  // （侧栏 264px、无 data-mobile-chat-surface、无 TaskHome 行）。
+  desktop: { width: 1280, height: 800, deviceScaleFactor: 1, label: '桌面回归档 1280x800（标准壳）', isMobile: false, hasTouch: false },
 }
 const UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
@@ -119,6 +122,8 @@ function collectMeasurements() {
   const sidebarPanel = document.querySelector('[data-workspace-sidebar-panel="true"]')
   const chatSurface = document.querySelector('[data-mobile-chat-surface]')
   const sidePaneOverlay = document.querySelector('[data-mobile-side-pane-overlay="true"]')
+  // W2 移动壳锚点：TaskHome 任务行（vendor testId('task-item', taskId)）。
+  const taskHomeRows = document.querySelectorAll('[data-testid^="task-item-"]').length
   // 会话主区：含 composer 的那个 flex 列（标准壳 = 侧栏右侧剩下的全部宽度）
   const composer = document.querySelector('[contenteditable="true"]')
   const chatPane = composer?.closest('[data-workspace-shell="true"] > *:not([data-workspace-sidebar-panel])') ?? null
@@ -147,6 +152,7 @@ function collectMeasurements() {
       })(),
       mobileChatSurface: chatSurface ? { mode: chatSurface.getAttribute('data-mobile-chat-surface') } : null,
       sidePaneOverlayPresent: Boolean(sidePaneOverlay),
+      taskHomeRows,
       rootPadding: getComputedStyle(document.querySelector('.zcode-shell-root') ?? document.body).padding,
       mediaCoarse: window.matchMedia('(pointer: coarse)').matches,
       mediaHoverNone: window.matchMedia('(hover: none)').matches,
@@ -191,14 +197,16 @@ async function clickByLabel(page, label) {
 
 // ---------------------------------------------------------------- state flows
 // 线性流程：每个设备只 goto /z/ 一次（ocrc 引导会预热草稿会话，反复导航会污染
-// 隔离栈），随后在应用内用点击/按键切换形态。每步 = 截图 + 测量。
-function buildFlow(sessions) {
+// 隔离栈），随后在应用内用点击/按键切换形态。每步 = 截图 + 测量。唯一例外是
+// 跨工作区 E2E（重挂本质就是再引导一次，收尾统一回收草稿）。
+// ── 共享助手（移动壳/桌面回归两套流程复用）──
+function makeOpenAnySession(sessions) {
   // 侧栏默认只显示最近 5 条，其余折叠在「显示更多」后 —— 逐个试到命中为止。
   // 排除 "New session" 草稿：那是空的（探针/引导自己预热出来的），量不出时间线。
   const real = sessions.filter((s) => s.title && !/^New session/.test(s.title))
   const candidates = real.length ? real.map((s) => s.title) : sessions.map((s) => s.title).filter(Boolean)
 
-  const openAnySession = async (page) => {
+  return async (page) => {
     const tryTitles = async () => {
       for (const title of candidates) {
         const loc = page.getByText(title, { exact: true })
@@ -223,25 +231,29 @@ function buildFlow(sessions) {
     }
     return { ok: false, reason: `no visible non-draft session row among ${candidates.length} candidates` }
   }
+}
 
-  const closeOverlays = async (page) => {
-    for (let i = 0; i < 4; i++) {
-      if (!(await page.locator('[role="dialog"]').count())) break
-      await page.keyboard.press('Escape').catch(() => {})
-      await page.waitForTimeout(600)
-    }
+const closeOverlays = async (page) => {
+  for (let i = 0; i < 4; i++) {
+    if (!(await page.locator('[role="dialog"]').count())) break
+    await page.keyboard.press('Escape').catch(() => {})
+    await page.waitForTimeout(600)
   }
+}
 
-  // 设置页是 h-screen 的 `grid-cols-[68px_minmax(0,1fr)]` 全屏视图（非 role=dialog）。
-  const settingsOpen = (page) =>
-    page.evaluate(() => {
-      for (const e of document.querySelectorAll('div')) {
-        const g = getComputedStyle(e).gridTemplateColumns
-        if (g && g.startsWith('68px') && e.getBoundingClientRect().height > 600) return true
-      }
-      return false
-    })
+// 设置页是 h-screen 的 `grid-cols-[68px_minmax(0,1fr)]` 全屏视图（非 role=dialog）。
+const settingsOpen = (page) =>
+  page.evaluate(() => {
+    for (const e of document.querySelectorAll('div')) {
+      const g = getComputedStyle(e).gridTemplateColumns
+      if (g && g.startsWith('68px') && e.getBoundingClientRect().height > 600) return true
+    }
+    return false
+  })
 
+// ── 移动壳流程（官方移动壳已接线的 /z/ 手机视口）──
+function buildFlow(sessions, token) {
+  const openAnySession = makeOpenAnySession(sessions)
   return [
     {
       id: 'home',
@@ -412,6 +424,171 @@ function buildFlow(sessions) {
         return { ok: true, attempts, stillOpen: await settingsOpen(page) }
       },
     },
+    {
+      id: 'cross-workspace-switch',
+      desc: '跨工作区切换 E2E（重挂路径真验证）：在主仓活动态下造 /tmp 第二工作区 → 首页刷新后点其任务行 → 断言重挂落进新工作区 chat',
+      run: async (page, ctx) => {
+        const { mkdirSync } = await import('node:fs')
+        // a. 先引导进主仓（此时 tmp 会话还不存在，引导的「最新会话目录」
+        //    逻辑绝不会落进 tmp），再造第二工作区 —— 顺序反了就会自陷阱：
+        //    引导直接落进 tmp，行点击变同工作区打开，测不到重挂。
+        //    注意 reload 保留 history.state（vendor 特性：刷新留在 chat）——
+        //    流程前序状态把 history 推到 chat 后，这里 boot 会直落 chat；
+        //    必须先回首页（popstate → home + refreshKey）再继续。
+        await page.goto(`${BASE}/z/`, { waitUntil: 'domcontentloaded' })
+        await page.waitForTimeout(SETTLE_MS)
+        const diag = () => page.evaluate(() => ({
+          rows: document.querySelectorAll('[data-testid^="task-item-"]').length,
+          chatAnchor: Boolean(document.querySelector('[data-mobile-side-pane-overlay="true"]') || document.querySelector('[data-mobile-chat-surface]')),
+          errorCard: (document.body.innerText || '').includes('ran into a problem'),
+          snippet: (document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 120),
+        }))
+        const bootDiag = await diag()
+        const rowsAfterBoot = bootDiag.rows
+        if (!rowsAfterBoot) {
+          if (!bootDiag.chatAnchor) return { ok: false, reason: 'after boot neither TaskHome rows nor chat anchor', bootDiag }
+          await page.goBack({ timeout: 4000 }).catch(() => {})
+          await page.waitForTimeout(2500)
+        }
+        const leaf = `ocrc-mobile-e2e-ws-${Date.now()}`
+        const dir = `/tmp/${leaf}`
+        const title = `E2E跨工作区${Date.now()}`
+        let created
+        try {
+          // 第二工作区必须是 git 项目：引擎把非 git 目录归入 "global" 项目
+          // （worktree="/"，被 listAllSessions 跳过），只有 sqlite db 才能发现；
+          // 隔离栈宿主的 $HOME 与用户引擎不同，db 发现天然失灵（生产同 HOME
+          // 不受影响）。git init 让引擎注册真项目 → project.list 可枚举。
+          const { execSync } = await import('node:child_process')
+          mkdirSync(dir, { recursive: true })
+          execSync('git init -q', { cwd: dir })
+          const res = await fetch(`${BASE}/api/session`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ directory: dir, title }),
+          })
+          if (!res.ok) return { ok: false, reason: `create session HTTP ${res.status}` }
+          created = await res.json()
+        } catch (e) {
+          return { ok: false, reason: `create failed: ${String(e.message).slice(0, 100)}` }
+        }
+        if (!created?.id) return { ok: false, reason: 'create returned no id', directory: dir }
+        try {
+          // b. 应用内刷新：进一行 → 返回首页（popstate → refreshKey+1 → TaskHome
+          //    重拉，tmp 行才出现）。行选择用「session 状态已成功打开过的那个会话」
+          //    （ctx.lastSessionTitle）—— 随机首行可能命中带 mermaid 图的会话，
+          //    vendor 的 mermaid dispose 在卸载时会抛错砸掉内容区（预存 bug，
+          //    见审计文档），会把本 E2E 随机炸掉。
+          const danceTitle = ctx?.lastSessionTitle
+          const danceRow = danceTitle
+            ? page.locator('[data-testid^="task-item-"]', { hasText: danceTitle })
+            : page.locator('[data-testid^="task-item-"]').first()
+          if (!(await danceRow.count())) return { ok: false, reason: `dance row missing (${danceTitle ?? 'no ctx'})`, createdId: created.id, postBootDiag: await diag() }
+          await danceRow.first().click({ timeout: 5000 }).catch(() => {})
+          await page.waitForTimeout(2000)
+          const sessionFetches = []
+          const onReq = (r) => { if (r.url().includes('/api/sessions')) sessionFetches.push(Date.now()) }
+          page.on('request', onReq)
+          await page.goBack({ timeout: 4000 }).catch(() => {}) // popstate → home + 刷新
+          // 轮询行数最多 8s：TaskHome 重拉把 tmp 行带出来（或证伪「刷新发生了」）。
+          let sawTmp = false
+          for (let i = 0; i < 16; i++) {
+            await page.waitForTimeout(500)
+            if (await page.locator(`[data-testid="task-item-${created.id}"]`).count()) { sawTmp = true; break }
+          }
+          page.off('request', onReq)
+          // c. tmp 组默认折叠（TaskHome 只自动展开活动工作区组）——先点其分组头
+          //    （button[aria-expanded] 含目录名文本）展开，再点任务行。
+          const header = page.locator('button[aria-expanded="false"]', { hasText: leaf })
+          if (await header.count()) {
+            await header.first().click({ timeout: 5000 }).catch(() => {})
+            await page.waitForTimeout(1200)
+          }
+          const row = page.locator(`[data-testid="task-item-${created.id}"]`)
+          if (!sawTmp && !(await row.count())) {
+            const serverRows = await fetch(`${BASE}/api/sessions`, { headers: { Authorization: `Bearer ${token}` } })
+              .then((r) => r.json()).catch(() => [])
+            return {
+              ok: false,
+              reason: 'tmp workspace task row missing after refresh',
+              createdId: created.id,
+              serverHasRow: serverRows.some((s) => s?.id === created.id),
+              serverDirs: [...new Set(serverRows.map((s) => s?.directory).filter(Boolean))].slice(0, 6),
+              postDanceDiag: await diag(),
+              sessionFetchesAfterGoBack: sessionFetches.length,
+            }
+          }
+          await row.first().click({ timeout: 5000 })
+          // d. 重挂路径：新 Root 重新引导（引导 + 数据面拉取），等待从宽。
+          //    chat 页稳定锚 = [data-mobile-side-pane-overlay]（恒渲染，关闭时仅 opacity-0）。
+          await page.waitForSelector('[data-mobile-side-pane-overlay="true"]', { timeout: 20000 }).catch(() => {})
+          // 重挂完成分两步：chat 壳先渲染，会话元数据（任务标题头部）后到 ——
+          // 轮询等标题出现（最多 10s），再一次性收断言。
+          let landed = null
+          for (let i = 0; i < 20; i++) {
+            await page.waitForTimeout(500)
+            landed = await page.evaluate((wantTitle) => ({
+              chatAnchor: Boolean(document.querySelector('[data-mobile-side-pane-overlay="true"]') || document.querySelector('[data-mobile-chat-surface]')),
+              homeGone: document.querySelectorAll('[data-testid^="task-item-"]').length === 0,
+              // WorkspaceHeader 的任务标题被截断渲染（「E2E跨工作…」≈6字符），
+              // innerText 只有前缀 —— 全文优先、前缀兜底，都在可见文本上做。
+              titleShown: (() => {
+                const text = document.body.innerText || ''
+                return text.includes(wantTitle) || text.includes(wantTitle.slice(0, 5))
+              })(),
+            }), title)
+            if (landed.titleShown) break
+          }
+          return {
+            ok: Boolean(landed.chatAnchor && landed.homeGone && landed.titleShown),
+            ...landed,
+            createdId: created.id,
+            directory: dir,
+          }
+        } finally {
+          // e. 自净：探针造的会话自删 + /tmp 目录自删（都是本状态新建的）。
+          await fetch(`${BASE}/api/sessions/${created.id}/delete`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+          }).catch(() => {})
+          rmSync(dir, { recursive: true, force: true })
+        }
+      },
+    },
+  ]
+}
+
+// ── 桌面回归流程（非移动视口：switcher 不传 → 标准壳，W2 断桌面零变化）──
+function buildDesktopFlow(sessions) {
+  const openAnySession = makeOpenAnySession(sessions)
+  return [
+    {
+      id: 'home',
+      desc: '标准壳首页（侧栏 264px；无 TaskHome 行、无 data-mobile-chat-surface）',
+      run: async () => ({ ok: true }),
+    },
+    {
+      id: 'session',
+      desc: '标准壳会话页（点侧栏任务行进入）',
+      run: openAnySession,
+    },
+    {
+      id: 'session-context-menu',
+      desc: '任务行右键（桌面语义回归：菜单必须弹出）',
+      run: async (page, ctx) => {
+        const title = ctx?.lastSessionTitle
+        if (!title) return { ok: false, reason: 'no session opened' }
+        const loc = page.getByText(title, { exact: true })
+        if (!(await loc.count())) return { ok: false, reason: 'row gone' }
+        await loc.first().click({ button: 'right', timeout: 5000 }).catch(() => {})
+        await page.waitForTimeout(1500)
+        const popped = await page.evaluate(() => ({
+          menus: document.querySelectorAll('[role="menu"]:not([hidden])').length,
+          menuitems: document.querySelectorAll('[role="menuitem"]').length,
+        }))
+        return { ok: popped.menus > 0 || popped.menuitems > 0, ...popped }
+      },
+    },
   ]
 }
 
@@ -503,9 +680,9 @@ async function main() {
       const ctx = await browser.newContext({
         viewport: { width: dev.width, height: dev.height },
         deviceScaleFactor: dev.deviceScaleFactor,
-        isMobile: true,
-        hasTouch: true,
-        userAgent: UA,
+        isMobile: dev.isMobile ?? true,
+        hasTouch: dev.hasTouch ?? true,
+        userAgent: (dev.isMobile ?? true) ? UA : undefined,
       })
       await ctx.addInitScript((t) => {
         try { localStorage.setItem('ocrc.token', t) } catch {}
@@ -524,7 +701,7 @@ async function main() {
       page.on('response', (r) => { if (r.status() >= 400) failedRequests.push(`${r.status()} ${r.url()}`.slice(0, 200)) })
 
       const deviceReport = { device: key, label: dev.label, states: [] }
-      const states = buildFlow(sessions)
+      const states = (dev.isMobile ?? true) ? buildFlow(sessions, token) : buildDesktopFlow(sessions)
       const flowCtx = {}
 
       // 单次导航：避免每个状态都重新引导（引导会预热草稿会话，污染隔离栈）。
@@ -573,7 +750,13 @@ async function main() {
     lines.push(`## ${d.label}`)
     for (const s of d.states) {
       const m = s.measurements
-      lines.push(`- **${s.id}** ${m ? `viewport=${m.viewport.W}x${m.viewport.H} overflowX=${m.docOverflowX} 触达<44px=${m.tapTargetCount} 越界=${m.offscreenCount} hover-only=${m.hoverOnlyCount} 小字号可编辑=${m.smallFontEditable.length} 侧栏=${m.layout.sidebarPanel ? m.layout.sidebarPanel.w + 'px' : '无'}` : `(失败: ${s.error ?? s.run?.reason ?? '?'})`}`)
+      // 壳判定：sidebarPanel 只在标准壳存在（vendor 侧栏与 TaskHome 同用 task-item-*
+      // testid，行数不能当判据）；移动壳 chat 页锚 = side-pane overlay（恒渲染，
+      // 关闭时仅 opacity-0）或 inert 标记。
+      const kind = m
+        ? (m.layout.mobileChatSurface || m.layout.sidePaneOverlayPresent ? '移动壳chat' : m.layout.sidebarPanel ? '标准壳' : m.layout.taskHomeRows > 0 ? '移动壳home' : '无壳')
+        : ''
+      lines.push(`- **${s.id}** ${m ? `viewport=${m.viewport.W}x${m.viewport.H} overflowX=${m.docOverflowX} 触达<44px=${m.tapTargetCount} 越界=${m.offscreenCount} hover-only=${m.hoverOnlyCount} 小字号可编辑=${m.smallFontEditable.length} 壳=${kind} TaskHome行=${m.layout.taskHomeRows} 侧栏=${m.layout.sidebarPanel ? m.layout.sidebarPanel.w + 'px' : '无'}` : `(失败: ${s.error ?? s.run?.reason ?? '?'})`}`)
       if (s.screenshot) lines.push(`  - 截图: ${s.screenshot}`)
     }
     if (d.consoleErrors.length) lines.push(`- console errors: ${d.consoleErrors.length} → ${JSON.stringify(d.consoleErrors.slice(0, 5))}`)

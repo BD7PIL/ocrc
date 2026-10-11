@@ -151,7 +151,12 @@ export function createOcrcWorkspaceSwitcher(deps: OcrcWorkspaceSwitcherDeps = {}
         // 失败不阻塞切换（返回首页的权威快照会恢复蓝点）。
         try { await markTaskReadById(options.taskId) } catch { /* 尽力而为 */ }
       }
-      requestRemount(key, options?.taskId, options?.mobileNavigationIntent)
+      // 带 taskId 的切换 = 落进该任务的 chat。vendor 的 intent 是单值联合（只有
+      // 'chat'），TaskHome/taskOpen 实际都传 'chat'；缺省兜底，防止重挂后落回任务首页。
+      const intent: WebRemoteControlMobileNavigationIntent | undefined = options?.taskId
+        ? (options.mobileNavigationIntent ?? 'chat')
+        : options?.mobileNavigationIntent
+      requestRemount(key, options?.taskId, intent)
     },
 
     async startDraft(workspaceKey, options) {

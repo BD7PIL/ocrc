@@ -214,7 +214,7 @@ describe('⑥ projectWorkspace', () => {
       ],
     })
     const events = journal.allEvents(RUN)
-    const view = projectWorkspace(journal.listNodes(RUN), events, 1_000)
+    const view = projectWorkspace(journal.listNodes(RUN, { kinds: 'all', withResult: true }), events, 1_000)
     expect(view.truncated).toBeUndefined()
     expect(view.nodes[0]).toMatchObject({ siteId: 'world-read#1', kind: 'world-read', op: 'glob', args: ['src/**/*.ts'], status: 'completed' })
     expect(view.nodes[0]!.summary).toMatchObject({ resultCount: 2 })
@@ -234,7 +234,7 @@ describe('⑥ projectWorkspace', () => {
         { runId: RUN, siteId: 'ask#1', ordinal: 1, kind: 'ask', inputHash: 'h', status: 'completed' },
       ],
     })
-    const view = projectWorkspace(journal.listNodes(RUN), [], 1_000)
+    const view = projectWorkspace(journal.listNodes(RUN, { kinds: 'all', withResult: true }), [], 1_000)
     expect(view.nodes).toHaveLength(1)
     expect(view.nodes[0]).toMatchObject({ status: 'failed', error: { code: 'WorldRunDenied', message: 'denied' } })
   })
@@ -243,7 +243,7 @@ describe('⑥ projectWorkspace', () => {
 describe('⑦ projectNodeResult', () => {
   it('passes a small body through untouched', () => {
     const journal = fixture({ nodes: [worldNode()] })
-    const view = projectNodeResult(journal.listNodes(RUN)[0]!)
+    const view = projectNodeResult(journal.listNodes(RUN, { kinds: 'all', withResult: true })[0]!)
     expect(view).toMatchObject({ status: 'completed', truncated: false })
     expect(view.result).toEqual(['a.ts', 'b.ts'])
   })
@@ -251,7 +251,7 @@ describe('⑦ projectNodeResult', () => {
   it('bounds a large body shape-preservingly and reports the true size', () => {
     const big = { stdout: 'y'.repeat(50_000), exitCode: 0 }
     const journal = fixture({ nodes: [worldNode({ result: big })] })
-    const view = projectNodeResult(journal.listNodes(RUN)[0]!, 1_024)
+    const view = projectNodeResult(journal.listNodes(RUN, { kinds: 'all', withResult: true })[0]!, 1_024)
     expect(view.truncated).toBe(true)
     expect(view.totalBytes).toBeGreaterThan(1_024)
     // Keys survive (a card's field access must still find them), values are cut.

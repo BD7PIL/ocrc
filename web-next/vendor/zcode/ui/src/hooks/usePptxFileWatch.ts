@@ -20,7 +20,10 @@ function normalizeFileWatchPathForCompare(path: string): string {
     : normalized;
 }
 
-function shouldReloadPptxPreviewForWatchEvent(event: FileWatchEvent, filePath: string): boolean {
+export function shouldReloadPptxPreviewForWatchEvent(
+  event: FileWatchEvent,
+  filePath: string,
+): boolean {
   if (!event.changedPath) {
     return true;
   }
@@ -91,7 +94,8 @@ export function usePptxFileWatch({
             changedPath: event.changedPath,
           });
           setSnapshot((current) =>
-            current.filePath === filePath && current.fileWatcherService === fileWatcherService
+            current.filePath === filePath &&
+            current.fileWatcherService === fileWatcherService
               ? {
                   ...current,
                   ready: true,
@@ -101,7 +105,8 @@ export function usePptxFileWatch({
           );
         });
         setSnapshot((current) =>
-          current.filePath === filePath && current.fileWatcherService === fileWatcherService
+          current.filePath === filePath &&
+          current.fileWatcherService === fileWatcherService
             ? { ...current, ready: true }
             : current,
         );
@@ -117,7 +122,8 @@ export function usePptxFileWatch({
           error: error instanceof Error ? error.message : String(error),
         });
         setSnapshot((current) =>
-          current.filePath === filePath && current.fileWatcherService === fileWatcherService
+          current.filePath === filePath &&
+          current.fileWatcherService === fileWatcherService
             ? { ...current, ready: true }
             : current,
         );
@@ -127,19 +133,22 @@ export function usePptxFileWatch({
       cancelled = true;
       subscription?.dispose();
       if (watcherId) {
-        void fileWatcherService.unwatch({ id: watcherId }).catch((error: unknown) => {
-          logger.warn("[PptxFileWatch] 停止监听 PPTX 所在目录失败", {
-            path: filePath,
-            error: error instanceof Error ? error.message : String(error),
+        void fileWatcherService
+          .unwatch({ id: watcherId })
+          .catch((error: unknown) => {
+            logger.warn("[PptxFileWatch] 停止监听 PPTX 所在目录失败", {
+              path: filePath,
+              error: error instanceof Error ? error.message : String(error),
+            });
           });
-        });
       }
     };
   }, [filePath, fileWatcherService]);
 
   // 远程重连或 Host 替换会在 source path 不变时切换 workspace service。
   // ready 必须属于当前 watcher service，不能在 effect 清理前复用旧 service 的订阅状态。
-  return snapshot.filePath === filePath && snapshot.fileWatcherService === fileWatcherService
+  return snapshot.filePath === filePath &&
+    snapshot.fileWatcherService === fileWatcherService
     ? {
         ready: snapshot.ready,
         reloadGeneration: snapshot.reloadGeneration,

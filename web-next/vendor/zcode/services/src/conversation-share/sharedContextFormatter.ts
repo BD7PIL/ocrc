@@ -5,7 +5,7 @@ import type { ConversationRow } from "@zcode/shared/zcode-protocol-v4";
 
 import { ConversationShareServiceError } from "#src/conversation-share/conversationShare.js";
 
-interface SharedContextFormatterInputV1 {
+export interface SharedContextFormatterInputV1 {
   share: { shareId: string; title: string };
   rows: ConversationRow[];
   installedArtifacts: Array<{
@@ -17,7 +17,7 @@ interface SharedContextFormatterInputV1 {
   }>;
 }
 
-interface SharedContextDocumentV1 {
+export interface SharedContextDocumentV1 {
   formatterVersion: 1;
   markdown: string;
   markdownSha256: string;

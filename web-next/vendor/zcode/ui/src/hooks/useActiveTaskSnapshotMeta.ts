@@ -4,7 +4,7 @@ import type { ZCodeTaskMeta } from "@zcode/shared";
 import { useZCodeSessionService } from "@/hooks/useZCodeSessionService.js";
 import { zcodeSessionSnapshotToTaskMeta } from "@/lib/zcodeSessionProjection.js";
 
-function resolveImmediateActiveTaskSnapshotMeta(
+export function resolveImmediateActiveTaskSnapshotMeta(
   previousSnapshotMeta: ZCodeTaskMeta | null,
   taskId: string | null,
   taskMetaFromLists?: ZCodeTaskMeta | null,
@@ -46,7 +46,11 @@ export function useActiveTaskSnapshotMeta(
     let cancelled = false;
 
     setSnapshotMeta((currentSnapshotMeta) =>
-      resolveImmediateActiveTaskSnapshotMeta(currentSnapshotMeta, taskId, taskMetaFromLists),
+      resolveImmediateActiveTaskSnapshotMeta(
+        currentSnapshotMeta,
+        taskId,
+        taskMetaFromLists,
+      ),
     );
 
     if (!taskId) {

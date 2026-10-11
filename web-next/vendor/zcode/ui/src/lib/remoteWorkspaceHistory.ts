@@ -7,6 +7,7 @@ import type {
   RemoteTargetSnapshot,
   RemoteWorkspaceSessionEntry,
 } from "@zcode/shared";
+import { buildServerRemoteWorkspaceIdentity } from "@zcode/shared";
 import type { WindowTabState } from "@/store/tabStore.js";
 import { isWorkspaceTab } from "@/store/tabStore.js";
 
@@ -35,6 +36,10 @@ function buildRemoteWorkspacePrivateKeyPassphraseCredentialKey(workspaceKey: str
   return `remote-workspace:${workspaceKey}:private-key-passphrase`;
 }
 
+function buildRemoteWorkspaceServerTokenCredentialKey(workspaceKey: string): string {
+  return `remote-workspace:${workspaceKey}:server-token`;
+}
+
 function collectRemoteWorkspaceCredentialKeys(snapshot: RemoteTargetSnapshot): string[] {
   if (snapshot.kind === "ssh") {
     return [snapshot.passwordCredentialKey, snapshot.privateKeyPassphraseCredentialKey].filter(
@@ -42,7 +47,19 @@ function collectRemoteWorkspaceCredentialKeys(snapshot: RemoteTargetSnapshot): s
     );
   }
 
+  if (snapshot.kind === "server") {
+    return [snapshot.tokenCredentialKey].filter(
+      (key): key is string => typeof key === "string" && key.length > 0,
+    );
+  }
+
   return [];
+}
+
+export function getWorkspaceDisplayLabel(workspacePath: string): string {
+  const normalized = workspacePath.replace(/\\/g, "/");
+  const segments = normalized.split("/").filter(Boolean);
+  return segments[segments.length - 1] ?? workspacePath;
 }
 
 export function hasRemoteWorkspaceIdentity(entry: {
@@ -51,6 +68,10 @@ export function hasRemoteWorkspaceIdentity(entry: {
   workspaceIdentity?: string;
 }): boolean {
   return Boolean(entry.remoteSessionId || entry.remoteTarget || entry.workspaceIdentity);
+}
+
+export function isSshRemoteWorkspaceIdentity(workspaceIdentity?: string | null): boolean {
+  return workspaceIdentity?.trim().startsWith("remote:ssh:") === true;
 }
 
 type WslRemoteTargetLike = Extract<RemoteTarget | RemoteTargetSnapshot, { kind: "wsl" }>;
@@ -68,6 +89,22 @@ function formatWslRemoteTargetAuthority(target: WslRemoteTargetLike): string {
   return user ? `wsl:default:${user}` : "wsl";
 }
 
+function getServerRemoteTargetDisplayName(
+  target: Extract<RemoteTarget | RemoteTargetSnapshot, { kind: "server" }>,
+): string {
+  return target.name?.trim() || target.serverId?.trim() || formatServerRemoteTargetHost(target);
+}
+
+function formatServerRemoteTargetHost(
+  target: Extract<RemoteTarget | RemoteTargetSnapshot, { kind: "server" }>,
+): string {
+  try {
+    return new URL(target.url.trim()).host;
+  } catch {
+    return target.url.trim();
+  }
+}
+
 export function formatRemoteWorkspaceTargetSubtitle(
   target: RemoteTarget | RemoteTargetSnapshot,
 ): string {
@@ -80,6 +117,8 @@ export function formatRemoteWorkspaceTargetSubtitle(
     }
     case "docker":
       return `Docker · ${target.container}`;
+    case "server":
+      return `Server · ${getServerRemoteTargetDisplayName(target)}`;
   }
 }
 
@@ -93,6 +132,8 @@ export function formatRemoteWorkspaceHeaderHostLabel(
       return formatWslRemoteTargetAuthority(target);
     case "docker":
       return `docker:${target.container}`;
+    case "server":
+      return formatServerRemoteTargetHost(target);
   }
 }
 
@@ -132,6 +173,13 @@ function getRemoteWorkspaceAuthorityKey(target: RemoteTarget | RemoteTargetSnaps
     }
     case "docker":
       return ["docker", target.container].join(":");
+    case "server": {
+      const identity = buildServerRemoteWorkspaceIdentity({
+        serverId: getServerRemoteTargetIdentityId(target),
+        workspacePath: "/",
+      });
+      return identity.slice("remote:".length, -":/".length);
+    }
   }
 }
 
@@ -139,9 +187,22 @@ export function buildRemoteWorkspaceIdentity(
   workspacePath: string,
   target: RemoteTarget | RemoteTargetSnapshot,
 ): string {
+  if (target.kind === "server") {
+    return buildServerRemoteWorkspaceIdentity({
+      serverId: getServerRemoteTargetIdentityId(target),
+      workspacePath,
+    });
+  }
+
   const authority = getRemoteWorkspaceAuthorityKey(target);
   const normalizedPath = normalizeWorkspacePathForIdentity(workspacePath);
   return `remote:${authority}:${normalizedPath}`;
+}
+
+function getServerRemoteTargetIdentityId(
+  target: Extract<RemoteTarget | RemoteTargetSnapshot, { kind: "server" }>,
+): string {
+  return target.serverId?.trim() || target.name?.trim() || formatServerRemoteTargetHost(target);
 }
 
 export function resolveRemoteWorkspaceSessionIdentity(
@@ -162,7 +223,7 @@ function normalizeOptionalPath(path: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-function findMatchingRemoteWorkspaceSessionEntry(
+export function findMatchingRemoteWorkspaceSessionEntry(
   sessions: RemoteWorkspaceSessionEntry[],
   workspacePath: string,
   target: RemoteTarget | RemoteTargetSnapshot,
@@ -174,7 +235,7 @@ function findMatchingRemoteWorkspaceSessionEntry(
   );
 }
 
-function createRemoteTargetSnapshot(
+export function createRemoteTargetSnapshot(
   workspaceKey: string,
   target: RemoteTarget,
   previousSnapshot?: RemoteTargetSnapshot,
@@ -215,6 +276,20 @@ function createRemoteTargetSnapshot(
         kind: "docker",
         container: target.container,
       };
+    case "server":
+      return {
+        kind: "server",
+        url: target.url,
+        ...(target.name?.trim() ? { name: target.name.trim() } : {}),
+        ...(target.workspacePath?.trim() ? { workspacePath: target.workspacePath.trim() } : {}),
+        ...(target.serverId?.trim() ? { serverId: target.serverId.trim() } : {}),
+        tokenCredentialKey:
+          target.token && target.token.length > 0
+            ? previousSnapshot?.kind === "server" && previousSnapshot.tokenCredentialKey
+              ? previousSnapshot.tokenCredentialKey
+              : buildRemoteWorkspaceServerTokenCredentialKey(workspaceKey)
+            : undefined,
+      };
   }
 }
 
@@ -223,6 +298,7 @@ export function createRemoteTargetFromSnapshot(
   credentials: {
     password: string | null;
     privateKeyPassphrase: string | null;
+    token?: string | null;
   },
 ): RemoteTarget {
   switch (snapshot.kind) {
@@ -251,10 +327,19 @@ export function createRemoteTargetFromSnapshot(
         kind: "docker",
         container: snapshot.container,
       };
+    case "server":
+      return {
+        kind: "server",
+        url: snapshot.url,
+        ...(snapshot.name ? { name: snapshot.name } : {}),
+        ...(snapshot.workspacePath ? { workspacePath: snapshot.workspacePath } : {}),
+        ...(snapshot.serverId ? { serverId: snapshot.serverId } : {}),
+        ...(credentials.token ? { token: credentials.token } : {}),
+      };
   }
 }
 
-function upsertRemoteWorkspaceSessionEntries(
+export function upsertRemoteWorkspaceSessionEntries(
   sessions: RemoteWorkspaceSessionEntry[],
   nextEntry: RemoteWorkspaceSessionEntry,
 ): RemoteWorkspaceSessionEntry[] {
@@ -390,6 +475,18 @@ export function buildRemoteWorkspaceSessionMutation(params: {
     });
   }
 
+  if (
+    params.target.kind === "server" &&
+    nextSnapshot.kind === "server" &&
+    params.target.token &&
+    nextSnapshot.tokenCredentialKey
+  ) {
+    credentialsToSave.push({
+      key: nextSnapshot.tokenCredentialKey,
+      value: params.target.token,
+    });
+  }
+
   return {
     entry: nextEntry,
     nextRemoteSessions,
@@ -425,7 +522,9 @@ export function buildPersistedWorkspaceSessionEntries(
     entries.push({
       kind: "local",
       workspacePath: tab.workspacePath,
-      ...(tab.workspacePurpose ? { workspacePurpose: tab.workspacePurpose } : {}),
+      ...(tab.workspacePurpose
+        ? { workspacePurpose: tab.workspacePurpose }
+        : {}),
     });
     return entries;
   }, []);

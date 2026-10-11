@@ -1,5 +1,5 @@
 // @ts-nocheck
-interface OfficialMcpIssuanceAudit {
+export interface OfficialMcpIssuanceAudit {
   markFirst(pluginId: string, mcpKey: string, workspaceKey: string): boolean;
 }
 

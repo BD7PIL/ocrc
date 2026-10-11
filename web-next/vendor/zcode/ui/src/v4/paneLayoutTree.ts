@@ -24,9 +24,9 @@ export const V4_PRIMARY_PANE_ID = "workspace-main";
 export const MAX_WORKBENCH_PANES = 4;
 
 /** 分割占比边界：first 子树占比最小 25% / 最大 75%（拖拽与持久化共用同一 clamp）。 */
-const SPLIT_RATIO_MIN = 0.25;
-const SPLIT_RATIO_MAX = 0.75;
-const DEFAULT_SPLIT_RATIO = 0.5;
+export const SPLIT_RATIO_MIN = 0.25;
+export const SPLIT_RATIO_MAX = 0.75;
+export const DEFAULT_SPLIT_RATIO = 0.5;
 
 export function clampSplitRatio(ratio: number): number {
   if (!Number.isFinite(ratio)) {
@@ -144,7 +144,9 @@ function leafExists(node: PaneLayoutNode, paneId: string): boolean {
 
 /** 焦点 pane 不在树中（如刚被关闭/恢复数据异常）时退化为 primary。 */
 export function effectiveFocusedPaneId(state: PaneLayoutSnapshot): string {
-  return leafExists(state.root, state.focusedPaneId) ? state.focusedPaneId : V4_PRIMARY_PANE_ID;
+  return leafExists(state.root, state.focusedPaneId)
+    ? state.focusedPaneId
+    : V4_PRIMARY_PANE_ID;
 }
 
 /** 分配新 pane id：pane-<n>，n = 树内既有序号最大值 + 1（与 workspace-main/split 保留 id 无碰撞）。 */
@@ -196,7 +198,10 @@ function replaceLeaf(
 }
 
 /** 移除叶子：父分割节点塌缩为兄弟子树；返回 null 表示整棵树被移除（仅当根就是该叶子）。 */
-function removeLeaf(node: PaneLayoutNode, paneId: string): PaneLayoutNode | null {
+function removeLeaf(
+  node: PaneLayoutNode,
+  paneId: string,
+): PaneLayoutNode | null {
   if (node.type === "leaf") {
     return node.paneId === paneId ? null : node;
   }
@@ -214,7 +219,11 @@ function removeLeaf(node: PaneLayoutNode, paneId: string): PaneLayoutNode | null
   return { ...node, first, second };
 }
 
-function replaceSplitRatio(node: PaneLayoutNode, splitId: string, ratio: number): PaneLayoutNode {
+function replaceSplitRatio(
+  node: PaneLayoutNode,
+  splitId: string,
+  ratio: number,
+): PaneLayoutNode {
   if (node.type === "leaf") {
     return node;
   }
@@ -300,7 +309,10 @@ export function splitPaneAtSide(
  * primary 不可关；pane 不在树中 → no-op。焦点在被关 pane 上时归还 primary。
  * 关 pane ≠ 停 session：只是退订视图，session 在 CLI 里照跑。
  */
-export function closePane(state: PaneLayoutSnapshot, paneId: string): PaneLayoutSnapshot {
+export function closePane(
+  state: PaneLayoutSnapshot,
+  paneId: string,
+): PaneLayoutSnapshot {
   if (paneId === V4_PRIMARY_PANE_ID || !leafExists(state.root, paneId)) {
     return state;
   }
@@ -310,7 +322,8 @@ export function closePane(state: PaneLayoutSnapshot, paneId: string): PaneLayout
   return {
     root,
     panes,
-    focusedPaneId: state.focusedPaneId === paneId ? V4_PRIMARY_PANE_ID : state.focusedPaneId,
+    focusedPaneId:
+      state.focusedPaneId === paneId ? V4_PRIMARY_PANE_ID : state.focusedPaneId,
   };
 }
 
@@ -321,7 +334,10 @@ export function bindPaneSession(
   sessionId: string,
 ): PaneLayoutSnapshot {
   const binding = state.panes[paneId];
-  if (!binding || (binding.sessionId === sessionId && !binding.restoredUnvalidated)) {
+  if (
+    !binding ||
+    (binding.sessionId === sessionId && !binding.restoredUnvalidated)
+  ) {
     return state;
   }
   // 实时绑定即权威，不需要再验证：不带 restoredUnvalidated 重建。
@@ -384,7 +400,10 @@ export function setSplitNodeRatio(
 }
 
 /** 聚焦 pane：只接受当前树里存在的叶子，其余 no-op（原引用）。 */
-export function focusPane(state: PaneLayoutSnapshot, paneId: string): PaneLayoutSnapshot {
+export function focusPane(
+  state: PaneLayoutSnapshot,
+  paneId: string,
+): PaneLayoutSnapshot {
   if (state.focusedPaneId === paneId || !leafExists(state.root, paneId)) {
     return state;
   }

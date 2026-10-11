@@ -13,9 +13,9 @@ import { cn } from "../lib/utils.js";
 import { CheckIcon, CopyIcon, Maximize2Icon, WrapTextIcon } from "lucide-react";
 import type { ComponentProps, CSSProperties, HTMLAttributes } from "react";
 import {
+  createContext,
   lazy,
   Suspense,
-  createContext,
   useCallback,
   useContext,
   useEffect,

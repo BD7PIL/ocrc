@@ -9,7 +9,7 @@ export interface CodingPlanUpgradeDialogTarget {
   funnelContext?: import("@/lib/codingPlanFunnelTelemetry.js").CodingPlanFunnelContext;
 }
 
-interface PendingCodingPlanUpgradeAfterLogin {
+export interface PendingCodingPlanUpgradeAfterLogin {
   loginAttemptId: number;
   target: CodingPlanUpgradeDialogTarget;
 }
@@ -49,7 +49,10 @@ export function resolvePendingCodingPlanUpgradeAfterLogin(params: {
   if (params.loginAttempt.id !== params.pending.loginAttemptId) {
     return { action: "discard" };
   }
-  if (params.loginAttempt.status === "requested" || params.loginAttempt.status === "waiting") {
+  if (
+    params.loginAttempt.status === "requested" ||
+    params.loginAttempt.status === "waiting"
+  ) {
     return { action: "wait" };
   }
   if (params.loginAttempt.status === "succeeded") {

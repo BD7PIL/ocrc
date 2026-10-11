@@ -1,7 +1,7 @@
 // @ts-nocheck
 import type { ModelSelectionView } from "@zcode/services";
 
-interface ProviderAvailabilityState {
+export interface ProviderAvailabilityState {
   readonly source: "registry";
   readonly hydrated: boolean;
   readonly providerCount: number;

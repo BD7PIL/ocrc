@@ -4,7 +4,7 @@ import {
   type ActivePromptInputTrigger,
 } from "@/lib/promptInputTriggers.js";
 
-interface PromptInputTextSelectionSnapshot {
+export interface PromptInputTextSelectionSnapshot {
   cursorOffset: number;
   nodeKey: string;
   text: string;
@@ -25,7 +25,7 @@ function isCaretInsideToken(
   return cursorOffset >= snapshot.tokenStart + 1 && cursorOffset <= snapshot.tokenEnd;
 }
 
-function createActivePromptInputTokenSnapshot(
+export function createActivePromptInputTokenSnapshot(
   selection: PromptInputTextSelectionSnapshot,
 ): ActivePromptInputTokenSnapshot | null {
   const activeTrigger = extractActivePromptInputTrigger(selection.textBeforeCursor);

@@ -50,7 +50,7 @@ function shouldSkipRecentStatusUnread(key: string): boolean {
   return false;
 }
 
-function shouldMarkStatusEventTaskUnread(params: {
+export function shouldMarkStatusEventTaskUnread(params: {
   activeTaskId: string | null;
   activeWorkspace: { workspacePath: string; workspaceIdentity?: string };
   event: ZCodeWorkspaceTaskListChanged;
@@ -169,4 +169,8 @@ export function syncTaskUnreadFromStatusWorkspaceEvent(params: {
         error,
       );
     });
+}
+
+export function resetTaskStatusUnreadSyncForTest(): void {
+  recentStatusUnreadAtByKey.clear();
 }

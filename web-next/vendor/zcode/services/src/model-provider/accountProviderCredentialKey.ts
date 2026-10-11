@@ -1,5 +1,5 @@
 // @ts-nocheck
-type AccountProviderCredentialScope = {
+export type AccountProviderCredentialScope = {
   readonly providerId: string;
   readonly accountIdentity: string;
 } & (

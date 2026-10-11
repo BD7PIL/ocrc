@@ -1,6 +1,9 @@
 // @ts-nocheck
 import { useCallback, useMemo, useState } from "react";
-import type { ZCodeInstalledPluginSummary, ZCodePluginInfo } from "@zcode/shared";
+import type {
+  ZCodeInstalledPluginSummary,
+  ZCodePluginInfo,
+} from "@zcode/shared";
 import type { IPluginManagementService } from "@zcode/services";
 import { usePluginManagementStore } from "@/store/pluginManagementStore.js";
 
@@ -13,7 +16,7 @@ interface UsePluginUninstallInput {
   onAfterUninstall: () => Promise<void>;
 }
 
-interface PluginUninstallController {
+export interface PluginUninstallController {
   pendingPlugin: ZCodePluginInfo | ZCodeInstalledPluginSummary | null;
   uninstalling: boolean;
   requestUninstall: (pluginId: string) => void;

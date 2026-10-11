@@ -1,6 +1,6 @@
 # PATCHES.md — vendored dwf 引擎的修改登记（re-vendor 时照单重放）
 
-> 上游：zai-org/ZCode v3.14.3（快照 = 上游 main 2026-9-23 状态）。
+> 上游：zai-org/ZCode **v3.15.1**（tag `aac4755`，2026-10-11 由 Batch 2 同步）。
 > 快照来源路径：`apps/zcode-cli/packages/{dynamic-workflow,dynamic-workflow-runtime}`。
 > 修改纪律：加法优先；确需改 vendor 文件时保持最小修改并在此登记。
 > 重放流程：更新快照（覆盖 `vendor/zcode-dwf/dynamic-workflow{,-runtime}/`）→ 逐条重放下列

@@ -33,7 +33,7 @@ export const THEME_MODES: Array<{
   { mode: "zai-light", icon: Sun },
 ];
 
-type SettingsSectionGroupId = "basics" | "agentCapabilities" | "dataAndStats";
+export type SettingsSectionGroupId = "basics" | "agentCapabilities" | "dataAndStats";
 
 interface SettingsSectionDefinition {
   id: SettingsSectionId;
@@ -118,6 +118,7 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     titleBadgeId: "settings.automations.betaBadge",
     groupId: "agentCapabilities",
   },
+  // [ocrc-vendor-patch #8] 远程主机分区（N5）：remote hosts 在 /z/ 设置页原生管理。
   {
     id: "remotes",
     icon: Globe,
@@ -172,7 +173,7 @@ export const SETTINGS_SECTIONS = BASE_SETTINGS_SECTIONS.filter(
   (section) => section.id !== "computerUse" && isSettingsSectionEnabled(section.id),
 );
 
-interface SettingsPageConfigOptions {
+export interface SettingsPageConfigOptions {
   isDesktop?: boolean;
   isMacDesktop?: boolean;
   isWindowsDesktop?: boolean;

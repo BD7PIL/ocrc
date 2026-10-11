@@ -288,8 +288,8 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
     if (!record) return undefined
     return projectRun({
       record,
-      actors: deps.journal.listActors(runId),
-      nodes: deps.journal.listNodes(runId),
+      actors: deps.journal.listActors(runId, { withPersona: true }),
+      nodes: deps.journal.listNodes(runId, { kinds: 'all', withResult: true }),
       events: deps.journal.allEvents(runId),
       artifacts: artifactFacts(runId),
       escalations: deps.escalations?.all(runId) ?? [],
@@ -462,7 +462,7 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
     get(runId) {
       const record = deps.journal.getRun(runId)
       if (!record) return undefined
-      return { record, actors: deps.journal.listActors(runId), nodes: deps.journal.listNodes(runId) }
+      return { record, actors: deps.journal.listActors(runId, { withPersona: true }), nodes: deps.journal.listNodes(runId, { kinds: 'all', withResult: true }) }
     },
 
     projectedRuns(sessionId) {
@@ -486,7 +486,7 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
 
     runForActorSession(sessionId) {
       for (const record of deps.journal.listRuns()) {
-        if (deps.journal.listActors(record.runId).some((a) => a.sessionId === sessionId)) return record.runId
+        if (deps.journal.listActors(record.runId, { withPersona: false }).some((a) => a.sessionId === sessionId)) return record.runId
       }
       return undefined
     },
@@ -501,8 +501,8 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
       return {
         record,
         events: deps.journal.allEvents(runId),
-        nodes: deps.journal.listNodes(runId),
-        actors: deps.journal.listActors(runId),
+        nodes: deps.journal.listNodes(runId, { kinds: 'all', withResult: true }),
+        actors: deps.journal.listActors(runId, { withPersona: true }),
         createdAt: journalCreatedAt(runId),
       }
     },
@@ -533,7 +533,8 @@ export function createWorkflowManager(deps: WorkflowManagerDeps): WorkflowManage
     },
 
     events(runId, opts) {
-      return deps.journal.listEvents(runId, opts)
+      // v3.15.1 读面：types/reportItems 必填（存储层过滤）。宿主面保持旧语义 = 全量不过滤。
+      return deps.journal.listEvents(runId, { types: 'all', reportItems: 'all', ...(opts ?? {}) })
     },
 
     cancel(runId, reason = 'user') {

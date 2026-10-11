@@ -43,12 +43,12 @@ describe('workflow journal', () => {
     j.putNode(nodeRecord('dwfrun-1', 'site-b', 1, 'failed'))
 
     expect(j.getNode('dwfrun-1', 'site-a', 1)?.status).toBe('completed')
-    expect(j.listNodes('dwfrun-1')).toHaveLength(2)
+    expect(j.listNodes('dwfrun-1', { kinds: 'all', withResult: true })).toHaveLength(2)
 
     j.putActor({ runId: 'dwfrun-1', siteId: 'site-a', ordinal: 1, name: 'reviewer', sessionId: 'ses_1' })
     j.putActor({ runId: 'dwfrun-1', siteId: 'site-a', ordinal: 1, name: 'reviewer', sessionId: 'ses_1', resolvedModel: 'stub/model' })
     expect(j.getActor('dwfrun-1', 'site-a', 1)?.resolvedModel).toBe('stub/model')
-    expect(j.listActors('dwfrun-1')).toHaveLength(1)
+    expect(j.listActors('dwfrun-1', { withPersona: true })).toHaveLength(1)
   })
 
   it('assigns a monotonic event sequence and stamps each event with a time', () => {
@@ -65,12 +65,12 @@ describe('workflow journal', () => {
     j.createRun(runRecord())
     for (let i = 0; i < 5; i++) j.appendEvent('dwfrun-1', { type: 'phase-entered', phaseName: `p${i}` } as never)
 
-    expect(j.listEvents('dwfrun-1')).toHaveLength(5)
-    expect(j.listEvents('dwfrun-1', { afterSequence: 3 }).map((e) => e.sequence)).toEqual([4, 5])
-    expect(j.listEvents('dwfrun-1', { afterSequence: 0, limit: 2 }).map((e) => e.sequence)).toEqual([1, 2])
+    expect(j.listEvents('dwfrun-1', { types: 'all', reportItems: 'all' })).toHaveLength(5)
+    expect(j.listEvents('dwfrun-1', { types: 'all', reportItems: 'all', afterSequence: 3 }).map((e) => e.sequence)).toEqual([4, 5])
+    expect(j.listEvents('dwfrun-1', { types: 'all', reportItems: 'all', afterSequence: 0, limit: 2 }).map((e) => e.sequence)).toEqual([1, 2])
     // Unknown run / out-of-range cursor are empty, never an error.
-    expect(j.listEvents('nope')).toEqual([])
-    expect(j.listEvents('dwfrun-1', { afterSequence: 99 })).toEqual([])
+    expect(j.listEvents('nope', { types: 'all', reportItems: 'all' })).toEqual([])
+    expect(j.listEvents('dwfrun-1', { types: 'all', reportItems: 'all', afterSequence: 99 })).toEqual([])
   })
 
   it('rebuilds identical state from the file alone (cold read)', () => {
@@ -86,7 +86,7 @@ describe('workflow journal', () => {
     expect(cold.getRun('dwfrun-1')).toMatchObject({ status: 'stopped', stopReason: 'interrupted', spentTokens: 1234 })
     expect(cold.getNode('dwfrun-1', 'site-a', 1)?.status).toBe('completed')
     expect(cold.getActor('dwfrun-1', 'site-a', 1)?.sessionId).toBe('ses_1')
-    expect(cold.listEvents('dwfrun-1')).toHaveLength(1)
+    expect(cold.listEvents('dwfrun-1', { types: 'all', reportItems: 'all' })).toHaveLength(1)
   })
 
   it('persists ask boundaries per instance, and the last write wins', () => {
@@ -113,7 +113,7 @@ describe('workflow journal', () => {
 
     const cold = createWorkflowJournal({ dir })
     expect(cold.getRun('dwfrun-1')?.runId).toBe('dwfrun-1')
-    expect(cold.listEvents('dwfrun-1')).toHaveLength(1)
+    expect(cold.listEvents('dwfrun-1', { types: 'all', reportItems: 'all' })).toHaveLength(1)
   })
 
   it('lists runs newest-first and can drop one', () => {

@@ -338,7 +338,7 @@ export {
   resolveTrajectoryTimelineItems,
 } from "@/ModelTrajectoryTimeline.js";
 
-function getModelTrajectorySourceDirectory(
+export function getModelTrajectorySourceDirectory(
   sourceFiles: readonly string[] | undefined,
 ): string | null {
   const sourceFile = sourceFiles?.find((path) => path.trim().length > 0);

@@ -65,8 +65,8 @@ function fixture(opts: {
 function project(journal: ReturnType<typeof createWorkflowJournal>, runId: string, over: Record<string, unknown> = {}) {
   return projectRun({
     record: journal.getRun(runId)!,
-    actors: journal.listActors(runId),
-    nodes: journal.listNodes(runId),
+    actors: journal.listActors(runId, { withPersona: true }),
+    nodes: journal.listNodes(runId, { kinds: 'all', withResult: true }),
     events: journal.allEvents(runId),
     ceiling: 8,
     ...over,

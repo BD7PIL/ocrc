@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs.js";
 
-interface SettingsSegmentedTabItem<TValue extends string> {
+export interface SettingsSegmentedTabItem<TValue extends string> {
   label: string;
   value: TValue;
 }

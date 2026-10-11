@@ -1,5 +1,7 @@
 // @ts-nocheck
-import { BUILTIN_MODEL_PROVIDER_IDS } from "@zcode/shared";
+import {
+  BUILTIN_MODEL_PROVIDER_IDS,
+} from "@zcode/shared";
 import { logger } from "@/logger.js";
 
 export type SidebarUsageCodingPlanProviderId =
@@ -7,9 +9,12 @@ export type SidebarUsageCodingPlanProviderId =
   | typeof BUILTIN_MODEL_PROVIDER_IDS.zaiTeamCodingPlan
   | typeof BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan
   | typeof BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan;
-export type SidebarUsageCodingPlanSourceId = SidebarUsageCodingPlanProviderId | `team:${string}`;
+export type SidebarUsageCodingPlanSourceId =
+  | SidebarUsageCodingPlanProviderId
+  | `team:${string}`;
 
-const SIDEBAR_USAGE_CODING_PLAN_PROVIDER_STORAGE_KEY = "zcode:sidebar-usage-coding-plan-provider";
+const SIDEBAR_USAGE_CODING_PLAN_PROVIDER_STORAGE_KEY =
+  "zcode:sidebar-usage-coding-plan-provider";
 
 const SIDEBAR_USAGE_CODING_PLAN_PROVIDER_IDS: SidebarUsageCodingPlanProviderId[] = [
   BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
@@ -29,7 +34,10 @@ function isSidebarUsageCodingPlanProviderId(
 function isSidebarUsageCodingPlanSourceId(
   sourceId: string | null | undefined,
 ): sourceId is SidebarUsageCodingPlanSourceId {
-  return isSidebarUsageCodingPlanProviderId(sourceId) || sourceId?.startsWith("team:") === true;
+  return (
+    isSidebarUsageCodingPlanProviderId(sourceId) ||
+    sourceId?.startsWith("team:") === true
+  );
 }
 
 function getLocalStorage(): Storage | null {
@@ -48,6 +56,13 @@ function getLocalStorage(): Storage | null {
   }
 }
 
+export function readSidebarUsageCodingPlanProviderPreference():
+  | SidebarUsageCodingPlanProviderId
+  | undefined {
+  const value = readSidebarUsageCodingPlanSourcePreference();
+  return isSidebarUsageCodingPlanProviderId(value) ? value : undefined;
+}
+
 export function readSidebarUsageCodingPlanSourcePreference():
   | SidebarUsageCodingPlanSourceId
   | undefined {
@@ -56,7 +71,9 @@ export function readSidebarUsageCodingPlanSourcePreference():
     return undefined;
   }
   try {
-    const value = storage.getItem(SIDEBAR_USAGE_CODING_PLAN_PROVIDER_STORAGE_KEY);
+    const value = storage.getItem(
+      SIDEBAR_USAGE_CODING_PLAN_PROVIDER_STORAGE_KEY,
+    );
     return isSidebarUsageCodingPlanSourceId(value) ? value : undefined;
   } catch (error) {
     logger.warn("[sidebarUsageCodingPlanProviderPreference] 读取偏好失败", {

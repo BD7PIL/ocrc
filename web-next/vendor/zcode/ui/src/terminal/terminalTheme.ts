@@ -78,7 +78,9 @@ function getTerminalTheme() {
   ) as ITheme;
 }
 
-function restrictInheritedTerminalTheme(profileTheme: ITheme | undefined): ITheme | undefined {
+export function restrictInheritedTerminalTheme(
+  profileTheme: ITheme | undefined,
+): ITheme | undefined {
   if (!profileTheme) {
     return undefined;
   }

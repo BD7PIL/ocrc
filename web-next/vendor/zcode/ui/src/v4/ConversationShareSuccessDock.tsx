@@ -9,7 +9,7 @@ import {
   resolveConversationShareWarningMessageId,
 } from "@/lib/conversationShareError.js";
 
-interface ConversationShareSuccessDockProps {
+export interface ConversationShareSuccessDockProps {
   title: string;
   warnings?: ConversationShareDisplayWarnings | null;
   onOpen: () => void;

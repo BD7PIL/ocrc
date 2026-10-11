@@ -33,7 +33,7 @@ export interface TrajectoryExpansionOverride {
   commandVersion: number;
 }
 
-interface TrajectoryExpansionRegistry {
+export interface TrajectoryExpansionRegistry {
   overrides: ReadonlyMap<string, TrajectoryExpansionOverride>;
   setOverride: (key: string, override: TrajectoryExpansionOverride) => void;
 }

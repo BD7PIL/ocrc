@@ -1,8 +1,9 @@
 # PATCHES.md — vendor 修改登记（re-vendor 时照单重放）
 
-> 上游：zai-org/ZCode v3.14.3（快照 = 上游 main 2026-9-23 状态）。
+> 上游：zai-org/ZCode **v3.15.1**（tag `aac4755`，2026-10-11 由 Batch 2 再基底；前一基线 v3.14.3）。
 > 修改纪律：加法优先（新组件/包装层放 vendor 之外）；确需改 vendor 文件时保持最小修改并在此登记。
-> 重放流程：更新快照（git pull zai-org/ZCode → 覆盖 vendor/zcode/）→ 逐条重放下列修改 → 跑 `npm run build` 验证。
+> 重放流程：更新快照（覆盖 vendor/zcode/，装订约定见 [VENDOR_BASELINE.md](VENDOR_BASELINE.md)）→
+> 跑 `node scripts/vendor-ts-nocheck.mjs` → 逐条重放下列修改 → `npm run build` 验证。
 
 ## 1. 全量 @ts-nocheck 横幅
 - **文件**：所有 vendored `*.ts` / `*.tsx`（首行插入 `// @ts-nocheck`）
@@ -10,7 +11,7 @@
 - **重放脚本要点**：遍历 vendor 树，未以横幅开头的文件插入一行。**已脚本化**：`node scripts/vendor-ts-nocheck.mjs`（幂等；`--check` 只报告；自动排除 `cua/**/*.d.ts`），见 [VENDOR_BASELINE.md](VENDOR_BASELINE.md) 升级操作序。
 
 ## 2. Root.tsx 摘除 OnboardingDialog 挂载
-- **文件**：`vendor/zcode/ui/src/Root.tsx`（约 L1076–1090）
+- **文件**：`vendor/zcode/ui/src/Root.tsx`（v3.15.1 约在 L1320 附近的 OccupationOnboarding 收尾处）
 - **修改**：`<ScopedErrorBoundary scope="onboarding-dialog">…<OnboardingDialog …/></ScopedErrorBoundary>` 整块包在 `{false && ( … )}` 中（不卸载 import）。
 - **原因**：ocrc 用 accessor 的 `onboardingRecordService`（shouldOnboard=false）标记引导完成；且该弹层关闭/卸载转换在 prod 触发 hook 顺序崩溃（areHookInputsEqual undefined deps，栈落在 useSettingsSync → useZCodeSessionService → useTabStore 链）。
 

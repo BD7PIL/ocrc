@@ -42,7 +42,7 @@ class LayoutBranch {
   }
 }
 
-class LayoutVertex {
+export class LayoutVertex {
   readonly id: number;
   readonly hash: string;
   private readonly parents: LayoutVertex[] = [];
@@ -62,7 +62,9 @@ class LayoutVertex {
   }
 
   getNextParent() {
-    return this.nextParentIndex < this.parents.length ? this.parents[this.nextParentIndex]! : null;
+    return this.nextParentIndex < this.parents.length
+      ? this.parents[this.nextParentIndex]!
+      : null;
   }
 
   registerParentProcessed() {
@@ -105,7 +107,9 @@ class LayoutVertex {
       (connection) => connection?.target === target && connection.branch === branch,
     );
 
-    return connectionIndex >= 0 ? { laneIndex: connectionIndex, rowIndex: this.id } : null;
+    return connectionIndex >= 0
+      ? { laneIndex: connectionIndex, rowIndex: this.id }
+      : null;
   }
 
   reservePoint(laneIndex: number, target: LayoutVertex, branch: LayoutBranch) {

@@ -19,7 +19,7 @@ function remoteWorkspaceKey(tab: WorkspaceTabState): string | null {
   return tab.workspaceIdentity?.trim() || tab.workspacePath;
 }
 
-function collectClosedRemoteWorkspaceKeys(
+export function collectClosedRemoteWorkspaceKeys(
   previousWorkspaceTabs: WorkspaceTabState[],
   nextWorkspaceTabs: WorkspaceTabState[],
 ): string[] {
@@ -42,7 +42,7 @@ function collectClosedRemoteWorkspaceKeys(
   return [...closedRemoteWorkspaceKeys];
 }
 
-function collectClosedRemoteWorkspaceSessionIds(
+export function collectClosedRemoteWorkspaceSessionIds(
   previousWorkspaceTabs: WorkspaceTabState[],
   nextWorkspaceTabs: WorkspaceTabState[],
   rememberedSessionIdsByWorkspaceKey: ReadonlyMap<string, string>,
@@ -78,7 +78,9 @@ export function useRemoteWorkspaceTabLifecycle({
   const rememberedSessionIdsByWorkspaceKeyRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
-    const previousWorkspaceTabs = previousWorkspaceTabsRef.current.filter(isWorkspaceTab);
+    const previousWorkspaceTabs = previousWorkspaceTabsRef.current.filter(
+      isWorkspaceTab,
+    );
     const nextWorkspaceTabs = tabs.filter(isWorkspaceTab);
     const closedRemoteWorkspaceKeys = collectClosedRemoteWorkspaceKeys(
       previousWorkspaceTabs,
@@ -168,7 +170,11 @@ export function useRemoteWorkspaceTabLifecycle({
     const disposedSessionIds = new Set<string>();
     for (const previousTab of previousWorkspaceTabs) {
       const sessionId = previousTab.remoteSessionId;
-      if (!sessionId || nextRemoteSessionIds.has(sessionId) || disposedSessionIds.has(sessionId)) {
+      if (
+        !sessionId ||
+        nextRemoteSessionIds.has(sessionId) ||
+        disposedSessionIds.has(sessionId)
+      ) {
         continue;
       }
 
@@ -204,7 +210,10 @@ export function useRemoteWorkspaceTabLifecycle({
     // 同一路径的多个 remote tab 之间切换时，不能只在建连时绑定一次路径映射，
     // 否则切换后映射仍停留在旧 tab，按 workspacePath 解析服务的 hook 仍可能命中旧 session。
     // 这里在 active tab 切换后把路径与 workspaceIdentity 映射刷新到当前 tab，保证 workspace 级 RPC 跟着当前 tab 走。
-    bindRemoteWorkspacePath(activeWorkspaceTab.workspacePath, activeWorkspaceTab.remoteSessionId);
+    bindRemoteWorkspacePath(
+      activeWorkspaceTab.workspacePath,
+      activeWorkspaceTab.remoteSessionId,
+    );
     if (activeWorkspaceTab.workspaceIdentity) {
       bindRemoteWorkspaceIdentity(
         activeWorkspaceTab.workspaceIdentity,

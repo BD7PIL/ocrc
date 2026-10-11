@@ -79,7 +79,11 @@ const getResolvedCodeTheme = (theme?: BundledTheme): BundledTheme => {
   return "github-light";
 };
 
-const getCodeTokensCacheKey = (code: string, language: BundledLanguage, theme: BundledTheme) => {
+const getCodeTokensCacheKey = (
+  code: string,
+  language: BundledLanguage,
+  theme: BundledTheme,
+) => {
   const start = code.slice(0, 100);
   const end = code.length > 100 ? code.slice(-100) : "";
   return `${theme}:${language}:${code.length}:${start}:${end}`;
@@ -103,7 +107,7 @@ const getHighlighter = (
   return highlighterPromise;
 };
 
-const createRawCodeTokens = (code: string): TokenizedCode => ({
+export const createRawCodeTokens = (code: string): TokenizedCode => ({
   bg: "transparent",
   fg: "inherit",
   tokens: code.split("\n").map((line) =>

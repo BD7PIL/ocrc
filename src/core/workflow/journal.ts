@@ -4,7 +4,10 @@ import type {
   ActorRecord,
   Caps,
   JournalStorePort,
+  ListActorsOptions,
   ListEventsOptions,
+  ListNodesOptions,
+  NodeKind,
   NodeRecord,
   RunEvent,
   RunRecord,
@@ -31,6 +34,7 @@ import type {
  *   run-status  {status, settlement?} — the terminal/again status transition
  *   run-usage   {spentTokens}
  *   run-caps    {caps}
+ *   run-script  {scriptText, scriptHash} — engine writes back the effective script (v3.15.1)
  *   run-join    {join} — host-only metadata: which tool call started this run
  *   ask-boundary {boundary} — host-only metadata: where an ask ended in its actor's
  *                 transcript (the count plus the id a fork can stop at)
@@ -95,6 +99,7 @@ type Line =
   | { k: 'run-status'; status: RunStatus; settlement?: RunSettlementRecord }
   | { k: 'run-usage'; spentTokens: number }
   | { k: 'run-caps'; caps: Caps }
+  | { k: 'run-script'; scriptText: string; scriptHash: string }
   | { k: 'run-join'; join: RunToolJoin }
   | { k: 'ask-boundary'; boundary: AskBoundary }
   | { k: 'actor'; rec: ActorRecord }
@@ -113,6 +118,12 @@ interface RunState {
 }
 
 const actorKey = (siteId: string, ordinal: number) => `${siteId}#${ordinal}`
+
+/** v3.15.1 读面：`withResult=false` 的行上 `result` 缺席（内存实现以剥字段等价）。 */
+function stripNodeResult(node: NodeRecord): NodeRecord {
+  const { result: _result, ...rest } = node
+  return rest as NodeRecord
+}
 
 export interface WorkflowJournal extends JournalStorePort {
   /** Runs known to the store, newest first (the manager's list face). */
@@ -176,6 +187,7 @@ export function createWorkflowJournal(opts: WorkflowJournalOptions): WorkflowJou
       }
       case 'run-usage': if (state.record) state.record = { ...state.record, spentTokens: line.spentTokens }; break
       case 'run-caps': if (state.record) state.record = { ...state.record, caps: line.caps }; break
+      case 'run-script': if (state.record) state.record = { ...state.record, scriptText: line.scriptText, scriptHash: line.scriptHash }; break
       case 'run-join': state.join = line.join; break
       case 'ask-boundary': state.boundaries.set(actorKey(line.boundary.siteId, line.boundary.ordinal), line.boundary); break
       case 'actor': state.actors.set(actorKey(line.rec.siteId, line.rec.ordinal), line.rec); break
@@ -233,6 +245,11 @@ export function createWorkflowJournal(opts: WorkflowJournalOptions): WorkflowJou
       if (!state.record) throw new Error(`workflow journal: unknown run ${runId}`)
       append(runId, { k: 'run-caps', caps })
     },
+    updateRunScript(runId, scriptText, scriptHash) {
+      const state = load(runId)
+      if (!state.record) throw new Error(`workflow journal: unknown run ${runId}`)
+      append(runId, { k: 'run-script', scriptText, scriptHash })
+    },
     updateRunJoin(runId, join) {
       const state = load(runId)
       if (!state.record) throw new Error(`workflow journal: unknown run ${runId}`)
@@ -256,17 +273,53 @@ export function createWorkflowJournal(opts: WorkflowJournalOptions): WorkflowJou
     getActor(runId, siteId, ordinal) {
       return load(runId).actors.get(actorKey(siteId, ordinal))
     },
-    listActors(runId) {
-      return [...load(runId).actors.values()]
+    listActors(runId, opts) {
+      const actors = [...load(runId).actors.values()]
+      // v3.15.1 读面契约：withPersona=false 时行上 persona 缺席（存储层就不给）。
+      return opts.withPersona ? actors : actors.map(({ persona: _p, ...rest }) => rest as ActorRecord)
     },
     putNode(record) {
       append(record.runId, { k: 'node', rec: record })
     },
-    getNode(runId, siteId, ordinal) {
-      return load(runId).nodes.get(actorKey(siteId, ordinal))
+    getNode(runId, siteId, ordinal, opts) {
+      const node = load(runId).nodes.get(actorKey(siteId, ordinal))
+      if (node && opts?.withResult === false) return stripNodeResult(node)
+      return node
     },
-    listNodes(runId) {
-      return [...load(runId).nodes.values()]
+    listNodes(runId, opts) {
+      // v3.15.1 读面契约：过滤/计数都在存储层做，读者必须说清要什么（"all" 也要写出来）。
+      let nodes = [...load(runId).nodes.values()]
+      if (opts.kinds !== 'all') {
+        const kinds = new Set<string>(opts.kinds)
+        nodes = nodes.filter((n) => kinds.has(n.kind))
+      }
+      if (!opts.withResult) nodes = nodes.map(stripNodeResult)
+      if (opts.maxResultBytes !== undefined) {
+        const capped: NodeRecord[] = []
+        let bytes = 0
+        for (const n of nodes) {
+          const size = n.result === undefined ? 0 : Buffer.byteLength(JSON.stringify(n.result), 'utf8')
+          if (capped.length > 0 && bytes + size > opts.maxResultBytes) break
+          capped.push(n)
+          bytes += size
+        }
+        nodes = capped
+      }
+      if (opts.limit !== undefined) nodes = nodes.slice(0, opts.limit)
+      return nodes
+    },
+    countNodes(runId, kind) {
+      let count = 0
+      for (const n of load(runId).nodes.values()) if (n.kind === kind) count += 1
+      return count
+    },
+    sumResultBytes(runId, kind) {
+      let total = 0
+      for (const n of load(runId).nodes.values()) {
+        if (n.kind !== kind || n.result === undefined) continue
+        total += Buffer.byteLength(JSON.stringify(n.result), 'utf8')
+      }
+      return total
     },
     appendEvent(runId, event) {
       const state = load(runId)
@@ -275,11 +328,34 @@ export function createWorkflowJournal(opts: WorkflowJournalOptions): WorkflowJou
       append(runId, { k: 'event', seq, at, ev: event })
       return { sequence: seq, event, timeCreated: at }
     },
-    listEvents(runId, options?: ListEventsOptions) {
+    listEvents(runId, options) {
       const { events } = load(runId)
-      const after = options?.afterSequence
-      let out = after === undefined ? events : events.filter((e) => e.sequence > after)
-      if (options?.limit !== undefined) out = out.slice(0, options.limit)
+      // report 的「第几条」按本 run 全部 report 事件计（run 的事实，与 types/cursor 无关），
+      // 所以先在未过滤序列上编号，再按选项过滤/剥离/分页。
+      let reportSeq = 0
+      const reportOrdinal = new Map<number, number>()
+      for (const e of events) {
+        if (e.event.type !== 'report') continue
+        reportSeq += 1
+        reportOrdinal.set(e.sequence, reportSeq)
+      }
+      let out = events
+      if (options.types !== 'all') {
+        const types = new Set<string>(options.types)
+        out = out.filter((e) => types.has(e.event.type))
+      }
+      if (options.reportItems !== 'all') {
+        const keep = options.reportItems.limit
+        out = out.map((e) => {
+          if (e.event.type !== 'report') return e
+          const ordinal = reportOrdinal.get(e.sequence) ?? 0
+          if (ordinal <= keep) return e
+          const { item: _item, ...rest } = e.event as Record<string, unknown> & { item?: unknown }
+          return { ...e, event: rest as RunEvent }
+        })
+      }
+      if (options.afterSequence !== undefined) out = out.filter((e) => e.sequence > options.afterSequence!)
+      if (options.limit !== undefined) out = out.slice(0, options.limit)
       return out
     },
     allEvents(runId) {

@@ -1,9 +1,9 @@
 // @ts-nocheck
 import type { ZCodeTaskMeta } from "@zcode/shared";
 
-type WorkspaceTaskListVersionEntry = readonly [workspaceKey: string, version: number];
+export type WorkspaceTaskListVersionEntry = readonly [workspaceKey: string, version: number];
 
-interface WorkspaceRemoteSessionSignatureEntry {
+export interface WorkspaceRemoteSessionSignatureEntry {
   workspaceKey: string;
   remoteSessionId?: string;
   ready: boolean;

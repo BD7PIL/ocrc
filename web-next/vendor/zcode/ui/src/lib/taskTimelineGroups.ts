@@ -43,7 +43,7 @@ function startOfWeek(timestamp: number, locale: Locale): number {
   return date.getTime();
 }
 
-function resolveTaskTimelineGroupKey(
+export function resolveTaskTimelineGroupKey(
   timestamp: number,
   now: number,
   locale: Locale,
@@ -103,9 +103,7 @@ function serializeTaskTimelineGroupKey(groupKey: TaskTimelineGroupKey): string {
   return groupKey.kind === "daysAgo" ? `${groupKey.kind}:${groupKey.daysAgo ?? 0}` : groupKey.kind;
 }
 
-export function groupTaskTimelineItems<
-  TTask extends Pick<ZCodeTaskMeta, "createdAt" | "updatedAt">,
->(
+export function groupTaskTimelineItems<TTask extends Pick<ZCodeTaskMeta, "createdAt" | "updatedAt">>(
   items: TTask[],
   options: {
     sortBy: "created" | "updated";

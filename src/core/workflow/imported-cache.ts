@@ -4,6 +4,8 @@ import type {
   ImportedAskEntry,
   ImportedRunCache,
   ImportedWorldEntry,
+  ListActorsOptions,
+  ListNodesOptions,
   NodeRecord,
   RunRecord,
 } from '../../../vendor/zcode-dwf/dist/dynamic-workflow/src/index.js'
@@ -48,8 +50,8 @@ export type ImportedCacheBuild =
 /** The read face the builder needs — `WorkflowJournal` satisfies it. */
 export interface ImportedCacheSource {
   getRun(runId: string): RunRecord | undefined
-  listActors(runId: string): ActorRecord[]
-  listNodes(runId: string): NodeRecord[]
+  listActors(runId: string, opts: ListActorsOptions): ActorRecord[]
+  listNodes(runId: string, opts: ListNodesOptions): NodeRecord[]
   /**
    * The host's own boundary lines (journal.ts `AskBoundary`). Optional so a source that
    * only has the engine rows still works: the count then comes off the node, which is the
@@ -77,8 +79,8 @@ export function buildImportedCache(source: ImportedCacheSource, runId: string): 
   const record = source.getRun(runId)
   if (!record) return { ok: false, reason: 'no_entries', stats }
 
-  const nodes = source.listNodes(runId)
-  const actors = namedActors(source.listActors(runId))
+  const nodes = source.listNodes(runId, { kinds: 'all', withResult: true })
+  const actors = namedActors(source.listActors(runId, { withPersona: true }))
   // The host's own boundary lines, keyed the way the driver writes them. The count on the
   // line and the count on the node are the same measurement; the line is authoritative
   // when both exist (it is the one the seeding path reads, so the two cannot drift apart

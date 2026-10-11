@@ -1,7 +1,7 @@
 // @ts-nocheck
 import type { ToolCallBlockRenderContext } from "@/ToolCallBlocks/shared.js";
 
-interface CuaErrorDetails {
+export interface CuaErrorDetails {
   code: string;
   stateId: string | null;
   elementIndex: number | null;

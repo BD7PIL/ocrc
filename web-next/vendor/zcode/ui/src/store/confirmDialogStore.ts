@@ -17,7 +17,7 @@ export interface ConfirmDialogRequest {
   checkbox?: { label: string; onCheckedChange: (checked: boolean) => void };
 }
 
-type ConfirmDialogChoice = "confirm" | "cancel" | "dismiss";
+export type ConfirmDialogChoice = "confirm" | "cancel" | "dismiss";
 
 interface PendingConfirmDialogRequest extends ConfirmDialogRequest {
   resolve: (choice: ConfirmDialogChoice) => void;

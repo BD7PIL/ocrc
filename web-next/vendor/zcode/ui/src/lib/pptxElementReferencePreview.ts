@@ -1,12 +1,15 @@
 // @ts-nocheck
-import type { PptxCodeViewerSource, PptxReferencePreviewNavigation } from "@/lib/codeViewer.js";
+import type {
+  PptxCodeViewerSource,
+  PptxReferencePreviewNavigation,
+} from "@/lib/codeViewer.js";
 import {
   isPptxElementReferenceInWorkspaceScope,
   type PptxElementReference,
 } from "@/lib/pptxElementReference.js";
 import { isWorkspaceFilePathInside } from "@/workspace-file-tree/model.js";
 
-interface PptxElementReferencePreviewScope {
+export interface PptxElementReferencePreviewScope {
   workspacePath: string;
   workspaceIdentity?: string;
   remoteSessionId?: string;
@@ -42,8 +45,12 @@ export function createPptxElementReferencePreviewSource(
     title: reference.sourceTitle,
     path: reference.sourcePath,
     workspacePath: reference.workspacePath,
-    ...(reference.workspaceIdentity ? { workspaceIdentity: reference.workspaceIdentity } : {}),
-    ...(reference.remoteSessionId ? { workspaceRemoteSessionId: reference.remoteSessionId } : {}),
+    ...(reference.workspaceIdentity
+      ? { workspaceIdentity: reference.workspaceIdentity }
+      : {}),
+    ...(reference.remoteSessionId
+      ? { workspaceRemoteSessionId: reference.remoteSessionId }
+      : {}),
     referenceNavigation: createPptxReferencePreviewNavigation(reference),
   };
 }

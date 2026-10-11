@@ -48,7 +48,7 @@ function isImeEvent(event: ShortcutBindingEvent): boolean {
 }
 
 /** 判断事件是否为不应触发快捷键的噪声：长按 repeat、IME 组合中、死键。 */
-function isShortcutEventNoise(event: ShortcutBindingEvent): boolean {
+export function isShortcutEventNoise(event: ShortcutBindingEvent): boolean {
   return event.repeat === true || isImeEvent(event);
 }
 
@@ -221,7 +221,7 @@ function eventMatchesKey(event: Pick<ShortcutBindingEvent, "key" | "code">, key:
 // 录制器
 // ============================================================================
 
-type ShortcutRecordResult =
+export type ShortcutRecordResult =
   | { kind: "pending" }
   | { kind: "binding"; binding: string }
   | { kind: "invalid"; reason: "no-modifier" | "unsupported-key" };

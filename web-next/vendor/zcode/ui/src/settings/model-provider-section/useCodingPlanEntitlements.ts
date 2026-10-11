@@ -18,7 +18,7 @@ import type { CodingPlanEntitlementState } from "@/settings/model-provider-secti
 import { buildUsageEntitlementCacheKey } from "@/lib/usageEntitlementCache.js";
 import { resolveAccountProviderInspectionAccess } from "@/lib/accountProviderAccess.js";
 
-function resolveCodingPlanProviderFingerprintAutoRefresh({
+export function resolveCodingPlanProviderFingerprintAutoRefresh({
   loading,
   providerFingerprint,
   skippedProviderFingerprint,

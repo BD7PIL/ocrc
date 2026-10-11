@@ -1,14 +1,27 @@
 // @ts-nocheck
 import { GitGraph, GitMergeIcon, RefreshCwIcon } from "lucide-react";
-import { useCallback, useMemo, useState, type UIEvent } from "react";
+import {
+  useCallback,
+  useMemo,
+  useState,
+  type UIEvent,
+} from "react";
 import { cn } from "@/components/lib/utils.js";
 import { Button } from "@/components/ui/button.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { GitGraphCommitDetail } from "./GitGraphCommitDetail.js";
-import { formatCommitTime, getRefIcon, getShortHash } from "./GitGraphDisplay.js";
-import { type GitGraphCommit, type GitGraphLayoutPath, layoutGitGraph } from "./layout.js";
+import {
+  formatCommitTime,
+  getRefIcon,
+  getShortHash,
+} from "./GitGraphDisplay.js";
+import {
+  type GitGraphCommit,
+  type GitGraphLayoutPath,
+  layoutGitGraph,
+} from "./layout.js";
 
-interface GitGraphPaneProps {
+export interface GitGraphPaneProps {
   commits: readonly GitGraphCommit[];
   hasMore?: boolean;
   loadingMore?: boolean;
@@ -75,7 +88,8 @@ export function GitGraphPane({
   const highlightedHash = hoveredCommitHash;
   const tableColumnStyle = getTableColumnStyle();
   const graphColumnWidth = Math.max(layout.width + 12, GRAPH_COLUMN_MIN_WIDTH_PX);
-  const expandedCommit = commits.find((commit) => commit.hash === expandedCommitHash) ?? null;
+  const expandedCommit =
+    commits.find((commit) => commit.hash === expandedCommitHash) ?? null;
   const handleGraphScroll = useCallback(
     (event: UIEvent<HTMLDivElement>) => {
       if (!hasMore || loadingMore || !onLoadMore) {
@@ -83,7 +97,8 @@ export function GitGraphPane({
       }
 
       const target = event.currentTarget;
-      const distanceToBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+      const distanceToBottom =
+        target.scrollHeight - target.scrollTop - target.clientHeight;
       if (distanceToBottom <= LOAD_MORE_SCROLL_THRESHOLD_PX) {
         onLoadMore();
       }
@@ -114,7 +129,9 @@ export function GitGraphPane({
               className="mr-8 text-foreground-subtle hover:text-foreground"
               onClick={onRefresh}
             >
-              <RefreshCwIcon className={cn("size-3.5", refreshing && "animate-spin")} />
+              <RefreshCwIcon
+                className={cn("size-3.5", refreshing && "animate-spin")}
+              />
             </Button>
           ) : null}
         </div>
@@ -141,7 +158,9 @@ export function GitGraphPane({
                 gridTemplateColumns: `minmax(${GRAPH_COLUMN_MIN_WIDTH_PX}px, ${layout.width + 12}px) minmax(0, 1fr)`,
               }}
             >
-              <div className="border-b border-r border-border bg-surface/60 px-3 py-2 text-ui-base font-medium text-foreground-subtle">
+              <div
+                className="border-b border-r border-border bg-surface/60 px-3 py-2 text-ui-base font-medium text-foreground-subtle"
+              >
                 {intl.formatMessage({ id: "gitGraph.column.graph" })}
               </div>
               <div
@@ -181,7 +200,9 @@ export function GitGraphPane({
                       className={cn(
                         "fill-none stroke-[2] opacity-55 transition-opacity",
                         getLaneStrokeClass(path.laneIndex),
-                        highlightedHash && !isPathRelated(path, highlightedHash) && "opacity-30",
+                        highlightedHash &&
+                          !isPathRelated(path, highlightedHash) &&
+                          "opacity-30",
                         isPathRelated(path, highlightedHash) && "opacity-100",
                       )}
                     />

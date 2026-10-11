@@ -36,7 +36,7 @@ export function getConversationFindState(
   };
 }
 
-function moveConversationFindSelection(
+export function moveConversationFindSelection(
   state: ConversationFindState,
   direction: ConversationFindDirection,
 ): number {

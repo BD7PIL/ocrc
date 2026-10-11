@@ -1,5 +1,5 @@
 // @ts-nocheck
-interface PdfJsDocumentOptions {
+export interface PdfJsDocumentOptions {
   cMapPacked: true;
   cMapUrl: string;
 }

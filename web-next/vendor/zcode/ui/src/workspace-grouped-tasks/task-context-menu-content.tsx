@@ -19,6 +19,7 @@ export function GroupedTaskContextMenuContent({
   fileManagerLabel,
   taskSessionFile,
   taskNativeSessionLogFile,
+  providerConfigFile,
   onMoveTaskToGroup,
   onMoveTaskToTop,
   onStartRenameTask,
@@ -26,6 +27,7 @@ export function GroupedTaskContextMenuContent({
   onMarkTaskAsUnread,
   onOpenTaskPathInFileManager,
   onCopyText,
+  onOpenProviderConfig,
   onOpenTaskFeedback,
   disabledReason,
 }: {
@@ -38,6 +40,7 @@ export function GroupedTaskContextMenuContent({
   fileManagerLabel: string;
   taskSessionFile: { loading: boolean; path: string | null };
   taskNativeSessionLogFile: { loading: boolean; path: string | null };
+  providerConfigFile: { loading: boolean; path: string | null };
   onMoveTaskToGroup: (task: ZCodeTaskMeta, groupId: string | null) => void;
   onMoveTaskToTop: (task: ZCodeTaskMeta) => void;
   onStartRenameTask: (task: ZCodeTaskMeta) => void;
@@ -45,6 +48,7 @@ export function GroupedTaskContextMenuContent({
   onMarkTaskAsUnread: (task: ZCodeTaskMeta) => void;
   onOpenTaskPathInFileManager: () => void;
   onCopyText: (label: string, text: string | null) => void;
+  onOpenProviderConfig: () => void;
   onOpenTaskFeedback: () => void;
   disabledReason?: string;
 }) {
@@ -143,7 +147,10 @@ export function GroupedTaskContextMenuContent({
       </ContextMenuItem>
       <ContextMenuItem
         onSelect={() =>
-          onCopyText(intl.formatMessage({ id: "appHeader.copyPath" }), task.workspacePath)
+          onCopyText(
+            intl.formatMessage({ id: "appHeader.copyPath" }),
+            task.workspacePath,
+          )
         }
       >
         {intl.formatMessage({ id: "appHeader.copyPath" })}
@@ -151,13 +158,18 @@ export function GroupedTaskContextMenuContent({
       <ContextMenuItem
         disabled={taskSessionFile.loading || !taskSessionFile.path}
         onSelect={() =>
-          onCopyText(intl.formatMessage({ id: "appHeader.copyTaskPath" }), taskSessionFile.path)
+          onCopyText(
+            intl.formatMessage({ id: "appHeader.copyTaskPath" }),
+            taskSessionFile.path,
+          )
         }
       >
         {intl.formatMessage({ id: "appHeader.copyTaskPath" })}
       </ContextMenuItem>
       <ContextMenuItem
-        disabled={taskNativeSessionLogFile.loading || !taskNativeSessionLogFile.path}
+        disabled={
+          taskNativeSessionLogFile.loading || !taskNativeSessionLogFile.path
+        }
         onSelect={() =>
           onCopyText(
             intl.formatMessage({ id: "appHeader.copyLogPath" }),
@@ -169,10 +181,21 @@ export function GroupedTaskContextMenuContent({
       </ContextMenuItem>
       <ContextMenuItem
         onSelect={() =>
-          onCopyText(intl.formatMessage({ id: "appHeader.copySessionId" }), task.taskId)
+          onCopyText(
+            intl.formatMessage({ id: "appHeader.copySessionId" }),
+            task.taskId,
+          )
         }
       >
         {intl.formatMessage({ id: "appHeader.copySessionId" })}
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={providerConfigFile.loading || !providerConfigFile.path}
+        onSelect={onOpenProviderConfig}
+      >
+        <span className="truncate">
+          {intl.formatMessage({ id: "appHeader.goToProviderConfig" })}
+        </span>
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={onOpenTaskFeedback}>

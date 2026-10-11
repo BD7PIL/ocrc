@@ -411,7 +411,7 @@ function getPatchHeaderFileTarget(patch: string): string | null {
   return null;
 }
 
-function getDiffSourceFileTarget(
+export function getDiffSourceFileTarget(
   source: PatchCodeViewerSource | MultiFileDiffCodeViewerSource,
 ): string | null {
   if (isUsableDiffFileTarget(source.path)) {

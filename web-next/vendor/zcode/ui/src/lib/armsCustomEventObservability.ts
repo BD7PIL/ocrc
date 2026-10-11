@@ -2,7 +2,7 @@
 import type { ArmsCustomEventPayload } from "@zcode/shared";
 import { shouldExposeE2EStoreBridge } from "@/lib/e2eStoreBridge.js";
 
-interface ArmsCustomEventE2EEntry extends ArmsCustomEventPayload {
+export interface ArmsCustomEventE2EEntry extends ArmsCustomEventPayload {
   recordedAt: number;
 }
 

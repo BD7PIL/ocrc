@@ -11,7 +11,7 @@ import {
   type AutomationTemplateCatalog,
 } from "@/settings/automationTemplateCatalog.js";
 
-type AutomationTemplateCatalogState = AutomationTemplateCatalog & {
+export type AutomationTemplateCatalogState = AutomationTemplateCatalog & {
   loading: boolean;
 };
 

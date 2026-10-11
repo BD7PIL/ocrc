@@ -211,7 +211,7 @@ describe('vendored dwf: sandbox run with a fake driver', () => {
     expect(run.journal.getRun('dwfrun-test-1')?.status).toBe('completed')
     // Both named actors got a session (the fake driver is asked to mint them).
     expect(run.sessions).toHaveLength(2)
-    const nodes = run.journal.listNodes('dwfrun-test-1')
+    const nodes = run.journal.listNodes('dwfrun-test-1', { kinds: 'all', withResult: true })
     expect(nodes.length).toBeGreaterThanOrEqual(2)
     expect(nodes.every((n) => n.kind === 'ask' && n.status === 'completed')).toBe(true)
     // Boundary C events reached the driver's emit.

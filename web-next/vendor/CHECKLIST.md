@@ -403,6 +403,9 @@
   index.html 的 viewport-fit=cover 此前没人用）+ 触屏指针下可编辑控件 16px（修 iOS 聚焦
   整页缩放；composer 用 text-ui-base=14px）。iPhone 模拟实测两项生效、390px 可用。
   **更大布局改造（初始收起侧栏等）需改 vendor WorkspaceShellLayout，遵 D4 裁决不做**。
+  **2026-10-11 移动端逐控件审计**：[docs/frontend-mobile-audit.md](../docs/frontend-mobile-audit.md)
+  （CDP 探针实测 12 状态 × 2 档 + 六组深审；结论——官方移动壳族在本仓是死代码，接线规格
+  实现就绪且零 vendor 改动；本轮修仅 ocrc 侧垫片/CSS/图标，vendor 布局手术维持 D4 不做）。
 - ✅ i18n 切换（N8-5 核实——此前勾"未做"是误记）：vendor 自带 zh-CN/en-US 全套
   （5874/5875 条）+ 两处切换入口（侧栏头像菜单、设置→General），localStorage
   （zcode-locale-preference）持久。ocrc 侧自研 service 的硬编码中文错误串在英文模式下

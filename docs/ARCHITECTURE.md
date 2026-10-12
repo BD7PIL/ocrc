@@ -432,6 +432,8 @@ table in README):
   capabilities), register in the host's backend list, normalize events into
   `AgentEvent`. Relay, transports, web UI gate off capabilities — nothing
   else changes.
+- **各家 harness 优点吸收总账 + 适配器候选评估**: docs/research/harness-best-of.md
+  （六家参照系逐项落地证据 + pi/omp/gjc 可行性 + gap 表）.
 - **New transport**: docs/transports/CONTRIBUTING-NEW-TRANSPORT.md.
 
 ## Intentional decisions (do not "fix" without reading the rationale)

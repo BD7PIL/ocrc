@@ -42,7 +42,10 @@ import { createLogger } from '../../utils/logger.js'
 import { ocrcHome } from '../../utils/paths.js'
 import { InputFile } from 'grammy'
 import { acquireRuntimeLock, type RuntimeLock } from './runtime-lock.js'
-import { OffsetJournal, extractImageUrls, normalizeMediaKind } from './m8-journal.js'
+import {
+  OffsetJournal, extractImageUrls, normalizeMediaKind,
+  extractMediaUrls, deliverOutboundMedia,
+} from './m8-journal.js'
 
 const log = createLogger('telegram')
 
@@ -733,27 +736,26 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
         }
       })
 
-      // ── M8-2 grinev 媒体输出相册 ──
-      // Final assistant cards: extract image URLs from the finished text and
-      // deliver them as a photo album (cap 3) after the text message.
+      // ── M8-2 grinev 媒体输出相册 + B5（批次 4）：document / video / audio ──
+      // Final assistant cards: extract media URLs from the finished text and
+      // deliver them after the text message. 分类走白名单（响应 mime 优先、扩展名
+      // 兜底），可执行类不发；大小上限按 TG Bot API（photo 10MB，其余 50MB）。
       cardBusRef?.subscribeAll((card) => {
         if (card.kind !== 'assistant') return
         const text = card.blocks.filter((b) => b.type === 'text').map((b) => (b as { text: string }).text).join('\n\n')
-        const urls = extractImageUrls(text, 3)
-        if (urls.length === 0) return
-        void (async () => {
-          for (const u of urls) {
-            try {
-              const res = await fetch(u, { signal: AbortSignal.timeout(15_000) })
-              if (!res.ok) continue
-              const buf = Buffer.from(await res.arrayBuffer())
-              if (buf.length > 10 * 1024 * 1024) continue // Telegram photo cap
-              await bot.api.sendPhoto(chatId, new InputFile(buf, u.split('/').pop() ?? 'image.png'))
-            } catch (err) {
-              log.warn(`media output skipped for ${u}`, (err as Error).message)
-            }
-          }
-        })()
+        const media = extractMediaUrls(text, 3)
+        if (media.length === 0) return
+        void deliverOutboundMedia(media, {
+          fetchImpl: (url, init) => fetch(url, init),
+          warn: (m) => log.warn(m),
+          send: async (kind, { buf, filename }) => {
+            const file = new InputFile(buf, filename)
+            if (kind === 'photo') await bot.api.sendPhoto(chatId, file)
+            else if (kind === 'video') await bot.api.sendVideo(chatId, file)
+            else if (kind === 'audio') await bot.api.sendAudio(chatId, file)
+            else await bot.api.sendDocument(chatId, file)
+          },
+        }).catch((err) => log.warn('media output delivery failed', (err as Error).message))
       })
 
       // Deliver the persistent reply keyboard once per boot.

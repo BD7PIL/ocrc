@@ -49,7 +49,7 @@
 | B2 | Markdown 渲染进 Worker | opencode web | 未落地 | **不做**（B7 后复测：归因未成立，vendor 面） | §2 |
 | B3 | 主题即 JSON | opencode web | 未落地 | **不做**（代码主题面板 vendor 已有） | §2 |
 | B4 | CSP + 主题脚本哈希 | opencode web | **已落地**（批 3） | 头下发 + nonce + 实测 0 违规（enforce） | §2 |
-| B5 | 媒体输出 document / video / audio | grinev | 部分（图片相册已落地） | **做** | §2 |
+| B5 | 媒体输出 document / video / audio | grinev | **已落地**（批 4） | 白名单分类 + mime 双信号 + 上限 + 注入式投递 | §2 |
 | B6 | 知识库→资产化闭环 | OpenCode-Client | 不做（本体） | **不做** | §2 |
 | B7 | **ocrc 桥接数据面窗口化** | （自省项，非别家特性） | **已落地**（批 2） | 尾部快照 + offset 翻页 + 单调行 id + 终态工具缓存 | §2 |
 | B8 | 非图片附件上行 | OpenCode-Client（此前未列） | 未落地（TG 侧已通） | **做** | §2 |
@@ -238,14 +238,23 @@
 - **证据**：`src/transport/web/csp.ts`；`src/transport/web/index.ts`（nonce 中间件 + 文档路由）；
   `tests/unit/web/csp.test.ts`（11 条）；实测产物 `/tmp/ocrc-perf/csp-collect.mjs`。
 
-### B5 · 媒体输出 document / video / audio `grinev` · **做**（裁决 2026-10-12）
+### B5 · 媒体输出 document / video / audio `grinev` · **做 → 已落地**（批次 4，2026-10-12）
 
-- **状态**：**部分**。图片相册已落地（M8-2：`src/transport/telegram/index.ts:736-751`，cap 3，逐张 `sendPhoto`）；document / video / audio 未接。
-- **优点**：完整媒体回传（不止图片）。
-- **缺点 / 代价**：TG 各类型尺寸/格式限制；host 要读任意文件并判 mime；**安全面**（任意文件外发要白名单 + 大小门禁——与 B8 收件侧边界同一套定义，可复用）。
-- **影响面**：分层=**核心**（transport）｜文件=`src/transport/telegram/index.ts`｜工作量=S–M｜依赖=文件类型白名单 + 大小门禁｜回归风险=低（加法）｜门禁=TG 实测（隔离栈 bot）。
-- **建议**：**做**（批次 4）。图片相册是先例，扩到三类的增量小；白名单 + 大小的边界照 B8 的定义共用。
-- **证据**：`index.ts:736-751`；`grep sendDocument|sendVideo|sendAudio` 0 命中。
+- **落地**（`src/transport/telegram/m8-journal.ts` + `index.ts`）：
+  1. **白名单分类**：`classifyOutboundUrl` 按扩展名分 photo / video / audio / document；
+     白名单外（**含 exe/dll/sh/bat/ps1/jar 等可执行类**）一律不发——面板不把可执行文件推进聊天。
+  2. **mime 双信号**：`classifyOutboundMime` 读响应 `Content-Type`，优先于扩展名
+     （扩展名撒谎/缺失时按 mime 判）。
+  3. **大小上限**：`OUTBOUND_MEDIA_MAX_BYTES` 按 TG Bot API——photo 10MB，video/audio/document 50MB；
+     超限跳过并如实记日志（不静默）。
+  4. **投递循环抽成注入式函数** `deliverOutboundMedia`（fetch/send/warn 注入）：逐条独立容错，
+     一条失败不拖累其余；`index.ts` 只留一行 send 分发（sendPhoto/sendVideo/sendAudio/sendDocument）。
+  5. 抽取面：`extractMediaUrls`（markdown 链接 + 裸 URL，分类过滤 + 去重 + cap 3）；
+     `extractImageUrls`（旧图片相册面）保留不动。
+- **如实未做**：**无 TG 端实测**——隔离栈按设计跑空 token（不轮询 TG），生产 bot 不接受测试流量；
+  改用「注入依赖 + 单测」覆盖投递循环（分发/mime 覆盖/超限/非 2xx/网络错误五路），
+  真机联调留待用户侧验证。
+- **证据**：`m8-journal.ts`（分类/抽取/投递）；`tests/unit/telegram-m8.test.ts`（+9 条，共 15 条）。
 
 ### B6 · 知识库→资产化闭环 `OpenCode-Client` · **不做**
 
@@ -453,7 +462,7 @@ gjc = **`gjc acp`**（薄前端 + 常驻 broker）。
 | B2 | Markdown Worker | 实测驱动 | **做**（排 B7 后）→ 2c 复测改判 **不做**（归因未成立 + vendor 面） | 批 2c 已判 |
 | B3 | 主题即 JSON | 不做 | **不做**（代码主题面板已有） | 无 |
 | B4 | CSP + 哈希 | 不做 → 改判「做」 | **做**（内网合规） | 批 3 ✅（enforce） |
-| B5 | 媒体输出 | 待裁决 | **做** | 批 4 |
+| B5 | 媒体输出 | 待裁决 | **做** | 批 4 ✅ |
 | B6 | 知识库闭环 | 不做 | **不做** | 无 |
 | B7 | 桥接数据面窗口化 | 待裁决 | **做**（先 500/1000 行基线） | 批 2a/2b ✅ |
 | B8 | 非图片附件上行 | （本轮补列） | **做**（禁可执行 / 20MB / staging） | 批 5 |

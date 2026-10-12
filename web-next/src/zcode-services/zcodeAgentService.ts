@@ -20,6 +20,14 @@ import { projectPendingInteractions, decisionFromOptionId, contentToAnswerRows }
 
 const V4_WIRE_PROTOCOL_VERSION = 3 as const
 
+// ── B8 附件上行边界（客户端先判一次；权威清单在 host 侧 src/core/attachments.ts）──
+const ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024
+const BLOCKED_ATTACHMENT_EXT = new Set([
+  'exe', 'msi', 'dll', 'so', 'dylib', 'bin', 'com', 'scr', 'cpl',
+  'sh', 'bash', 'zsh', 'fish', 'bat', 'cmd', 'ps1', 'psm1', 'vbs', 'vbe', 'wsf', 'wsh',
+  'jar', 'apk', 'app', 'dmg', 'pkg', 'deb', 'rpm', 'hta', 'msc', 'lnk', 'reg',
+])
+
 function uuid(): string {
   // http 局域网非安全上下文里 crypto.randomUUID 不可用
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
@@ -1792,20 +1800,32 @@ export function createOcrcZcodeAgentService(): any {
       if (envelope.type === 'sendText') {
         const text = String((envelope.payload as { text?: string }).text ?? '')
         if (!sessionId) throw new Error('[ocrc-fork] sendText 缺 sessionId')
-        // 附件：web 端选图/拖图时 platform 把 File 存进寄存表、ref 以
-        // ocrc-webfile:// 透传到这里——解析回字节转成 /api/message 的 images[]。
-        // 引擎侧只收图片；其余类型在此如实拒绝（不是静默丢弃）。
+        // 附件：web 端选文件时 platform 把 File 存进寄存表、ref 以 ocrc-webfile://
+        // 透传到这里——解析回字节。图片走 /api/message 的 images[]（引擎原生图片
+        // 输入）；其余类型走 B8 的 attachments[]（host 落盘 + 路径注入，TG 同款）。
+        // 边界在客户端先判一次（UX：不用等一个来回），host 侧还会再验一遍。
         const rawAttachments = (envelope.payload as { attachments?: Array<{ ref?: string; fileName?: string }> }).attachments ?? []
         const images: Array<{ data: string; mimeType: string }> = []
+        const files: Array<{ name: string; mimeType: string; data: string }> = []
         for (const att of rawAttachments) {
           const file = att?.ref ? resolveWebFile(att.ref) : undefined
           if (!file) {
-            return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_attachment_unsupported', message: `附件 ${att?.fileName ?? att?.ref ?? ''} 不是本页选择的图片（ocrc 发送通道当前仅支持图片）`, revisionAtDecision: 0 }
+            return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_attachment_unsupported', message: `附件 ${att?.fileName ?? att?.ref ?? ''} 不是本页选择的文件`, revisionAtDecision: 0 }
           }
-          if (!/^image\//.test(file.type)) {
-            return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_attachment_unsupported', message: `附件 ${att?.fileName ?? file.type} 不是图片——ocrc 发送通道当前仅支持图片`, revisionAtDecision: 0 }
+          const name = att?.fileName ?? (file as File).name ?? 'attachment'
+          if (/^image\//.test(file.type)) {
+            images.push({ data: await toBase64(file), mimeType: file.type })
+            continue
           }
-          images.push({ data: await toBase64(file), mimeType: file.type })
+          // 白名单：可执行/脚本类拒收（权威清单在 host 侧 src/core/attachments.ts）。
+          const ext = (name.split('.').pop() ?? '').toLowerCase()
+          if (BLOCKED_ATTACHMENT_EXT.has(ext)) {
+            return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_attachment_blocked', message: `附件 ${name} 是可执行/脚本类，已拒绝（上行白名单）`, revisionAtDecision: 0 }
+          }
+          if (file.size > ATTACHMENT_MAX_BYTES) {
+            return { commandId: envelope.commandId, status: 'failed', reasonCode: 'ocrc_attachment_too_large', message: `附件 ${name} 超过 20MB 上限`, revisionAtDecision: 0 }
+          }
+          files.push({ name, mimeType: file.type || 'application/octet-stream', data: await toBase64(file) })
         }
         // ── U5：斜杠命令执行链 ──
         // vendor composer 的 `/` 面板选中命令 = 插入 markdown `/<name>` 的 mention，
@@ -1844,6 +1864,7 @@ export function createOcrcZcodeAgentService(): any {
             sessionId, text, clientId: envelope.commandId,
             ...(planEnabled ? { agent: 'plan' } : {}),
             ...(images.length ? { images } : {}),
+            ...(files.length ? { attachments: files } : {}),
           }),
         })
         if (res.ok) for (const att of rawAttachments) releaseWebFile(String(att?.ref ?? ''))

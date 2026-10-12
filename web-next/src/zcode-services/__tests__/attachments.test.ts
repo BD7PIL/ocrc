@@ -51,7 +51,7 @@ describe('sendText 的附件解析', () => {
     expect(resolveWebFile(handle)).toBeUndefined()
   })
 
-  it('不是本页选择的 ref → failed ack，明确说「仅支持图片」', async () => {
+  it('不是本页选择的 ref → failed ack（B8 起不再有「仅支持图片」的限制）', async () => {
     const calls: Array<{ url: string }> = []
     vi.stubGlobal('fetch', vi.fn(async (url: string, _init?: any) => {
       calls.push({ url }); return { ok: true, json: async () => ({ messageId: 'm1' }) }
@@ -65,7 +65,7 @@ describe('sendText 的附件解析', () => {
     })
     expect(ack.status).toBe('failed')
     expect(ack.reasonCode).toBe('ocrc_attachment_unsupported')
-    expect(ack.message).toContain('仅支持图片')
+    expect(ack.message).toContain('不是本页选择的文件')
     expect(calls.find((c) => c.url.includes('/api/message'))).toBeUndefined()
   })
 

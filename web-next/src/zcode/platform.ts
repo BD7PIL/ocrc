@@ -47,7 +47,9 @@ export function createWebPlatform(): IPlatformService {
     selectDirectory: () => Promise.resolve(null),
     selectFile: async () => (await pickFiles(false))[0] ?? null,
     selectFiles: async () => await pickFiles(true),
-    getPathForFile: (file: File) => (/^image\//.test(file.type) ? putWebFile(file) : null),
+    // B8（批次 5）：非图片附件同样登记字节——类型白名单/大小上限在发送路径上判
+    // （见 zcodeAgentService 的 attachments 分支 + host 侧 src/core/attachments.ts）。
+    getPathForFile: (file: File) => putWebFile(file),
     createTempTextAttachment: () =>
       Promise.reject(new Error('Temporary text attachments require a desktop host')),
     onRemoteConnectionLog: () => () => {},

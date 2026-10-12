@@ -52,7 +52,7 @@
 | B5 | 媒体输出 document / video / audio | grinev | **已落地**（批 4） | 白名单分类 + mime 双信号 + 上限 + 注入式投递 | §2 |
 | B6 | 知识库→资产化闭环 | OpenCode-Client | 不做（本体） | **不做** | §2 |
 | B7 | **ocrc 桥接数据面窗口化** | （自省项，非别家特性） | **已落地**（批 2） | 尾部快照 + offset 翻页 + 单调行 id + 终态工具缓存 | §2 |
-| B8 | 非图片附件上行 | OpenCode-Client（此前未列） | 未落地（TG 侧已通） | **做** | §2 |
+| B8 | 非图片附件上行 | OpenCode-Client（此前未列） | **已落地**（批 5） | 两道门禁拆除 + 落盘/路径注入 + 白名单/上限/staging | §2 |
 | B9 | **OpenCode-Client 前后端缺口** | OpenCode-Client | **已回填**（批 6） | vendor 扩展分区插槽 + 4 个设置面 | §2 |
 
 > **B7 新增 / B8 补列**：B7 是自省项——性能实测把瓶颈指向 **ocrc 自己的数据管道**
@@ -301,27 +301,29 @@
 - **证据**：`zcodeAgentService.ts`（`rowIdFor` / `historyWindowFor` / `buildWindowRows` /
   `conversationRowsRangeV4` / `enrichToolRows`）；`rowWindow.test.ts`；实测产物 `/tmp/ocrc-perf/*.json`。
 
-### B8 · 非图片附件上行（web 侧）· **做**（裁决 2026-10-12，2026-10-12 补列入册）
+### B8 · 非图片附件上行（web 侧）· **做 → 已落地**（批次 5，2026-10-12）
 
-- **状态**：未落地，但缺的只是 **web 侧接线**。事实链：
-  - **TG 通道已收非图片**：document/video/audio/voice → 20MB 上限 → 落盘 `~/.ocrc/attachments/` →
-    路径注入消息文本（`src/transport/telegram/index.ts:190-226`；照片 `:145-209` 走 `downloadLargestPhoto`）。
-  - **vendor composer 本就支持**：媒体/文件分组、PDF/视频预览（`ConversationComposer.tsx:1778-1840`）、
-    V4 上传事务（`attachmentUploadTransaction.ts:24-26`）。
-  - **ocrc 侧只有两道自设门禁挡着**：`web-next/src/zcode/platform.ts:50`
-    （`getPathForFile` 非图片返 `null`）+ `zcodeAgentService.ts:1656-1661`
-    （非图片直接拒绝，`reasonCode: 'ocrc_attachment_unsupported'`）。
-  - **引擎侧原生支持**：opencode 1.18 prompt 收 `FilePartInput`（`@opencode-ai/sdk`
-    `types.gen.d.ts:1245-1252`，`{type:'file', mime, filename?, url}`）。
-  - **字节面已就绪**：`webAttachments.ts` 是**类型无关**字节注册表（两个 scheme `ocrc-webfile://` /
-    `ocrc-att://`），非图片字节进得来。
-- **优点**：补上与 opencode web / ZCode composer 对齐的上行能力（用户实测两处都能传多类文件）。
-- **缺点 / 代价**：送达方式要 spike 后定——A：TG 同款落盘 + 路径注入（已验证、引擎无关）；
-  B：原生 FilePart（更贴上游，需确认引擎如何解析 `url`）；任意文件外发的**安全面**
-  （禁可执行 + 大小上限 + staging 隔离 + 会话结束清理）。
-- **影响面**：分层=**壳 + 核心桥**｜文件=`platform.ts`、`zcodeAgentService.ts`、`webAttachments.ts`（+ 可能 host 落盘）｜工作量=M｜依赖=送达方式 spike｜回归风险=中（发送是 P0 路径）｜门禁=双端测试 + 隔离栈上传实测（含被禁类型拒绝路径）。
-- **建议**：**做**（批次 5）。边界已定：禁 exe/msi/dll/sh 等可执行；20MB 上限；staging 隔离 + 会话结束清理。
-- **证据**：`telegram/index.ts:145-226`；`platform.ts:50`；`zcodeAgentService.ts:1656-1661`；`types.gen.d.ts:1245-1252`；`ConversationComposer.tsx:1778-1840`；`webAttachments.ts:1-40`。
+- **送达方式（spike 结论）**：走 **A：落盘 + 路径注入**（`<ocrcHome>/attachments/<sessionId>/` +
+  `[附件 <kind>: <name>（NKB），已保存到 <path>——需要时用文件工具读取]`，**TG 收件同款措辞**）。
+  不选 B（原生 FilePart）：`url` 的 data:/file: 语义需引擎侧确认，且大文件内联进 prompt 会污染上下文；
+  A 引擎无关、已有先例、模型用文件工具直接读。
+- **落地**：
+  1. **拆两道自设门禁**：`web-next/src/zcode/platform.ts` 的 `getPathForFile` 不再按 `image/*` 返 null；
+     `zcodeAgentService` 的 sendText 分支不再拒非图片——图片仍走 `images[]`（引擎原生图片输入），
+     其余走新的 `attachments[]`（name/mimeType/base64）。
+  2. **host 侧通道**：`src/core/attachments.ts`（新）+ `routes/message.ts` 收 `attachments` →
+     边界校验 → 落 staging → 路径说明折进文本；`routes/sessions.ts` 删除会话时清 staging 目录。
+  3. **边界**：可执行/脚本类（exe/msi/dll/so/sh/bat/ps1/jar/apk/dmg/deb/rpm/lnk…）拒收；
+     20MB 上限（与 TG 收件、vendor 上传事务同档）；staging 按会话隔离 + 会话删除清理。
+     客户端先判一次（UX），host 再验一次（纵深防御）——两处都如实回错，不静默丢弃。
+- **验证（隔离栈 4199 端到端）**：POST /api/message 带 .md 附件 → 落盘
+  `…/attachments/<sid>/1791824517065-b8-note.md`，引擎侧 user 消息文本含注入的路径说明（模型可读）；
+  `.exe` → HTTP 400「是可执行/脚本类，已拒绝（上行白名单）」；会话删除 → staging 目录已清理。
+  单测：host 侧 9 条（白名单/大小/staging/note/清理/路由三态）+ 桥接侧 3 条（images 与 attachments 分流、
+  可执行拒绝、未知 ref 拒绝）。
+- **证据**：`src/core/attachments.ts`；`routes/message.ts` / `routes/sessions.ts`；
+  `web-next/src/zcode/platform.ts`、`zcodeAgentService.ts`；`tests/unit/attachments.test.ts`、
+  `web-next/src/zcode-services/__tests__/attachmentsSend.test.ts`。
 
 ### B9 · OpenCode-Client 前后端缺口（设置域欠账）· **做 → 已回填**（批次 6，2026-10-12）
 
@@ -465,7 +467,7 @@ gjc = **`gjc acp`**（薄前端 + 常驻 broker）。
 | B5 | 媒体输出 | 待裁决 | **做** | 批 4 ✅ |
 | B6 | 知识库闭环 | 不做 | **不做** | 无 |
 | B7 | 桥接数据面窗口化 | 待裁决 | **做**（先 500/1000 行基线） | 批 2a/2b ✅ |
-| B8 | 非图片附件上行 | （本轮补列） | **做**（禁可执行 / 20MB / staging） | 批 5 |
+| B8 | 非图片附件上行 | （本轮补列） | **做**（禁可执行 / 20MB / staging） | 批 5 ✅ |
 | B9 | 设置域缺口回填 | （本轮新增） | **做**（4 面） | 批 6 ✅ |
 | D1 | 字号量程 | 维持 12–20 | **维持**（上游 verbatim） | 无 |
 | D2 | future adapter 命名 | 改判 | **改判**：omp（原生 ACP）/ pi（经第三方桥 pi-acp）/ gjc | 批 0 文本（已落） |

@@ -2,6 +2,7 @@ import type { Hono } from 'hono'
 import type { BackendRegistry } from '../../../core/agent/registry.js'
 import type { SessionState } from '../../../core/state.js'
 import { fetchSessionSummaries, cleanupSubagentSessions } from '../session-summary.js'
+import { cleanupSessionAttachments } from '../../../core/attachments.js'
 import { createLogger } from '../../../utils/logger.js'
 
 const log = createLogger('web')
@@ -27,6 +28,8 @@ export function registerSessions(app: Hono, reg: BackendRegistry, state: Session
         return c.json({ ok: false, error: 'session not found' }, 404)
       }
       await backend.deleteSession(id)
+      // B8：会话结束清理——删掉该会话的附件 staging 目录（幂等，尽力而为）。
+      cleanupSessionAttachments(id)
       return c.json({ ok: true })
     } catch (e) {
       log.warn(`delete session ${id} failed: ${(e as Error).message}`)

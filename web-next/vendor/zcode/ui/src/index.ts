@@ -74,6 +74,7 @@ export {
 } from "./hooks/index.js";
 
 export { ZCodeIntlProvider, useZCodeIntl, LocaleSwitcher, setZCodeBrandMessages } from "./i18n/index.js";  // ocrc fork (PATCHES #10)
+export { setZCodeSettingsExtraSections, getZCodeSettingsExtraSections } from "./settings/settingsExtraSections.js";  // ocrc fork (PATCHES #14)
 export { ResourceManagerApp } from "./resource-manager/ResourceManagerApp.js";
 export type {
   ResourceManagerAppProps,

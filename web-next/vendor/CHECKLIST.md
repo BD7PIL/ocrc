@@ -354,6 +354,14 @@
   conversationWorkflowRunArtifacts/Data/Read V4 三查询（P4-2，桥↔host 路由全通）；
   escalation 答复 = ResolveWorkflowQuestion 工具卡链（P3 workflow tools，模型在卡内
   应答，宿主 registry.answer 落地）+ 运行侧页展示。无新增接线。
+- ✅ **ocrc 域设置分区回填（B9 批次 6，2026-10-12）**：四个面经 vendor 的扩展分区注册表
+  （PATCHES #14）挂进设置页「Agent 能力」组——模型映射方案（导出/导入/切换，写项目
+  `agent.<name>.model`）、项目 `.opencode/` 五件套（AGENTS.md / opencode.json(c) / commands /
+  rules，编辑走原子写 + JSONC 校验回显）、技能源（加/删源 + 冲突诊断 + 启停）、全局配置 raw
+  编辑（`PUT /api/settings/opencode-config`，校验 + 备份）。这四项是 PRODUCT 第零点七条
+  「做」清单里的设置域条目，rc.3 清洗（e55d3221）删掉 UI 后只剩后端（client.ts 里留着死亡包装）。
+  实测：隔离栈 CDP 逐个分区渲染 + 端点命中，映射方案读到项目真实映射。单测 5 条。
+  顺带修 `isSettingsSectionId` 漏 `remotes` 的守卫 bug（PATCHES #14）。
 - ✅ **U4 拒绝类登记（如实不接）**：usageStatsService / highspeedCardService /
   credentialService（ZCode 账号/订阅体系，硬映射=造假）；hooksService（opencode 1.18 无
   用户级 hooks 配置面）；memoryService / gitCheckpointService / outputStyleService /

@@ -22,6 +22,7 @@ import {
   FileSearch,
 } from "lucide-react";
 import { isSettingsSectionEnabled, type SettingsSectionId } from "@/lib/settingsNavigation.js";
+import { getZCodeSettingsExtraSections } from "./settingsExtraSections.js";
 import type { Theme } from "@/useTheme.js";
 
 export const THEME_MODES: Array<{
@@ -189,6 +190,18 @@ export function createSettingsPageConfig({
     if (section.id === "computerUse" && !showComputerUse) return false;
     return isSettingsSectionEnabled(section.id);
   });
+  // [ocrc-vendor-patch] 扩展分区（B9 6a）：注册表里注册的 ocrc 域分区追加到
+  // 既有分组（groupId 复用上游分组 id）。它们不经 isSettingsSectionEnabled 过滤
+  // ——是否出现由注册方（ocrc）决定。
+  for (const extra of getZCodeSettingsExtraSections()) {
+    if (settingsSections.some((section) => section.id === extra.id)) continue;
+    settingsSections.push({
+      id: extra.id,
+      icon: extra.icon ?? Settings,
+      titleId: extra.titleId,
+      groupId: extra.groupId,
+    });
+  }
   const settingsSectionGroups = BASE_SETTINGS_SECTION_GROUPS.map((group) => ({
     ...group,
     sections: settingsSections.filter((section) => section.groupId === group.id),

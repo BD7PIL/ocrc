@@ -6886,6 +6886,11 @@ const enUS: Record<string, string> = {
   "workspace.openScheduledSettings": "Automations",
   "settings.automations.title": "Automations",
   "settings.remotes.title": "Remote Hosts",
+  // ocrc fork (PATCHES #14): extra settings sections (B9 6a).
+  "settings.ocrcMapping.title": "Model Mapping Presets",
+  "settings.ocrcProject.title": "Project .opencode",
+  "settings.ocrcSkillSources.title": "Skill Sources",
+  "settings.ocrcGlobalConfig.title": "Global Config",
   "automations.breadcrumbLabel": "Automation path",
   "settings.automations.betaBadge": "Beta",
   "automations.noWorkspace": "Open a workspace to manage its scheduled tasks.",

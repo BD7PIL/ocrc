@@ -1,6 +1,8 @@
 // @ts-nocheck
 /* eslint-disable max-lines -- 设置导航意图集中管理 sessionStorage、事件桥接和解析校验，拆分会让一次性意图消费顺序更难保证。 */
 import { logger } from "@/logger.js";
+// [ocrc-vendor-patch] 扩展分区注册表（B9 6a）：守卫要放行注册方定义的分区 id。
+import { getZCodeSettingsExtraSections } from "@/settings/settingsExtraSections.js";
 
 export type SettingsSectionId =
   | "general"
@@ -78,7 +80,12 @@ function isSettingsSectionId(value: string): value is SettingsSectionId {
     value === "workspaceFileSearch" ||
     value === "computerUse" ||
     value === "automations" ||
-    value === "shortcuts"
+    value === "shortcuts" ||
+    // [ocrc-vendor-patch] 远程主机分区（N5）：union 里有，守卫此前漏了——写入可用、
+    // 读回被静默丢弃（跳转意图与「上次停留分区」双双失效）。补上。
+    value === "remotes" ||
+    // [ocrc-vendor-patch] 扩展分区注册表（B9 6a）：注册方定义的分区 id 一并放行。
+    getZCodeSettingsExtraSections().some((section) => section.id === value)
   );
 }
 

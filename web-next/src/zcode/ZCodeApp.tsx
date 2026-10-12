@@ -12,6 +12,10 @@ import './zcode-mobile.css'
 // vendor 内部实例），键级覆盖 vendor 词条。
 import { BRAND_MESSAGES } from './brandMessages.js'
 setZCodeBrandMessages(BRAND_MESSAGES)
+// B9 批次 6：ocrc 域设置分区（模型映射方案 / 项目 .opencode / 技能源 / 全局配置 raw）
+// 经 vendor 的 extraSections 注册表挂进 /z/ 设置页——与品牌层同款「模块级注册」形态。
+import { registerOcrcSettingsSections } from './settingsSections.js'
+registerOcrcSettingsSections()
 import { onUnauthorized } from '$lib/auth.js'
 import { createGhostAccessor } from './accessor.js'
 import { createWebPlatform } from './platform.js'

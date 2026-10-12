@@ -53,7 +53,7 @@
 | B6 | 知识库→资产化闭环 | OpenCode-Client | 不做（本体） | **不做** | §2 |
 | B7 | **ocrc 桥接数据面窗口化** | （自省项，非别家特性） | **已落地**（批 2） | 尾部快照 + offset 翻页 + 单调行 id + 终态工具缓存 | §2 |
 | B8 | 非图片附件上行 | OpenCode-Client（此前未列） | 未落地（TG 侧已通） | **做** | §2 |
-| B9 | **OpenCode-Client 前后端缺口** | OpenCode-Client | 后端在、UI 缺（e55d3221 删） | **做**（4 个设置面回填） | §2 |
+| B9 | **OpenCode-Client 前后端缺口** | OpenCode-Client | **已回填**（批 6） | vendor 扩展分区插槽 + 4 个设置面 | §2 |
 
 > **B7 新增 / B8 补列**：B7 是自省项——性能实测把瓶颈指向 **ocrc 自己的数据管道**
 > （全量 rebuild / 全量快照 / 无 offset），不是别家特性；B8 此前只在 grill 口头过、
@@ -302,33 +302,27 @@
 - **建议**：**做**（批次 5）。边界已定：禁 exe/msi/dll/sh 等可执行；20MB 上限；staging 隔离 + 会话结束清理。
 - **证据**：`telegram/index.ts:145-226`；`platform.ts:50`；`zcodeAgentService.ts:1656-1661`；`types.gen.d.ts:1245-1252`；`ConversationComposer.tsx:1778-1840`；`webAttachments.ts:1-40`。
 
-### B9 · OpenCode-Client 前后端缺口（设置域欠账）· **做**（裁决 2026-10-12，2026-10-12 新增）
+### B9 · OpenCode-Client 前后端缺口（设置域欠账）· **做 → 已回填**（批次 6，2026-10-12）
 
-- **状态**：**欠账成立**。`PRODUCT.md:52` 第零点七条「做」清单里的设置域四项，**后端路由在、前端消费方没有**——
+- **原状（欠账）**：`PRODUCT.md:52` 第零点七条「做」清单里的设置域四项，**后端路由在、前端消费方没有**——
   rc.3 大清洗（`e55d3221`）把 rc.2 设置面整体删除（`pages/SettingsPage.tsx` 309 行、
   `components/settings/ProjectCards.tsx` 372 行、`SkillsSourceCard.tsx` 120 行），
-  路由与 core 逻辑保留，`lib/api/client.ts` 留下**死亡包装**（0 调用方）。
-- **缺口表**（2026-10-12 逐条核）：
-
-  | 面 | 后端路由（在） | 前端现状 | 定性 |
-  |---|---|---|---|
-  | agent 模型映射方案库（导出/导入/切换） | `GET/POST /api/settings/model-presets`（`routes/settings-project.ts:37,45`） | `client.ts:151-153` 死亡包装 | **欠账（全缺）** |
-  | 项目 `.opencode/` 五件套编辑 | `GET /api/settings/project` + `GET/PUT /file`（`:12-34`） | `client.ts:145-149` 死亡包装 | **欠账（全缺）** |
-  | 技能源注册/删除 | `POST /api/settings/skills-manager/sources`（`routes/settings.ts:87-95`） | `skillsService` 已接读+启停（`accessor.ts:110`）；**源的增减无 UI**（`client.ts:164-166` 死包装） | **半欠账** |
-  | 全局配置 raw 全量编辑 | `PUT /api/settings/opencode-config`（`settings.ts:28-39`） | 结构化 provider patch 已接（`providerSettingsService.ts`）；**raw 编辑器没有**（`client.ts:135` 死包装） | **半欠账** |
-  | MCP 编辑 / 子代理项目节点 | `settings.ts:53-74` + `settings-project.ts:65-74` | `mcpWrite.ts`、`subagentsService.ts` 已接 | ✅ 已回填（对照组） |
-
-- **优点**：这四项是 PRODUCT 明列的「做」——回填即把「ZCode 功能面平替」的欠账归零；后端全在手，只补前端。
-- **缺点 / 代价**：vendor 设置页**没有通用扩展点**（分区硬编码 `settingsPageConfig.ts:59-168` +
-  三元分支链 `SettingsPage.tsx:1684-1993`）——直接干会变成「每区改 5 文件」的维护税，
-  必须先加 `extraSections` 插槽（批次 6a，PATCHES 登记）。
-- **影响面**：分层=**壳 + vendor 插槽**｜文件=vendor `SettingsPage`/`settingsPageConfig` + 4 个 ocrc 组件 + service 接线｜工作量=L（1 插槽 + 4 面）｜依赖=vendor 插槽先行｜回归风险=中（vendor 面改动走加法 + 登记制）｜门禁=每面组件单测 + 隔离栈实操验收。
-- **顺带 bug（本轮核出）**：`settingsNavigation.ts:24` 的类型 union **有** `"remotes"`，但运行时守卫
-  `isSettingsSectionId`（`:62-83`）**没有**——写入可用、读回被静默丢弃：`consumePendingSettingsSection`（`:310`）
-  与 `readLastSettingsSectionPreference`（`:138`）遇到 remotes 都落回 fallback，
-  「跳转意图」与「上次停留分区」双双失效（PATCHES.md 条目 8 的补丁不完整）。批次 6a 一并修。
-- **建议**：**做**（批次 6）。序：6a vendor 插槽（+修守卫）→ 6b 映射方案库 → 6c 项目五件套 → 6d 技能源 → 6e 全局配置 raw。
-- **证据**：`e55d3221`（删除清单）；`client.ts:135,145-153,164-166`；`settings-project.ts` / `settings.ts`（路由在）；`settingsNavigation.ts:24,62-83,138,310`；`PRODUCT.md:52`。
+  `lib/api/client.ts` 留下死亡包装（0 调用方）。
+- **落地（批次 6）**：
+  - **6a vendor 插槽**：新增 `settingsExtraSections.ts` 模块级注册表（同 PATCHES #10 品牌层形态，
+    一处注册对全部 SettingsPage 实例生效）；`settingsPageConfig` 追加扩展分区、`SettingsPage`
+    内容链前缀注册方渲染；**顺带修 `isSettingsSectionId` 漏 `remotes` 的守卫 bug**
+    （union 里有、守卫里没有 → 写入可用、读回被静默丢弃）。登记 PATCHES #14 + CHECKLIST §8。
+  - **6b–6e 四个面**（`web-next/src/zcode/settingsSections.tsx`，ZCodeApp 模块初始化注册）：
+    模型映射方案库（导出/导入/切换 → `/api/settings/model-presets`）、项目 `.opencode/` 五件套
+    （编辑 → `/api/settings/project{,/file}`，原子写 + JSONC 校验回显）、技能源
+    （加/删源 + 冲突诊断 + 启停 → `/api/settings/skills-manager*`）、全局配置 raw
+    （`PUT /api/settings/opencode-config`）。
+- **验证**：隔离栈 CDP——4 个分区出现在设置页「Agent 能力」组，逐个点开渲染 + 命中各自端点；
+  映射方案读到项目真实映射（`sisyphus → deepseek/deepseek-v4.1-flash`）；
+  单测 5 条（插槽进配置与分组 / 未注册零侵入 / remotes 恢复不回落 / 扩展 id 放行 / 未知 id 仍回落）。
+- **证据**：`e55d3221`（删除清单）；`settingsSections.tsx` + `settingsSections.test.ts`；
+  `vendor/PATCHES.md #14`、`vendor/CHECKLIST.md §8`；`settings-project.ts` / `settings.ts`（后端路由）。
 
 ---
 
@@ -451,7 +445,7 @@ gjc = **`gjc acp`**（薄前端 + 常驻 broker）。
 | B6 | 知识库闭环 | 不做 | **不做** | 无 |
 | B7 | 桥接数据面窗口化 | 待裁决 | **做**（先 500/1000 行基线） | 批 2a/2b ✅ |
 | B8 | 非图片附件上行 | （本轮补列） | **做**（禁可执行 / 20MB / staging） | 批 5 |
-| B9 | 设置域缺口回填 | （本轮新增） | **做**（4 面） | 批 6 |
+| B9 | 设置域缺口回填 | （本轮新增） | **做**（4 面） | 批 6 ✅ |
 | D1 | 字号量程 | 维持 12–20 | **维持**（上游 verbatim） | 无 |
 | D2 | future adapter 命名 | 改判 | **改判**：omp（原生 ACP）/ pi（经第三方桥 pi-acp）/ gjc | 批 0 文本（已落） |
 | E1 | omp | 立项时首选 | **只备料** | 无（立项另议） |

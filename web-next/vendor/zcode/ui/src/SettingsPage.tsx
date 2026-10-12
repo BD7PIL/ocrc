@@ -74,6 +74,8 @@ import { buildPersonalCodingPlanUsageSource } from "@/lib/codingPlanUsageSources
 import { SubagentsSection } from "@/settings/SubagentsSection.js";
 import { AutomationsSection } from "@/settings/AutomationsSection.js";
 import { RemotesSection } from "@/settings/RemotesSection.js";
+// [ocrc-vendor-patch] 扩展分区注册表（B9 6a）：ocrc 域设置分区的内容由它供给。
+import { getZCodeSettingsExtraSections } from "@/settings/settingsExtraSections.js";
 import { SegmentPill } from "@/settings/PluginStoreListView.js";
 import { PluginsSection } from "@/settings/PluginsSection.js";
 import { HooksSection } from "@/settings/HooksSection.js";
@@ -1388,6 +1390,10 @@ export function SettingsPage({
     [setCodePreviewSettings],
   );
   const activeSectionMeta = settingsSections.find((section) => section.id === activeSection);
+  // [ocrc-vendor-patch] 扩展分区（B9 6a）：注册表里注册的 ocrc 域分区，内容由注册方渲染。
+  const activeExtraSection = getZCodeSettingsExtraSections().find(
+    (section) => section.id === activeSection,
+  );
   // 灰度裁决异步到达：sections 列表可能在挂载后变化（如 computerUse 区被灰度移除）。
   // 若用户正停留在被移除的 section，回落到第一个可见区，避免整页 return null。
   useEffect(() => {
@@ -1686,7 +1692,10 @@ export function SettingsPage({
                         ) : null}
                       </div>
                       <div className="space-y-8">
-                        {activeSection === "general" ? (
+                        {activeExtraSection ? (
+                          // [ocrc-vendor-patch] 扩展分区（B9 6a）：注册方渲染，不进上游分支链。
+                          <>{activeExtraSection.render({ workspacePath: activeWorkspacePath ?? null })}</>
+                        ) : activeSection === "general" ? (
                           <GeneralSectionContent
                             localePreference={localePreference}
                             interfaceMode={interfaceMode}

@@ -124,3 +124,31 @@ withGhosts 如实拒绝且文案注明真实机制=编辑 opencode.json，无静
 设置页「终端字体」行同理（功能保存正常、特征无消费者）。
 **验证**：CDP 隔离栈——rewards 不在 DOM、命令面板「终端」0 命中、设置页无新用户引导、
 技能/插件分区无同步按钮；console 零错误；对照项（终端字体行）仍在场证明探针真实打开页面。
+
+## 14. 设置页：扩展分区注册表（B9 批次 6a，2026-10-12）
+- **文件（1 新增 + 5 改动）**：
+  - `vendor/zcode/ui/src/settings/settingsExtraSections.ts` —— **ocrc 新增文件**（模块级注册表：
+    `setZCodeSettingsExtraSections` / `getZCodeSettingsExtraSections`）。⚠️ 覆盖快照会丢，
+    重放时从 git 恢复（与条目 4 的 sha256Pure.ts、条目 8 的 RemotesSection.tsx 同列保留清单）。
+  - `vendor/zcode/ui/src/settings/settingsPageConfig.ts` —— `createSettingsPageConfig` 把注册的
+    扩展分区追加进 sections（分组复用上游 groupId）。
+  - `vendor/zcode/ui/src/SettingsPage.tsx` —— 取 `activeExtraSection`；内容分支链前缀
+    `activeExtraSection ? render({workspacePath}) : 原链`。
+  - `vendor/zcode/ui/src/lib/settingsNavigation.ts` —— **守卫修复 + 扩展放行**：
+    `isSettingsSectionId` 补 `"remotes"`（N5 的漏项：union 里有、守卫里没有 → 写入可用、
+    读回被静默丢弃，「跳转意图」与「上次停留分区」双双失效），并放行注册表里的扩展分区 id。
+  - `vendor/zcode/ui/src/index.ts` —— barrel 再导出注册表（与条目 10 同款一行）。
+  - `vendor/zcode/ui/src/i18n/locales/{zh-CN,en-US}.ts` —— 4 个分区标题键
+    （`settings.ocrc{Mapping,Project,SkillSources,GlobalConfig}.title`）。
+- **原因**：上游设置页没有通用扩展点（分区硬编码 + 三元分支链 + `WorkspaceSettingsLayerProps`
+  无 children/slot/registry）。ocrc 的四个设置面（B9：模型映射方案库 / 项目 `.opencode/` 五件套 /
+  技能源注册 / 全局配置 raw 编辑——PRODUCT 第零点七条「做」清单里，rc.3 清洗后只剩后端）走
+  注册表注入：一处注册对全部 SettingsPage 实例（Root.tsx / WorkspaceSettingsLayer）生效，
+  免逐实例 prop 透传；与条目 10 的 i18n 品牌注册表同款形态。
+- **ocrc 侧**：`web-next/src/zcode/settingsSections.tsx`（4 个分区组件 + 注册调用）；
+  `web-next/src/zcode/ZCodeApp.tsx` 模块初始化时 `registerOcrcSettingsSections()`。
+- **验证**：隔离栈 CDP——设置页导航出现 4 个分区（Agent 能力组），逐个点开渲染 + 命中各自端点
+  （model-presets / project / skills-manager / opencode-config），映射方案读到项目真实映射
+  （`sisyphus → deepseek/deepseek-v4.1-flash`）；单测 5 条
+  （`web-next/src/zcode/__tests__/settingsSections.test.ts`：插槽进配置与分组、未注册零侵入、
+  remotes 恢复不再回落、扩展 id 放行、未知 id 仍回落）。

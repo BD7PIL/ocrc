@@ -6563,6 +6563,11 @@ const zhCN: Record<string, string> = {
   "workspace.openScheduledSettings": "自动化",
   "settings.automations.title": "自动化",
   "settings.remotes.title": "远程主机",
+  // ocrc fork (PATCHES #14)：设置页扩展分区标题（B9 6a）。
+  "settings.ocrcMapping.title": "模型映射方案",
+  "settings.ocrcProject.title": "项目 .opencode",
+  "settings.ocrcSkillSources.title": "技能源",
+  "settings.ocrcGlobalConfig.title": "全局配置",
   "automations.breadcrumbLabel": "自动化路径",
   "settings.automations.betaBadge": "Beta",
   "automations.noWorkspace": "打开一个工作区以管理它的定时任务。",

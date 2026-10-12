@@ -5,7 +5,7 @@
 // assembler/decoder 由此渲染真实消息。发链（sendPrompt）在 zcodeTaskService。
 
 import { conversationTopicFrameSchema, sessionsIndexTopicFrameSchema } from '@zcode/shared/zcode-protocol-v4/transport'
-import { sessionsIndexTopic } from '@zcode/shared/zcode-protocol-v4'
+import { sessionsIndexTopic, PROTOCOL_V4_LIMITS } from '@zcode/shared/zcode-protocol-v4'
 import { dropAttachmentBytes, putAttachmentBlob, releaseWebFile, resolveWebFile, takeAttachmentBytes, toBase64 } from './webAttachments.js'
 import {
   projectGoal, projectGoalAvailability, type GoalProjection, type OcrcGoalRecord,
@@ -42,10 +42,13 @@ interface OcrcCard {
   questions?: Array<{ question: string; header?: string; options?: Array<{ label: string; description?: string }>; multiple?: boolean; custom?: boolean }>
 }
 
-async function ocrcHistory(taskId: string): Promise<OcrcCard[]> {
+const HISTORY_PAGE = 200
+
+async function ocrcHistory(taskId: string, offset = 0): Promise<OcrcCard[]> {
   let res: Response
   try {
-    res = await fetch(`/api/session/${taskId}?limit=200`, {
+    const q = offset > 0 ? `?limit=${HISTORY_PAGE}&offset=${offset}` : `?limit=${HISTORY_PAGE}`
+    res = await fetch(`/api/session/${taskId}${q}`, {
       headers: { Authorization: `Bearer ${token()}` },
     })
   } catch (e) {
@@ -57,6 +60,56 @@ async function ocrcHistory(taskId: string): Promise<OcrcCard[]> {
   hostConn.restOk()
   if (!res.ok) return []
   return ((await res.json()) as { cards: OcrcCard[] }).cards ?? []
+}
+
+// ── B7 历史窗口：最新页 + 更早页（offset 翻页）─────────────────────────
+// 服务端窗口语义 = `[len-limit-offset, len-offset)`（core/history.ts
+// cardsFromMessages）：offset=0 是最新一页，offset 增大向更早翻页。桥接按此维护
+// 「已加载窗口」：recent = 最新页（live 刷新只换它）；older = 前插的更早页
+// （数组越靠前越老）。exhausted/hasOlderOnLoad 决定 vendor「加载更早」是否还有货。
+interface HistoryWindow {
+  older: OcrcCard[]
+  recent: OcrcCard[]
+  /** 下一个更早页的 message offset（200, 400, …）。 */
+  nextOlderOffset: number
+  /** 引擎侧已确认没有更早消息。 */
+  exhausted: boolean
+  /** 最近一次取最新页时是否满页（满页 ⇒ 更早消息可能存在）。 */
+  hasOlderOnLoad: boolean
+}
+const historyWindows = new Map<string, HistoryWindow>()
+const HISTORY_WINDOW_MAX_SESSIONS = 50
+
+/** 取/刷新窗口。refresh=true 只换最新页（已加载的更早页保留）；网络失败如实抛（P5）。 */
+async function historyWindowFor(sessionId: string, refresh: boolean): Promise<HistoryWindow> {
+  const existing = historyWindows.get(sessionId)
+  if (existing && !refresh) return existing
+  const cards = await ocrcHistory(sessionId)
+  const w: HistoryWindow = existing ?? { older: [], recent: [], nextOlderOffset: HISTORY_PAGE, exhausted: false, hasOlderOnLoad: false }
+  w.recent = cards
+  // 满页启发与服务端同源（cards.length >= limit ⇒ 更早可能存在，宁可多要一页空页）。
+  w.hasOlderOnLoad = cards.length >= HISTORY_PAGE
+  if (!w.hasOlderOnLoad && w.older.length === 0) w.exhausted = true
+  if (!historyWindows.has(sessionId) && historyWindows.size >= HISTORY_WINDOW_MAX_SESSIONS) historyWindows.clear()
+  historyWindows.set(sessionId, w)
+  return w
+}
+
+/** 还有未加载的更早行吗（快照 firstRowId 与 rowsRange hasMore 共用同一判据）。 */
+function windowHasOlder(w: HistoryWindow): boolean {
+  if (w.exhausted) return false
+  return w.older.length > 0 ? true : w.hasOlderOnLoad
+}
+
+function windowCards(w: HistoryWindow): OcrcCard[] {
+  return [...w.older, ...w.recent]
+}
+
+/** 全窗口建行：更早页在前；turn 号从 `TURN_BASE - 更早页回合数` 起，
+ *  更早页的行取向下 id 空间（见 buildRows / rowIdFor 契约）。 */
+function buildWindowRows(sessionId: string, w: HistoryWindow, goalArg?: GoalUi): any[] {
+  const olderUserCount = w.older.reduce((n, c) => n + (c.kind === 'user' ? 1 : 0), 0)
+  return buildRows(sessionId, windowCards(w), goalArg, { turnStart: TURN_BASE - olderUserCount, olderCardCount: w.older.length })
 }
 
 // 状态面板（PlanHud）的两块数据：ocrc 早就有 REST 面（/todo、/subagents），
@@ -216,7 +269,7 @@ const MAX_TOOL_OUTPUT_CHARS = 50_000
  *  事件流不带 state.output（引擎只在 REST 上给），所以工具卡要显示"做了什么"
  *  必须回取一次原始消息。按 messageId 缓存，避免每轮重复拉。 */
 interface OcrcToolPart { id?: string; tool?: string; state?: { status?: string; input?: unknown; output?: unknown; metadata?: unknown; title?: string } }
-const rawMessageCache = new Map<string, { parts: Map<string, OcrcToolPart>; at: number }>()
+const rawMessageCache = new Map<string, { parts: Map<string, OcrcToolPart>; at: number; terminal: boolean }>()
 /** 长缓存：定稿工具结果不变，只有流式中的还在变。60s + 条目上限（越过即全清——
  *  会话热路径上 Map 只增不减曾是泄漏点）。 */
 const RAW_CACHE_TTL_MS = 60_000
@@ -225,7 +278,7 @@ const RAW_CACHE_MAX_ENTRIES = 64
 async function rawToolParts(sessionId: string, messageId: string): Promise<Map<string, OcrcToolPart>> {
   const key = `${sessionId}:${messageId}`
   const hit = rawMessageCache.get(key)
-  if (hit && Date.now() - hit.at < RAW_CACHE_TTL_MS) return hit.parts
+  if (hit && (hit.terminal || Date.now() - hit.at < RAW_CACHE_TTL_MS)) return hit.parts
   const byId = new Map<string, OcrcToolPart>()
   try {
     const res = await fetch(`/api/session/${sessionId}/message/${messageId}`, {
@@ -238,7 +291,14 @@ async function rawToolParts(sessionId: string, messageId: string): Promise<Map<s
       }
     }
   } catch { /* 拿不到就退化成无输出的卡片，不影响行渲染 */ }
-  rawMessageCache.set(key, { parts: byId, at: Date.now() })
+  // E4/B7：终态缓存——消息里所有工具 part 都到终态（completed/error）后，内容不会再变，
+  // 该条缓存永不失效（TTL 只用来兜住 running 中的工具输出）。此前 60s TTL 让流式期
+  // 每个去抖窗都可能对已完成的工具消息重新回查（E4 的 5s/60s 重查风暴）。
+  const terminal = byId.size > 0 && [...byId.values()].every((p) => {
+    const s = p.state?.status
+    return s === 'completed' || s === 'error' || s === 'done'
+  })
+  rawMessageCache.set(key, { parts: byId, at: Date.now(), terminal })
   if (rawMessageCache.size > RAW_CACHE_MAX_ENTRIES) rawMessageCache.clear()
   return byId
 }
@@ -289,7 +349,7 @@ async function enrichToolRows(rows: any[], sessionId: string): Promise<void> {
   let fetchBudget = ENRICH_FETCH_BUDGET
   for (const [messageId, messageRows] of byMessage) {
     const cached = rawMessageCache.get(`${sessionId}:${messageId}`)
-    const fresh = cached && Date.now() - cached.at < RAW_CACHE_TTL_MS
+    const fresh = cached && (cached.terminal || Date.now() - cached.at < RAW_CACHE_TTL_MS)
     if (!fresh && fetchBudget <= 0) {
       // 预算耗尽：本窗跳过（行保持 __messageId 不删，下窗重试），只拆内部字段。
       for (const row of messageRows) { delete row.__messageId; delete row.__partId }
@@ -312,21 +372,44 @@ async function enrichToolRows(rows: any[], sessionId: string): Promise<void> {
   }
 }
 
-// ── N9-1 行身份内容寻址 ─────────────────────────────────────────────
-// rowId 从前的语义是「扁平列表里的位置序号」：任何中间插入（流式中块增长、
-// 工具行后新出文本行）都会让后续所有行 rowId 位移，vendor 按 rowId 键控的
-// upsert 把它们当「删+增」，这正是重复渲染的机制。改为**内容寻址**：rowId =
-// 稳定身份（卡片 messageId + 块 partId/kind 序）的确定性哈希，新内容才拿新
-// rowId，流式增长只 upsert 末行。哈希取 FNV-1a 32 位再乘位宽展开——同会话内
-// 碰撞概率可忽略；全序仍由数组顺序承载，rowId 只作身份键。
-function stableRowId(identity: string): number {
-  let h = 0x811c9dc5
-  for (let i = 0; i < identity.length; i++) {
-    h ^= identity.charCodeAt(i)
-    h = Math.imul(h, 0x01000193)
+// ── 行身份：内容寻址（N9-1）+ 单调 id 空间（B7）──────────────────────
+// N9-1：rowId 曾是「扁平列表里的位置序号」，中间插入一行会让后续 rowId 位移，
+// vendor 按 rowId 键控 upsert → 同一内容被当「删+增」重复渲染。改为**内容寻址**：
+// 身份 = 卡片 messageId + 块 partId/kind 序，同内容恒得同一身份。
+// B7：但 vendor 的 range/merge 语义按**数值**比较 rowId（hasOlderRows:
+// window[0].rowId > firstRowId；mergeOlderRows / loadAllOlder / apply 的
+// row.removed 都是 filter rowId < 游标），它要求 rowId 随行序单调。纯哈希满足
+// 身份稳定却破坏了单调——实测后果：桥接的 firstRowId 恒等于窗口首行 →
+// hasOlderRows 恒假 → 「加载更早」按钮永不出现、更早历史不可达。
+// 现在两者兼得：内容身份 → **单调 id**（每会话一个 id 空间）：
+//   · 尾部新行从 BASE 递增（追加/流式增长不位移旧行 → N9-1 修复保持）；
+//   · 更早页（loadOlder 前插）从 BASE 递减 → 数值上严格小于窗口首行。
+// 身份 → id 记忆化：同会话重建幂等；vendor 的数值比较与去重键同时成立。
+const ROW_ID_BASE = 0x10000000
+/** turn 号基准：更早页前插要占更小的 turn 号（vendor 只把 turnId 当聚合键，
+ *  不解析数字——已核实无 parseInt/match(/turn/)）。取 100 万留足前插空间。 */
+const TURN_BASE = 1_000_000
+interface RowIdSpace { byKey: Map<string, number>; nextTail: number; nextHead: number }
+const rowIdSpaces = new Map<string, RowIdSpace>()
+const ROW_ID_SPACE_MAX_SESSIONS = 50
+
+function rowIdSpace(sessionId: string): RowIdSpace {
+  let space = rowIdSpaces.get(sessionId)
+  if (!space) {
+    space = { byKey: new Map(), nextTail: ROW_ID_BASE, nextHead: ROW_ID_BASE - 1 }
+    if (rowIdSpaces.size >= ROW_ID_SPACE_MAX_SESSIONS) rowIdSpaces.clear()
+    rowIdSpaces.set(sessionId, space)
   }
-  // 32 位无符号 → 正 int31（vendor rowId: z.number()；非负 int 才能进 range API）。
-  return h >>> 1
+  return space
+}
+
+function rowIdFor(sessionId: string, identity: string, older: boolean): number {
+  const space = rowIdSpace(sessionId)
+  const hit = space.byKey.get(identity)
+  if (hit !== undefined) return hit
+  const id = older ? space.nextHead-- : space.nextTail++
+  space.byKey.set(identity, id)
+  return id
 }
 
 /** 内容寻址 rowId 的身份串：卡片 messageId（缺省退 ts+kind——旧引擎消息无 id 时的
@@ -486,9 +569,9 @@ function isGoalContinuationCard(c: OcrcCard): boolean {
 
 /** goalVerify marker 行。rowId 按 (targetId, iteration) 键控：running 与终态同 id，
  *  终态 upsert 覆盖 running —— 与 vendor 的 lifecycleKey upsert 同构。 */
-function goalVerifyRows(goal: GoalProjection, verifying: boolean): Array<{ iteration: number; row: any }> {
+function goalVerifyRows(sessionId: string, goal: GoalProjection, verifying: boolean): Array<{ iteration: number; row: any }> {
   const mk = (iteration: number, outcome: string, detail?: string) => ({
-    rowId: stableRowId(`goalVerify|${goal.targetId}|${iteration}`),
+    rowId: rowIdFor(sessionId, `goalVerify|${goal.targetId}|${iteration}`, false),
     entityId: `goalVerify:${goal.targetId}:${iteration}`,
     createdAt: goal.verifications.find((v) => v.iteration === iteration)?.at ?? Date.now(),
     kind: 'timelineMarker',
@@ -502,9 +585,13 @@ function goalVerifyRows(goal: GoalProjection, verifying: boolean): Array<{ itera
   return out
 }
 
-function buildRows(cards: OcrcCard[], goalArg?: GoalUi): any[] {
+function buildRows(sessionId: string, cards: OcrcCard[], goalArg?: GoalUi, opts?: { turnStart?: number; olderCardCount?: number }): any[] {
   const rows: any[] = []
-  let turn = 0
+  const olderCardCount = opts?.olderCardCount ?? 0
+  let turn = (opts?.turnStart ?? TURN_BASE) - 1
+  // 更早页前插：该卡区间内的行取「向下」的 id（数值上小于窗口首行），
+  // 现有行身份/id 全部不变（见 rowIdFor 的契约）。
+  let cardOlder = false
   // 续跑轮的起始行下标（第 k 个续跑轮 → continuationStarts[k-1]）：冷启动时用它
   // 把第 N 轮的验收 marker 钉在「第 N+1 轮开始之前」，即第 N 轮的轮尾。
   const continuationStarts: number[] = []
@@ -513,7 +600,7 @@ function buildRows(cards: OcrcCard[], goalArg?: GoalUi): any[] {
   // rowId 由内容身份派生（见 stableRowId）；turnId 维持 `turn-N` 计数——vendor 用它
   // 作 turn 聚合键，不解析数字。
   const base = (ts: number, identity: string, kindTag: string, entityId?: string) => ({
-    rowId: stableRowId(`${identity}|${kindTag}`),
+    rowId: rowIdFor(sessionId, `${identity}|${kindTag}`, cardOlder),
     turnId: `turn-${turn}`,
     ...(turn > 0 ? { productTurnId: `turn-${turn}` } : {}),
     ...(entityId ? { entityId } : {}),
@@ -524,6 +611,7 @@ function buildRows(cards: OcrcCard[], goalArg?: GoalUi): any[] {
   for (let ci = 0; ci < cards.length; ci++) {
     const c = cards[ci]!
     const ts = c.ts ?? 0
+    cardOlder = ci < olderCardCount
     // 块身份按 kind 计数（卡内第 n 个 text/reasoning/tool），不用扁单位序——
     // 否则定稿补插的 thinking 行会把后续 text 块身份挤位，重演 rowId 位移。
     let textI = 0
@@ -606,17 +694,17 @@ function buildRows(cards: OcrcCard[], goalArg?: GoalUi): any[] {
       }
     }
   }
-  insertGoalVerifyRows(rows, continuationStarts, goalArg)
+  insertGoalVerifyRows(sessionId, rows, continuationStarts, goalArg)
   return rows
 }
 
 /** 把 goalVerify marker 行插到各自轮尾。锚点优先级：① 实时锚（ws goal 帧到达时
  *  记的行尾）；② 冷启动回落（第 N+1 个续跑轮起始行的前一行）；③ 都无 → 落尾。
  *  锚点行的 turnId/createdAtSeq 复制给 marker，让它与所在轮同组、时序单调。 */
-function insertGoalVerifyRows(rows: any[], continuationStarts: number[], goalArg?: GoalUi): void {
+function insertGoalVerifyRows(sessionId: string, rows: any[], continuationStarts: number[], goalArg?: GoalUi): void {
   if (!goalArg?.goal) return
   const projected = projectGoal(goalArg.goal, goalArg.verifying, goalArg.anchors)
-  const markers = goalVerifyRows(projected, goalArg.verifying)
+  const markers = goalVerifyRows(sessionId, projected, goalArg.verifying)
   if (!markers.length) return
   const anchorOf = (iteration: number): number | undefined => {
     const live = goalArg.anchors.get(iteration)
@@ -739,12 +827,14 @@ async function contextWindowOf(sessionId: string): Promise<{ usedTokens: number;
 }
 
 async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
-  const [sessionTitle, cards, providers, overrides] = await Promise.all([
+  // B7：历史取数走窗口（最新页 + 已加载的更早页），live 只刷新最新页。
+  const window_ = await historyWindowFor(taskId, true)
+  const cards = windowCards(window_)
+  const [sessionTitle, providers, overrides] = await Promise.all([
     fetch('/api/sessions', { headers: { Authorization: `Bearer ${token()}` } })
       .then((r) => (r.ok ? (r.json() as Promise<Array<{ id: string; title?: string }>>) : []))
       .then((list) => list.find((x) => x.id === taskId)?.title ?? '')
       .catch(() => ''),
-    ocrcHistory(taskId),
     fetch('/api/models', { headers: { Authorization: `Bearer ${token()}` } })
       .then((r) => r.json() as Promise<Array<{ id: string; models: Array<{ id: string; name?: string; variants?: string[] }> }>>)
       .catch(() => [] as Array<{ id: string; models: Array<{ id: string; name?: string; variants?: string[] }> }>),
@@ -763,7 +853,7 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
     contextWindowOf(taskId),
   ])
 
-  const rows = buildRows(cards, goalUiState)
+  const rows = buildWindowRows(taskId, window_, goalUiState)
   // P4-1b: this session's workflow runs, resolved against the rows we just built. Both
   // this and the background-work collection must happen BEFORE enrichToolRows — the card
   // join needs the tool rows' `toolCallId` + message id, and enrichment strips those
@@ -773,6 +863,11 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
   await attachWorkflowDisplays(rows, workflowRuns, taskId)
   await enrichToolRows(rows, taskId)
   const seq = rows.length
+  // 快照只带尾部窗口（vendor 常量 60 行，上游同款语义）；更早的行由 loadOlder
+  // → rows/range 按 offset 翻页取回。是否还有更早行 = 窗口未耗尽 或 已加载行数
+  // 超过尾窗（后者必然意味着窗口首行不是分支首行）。
+  const tailRows = rows.slice(-PROTOCOL_V4_LIMITS.snapshotTailWindowRows)
+  const hasOlderRowsInSession = windowHasOlder(window_) || rows.length > tailRows.length
   const snapshot = {
     protocolVersion: 1,
     sessionId: taskId,
@@ -806,7 +901,15 @@ async function buildSnapshotPayload(taskId: string): Promise<SnapshotBuild> {
     goal: goalUiState.goal ? projectGoal(goalUiState.goal, goalUiState.verifying, goalUiState.anchors) : null,
     plan,
     ...(subagents ? { subagents } : {}),
-    rows: { window: rows, totalCount: rows.length, firstRowId: rows[0]?.rowId ?? null },
+    rows: {
+      window: tailRows,
+      // totalCount = 已加载行数（更早消息尚未加载，如实只报已知量）。
+      totalCount: rows.length,
+      // firstRowId = **分支首行**（不是窗口首行）：vendor 的 hasOlderRows 判据是
+      // `window[0].rowId > firstRowId`。更早行的真值在未加载时不可知，用 0 作下界
+      // 哨兵（id 空间自 0x10000000 起，0 严格小于任何真实行 id）。
+      firstRowId: hasOlderRowsInSession ? 0 : (tailRows[0]?.rowId ?? null),
+    },
   }
   return { snapshot, seq, rows }
 }
@@ -1113,9 +1216,15 @@ async function liveUpdate(sessionId: string): Promise<void> {
   const subs = [...subscriptions.entries()].filter(([, s]) => s.sessionId === sessionId)
   const prevRows = lastRowsBySession.get(sessionId)
   if (!subs.length || !prevRows) return
-  const cards = await ocrcHistory(sessionId).catch(() => null)
-  if (!cards) return
-  const nextRows = buildRows(cards, goalUi(sessionId))
+  // B7：live 只刷新最新页（已加载的更早页保留在窗口里），建行走全窗口。
+  let window_: HistoryWindow
+  try {
+    window_ = await historyWindowFor(sessionId, true)
+  } catch {
+    return
+  }
+  const cards = windowCards(window_)
+  const nextRows = buildWindowRows(sessionId, window_, goalUi(sessionId))
   // The display is a pure function of the script, so a row rebuilt live gets it from the
   // cache — but a run started since the last snapshot needs the fetch to happen here too,
   // or its card would only gain its picture on the next full snapshot.
@@ -1173,6 +1282,8 @@ function liveUnwatch(sessionId: string): void {
   watchedSessions.delete(sessionId)
   lastRowsBySession.delete(sessionId)
   lastInteractionsBySession.delete(sessionId)
+  // 窗口（含已加载的更早页）随退订丢弃；id 空间保留，重进同一会话时行身份不变。
+  historyWindows.delete(sessionId)
   if (liveWs?.readyState === WebSocket.OPEN) {
     try { liveWs.send(JSON.stringify({ type: 'unsubscribe', sessionId })) } catch { /* noop */ }
   }
@@ -1414,23 +1525,57 @@ export function createOcrcZcodeAgentService(): any {
       void emitConversationSnapshot(sub.sessionId, sub.topic, subId, 'recovery')
       return { ack: { subscriptionId: subId, mode: 'snapshot', logEpoch: 'ocrc-1' } }
     },
-    // 「加载更早」：store 以窗口首行 rowId 作游标向更早分页。行号由 buildRows 从
-    // 完整历史顺序生成，只要历史不变就稳定（新消息只往尾部追加）——所以按
-    // rowId < beforeRowId 取尾部 limit 行即可，无需服务端游标。
+    // 「加载更早」：store 以窗口首行 rowId 作游标向更早分页。B7 起按服务端
+    // offset 语义真翻页（[len-limit-offset, len-offset)）：已加载窗口里够不够
+    // 一页就先切；不够则向引擎再要一页更早消息前插，直到凑够或确认耗尽。
+    // 行 id 单调（见 rowIdFor），所以游标用位置查（findIndex）而不是数值过滤——
+    // 数值过滤在内容寻址空间下会错切。
     async conversationRowsRangeV4(params: { sessionId: string; beforeRowId?: number; limit: number }) {
-      const cards = await ocrcHistory(params.sessionId)
-      const rows = buildRows(cards)
-      await enrichToolRows(rows, params.sessionId)
-      const before = params.beforeRowId
-      const earlier = before === undefined ? rows : rows.filter((r) => r.rowId < before)
-      const page = earlier.slice(Math.max(0, earlier.length - Math.max(1, params.limit)))
+      const sessionId = params.sessionId
+      const limit = Math.max(1, Math.min(PROTOCOL_V4_LIMITS.rowsRangeMaxLimit, params.limit || PROTOCOL_V4_LIMITS.snapshotTailWindowRows))
+      const w = await historyWindowFor(sessionId, false)
+      let rows = buildWindowRows(sessionId, w)
+      await enrichToolRows(rows, sessionId)
+      const cursorAt = (): number => {
+        const before = params.beforeRowId
+        if (before === undefined) return rows.length
+        const exact = rows.findIndex((r) => r.rowId === before)
+        // 单调 id：游标行不在（被逐出）时取第一个 ≥ 游标的行作位置边界。
+        return exact !== -1 ? exact : rows.findIndex((r) => r.rowId >= before)
+      }
+      let idx = cursorAt()
+      if (idx === -1) idx = 0
+      // 更早页按需前插：最多 5 页（1000 条消息）防单次调用失控。
+      for (let round = 0; round < 5 && idx < limit && !w.exhausted; round++) {
+        const page = await ocrcHistory(sessionId, w.nextOlderOffset).catch(() => null)
+        if (!page || page.length === 0) {
+          w.exhausted = true
+          break
+        }
+        w.nextOlderOffset += HISTORY_PAGE
+        if (page.length < HISTORY_PAGE) w.exhausted = true
+        // 发号（干跑、**逆序**）：更早页在数组序上 id 必须递增——vendor 的
+        // mergeOlderRows/裁剪按 `rowId < 窗口首行` 做数值过滤，页内乱序会丢行。
+        // 逆序建一遍只为把该页身份的 id 发下去（id 空间记忆化，随后的全窗口重建直接复用）。
+        buildRows(sessionId, [...page].reverse(), undefined, { olderCardCount: page.length, turnStart: TURN_BASE - 1 })
+        w.older = [...page, ...w.older]
+        rows = buildWindowRows(sessionId, w)
+        await enrichToolRows(rows, sessionId)
+        idx = cursorAt()
+        if (idx === -1) idx = 0
+      }
+      const start = Math.max(0, idx - limit)
+      const page = rows.slice(start, idx)
+      // 前插改变了桥接侧的行基线：同步给 live diff 的基线，否则下一 tick 的
+      // 前缀失配会退化成全量快照（把刚加载的更早行从 vendor 窗口里冲掉）。
+      lastRowsBySession.set(sessionId, rows)
       return {
         rows: page,
         atSeq: rows.length,
         atRevision: 1,
         atLogEpoch: 'ocrc-1',
-        // 还有更早的行 = 本次没取到的部分非空
-        hasMore: earlier.length > page.length,
+        // 还有更早的行 = 本次窗口内没切到的部分非空 或 引擎侧还没翻到尽头
+        hasMore: start > 0 || windowHasOlder(w),
       }
     },
     // 计划目录（状态面板「计划」区 + 计划详情侧页的目录源）。vendor 的
@@ -1438,8 +1583,9 @@ export function createOcrcZcodeAgentService(): any {
     // （最新优先），atLogEpoch 必须与快照一致（store 用它对账，不匹配整体丢弃）。
     // 数据与时间线计划卡同源——同一份 buildRows 结果过滤，不另开一条取数路径。
     async conversationPlansV4(params: { sessionId: string }) {
-      const cards = await ocrcHistory(params.sessionId)
-      const rows = buildRows(cards)
+      // refresh：计划目录要读当前历史（旧实现每次现取），不能吃已加载窗口的旧快照。
+      const window_ = await historyWindowFor(params.sessionId, true)
+      const rows = buildWindowRows(params.sessionId, window_)
       const plans = rows
         .filter((r) => r.kind === 'toolCall' && r.toolName === 'ExitPlanMode' &&
           (r.status === 'success' || r.status === 'error' || r.status === 'cancelled'))

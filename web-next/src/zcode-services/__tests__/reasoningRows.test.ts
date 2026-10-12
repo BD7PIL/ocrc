@@ -69,7 +69,10 @@ describe('行的 canonical 身份', () => {
       { kind: 'assistant', ts: 4, blocks: [{ type: 'text', text: '答二' }] },
     ])
     const turnIds = rows.map((r) => r.productTurnId).filter(Boolean)
-    expect(new Set(turnIds)).toEqual(new Set(['turn-1', 'turn-2']))
+    // B7 起 turn 号带基准偏移（TURN_BASE=1000000，给「加载更早」前插的更早页留出
+    // 更小的号段）；契约是「每轮一个唯一键、每行都带键」，不是字面编号。
+    expect(new Set(turnIds).size).toBe(2)
+    expect(turnIds.every((id) => /^turn-\d+$/.test(String(id)))).toBe(true)
     // 每一行都属于某个产品轮次（UI 按 row.productTurnId 建可分享轮次映射）
     expect(rows.every((r) => typeof r.productTurnId === 'string' && r.productTurnId.length > 0)).toBe(true)
   })

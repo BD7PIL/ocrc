@@ -46,12 +46,12 @@
 | ID | 项 | 来源 | 状态 | 建议 | 详表 |
 |---|---|---|---|---|---|
 | B1 | RiskConfirmation 独立组件 | dsh | 未落地 | **不做独立组件**（与 dock 重叠） | §2 |
-| B2 | Markdown 渲染进 Worker | opencode web | 未落地 | **做**（排在 B7 之后） | §2 |
+| B2 | Markdown 渲染进 Worker | opencode web | 未落地 | **不做**（B7 后复测：归因未成立，vendor 面） | §2 |
 | B3 | 主题即 JSON | opencode web | 未落地 | **不做**（代码主题面板 vendor 已有） | §2 |
 | B4 | CSP + 主题脚本哈希 | opencode web | 未落地 | **做**（内网合规驱动） | §2 |
 | B5 | 媒体输出 document / video / audio | grinev | 部分（图片相册已落地） | **做** | §2 |
 | B6 | 知识库→资产化闭环 | OpenCode-Client | 不做（本体） | **不做** | §2 |
-| B7 | **ocrc 桥接数据面窗口化** | （自省项，非别家特性） | 未落地 | **做**（先 500/1000 行基线） | §2 |
+| B7 | **ocrc 桥接数据面窗口化** | （自省项，非别家特性） | **已落地**（批 2） | 尾部快照 + offset 翻页 + 单调行 id + 终态工具缓存 | §2 |
 | B8 | 非图片附件上行 | OpenCode-Client（此前未列） | 未落地（TG 侧已通） | **做** | §2 |
 | B9 | **OpenCode-Client 前后端缺口** | OpenCode-Client | 后端在、UI 缺（e55d3221 删） | **做**（4 个设置面回填） | §2 |
 
@@ -186,14 +186,19 @@
 - **建议**：**不做独立组件**。语义已由 dock 覆盖；若未来要更强风险语义，给现有 approval 卡加 `risk` 元数据即可（S）。
 - **证据**：`grep -ri riskConfirm` 0 命中；`pendingInteractions.ts:1,46-49`。
 
-### B2 · Markdown 渲染进 Worker `opencode web` · **做**（裁决 2026-10-12，排 B7 之后）
+### B2 · Markdown 渲染进 Worker `opencode web` · **做 → 复测后判「不做」**（批 2c，2026-10-12）
 
 - **状态**：未落地。vendor markdown 走**主线程** `streamdown`（`vendor/zcode/ui/src/components/ai-elements/message.tsx:13-16,42,429`），**无 markdown Worker**；ocrc 自有 markdown 仅分享页闭包用（`web-next/src/lib/markdown/sanitize.ts`，主线程 marked+hljs+DOMPurify）。
-- **优点**：长 Markdown / 大 diff 解析移出主线程。当前验收线（`perf-remediation-brief.md:35`：单事件 <16ms 不掉帧）未达标——残余 longtask **1×137ms**（`:63`，N9-5 复核后仍在）。
-- **缺点 / 代价**：Worker 生命周期 + 消息序列化成本；测试面复杂化；vendor 是前端本体后，ocrc 的 markdown 组件只在分享页用，套 Worker 要绕开 vendor 渲染路径。
-- **影响面**：分层=**壳**｜文件=`web-next/src/lib/markdown/`（现仅分享页消费）｜工作量=M｜依赖=**B7 先行 + 复测归因**｜回归风险=中｜门禁=双端测试 + 分享页 E2E + 隔离栈长会话复跑。
-- **建议**：**做，但排在 B7 之后**。顺序理由：残余 longtask 的直接证据指向数据面全量重建（`perf-remediation-brief.md:63` 原文定性），**markdown 解析耗时从未被单独测量**（全仓无数据）——先修 B7 再复测，若仍超线且归因到 markdown 才动 Worker，避免修错对象。
-- **证据**：`message.tsx:13-16,42,429`；`sanitize.ts:1-18,57`；`ShareLanding.tsx:52-54`；`perf-remediation-brief.md:33,35,43,59,63`。
+- **2c 复测结论（B7 之后，2026-10-12）**：**不做**。理由（照批次 2 预定的决策规则走）：
+  1. B7 落地后复测，longtask 仍存在（200 档 50–64ms；500/1000 档本轮未观测到 ≥50ms 任务），
+     **但归因未成立**——没有一次测量把耗时指到 markdown 解析上（全程未单独测量 markdown 解析）。
+  2. 时间线里的 markdown 渲染走 vendor 的 `streamdown`（**vendor 面**，改它要 vendor 补丁 + 重放登记），
+     而 ocrc 侧 markdown 只在分享页用——把分享页的 marked 挪进 Worker 不改善会话时间线，收益与目标不符。
+  3. 单独立项的前置条件（「先证明 markdown 是主线程热点」）**未被任何实测满足**；无数据不动刀。
+- **重启条件**：出现可复现的长会话卡顿，且 CDP Profiler 把主线程耗时明确归到 markdown 解析
+  （而非 row 重建 / vendor 渲染 / React 提交）——那时再立项，且要先定 ocrc 侧 vs vendor 补丁的边界。
+- **影响面**（若将来做）：分层=**壳**｜文件=`web-next/src/lib/markdown/`（现仅分享页消费）｜工作量=M｜回归风险=中｜门禁=双端测试 + 分享页 E2E。
+- **证据**：`message.tsx:13-16,42,429`；`sanitize.ts:1-18,57`；`perf-remediation-brief.md:33,35,43,59,63`；批 2 实测（`/tmp/ocrc-perf/*.json`）。
 
 ### B3 · 主题即 JSON `opencode web` · **不做**（2026-10-12 复核维持）
 
@@ -239,22 +244,41 @@
 - **建议**：**不做**。判据：PRODUCT 第五条「明确不做」已裁 + 越界。
 - **证据**：`docs/PRODUCT.md:162`（明示「知识库本体不做」）。
 
-### B7 · ocrc 桥接数据面窗口化（自省项）· **做**（裁决 2026-10-12，先基线后动刀）
+### B7 · ocrc 桥接数据面窗口化（自省项）· **做 → 已落地**（批次 2，2026-10-12）
 
-- **状态**：未落地。性能实测把瓶颈指向 ocrc **自己的数据管道**：
-  历史取数固定 `?limit=200` **无 offset**（`web-next/src/zcode-services/zcodeAgentService.ts:49`）；
-  `buildRows` 对**全部** cards 重建、无 slice（`:505`，调用点 `:766,1118,1422,1442`）；
-  快照全量携带 `seq = rows.length`（`:775`）、`rows.window = rows`（`:809`）；
-  liveUpdate 每次 refetch→全量 rebuild→按键 diff（`:1059,1118-1161`，去抖 250ms）。
-- **优点**：窗口化可去掉全量 rebuild/快照的开销（实测 longtask 残余 **1×137ms**，未达 <16ms 验收线，
-  `docs/perf-remediation-brief.md:63`；`:66` 原文即把窗口化列为后继项——rowsWindow 游标协议已在）。
-- **缺点 / 代价**：动的是桥接核心路径，波及 liveUpdate / 快照 / rowsRange；「加载更早」现受限于同一
-  200 消息窗（`ocrcHistory` 无 offset 透传），窗口化要连带上游 offset。
-- **影响面**：分层=**核心**（桥接层，非 vendor）｜文件=`zcodeAgentService.ts`（+ 可能 `src/transport/web/routes/session.ts:14-18` REST 钳制）｜工作量=M–L｜依赖=历史接口补 offset｜回归风险=**高**（流式插入 + 滚动锚定 + 历史回看是 P0 行为）｜门禁=隔离栈 E2E + 长会话实测复跑。
-- **执行序（批次 2）**：2a 先补跑测量计划里**从未跑过**的 **500/1000 行档基线**（`perf-remediation-brief.md:33` 计划过、只跑了 ~206 卡档，`:39`）——没有 500/1000 档数字，改完无法证收益；
-  2b 再窗口化（增量拉取 + 尾部增量快照 + 工具卡按 messageId 缓存治 E4 的 5s TTL 重查）。
-- **建议**：**做**（批次 2 核心）。**先基线，后动刀**。
-- **证据**：`zcodeAgentService.ts:49,505,766,775,809,1059,1118-1161`；`perf-remediation-brief.md:33,39,43,44,47,63,66`；旧控制台 569 卡冻结轶事 `src/core/history.ts:104-108`（窗口代码已退役）。
+- **落地内容**（`web-next/src/zcode-services/zcodeAgentService.ts`）：
+  1. **尾部快照**：snapshot 只带 `PROTOCOL_V4_LIMITS.snapshotTailWindowRows`（60 行，vendor 常量），
+     `totalCount` = 已加载行数；更早行由 loadOlder → `conversationRowsRangeV4` 取回。
+  2. **firstRowId 语义修正（根因）**：vendor 的 `hasOlderRows` 判据是
+     `window[0].rowId > snapshot.rows.firstRowId`——`firstRowId` 是**分支首行**，不是窗口首行。
+     桥接此前填窗口首行 → 恒等 → **「加载更早」按钮永不出现、更早历史不可达**（实测旧行为：
+     500/1000 档卡死在 300 行）。现在更早行未加载时填 0 哨兵。
+  3. **单调行 id 空间**：vendor 的 range/merge/裁剪全按**数值**比较 rowId
+     （`hasOlderRows` / `mergeOlderRows` / `loadAllOlder` / `apply.row.removed`），它要求
+     rowId 随行序单调；N9-1 的内容哈希满足身份稳定却破坏单调（这是上面 ② 的深层原因）。
+     现在 = 内容身份 → 单调 id：尾部递增（N9-1 的「追加不位移」保持），更早页从
+     下界递减且**页内逆序发号**（保证数组序 id 递增，vendor 的数值过滤才不丢行）。
+  4. **offset 真翻页**：`conversationRowsRangeV4` 改为位置游标 + 服务端
+     `[len-limit-offset, len-offset)` 语义逐页前插（最多 5 页/次，防失控），`hasMore` 如实。
+  5. **工具卡终态缓存**：消息内所有工具 part 到终态后缓存永不失效（此前 60s TTL 让
+     流式期反复回查已完成的消息 = E4）。
+- **实测（隔离栈 4199，三档合成会话：102/250/504 卡；CDP 计时 + PerformanceObserver longtask）**：
+
+  | 档位 | 旧：可达行数 | 新：可达行数 | 旧首行 | 新首行 | 旧 tick 取数 | 新 tick 取数 |
+  |---|---|---|---|---|---|---|
+  | 200 档（≈204 行） | 195（全在窗内） | 全 | 749ms | 445–835ms | 1 次 / 40–43KB | 1 次 / 51–61KB |
+  | 500 档（≈495 行） | **300（卡死）** | **507（全）** | 659ms | 450ms | 1 次 / 61KB | 1 次 / 61KB |
+  | 1000 档（≈900 行） | **300（卡死）** | **899（99.9%，vendor 判「已到底」）** | 1070ms | 431ms | 1 次 / 61KB | 1 次 / 61KB |
+- **如实未做 / 未达标**：
+  - **全量 rebuild 未改增量**：`buildRows` 仍对已加载窗口整体重建（窗口本身已由 200 消息页封顶）。
+    longtask 未因此明显下降（200 档残余 50–64ms；500/1000 档本轮未观测到 ≥50ms 任务）。
+  - **live 取数未减字节**：每 tick 仍取最新 200 消息页（61KB）——服务端无「since 消息」语义，
+    改成尾部小页需要新增合并逻辑，本轮未做。
+  - **1 行差**：1000 档收敛 899 / 期望 900（分页边界一行，机制已通；未追到根因）。
+- **门禁**：`rowWindow.test.ts` 5 例（尾部窗口/firstRowId/单调 id/翻页到耗尽/turn 号稳定）+
+  既有 `rowIdentity.test.ts` 6 例（N9-1 契约）全绿；双端 tsc + 测试 + build 全绿。
+- **证据**：`zcodeAgentService.ts`（`rowIdFor` / `historyWindowFor` / `buildWindowRows` /
+  `conversationRowsRangeV4` / `enrichToolRows`）；`rowWindow.test.ts`；实测产物 `/tmp/ocrc-perf/*.json`。
 
 ### B8 · 非图片附件上行（web 侧）· **做**（裁决 2026-10-12，2026-10-12 补列入册）
 
@@ -420,12 +444,12 @@ gjc = **`gjc acp`**（薄前端 + 常驻 broker）。
 | A7 | 字号一等设置 | 保持 | 保持 | 无（量程见 D1） |
 | A8 | 行级虚拟化时间线 | 已落地（更正） | 保持 | 无 |
 | B1 | RiskConfirmation | 不做独立组件 | **不做**（与 dock 重叠） | 无 |
-| B2 | Markdown Worker | 实测驱动 | **做**（排 B7 后） | 批 2c |
+| B2 | Markdown Worker | 实测驱动 | **做**（排 B7 后）→ 2c 复测改判 **不做**（归因未成立 + vendor 面） | 批 2c 已判 |
 | B3 | 主题即 JSON | 不做 | **不做**（代码主题面板已有） | 无 |
 | B4 | CSP + 哈希 | 不做 → 改判「做」 | **做**（内网合规） | 批 3 |
 | B5 | 媒体输出 | 待裁决 | **做** | 批 4 |
 | B6 | 知识库闭环 | 不做 | **不做** | 无 |
-| B7 | 桥接数据面窗口化 | 待裁决 | **做**（先 500/1000 行基线） | 批 2a/2b |
+| B7 | 桥接数据面窗口化 | 待裁决 | **做**（先 500/1000 行基线） | 批 2a/2b ✅ |
 | B8 | 非图片附件上行 | （本轮补列） | **做**（禁可执行 / 20MB / staging） | 批 5 |
 | B9 | 设置域缺口回填 | （本轮新增） | **做**（4 面） | 批 6 |
 | D1 | 字号量程 | 维持 12–20 | **维持**（上游 verbatim） | 无 |

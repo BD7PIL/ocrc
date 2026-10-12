@@ -110,6 +110,7 @@
   --accent-2:  var(--selected);
   --accent-ink:var(--primary-ink);
   --accent-line: rgba(255, 255, 255, 0.25); /* derived */
+  --focus-ring: var(--info);  /* 键盘焦点环（A4/a11y）：两主题取 info 蓝（dark #4099ff vs 画布 ≥6:1；light #0b7fff ≥3.6:1） */
 
   /* ── semantic（zai verbatim）── */
   --ok:   #46bf72;  /* zai success / diff-added */
@@ -266,6 +267,7 @@
   --accent-2:  var(--hover);
   --accent-ink:var(--primary-ink);
   --accent-line: rgba(13, 13, 13, 0.22);
+  --focus-ring: var(--info);
 
   --ok:   #1e8a3e;
   --warn: #e07b00;
@@ -354,6 +356,7 @@
     --accent-2:  var(--hover);
     --accent-ink:var(--primary-ink);
     --accent-line: rgba(13, 13, 13, 0.22);
+    --focus-ring: var(--info);
 
     --ok:   #1e8a3e;
     --warn: #e07b00;
@@ -473,17 +476,24 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   全局表 3/3 — 焦点（ZCode styles.css L115+ 寄存，verbatim 采纳）
-   浏览器/Electron 的系统级 focus 高亮与产品主题无关且形态随机（黄框），
-   ZCode 全局同时清 outline 与 focus ring 的 box-shadow——组件局部 ring 一
-   并失效，键盘位置靠 caret/滚动呈现。M9 起照抄此行为（ocrc 旧的
-   button/a 2px accent 环退役）。 */
+   全局表 3/3 — 焦点（ZCode styles.css L143+ 寄存器 + ocrc 补齐 · 批次 1）
+   上游全局同时清 outline 与 focus ring 的 box-shadow（防系统黄框），但把
+   键盘焦点指示也一并清掉 —— WCAG 2.4.7 失败（官方失败模式 F78：键盘用户
+   看不到焦点位置）。ocrc 保留鼠标态清除，恢复 :focus-visible 键盘环
+   （2px，对比度 ≥3:1，WCAG 1.4.11）。`:focus-visible` 写两遍 = 特异性
+   (0,2,0)，压过 vendor styles.css 同特异性 (0,1,0) 的 !important 清除表
+   （它后于本表加载）——勿按 verbatim 抄回。 */
 /* ═══════════════════════════════════════════════════════════════════════ */
 *:focus,
 *:focus-visible {
   outline: none !important;
   box-shadow: none !important;
   -webkit-box-shadow: none !important;
+}
+/* 键盘焦点环 —— 上面清除表的唯一豁免（鼠标态不显环，系统黄框不回归） */
+*:focus-visible:focus-visible {
+  outline: 2px solid var(--focus-ring) !important;
+  outline-offset: 2px;
 }
 
 /* ── reduced-motion：动画瞬时完成、过渡跳过；靠运动传达的状态必须有非运

@@ -29,10 +29,10 @@
 
 | ID | 项 | 来源 | 状态 | 建议 | 详表 |
 |---|---|---|---|---|---|
-| A1 | 三层语义令牌 static→alias→specific | dsh | 已落地 | 保持 + **stylelint 令牌约束** | §2 |
+| A1 | 三层语义令牌 static→alias→specific | dsh | 已落地 | 保持 + **stylelint 令牌约束**（批 1 已落） | §2 |
 | A2 | superellipse 全局表 | dsh | 已落地 | 保持（渐进增强） | §2 |
 | A3 | 滚动条全局表 | dsh | 已落地 | 保持 | §2 |
-| A4 | 焦点环全局表 | dsh | 已落地（**有缺陷**） | **修**：恢复 `:focus-visible` 环（WCAG 2.4.7 / F78） | §2 |
+| A4 | 焦点环全局表 | dsh | **已修复**（批 1） | 恢复 `:focus-visible` 环（WCAG 2.4.7 / F78） | §2 |
 | A5 | 0.5px 发丝描边 + 双层柔光高程 | dsh | 已落地 | 保持 | §2 |
 | A6 | ContextMeter / TurnNavigator / TextShimmer | dsh | 已落地（vendor 等价物） | 保持 | §2 |
 | A7 | 字号一等设置 | dsh | 已落地（vendor 12–20） | 量程见 D1 | §2 |
@@ -87,10 +87,11 @@
 - **优点**：组件只消费 alias 层 → 换肤零改组件（M9 换色已验证）。
 - **缺点 / 代价**：多一层间接，新人找值要跳三层；LAYER 0 raw 值与 ZCode verbatim 强耦合。
 - **影响面**：分层=**壳**｜文件=`theme.css`（单文件）｜工作量=0（已落地）｜依赖=无｜回归风险=**token 名是冻结契约，改名波及全部组件**｜门禁=视觉回归（CDP）。
-- **建议**：**保持** + **加 stylelint 令牌约束**（批次 1）。工具路径已核实：stylelint 的
-  `declaration-property-value-disallowed-list`（配 `color-no-hex`）可只对 `web-next/src` 强制
-  「禁裸 hex、只准语义 token」，把「token 名=冻结契约」从口头纪律变成机器门禁——这是最轻的落法。
-- **证据**：`theme.css:12-17`（层次说明）、`:32/:65/:192`（三层分节）；stylelint 规则（2026-10-11 核实）。
+- **建议**：**保持** + **stylelint 令牌约束（批次 1 已落地）**。落地形态：`web-next/stylelint.config.js`
+  用内置 `color-no-hex`（对声明值全域，含简写/自定义属性），只扫 `src/**/*.css`；
+  豁免两个文件——`styles/theme.css`（token 定义层）与 `styles/persimmon-theme.css`（封存色板）。
+  接入 `npm run lint`。**双向验证**：全仓现值 0 error；探针文件写 `#ff0000`/`#abc` → 2 error（门禁确实咬人）。
+- **证据**：`theme.css:12-17`（层次说明）、`:32/:65/:192`（三层分节）；`web-next/stylelint.config.js`、`web-next/package.json`（lint script）。
 
 ### A2 · superellipse 全局表 `dsh` · **保持**
 
@@ -110,22 +111,25 @@
 - **建议**：**保持**。
 - **证据**：`theme.css:444-459`。
 
-### A4 · 焦点环全局表 `dsh` · **修**（裁决 2026-10-12）
+### A4 · 焦点环全局表 `dsh` · **修 → 已落地**（批次 1，2026-10-12）
 
-- **状态**：已落地但**有缺陷** —— `theme.css:475-487`（ZCode verbatim 采纳）。该表把
-  `outline` 与 focus ring 的 `box-shadow` **全局清空**（`*:focus, *:focus-visible { outline: none !important;
-  box-shadow: none !important }`），注释自述「键盘位置靠 caret/滚动呈现」。
-- **缺陷定性**：全局移除焦点可视指示 = **WCAG 2.2「2.4.7 Focus Visible」失败**，且是官方文档
-  记载的经典失败模式 **F78**（removing the outline / focus indicator）；非文本对比度要求
-  见 **1.4.11 ≥3:1**（2026-10-11 核查）。`box-shadow: none !important` 让**组件局部自画的 ring 也失效**——
-  组件侧无处补救，必须在全局表层修复。
-- **修法（批次 1）**：保留鼠标态清除，新增 `*:focus-visible { outline: 2px solid <语义 token>; outline-offset: 2px }`，
-  对比度 ≥3:1；文件在 ocrc 层 `theme.css`，**不动 vendor**。注意 `!important` 的层叠：需要提高
-  同表内选择器特异性或把新规则放在清除表**之后**并要求同 `!important`。
-- **影响面**：分层=**壳**｜文件=`web-next/src/styles/theme.css`｜工作量=S｜依赖=无｜回归风险=**中**
-  （vendor 组件密集使用 `focus:outline-none` 工具类，可能出现双环/无环交错——需 CDP 键盘走查逐组件核对）｜门禁=CDP 键盘走查截图 + 视觉回归。
-- **建议**：**修**。无障碍失败 + 官方失败模式证据充分；验收 = Tab 键走查「任何可聚焦元素都有可见焦点」。
-- **证据**：`theme.css:475-487`；WCAG 2.4.7 / 1.4.11 / F78（2026-10-11 核查）。
+- **原状**：`theme.css:475-487` 全局清空 `outline` 与 focus ring 的 `box-shadow`
+  （vendor `styles.css:148-153` 同款，且 vendor 表**后于**本表加载）。
+- **缺陷定性（裁决依据）**：全局移除焦点可视指示 = **WCAG 2.2「2.4.7 Focus Visible」失败**，
+  官方文档记载的经典失败模式 **F78**；非文本对比度要求 **1.4.11 ≥3:1**（2026-10-11 核查）。
+- **落地（批次 1）**：① 新增 LAYER 1 语义 token `--focus-ring: var(--info)`（dark / light 显式 /
+  light media 三块同步，KEEP-IN-SYNC 契约）；② 新增 `*:focus-visible:focus-visible { outline: 2px solid
+  var(--focus-ring) !important; outline-offset: 2px }` —— 伪类写两遍 = 特异性 (0,2,0)，
+  压过 vendor 与本文清除表的 (0,1,0) `!important`（不论加载顺序）。文件在 ocrc 层，**vendor 零改动**。
+- **验证（隔离栈 4199 CDP，2026-10-12）**：Tab 走查 **29/29 停点全部有 2px `rgb(11,127,255)`(=--info)
+  环**、`outline-offset: 2px`、0 页面错误；最小对照页确认鼠标启发式标准——plain button 鼠标点击无环
+  （`:focus-visible=false`）、文本输入点击有环（Chromium 标准）；配对观察：html 令牌随系统 light 分支、
+  vendor 壳自持 dark（`#161616`）→ 环在该底上对比度 **4.74:1**（亮底 3.6:1）均 ≥3:1。
+  已知提示：自动聚焦的输入框（composer/搜索框）首帧即带环——文本输入的标准语义，保留。
+- **影响面**：分层=**壳**｜文件=`web-next/src/styles/theme.css`（+ theme token 三处）｜工作量=S｜
+  回归风险=**中**（vendor 组件密集用 `focus:outline-*` 工具类，可能出现双环——CDP 走查未见）｜门禁=CDP 键盘走查（已过）。
+- **证据**：原块 `theme.css:475-487`；现规则 `theme.css:490-495`；vendor 对照 `styles.css:148-161`；
+  走查产物 `/tmp/ocrc-focus-walk/summary.json`（29/29）；WCAG 2.4.7 / 1.4.11 / F78。
 
 ### A5 · 0.5px 发丝描边 + 双层柔光高程 `dsh` · **保持**
 
@@ -407,10 +411,10 @@ gjc = **`gjc acp`**（薄前端 + 常驻 broker）。
 
 | ID | 项 | 我的建议 | 用户裁决 | 落法（批次） |
 |---|---|---|---|---|
-| A1 | 三层语义令牌 | 保持 | 保持 | + stylelint 令牌约束（批 1） |
+| A1 | 三层语义令牌 | 保持 | 保持 | + stylelint 令牌约束（批 1 ✅） |
 | A2 | superellipse | 保持 | 保持（仅影响打开 web 的浏览器，可接受） | 无 |
 | A3 | 滚动条全局表 | 保持 | 保持 | 无 |
-| A4 | 焦点环全局表 | 保持 → 自纠「修」 | **修** | 恢复 `:focus-visible` 环（批 1） |
+| A4 | 焦点环全局表 | 保持 → 自纠「修」 | **修** | 恢复 `:focus-visible` 环（批 1 ✅） |
 | A5 | 0.5px 发丝高程 | 保持 | 保持（观察到糊再调） | 无 |
 | A6 | ContextMeter / TurnNavigator / TextShimmer | 保持 | 保持 | 无 |
 | A7 | 字号一等设置 | 保持 | 保持 | 无（量程见 D1） |

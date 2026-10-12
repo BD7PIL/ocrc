@@ -8,6 +8,7 @@ import type { IncomingMessage, ChannelCapabilities } from '../../core/types.js'
 import type { Transport, TransportStartDeps } from '../interface.js'
 import type { StreamDeltaFrame, StructuredCard } from '../../core/structured-card.js'
 import { buildServer } from './server.js'
+import { buildCspPolicy, cspHeaderName, cspModeFromEnv, injectNonce, makeNonce } from './csp.js'
 import { createWsHub } from './ws-hub.js'
 import { createFileWatcherHub } from '../../core/file-watcher.js'
 import { createLogger } from '../../utils/logger.js'
@@ -189,8 +190,37 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
             return nextIndexCache?.html ?? ''
           }
         }
-        app.get('/next/*', (c) => c.html(readNextIndex()))
+        // /next/ 的文档同样要带 nonce（CSP script-src）：由我们渲染而非静态直出。
+        const serveNextIndex = (c: any) => c.html(injectNonce(readNextIndex(), (c as any).get('cspNonce') ?? ''))
+        app.get('/next/', serveNextIndex)
+        app.get('/next/index.html', serveNextIndex)
+        app.get('/next/*', (c) => c.html(injectNonce(readNextIndex(), (c as any).get('cspNonce') ?? '')))
       }
+
+      // ── B4 CSP（批次 3）：Report-Only → 收集 → 强制 ──────────────────
+      // 由 host 以响应头下发（非 <meta>）；内联脚本哈希在请求期从当前
+      // index.html 现算（host 已按 mtime 缓存读取该文件，重建后自动跟随）。
+      const cspMode = cspModeFromEnv()
+      app.use('*', async (c, next) => {
+        const name = cspHeaderName(cspMode)
+        if (!name) {
+          await next()
+          return
+        }
+        // 每响应一个 nonce：文档路由把它写进 <script>，策略用同一个值放行
+        // （'strict-dynamic' 下主机白名单被忽略，HTML 里的外链入口脚本只能靠 nonce）。
+        const nonce = makeNonce()
+        ;(c as any).set('cspNonce', nonce)
+        await next()
+        const html = readIndexHtml()
+        if (!html) return
+        c.header(name, buildCspPolicy(html, nonce))
+      })
+
+      // 文档路由先于静态直出：index.html 必须带 nonce（CSP script-src）。
+      const serveIndexDocument = (c: any) => c.html(injectNonce(readIndexHtml(), (c as any).get('cspNonce') ?? ''))
+      app.get('/', serveIndexDocument)
+      app.get('/index.html', serveIndexDocument)
 
       app.use('/*', serveStatic({ root: cfg.staticRoot }))
 
@@ -220,7 +250,7 @@ export function createWebTransport(cfg: WebTransportConfig): Transport {
       app.get('*', (c) => {
         const path = c.req.path
         if (path.startsWith('/api/') || path === '/ws') return c.notFound()
-        return c.html(readIndexHtml())
+        return c.html(injectNonce(readIndexHtml(), (c as any).get('cspNonce') ?? ''))
       })
 
       // serve() returns immediately and bind errors (EADDRINUSE, EACCES) only

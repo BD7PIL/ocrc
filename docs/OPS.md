@@ -142,6 +142,7 @@ loopback 门）。
 | `OCRC_LOCALE` | `zh` | TG i18n（en 兜底） |
 | `OCRC_BACKENDS` / `OCRC_ACP_CMD` | — / `kimi acp` | 仅 standalone host |
 | `OCRC_OFFPEAK_WINDOW` | `00:00-08:00` | 闲时工单派发窗口（`HH:MM-HH:MM`，start>end 表示跨午夜） |
+| `OCRC_CSP` | `enforce` | web 面板 CSP 响应头模式：`enforce` / `report`（Report-Only 收集）/ `off`。由 host 下发（非 `<meta>`），脚本 nonce 每响应一枚；排障或新部署可先切 `report` 看违规 |
 
 ## 目标循环（N12 goal）——运维要点
 

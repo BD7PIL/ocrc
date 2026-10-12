@@ -48,7 +48,7 @@
 | B1 | RiskConfirmation 独立组件 | dsh | 未落地 | **不做独立组件**（与 dock 重叠） | §2 |
 | B2 | Markdown 渲染进 Worker | opencode web | 未落地 | **不做**（B7 后复测：归因未成立，vendor 面） | §2 |
 | B3 | 主题即 JSON | opencode web | 未落地 | **不做**（代码主题面板 vendor 已有） | §2 |
-| B4 | CSP + 主题脚本哈希 | opencode web | 未落地 | **做**（内网合规驱动） | §2 |
+| B4 | CSP + 主题脚本哈希 | opencode web | **已落地**（批 3） | 头下发 + nonce + 实测 0 违规（enforce） | §2 |
 | B5 | 媒体输出 document / video / audio | grinev | 部分（图片相册已落地） | **做** | §2 |
 | B6 | 知识库→资产化闭环 | OpenCode-Client | 不做（本体） | **不做** | §2 |
 | B7 | **ocrc 桥接数据面窗口化** | （自省项，非别家特性） | **已落地**（批 2） | 尾部快照 + offset 翻页 + 单调行 id + 终态工具缓存 | §2 |
@@ -213,18 +213,30 @@
 - **建议**：**不做**。判据：无需求 + 与冻结口径冲突 + 代码主题面板已有。
 - **证据**：`grep theme.*json` 0 命中；`theme.css:1-20`（token 架构 + M9 裁决）；`codePreviewPreferences.ts:11-20`。
 
-### B4 · CSP + 主题脚本哈希 `opencode web` · **做**（裁决 2026-10-12：内网合规改判）
+### B4 · CSP + 主题脚本哈希 `opencode web` · **做 → 已落地（enforce）**（批次 3，2026-10-12）
 
-- **状态**：未落地（CSP/哈希 0 命中；`web-next/src/lib/insecure-context.ts` 的 sha256 是 FIPS 回退，与 CSP 无关）。
 - **改判依据**：原判「不做」的理由是「威胁模型不匹配（LAN/单用户自用）」；用户裁决：**有内网合规需求**——
-  企业内网受控环境中 CSP 头是合规门槛，不是自选加固。威胁模型由部署环境定，不由使用习惯定。
-- **落地路径（批次 3，标准两步）**：先 `Content-Security-Policy-Report-Only` 收集违规 → 清零后转强制；
-  静态 Vite SPA 适合**构建期产 script hash**（配 `'strict-dynamic'`）；由 host 以 **HTTP 头**下发（非 `<meta>`）。
-- **主要冲突面**：`style-src` 与 vendor 的运行时 `<style>` 注入（Tailwind / inline style 属性）——
-  需逐块哈希或 nonce，先靠 Report-Only 收集实际清单再定策略。
-- **影响面**：分层=**壳 + 分发**（构建链 vite + host 头注入）｜文件=vite 构建配置 + host 静态服务｜工作量=M｜依赖=Report-Only 收集期｜回归风险=**高**（CSP 一开 vendor 注入样式可能全挂，需实测）｜门禁=构建 + 全站冒烟 + CSP Evaluator + 隔离栈。
-- **建议**：**做**（合规驱动）。Report-Only 先行，违规清零才切强制。
-- **证据**：`grep -i 'csp|content-security'` 0 命中；`insecure-context.ts:18-23,80-92`（另一回事）；Report-Only→enforce + hash + `'strict-dynamic'` + header 路径（2026-10-11 核查）。
+  企业内网受控环境中 CSP 头是合规门槛，不是自选加固。
+- **落地（标准两步走，本批走完）**：
+  1. **Report-Only 收集**（隔离栈实测 25 条，全部归因）：`script-src-elem` ×1 =
+     HTML 里的**外链入口脚本**被 `'strict-dynamic'` 拒（strict-dynamic 下主机白名单被忽略，
+     入口脚本只能靠 nonce/hash）；`script-src` ×24 = mermaid 的 `eval` 与 wasm 模块求值。
+     **零** style/img/connect/font 违规（说明策略面选得够）。
+  2. **补齐后强制**：host 每响应生成一枚 nonce，**文档由 host 渲染**（`/`、`/index.html`、
+     `/next/`、SPA 回落都注入 nonce，静态直出改为渲染路径）+ 策略放行
+     `'wasm-unsafe-eval'`（wasm 预览引擎）与 `'unsafe-eval'`（mermaid）——后者**如实登记为代价**：
+     它削弱 eval 类注入面，是既有前端栈（mermaid/wasm）的客观需要，不是策略疏漏；
+     `style-src` 仍需 `'unsafe-inline'`（shiki/KaTeX/mermaid 往 innerHTML 写 style 属性）。
+- **验证（enforce，隔离栈 CDP）**：`/z/` 壳 + 设置页 5 分区 + 会话时间线 → **0 违规 / 0 console 错误**；
+  分享只读页（另一套 bundle）→ **0 违规**；同一响应内头 nonce 与文档 `<script nonce>` 配对一致；
+  头由 host 下发（非 `<meta>`）。单测 11 条（哈希抽取/策略组装/模式解析/nonce 注入幂等）。
+- **运维开关**：`OCRC_CSP=enforce|report|off`，**默认 enforce**；`report` 留作排障与新部署
+  （先看未覆盖路径再切回）。已登记 `docs/OPS.md` 环境变量表。
+- **未做（如实）**：构建期产哈希（改为请求期从当前 index.html 现算——host 已按 mtime 缓存该文件，
+  重建自动跟随，少一条构建↔host 的哈希传递链）；`report-uri` 收集端点（本轮靠 CDP 侧
+  `securitypolicyviolation` 事件收集，未建服务端收集器）。
+- **证据**：`src/transport/web/csp.ts`；`src/transport/web/index.ts`（nonce 中间件 + 文档路由）；
+  `tests/unit/web/csp.test.ts`（11 条）；实测产物 `/tmp/ocrc-perf/csp-collect.mjs`。
 
 ### B5 · 媒体输出 document / video / audio `grinev` · **做**（裁决 2026-10-12）
 
@@ -440,7 +452,7 @@ gjc = **`gjc acp`**（薄前端 + 常驻 broker）。
 | B1 | RiskConfirmation | 不做独立组件 | **不做**（与 dock 重叠） | 无 |
 | B2 | Markdown Worker | 实测驱动 | **做**（排 B7 后）→ 2c 复测改判 **不做**（归因未成立 + vendor 面） | 批 2c 已判 |
 | B3 | 主题即 JSON | 不做 | **不做**（代码主题面板已有） | 无 |
-| B4 | CSP + 哈希 | 不做 → 改判「做」 | **做**（内网合规） | 批 3 |
+| B4 | CSP + 哈希 | 不做 → 改判「做」 | **做**（内网合规） | 批 3 ✅（enforce） |
 | B5 | 媒体输出 | 待裁决 | **做** | 批 4 |
 | B6 | 知识库闭环 | 不做 | **不做** | 无 |
 | B7 | 桥接数据面窗口化 | 待裁决 | **做**（先 500/1000 行基线） | 批 2a/2b ✅ |

@@ -5,6 +5,8 @@
 > **搜 ID（如 `B1`）即定位**——不要靠标题翻，靠 ID。
 > **口径**：只记**事实 + 证据**（`file:line` / commit）。建议分「做 / 不做 / 待裁决」并附理由；
 > 结论只作裁决输入，`docs/PRODUCT.md` / `docs/ARCHITECTURE.md` 的既有裁决文本不在本文件擅改。
+> **裁决已收口（2026-10-12）**：22 项全部裁决见 §5；D2 的文本改判已随批次 0
+> 落进 `PRODUCT.md:15` / `ARCHITECTURE.md:76-78`。
 > **生成方式**：全库 grep 抽查 + 定向 desk research（非逐行重读四家源码）。全历史
 > 「融合 / 对标 / 优点 / 选型」0 命中——本文件即首份收口。
 
@@ -13,7 +15,7 @@
 | # | 位置 | 内容 | 在 ocrc git? |
 |---|---|---|---|
 | 1 | `docs/PRODUCT.md:157-164` | 参照系：六家吸收清单（ZCode / dsh / opencode web / OpenCode-Client / grinev / anomalyco opencode） | ✅ |
-| 2 | `docs/PRODUCT.md:15` + `docs/ARCHITECTURE.md:74-82` | HarnessAdapter seam：opencode 1.18 首个适配器；opencode V2、**pi** 为后续适配目标（裸名） | ✅ |
+| 2 | `docs/PRODUCT.md:15` + `docs/ARCHITECTURE.md:74-82` | HarnessAdapter seam：opencode 1.18 首个适配器；opencode V2、**omp（原生 ACP）/ pi（经第三方桥 pi-acp）/ gjc** 为后续适配目标（2026-10-12 改判，原裸名「pi」） | ✅ |
 | 3 | `/home/demo/OCWF/docs/ocrc-fork-development-plan.md:44-56` | 参考三角（OCRC fork / zcode bots / dsh-remote-web-ui）+ OmO 迁移闸门 | ❌ **外部本地库**（不在本仓库） |
 | 4 | `docs/next-phase.md:14-15` | OmO 上游已迁 senpi 自有引擎（v5.1.x 全系） | ✅ |
 | 5 | `NOTICE:20-28` + `web-next/src/styles/theme.css:12` + commit `66ddc0fb` | 落地证据（归属声明 / 寄存器出处 / 最早移植提交） | ✅ |
@@ -27,10 +29,10 @@
 
 | ID | 项 | 来源 | 状态 | 建议 | 详表 |
 |---|---|---|---|---|---|
-| A1 | 三层语义令牌 static→alias→specific | dsh | 已落地 | 保持（token 名=冻结契约） | §2 |
+| A1 | 三层语义令牌 static→alias→specific | dsh | 已落地 | 保持 + **stylelint 令牌约束** | §2 |
 | A2 | superellipse 全局表 | dsh | 已落地 | 保持（渐进增强） | §2 |
 | A3 | 滚动条全局表 | dsh | 已落地 | 保持 | §2 |
-| A4 | 焦点环全局表 | dsh | 已落地 | 保持（注意新增组件自画 ring） | §2 |
+| A4 | 焦点环全局表 | dsh | 已落地（**有缺陷**） | **修**：恢复 `:focus-visible` 环（WCAG 2.4.7 / F78） | §2 |
 | A5 | 0.5px 发丝描边 + 双层柔光高程 | dsh | 已落地 | 保持 | §2 |
 | A6 | ContextMeter / TurnNavigator / TextShimmer | dsh | 已落地（vendor 等价物） | 保持 | §2 |
 | A7 | 字号一等设置 | dsh | 已落地（vendor 12–20） | 量程见 D1 | §2 |
@@ -44,30 +46,33 @@
 | ID | 项 | 来源 | 状态 | 建议 | 详表 |
 |---|---|---|---|---|---|
 | B1 | RiskConfirmation 独立组件 | dsh | 未落地 | **不做独立组件**（与 dock 重叠） | §2 |
-| B2 | Markdown 渲染进 Worker | opencode web | 未落地 | 待裁决（实测驱动） | §2 |
-| B3 | 主题即 JSON | opencode web | 未落地 | **不做** | §2 |
-| B4 | CSP + 主题脚本哈希 | opencode web | 未落地 | **不做** | §2 |
-| B5 | 媒体输出 document / video / audio | grinev | 部分（图片相册已落地） | 待裁决（按需） | §2 |
+| B2 | Markdown 渲染进 Worker | opencode web | 未落地 | **做**（排在 B7 之后） | §2 |
+| B3 | 主题即 JSON | opencode web | 未落地 | **不做**（代码主题面板 vendor 已有） | §2 |
+| B4 | CSP + 主题脚本哈希 | opencode web | 未落地 | **做**（内网合规驱动） | §2 |
+| B5 | 媒体输出 document / video / audio | grinev | 部分（图片相册已落地） | **做** | §2 |
 | B6 | 知识库→资产化闭环 | OpenCode-Client | 不做（本体） | **不做** | §2 |
-| B7 | **ocrc 桥接数据面窗口化** | （自省项，非别家特性） | 未落地 | 待裁决 | §2 |
+| B7 | **ocrc 桥接数据面窗口化** | （自省项，非别家特性） | 未落地 | **做**（先 500/1000 行基线） | §2 |
+| B8 | 非图片附件上行 | OpenCode-Client（此前未列） | 未落地（TG 侧已通） | **做** | §2 |
+| B9 | **OpenCode-Client 前后端缺口** | OpenCode-Client | 后端在、UI 缺（e55d3221 删） | **做**（4 个设置面回填） | §2 |
 
-> **B7 新增**：性能实测把瓶颈指向 **ocrc 自己的数据管道**（全量 rebuild / 全量快照 / 无 offset），
-> 不是别家特性。旧版名册漏了这一项——因为它是照「别家有哪些」列的。详见 B7 条目。
+> **B7 新增 / B8 补列**：B7 是自省项——性能实测把瓶颈指向 **ocrc 自己的数据管道**
+> （全量 rebuild / 全量快照 / 无 offset），不是别家特性；B8 此前只在 grill 口头过、
+> 没进名册，本轮补上（TG 通道已有非图片收件先例，web 侧两道自设门禁挡着）。
 
 ### D 组 · 跨项决策
 
 | ID | 决策 | 选项 | 建议 | 详表 |
 |---|---|---|---|---|
 | D1 | 字号量程 12–20 vs dsh 10–22 | 维持 / 放宽 | **维持** | §2 |
-| D2 | future adapter 命名「pi」 | 维持 / 改判 omp·gjc | **改判更准确** | §2 |
+| D2 | future adapter 命名「pi」 | 维持 / 改判 | **改判**：omp（原生 ACP）/ pi（经第三方桥 pi-acp）/ gjc；文本已改 | §2 |
 
 ### E 组 · pi 家族适配器候选
 
 | ID | 候选 | 协议入口 | 建议 | 详表 |
 |---|---|---|---|---|
-| E1 | omp（`can1357/oh-my-pi`，MIT） | `omp acp` ✅ | **首选**（先做平台验证） | §2 |
-| E2 | gjc（`Yeachan-Heo/gajae-code`，MIT） | `gjc acp` ✅ | 次选 | §2 |
-| E3 | pi / senpi 本体 | 无 ACP | 不作首选 | §2 |
+| E1 | omp（`can1357/oh-my-pi`，MIT） | `omp acp` ✅ | **只备料**（立项时首选） | §2 |
+| E2 | gjc（`Yeachan-Heo/gajae-code`，MIT） | `gjc acp` ✅ | **只备料**（立项时次选） | §2 |
+| E3 | pi 本体 | 官方无 ACP；**第三方桥 `@automatalabs/pi-acp` 存在** | **只备料** | §2 |
 
 ## 2. 逐项详表
 
@@ -82,8 +87,10 @@
 - **优点**：组件只消费 alias 层 → 换肤零改组件（M9 换色已验证）。
 - **缺点 / 代价**：多一层间接，新人找值要跳三层；LAYER 0 raw 值与 ZCode verbatim 强耦合。
 - **影响面**：分层=**壳**｜文件=`theme.css`（单文件）｜工作量=0（已落地）｜依赖=无｜回归风险=**token 名是冻结契约，改名波及全部组件**｜门禁=视觉回归（CDP）。
-- **建议**：**保持**。它是换肤契约，不是可选项；回退=全组件返工。
-- **证据**：`theme.css:12-17`（层次说明）、`:32/:65/:192`（三层分节）。
+- **建议**：**保持** + **加 stylelint 令牌约束**（批次 1）。工具路径已核实：stylelint 的
+  `declaration-property-value-disallowed-list`（配 `color-no-hex`）可只对 `web-next/src` 强制
+  「禁裸 hex、只准语义 token」，把「token 名=冻结契约」从口头纪律变成机器门禁——这是最轻的落法。
+- **证据**：`theme.css:12-17`（层次说明）、`:32/:65/:192`（三层分节）；stylelint 规则（2026-10-11 核实）。
 
 ### A2 · superellipse 全局表 `dsh` · **保持**
 
@@ -103,14 +110,22 @@
 - **建议**：**保持**。
 - **证据**：`theme.css:444-459`。
 
-### A4 · 焦点环全局表 `dsh` · **保持**
+### A4 · 焦点环全局表 `dsh` · **修**（裁决 2026-10-12）
 
-- **状态**：已落地 —— `theme.css:483`（`*:focus-visible`）。
-- **优点**：无障碍一致。
-- **缺点 / 代价**：与组件自定义 ring 冲突。
-- **影响面**：分层=**壳**｜文件=`theme.css`｜工作量=0｜依赖=无｜回归风险=**中**（已用 `box-shadow: none !important` 压制，见 `theme.css:478` 注释；**新增组件若自画 ring 会撞**）｜门禁=视觉回归 + a11y 抽查。
-- **建议**：**保持**，但新增交互组件需知道这条压制。
-- **证据**：`theme.css:478,483-486`。
+- **状态**：已落地但**有缺陷** —— `theme.css:475-487`（ZCode verbatim 采纳）。该表把
+  `outline` 与 focus ring 的 `box-shadow` **全局清空**（`*:focus, *:focus-visible { outline: none !important;
+  box-shadow: none !important }`），注释自述「键盘位置靠 caret/滚动呈现」。
+- **缺陷定性**：全局移除焦点可视指示 = **WCAG 2.2「2.4.7 Focus Visible」失败**，且是官方文档
+  记载的经典失败模式 **F78**（removing the outline / focus indicator）；非文本对比度要求
+  见 **1.4.11 ≥3:1**（2026-10-11 核查）。`box-shadow: none !important` 让**组件局部自画的 ring 也失效**——
+  组件侧无处补救，必须在全局表层修复。
+- **修法（批次 1）**：保留鼠标态清除，新增 `*:focus-visible { outline: 2px solid <语义 token>; outline-offset: 2px }`，
+  对比度 ≥3:1；文件在 ocrc 层 `theme.css`，**不动 vendor**。注意 `!important` 的层叠：需要提高
+  同表内选择器特异性或把新规则放在清除表**之后**并要求同 `!important`。
+- **影响面**：分层=**壳**｜文件=`web-next/src/styles/theme.css`｜工作量=S｜依赖=无｜回归风险=**中**
+  （vendor 组件密集使用 `focus:outline-none` 工具类，可能出现双环/无环交错——需 CDP 键盘走查逐组件核对）｜门禁=CDP 键盘走查截图 + 视觉回归。
+- **建议**：**修**。无障碍失败 + 官方失败模式证据充分；验收 = Tab 键走查「任何可聚焦元素都有可见焦点」。
+- **证据**：`theme.css:475-487`；WCAG 2.4.7 / 1.4.11 / F78（2026-10-11 核查）。
 
 ### A5 · 0.5px 发丝描边 + 双层柔光高程 `dsh` · **保持**
 
@@ -118,8 +133,10 @@
 - **优点**：描边不占布局（box-shadow 实现），高程有层次。
 - **缺点 / 代价**：半像素在高 DPI 可能糊。
 - **影响面**：分层=**壳**｜文件=`theme.css`｜工作量=0｜依赖=无｜回归风险=低（被组件局部 box-shadow 覆盖时失效）｜门禁=视觉回归。
-- **建议**：**保持**。
-- **证据**：`theme.css:162`。
+- **建议**：**保持**，**不预改**。调研注（2026-10-11）：Windows 分数缩放（125% / 150%）下 0.5px 的
+  实际渲染行为**本轮查不到权威结论（未验证）**；既然「糊」只是可能而非已知事实，预改（改阈值/换实现）
+  是猜。判据改为：**观察到糊再调**，并把当时的 OS/缩放比归档。
+- **证据**：`theme.css:162`；分数缩放结论=未验证。
 
 ### A6 · ContextMeter / TurnNavigator / TextShimmer `dsh` · **保持**
 
@@ -165,40 +182,48 @@
 - **建议**：**不做独立组件**。语义已由 dock 覆盖；若未来要更强风险语义，给现有 approval 卡加 `risk` 元数据即可（S）。
 - **证据**：`grep -ri riskConfirm` 0 命中；`pendingInteractions.ts:1,46-49`。
 
-### B2 · Markdown 渲染进 Worker `opencode web` · **待裁决（实测驱动）**
+### B2 · Markdown 渲染进 Worker `opencode web` · **做**（裁决 2026-10-12，排 B7 之后）
 
 - **状态**：未落地。vendor markdown 走**主线程** `streamdown`（`vendor/zcode/ui/src/components/ai-elements/message.tsx:13-16,42,429`），**无 markdown Worker**；ocrc 自有 markdown 仅分享页闭包用（`web-next/src/lib/markdown/sanitize.ts`，主线程 marked+hljs+DOMPurify）。
-- **优点**：长 Markdown / 大 diff 解析不卡主线程。
+- **优点**：长 Markdown / 大 diff 解析移出主线程。当前验收线（`perf-remediation-brief.md:35`：单事件 <16ms 不掉帧）未达标——残余 longtask **1×137ms**（`:63`，N9-5 复核后仍在）。
 - **缺点 / 代价**：Worker 生命周期 + 消息序列化成本；测试面复杂化；vendor 是前端本体后，ocrc 的 markdown 组件只在分享页用，套 Worker 要绕开 vendor 渲染路径。
-- **影响面**：分层=**壳**｜文件=`web-next/src/lib/markdown/`（现仅分享页消费）｜工作量=M｜依赖=**需先有实测瓶颈**｜回归风险=中｜门禁=双端测试 + 分享页 E2E。
-- **建议**：**待裁决，实测驱动**。**注意**：实测显示瓶颈在数据面（B7）而非 markdown 解析——markdown 解析耗时**从未被测量**（全仓无数据）。无数据不做。
-- **证据**：`message.tsx:13-16,42,429`；`sanitize.ts:1-18,57`；`ShareLanding.tsx:52-54`；`harness-best-of.md` 旧 §4.2 自述「需先有实测瓶颈」。
+- **影响面**：分层=**壳**｜文件=`web-next/src/lib/markdown/`（现仅分享页消费）｜工作量=M｜依赖=**B7 先行 + 复测归因**｜回归风险=中｜门禁=双端测试 + 分享页 E2E + 隔离栈长会话复跑。
+- **建议**：**做，但排在 B7 之后**。顺序理由：残余 longtask 的直接证据指向数据面全量重建（`perf-remediation-brief.md:63` 原文定性），**markdown 解析耗时从未被单独测量**（全仓无数据）——先修 B7 再复测，若仍超线且归因到 markdown 才动 Worker，避免修错对象。
+- **证据**：`message.tsx:13-16,42,429`；`sanitize.ts:1-18,57`；`ShareLanding.tsx:52-54`；`perf-remediation-brief.md:33,35,43,59,63`。
 
-### B3 · 主题即 JSON `opencode web` · **不做**
+### B3 · 主题即 JSON `opencode web` · **不做**（2026-10-12 复核维持）
 
 - **状态**：未落地（`theme.*json` 0 命中）。主题走 CSS token 文件。
-- **优点**：主题可运行时导入导出 / 分发。
+- **复核澄清（用户问「现在是什么样的」）**：**代码主题面板 vendor 早已有**——`codePreviewPreferences.ts:11-20`
+  十个主题（GitHub Light/Dark、Vitesse、Minimal、GitHub HC、Catppuccin）+ 行号/换行/代码字号，
+  挂在设置页「外观」分区（`settingsCodePreview.tsx`）。用户截图看到的正是我们自己的 vendor 面板。
+  B3 指的是**主题即 JSON 文件格式**（运行时导入/导出/分发），与「能不能切主题」无关——切主题已可用。
+- **优点**：主题可运行时导入导出 / 分发（面向主题市场）。
 - **缺点 / 代价**：为「运行时主题市场」服务，ocrc **无多主题分发需求**；现有 CSS token 已实现明暗双主题 + 回肤取用（persimmon 封存 `web-next/src/styles/persimmon-theme.css`）。
 - **影响面**：分层=**壳**（且要重写 `theme.css` 架构）｜文件=`theme.css` 全线｜工作量=L｜依赖=无｜回归风险=**高**（与 M9 冻结的配色口径冲突）｜门禁=全站视觉回归。
-- **建议**：**不做**。判据：无需求 + 与冻结口径冲突 + 收益为零。
-- **证据**：`grep theme.*json` 0 命中；`theme.css:1-20`（token 架构 + M9 裁决）。
+- **建议**：**不做**。判据：无需求 + 与冻结口径冲突 + 代码主题面板已有。
+- **证据**：`grep theme.*json` 0 命中；`theme.css:1-20`（token 架构 + M9 裁决）；`codePreviewPreferences.ts:11-20`。
 
-### B4 · CSP + 主题脚本哈希 `opencode web` · **不做**
+### B4 · CSP + 主题脚本哈希 `opencode web` · **做**（裁决 2026-10-12：内网合规改判）
 
 - **状态**：未落地（CSP/哈希 0 命中；`web-next/src/lib/insecure-context.ts` 的 sha256 是 FIPS 回退，与 CSP 无关）。
-- **优点**：严格 CSP 防 XSS；脚本哈希免 nonce。
-- **缺点 / 代价**：构建期产哈希 + 注入；CSP 会限制 inline `<style>` / style 属性 → 与 vendor 注入样式面冲突（需逐块哈希或 nonce）；**威胁模型不匹配**（LAN/内网 + 单用户自用）。
-- **影响面**：分层=**壳 + 分发**（构建链 vite + 部署）｜文件=vite 配置 + `index.html`｜工作量=M｜依赖=无｜回归风险=**高**（CSP 一开 vendor 注入样式可能全挂，需实测）｜门禁=构建 + 全站冒烟。
-- **建议**：**不做**。判据：威胁模型不匹配 + 与 vendor 冲突。
-- **证据**：`grep -i 'csp|content-security'` 0 命中；`insecure-context.ts:18-23,80-92`（另一回事）。
+- **改判依据**：原判「不做」的理由是「威胁模型不匹配（LAN/单用户自用）」；用户裁决：**有内网合规需求**——
+  企业内网受控环境中 CSP 头是合规门槛，不是自选加固。威胁模型由部署环境定，不由使用习惯定。
+- **落地路径（批次 3，标准两步）**：先 `Content-Security-Policy-Report-Only` 收集违规 → 清零后转强制；
+  静态 Vite SPA 适合**构建期产 script hash**（配 `'strict-dynamic'`）；由 host 以 **HTTP 头**下发（非 `<meta>`）。
+- **主要冲突面**：`style-src` 与 vendor 的运行时 `<style>` 注入（Tailwind / inline style 属性）——
+  需逐块哈希或 nonce，先靠 Report-Only 收集实际清单再定策略。
+- **影响面**：分层=**壳 + 分发**（构建链 vite + host 头注入）｜文件=vite 构建配置 + host 静态服务｜工作量=M｜依赖=Report-Only 收集期｜回归风险=**高**（CSP 一开 vendor 注入样式可能全挂，需实测）｜门禁=构建 + 全站冒烟 + CSP Evaluator + 隔离栈。
+- **建议**：**做**（合规驱动）。Report-Only 先行，违规清零才切强制。
+- **证据**：`grep -i 'csp|content-security'` 0 命中；`insecure-context.ts:18-23,80-92`（另一回事）；Report-Only→enforce + hash + `'strict-dynamic'` + header 路径（2026-10-11 核查）。
 
-### B5 · 媒体输出 document / video / audio `grinev` · **待裁决（按需）**
+### B5 · 媒体输出 document / video / audio `grinev` · **做**（裁决 2026-10-12）
 
 - **状态**：**部分**。图片相册已落地（M8-2：`src/transport/telegram/index.ts:736-751`，cap 3，逐张 `sendPhoto`）；document / video / audio 未接。
 - **优点**：完整媒体回传（不止图片）。
-- **缺点 / 代价**：TG 各类型尺寸/格式限制；host 要读任意文件并判 mime；**安全面**（任意文件外发要白名单 + 大小门禁）。
-- **影响面**：分层=**核心**（transport）｜文件=`src/transport/telegram/index.ts`｜工作量=S–M｜依赖=文件类型白名单 + 大小门禁｜回归风险=低（加法）｜门禁=TG 联调。
-- **建议**：**待裁决，按需**。图片相册已覆盖多数场景；有真实需求再接。
+- **缺点 / 代价**：TG 各类型尺寸/格式限制；host 要读任意文件并判 mime；**安全面**（任意文件外发要白名单 + 大小门禁——与 B8 收件侧边界同一套定义，可复用）。
+- **影响面**：分层=**核心**（transport）｜文件=`src/transport/telegram/index.ts`｜工作量=S–M｜依赖=文件类型白名单 + 大小门禁｜回归风险=低（加法）｜门禁=TG 实测（隔离栈 bot）。
+- **建议**：**做**（批次 4）。图片相册是先例，扩到三类的增量小；白名单 + 大小的边界照 B8 的定义共用。
 - **证据**：`index.ts:736-751`；`grep sendDocument|sendVideo|sendAudio` 0 命中。
 
 ### B6 · 知识库→资产化闭环 `OpenCode-Client` · **不做**
@@ -210,7 +235,7 @@
 - **建议**：**不做**。判据：PRODUCT 第五条「明确不做」已裁 + 越界。
 - **证据**：`docs/PRODUCT.md:162`（明示「知识库本体不做」）。
 
-### B7 · ocrc 桥接数据面窗口化（自省项）· **待裁决** ← 新增
+### B7 · ocrc 桥接数据面窗口化（自省项）· **做**（裁决 2026-10-12，先基线后动刀）
 
 - **状态**：未落地。性能实测把瓶颈指向 ocrc **自己的数据管道**：
   历史取数固定 `?limit=200` **无 offset**（`web-next/src/zcode-services/zcodeAgentService.ts:49`）；
@@ -218,61 +243,123 @@
   快照全量携带 `seq = rows.length`（`:775`）、`rows.window = rows`（`:809`）；
   liveUpdate 每次 refetch→全量 rebuild→按键 diff（`:1059,1118-1161`，去抖 250ms）。
 - **优点**：窗口化可去掉全量 rebuild/快照的开销（实测 longtask 残余 **1×137ms**，未达 <16ms 验收线，
-  `docs/perf-remediation-brief.md:63`）。
+  `docs/perf-remediation-brief.md:63`；`:66` 原文即把窗口化列为后继项——rowsWindow 游标协议已在）。
 - **缺点 / 代价**：动的是桥接核心路径，波及 liveUpdate / 快照 / rowsRange；「加载更早」现受限于同一
   200 消息窗（`ocrcHistory` 无 offset 透传），窗口化要连带上游 offset。
 - **影响面**：分层=**核心**（桥接层，非 vendor）｜文件=`zcodeAgentService.ts`（+ 可能 `src/transport/web/routes/session.ts:14-18` REST 钳制）｜工作量=M–L｜依赖=历史接口补 offset｜回归风险=**高**（流式插入 + 滚动锚定 + 历史回看是 P0 行为）｜门禁=隔离栈 E2E + 长会话实测复跑。
-- **建议**：**待裁决**。**这项比 B2 更该优先**——瓶颈证据在它身上，不在 markdown。
-- **证据**：`zcodeAgentService.ts:49,505,766,775,809,1059,1118-1161`；`perf-remediation-brief.md:43-63`；旧控制台 569 卡冻结轶事 `src/core/history.ts:104-108`（窗口代码已退役）。
+- **执行序（批次 2）**：2a 先补跑测量计划里**从未跑过**的 **500/1000 行档基线**（`perf-remediation-brief.md:33` 计划过、只跑了 ~206 卡档，`:39`）——没有 500/1000 档数字，改完无法证收益；
+  2b 再窗口化（增量拉取 + 尾部增量快照 + 工具卡按 messageId 缓存治 E4 的 5s TTL 重查）。
+- **建议**：**做**（批次 2 核心）。**先基线，后动刀**。
+- **证据**：`zcodeAgentService.ts:49,505,766,775,809,1059,1118-1161`；`perf-remediation-brief.md:33,39,43,44,47,63,66`；旧控制台 569 卡冻结轶事 `src/core/history.ts:104-108`（窗口代码已退役）。
+
+### B8 · 非图片附件上行（web 侧）· **做**（裁决 2026-10-12，2026-10-12 补列入册）
+
+- **状态**：未落地，但缺的只是 **web 侧接线**。事实链：
+  - **TG 通道已收非图片**：document/video/audio/voice → 20MB 上限 → 落盘 `~/.ocrc/attachments/` →
+    路径注入消息文本（`src/transport/telegram/index.ts:190-226`；照片 `:145-209` 走 `downloadLargestPhoto`）。
+  - **vendor composer 本就支持**：媒体/文件分组、PDF/视频预览（`ConversationComposer.tsx:1778-1840`）、
+    V4 上传事务（`attachmentUploadTransaction.ts:24-26`）。
+  - **ocrc 侧只有两道自设门禁挡着**：`web-next/src/zcode/platform.ts:50`
+    （`getPathForFile` 非图片返 `null`）+ `zcodeAgentService.ts:1656-1661`
+    （非图片直接拒绝，`reasonCode: 'ocrc_attachment_unsupported'`）。
+  - **引擎侧原生支持**：opencode 1.18 prompt 收 `FilePartInput`（`@opencode-ai/sdk`
+    `types.gen.d.ts:1245-1252`，`{type:'file', mime, filename?, url}`）。
+  - **字节面已就绪**：`webAttachments.ts` 是**类型无关**字节注册表（两个 scheme `ocrc-webfile://` /
+    `ocrc-att://`），非图片字节进得来。
+- **优点**：补上与 opencode web / ZCode composer 对齐的上行能力（用户实测两处都能传多类文件）。
+- **缺点 / 代价**：送达方式要 spike 后定——A：TG 同款落盘 + 路径注入（已验证、引擎无关）；
+  B：原生 FilePart（更贴上游，需确认引擎如何解析 `url`）；任意文件外发的**安全面**
+  （禁可执行 + 大小上限 + staging 隔离 + 会话结束清理）。
+- **影响面**：分层=**壳 + 核心桥**｜文件=`platform.ts`、`zcodeAgentService.ts`、`webAttachments.ts`（+ 可能 host 落盘）｜工作量=M｜依赖=送达方式 spike｜回归风险=中（发送是 P0 路径）｜门禁=双端测试 + 隔离栈上传实测（含被禁类型拒绝路径）。
+- **建议**：**做**（批次 5）。边界已定：禁 exe/msi/dll/sh 等可执行；20MB 上限；staging 隔离 + 会话结束清理。
+- **证据**：`telegram/index.ts:145-226`；`platform.ts:50`；`zcodeAgentService.ts:1656-1661`；`types.gen.d.ts:1245-1252`；`ConversationComposer.tsx:1778-1840`；`webAttachments.ts:1-40`。
+
+### B9 · OpenCode-Client 前后端缺口（设置域欠账）· **做**（裁决 2026-10-12，2026-10-12 新增）
+
+- **状态**：**欠账成立**。`PRODUCT.md:52` 第零点七条「做」清单里的设置域四项，**后端路由在、前端消费方没有**——
+  rc.3 大清洗（`e55d3221`）把 rc.2 设置面整体删除（`pages/SettingsPage.tsx` 309 行、
+  `components/settings/ProjectCards.tsx` 372 行、`SkillsSourceCard.tsx` 120 行），
+  路由与 core 逻辑保留，`lib/api/client.ts` 留下**死亡包装**（0 调用方）。
+- **缺口表**（2026-10-12 逐条核）：
+
+  | 面 | 后端路由（在） | 前端现状 | 定性 |
+  |---|---|---|---|
+  | agent 模型映射方案库（导出/导入/切换） | `GET/POST /api/settings/model-presets`（`routes/settings-project.ts:37,45`） | `client.ts:151-153` 死亡包装 | **欠账（全缺）** |
+  | 项目 `.opencode/` 五件套编辑 | `GET /api/settings/project` + `GET/PUT /file`（`:12-34`） | `client.ts:145-149` 死亡包装 | **欠账（全缺）** |
+  | 技能源注册/删除 | `POST /api/settings/skills-manager/sources`（`routes/settings.ts:87-95`） | `skillsService` 已接读+启停（`accessor.ts:110`）；**源的增减无 UI**（`client.ts:164-166` 死包装） | **半欠账** |
+  | 全局配置 raw 全量编辑 | `PUT /api/settings/opencode-config`（`settings.ts:28-39`） | 结构化 provider patch 已接（`providerSettingsService.ts`）；**raw 编辑器没有**（`client.ts:135` 死包装） | **半欠账** |
+  | MCP 编辑 / 子代理项目节点 | `settings.ts:53-74` + `settings-project.ts:65-74` | `mcpWrite.ts`、`subagentsService.ts` 已接 | ✅ 已回填（对照组） |
+
+- **优点**：这四项是 PRODUCT 明列的「做」——回填即把「ZCode 功能面平替」的欠账归零；后端全在手，只补前端。
+- **缺点 / 代价**：vendor 设置页**没有通用扩展点**（分区硬编码 `settingsPageConfig.ts:59-168` +
+  三元分支链 `SettingsPage.tsx:1684-1993`）——直接干会变成「每区改 5 文件」的维护税，
+  必须先加 `extraSections` 插槽（批次 6a，PATCHES 登记）。
+- **影响面**：分层=**壳 + vendor 插槽**｜文件=vendor `SettingsPage`/`settingsPageConfig` + 4 个 ocrc 组件 + service 接线｜工作量=L（1 插槽 + 4 面）｜依赖=vendor 插槽先行｜回归风险=中（vendor 面改动走加法 + 登记制）｜门禁=每面组件单测 + 隔离栈实操验收。
+- **顺带 bug（本轮核出）**：`settingsNavigation.ts:24` 的类型 union **有** `"remotes"`，但运行时守卫
+  `isSettingsSectionId`（`:62-83`）**没有**——写入可用、读回被静默丢弃：`consumePendingSettingsSection`（`:310`）
+  与 `readLastSettingsSectionPreference`（`:138`）遇到 remotes 都落回 fallback，
+  「跳转意图」与「上次停留分区」双双失效（PATCHES.md 条目 8 的补丁不完整）。批次 6a 一并修。
+- **建议**：**做**（批次 6）。序：6a vendor 插槽（+修守卫）→ 6b 映射方案库 → 6c 项目五件套 → 6d 技能源 → 6e 全局配置 raw。
+- **证据**：`e55d3221`（删除清单）；`client.ts:135,145-153,164-166`；`settings-project.ts` / `settings.ts`（路由在）；`settingsNavigation.ts:24,62-83,138,310`；`PRODUCT.md:52`。
 
 ---
 
-### D1 · 字号量程 12–20 vs dsh 10–22 · **维持**
+### D1 · 字号量程 12–20 vs dsh 10–22 · **维持**（裁决 2026-10-12）
 
 - **选项 A**：维持 12–20（零改动）。**选项 B**：放宽到 10–22（改 vendor `uiFontSize.ts:5-6` 两个常量，S 级）。
 - **优点（B）**：与 dsh 寄存器一致，用户可选更小/更大。
 - **缺点 / 代价（B）**：改 vendor 需 PATCHES 登记 + CHECKLIST 对账；纯偏好改动是长期维护税。
 - **影响面**：分层=**壳 / vendor**｜文件=`uiFontSize.ts`｜工作量=S｜依赖=vendor PATCHES 流程｜回归风险=低｜门禁=vendor CHECKLIST + 视觉抽查。
-- **建议**：**维持**。理由：dsh 的 10–22 是参考值非硬需求；为对齐参考值改 vendor 不划算。**除非**「12–20 太窄」是你自己用着不爽的真实痛点——那另算（Q2 的「真实需求」）。
-- **证据**：`uiFontSize.ts:5-6`。
+- **裁决依据（2026-10-11 复核）**：① 上游 `zai-org/ZCode` 源码 raw 核实 = **12–20 verbatim**（`uiFontSize.ts` 三个常量逐字一致），
+  即现状不是偏离而是对齐；② `applyUiFontSizePx` 的设计注释自证「只更新 UI 字号 Token 基准、不连带缩放图标/间距/圆角」——设计正确，不该动；
+  ③ dsh 的 10–22 本轮**复核不到**（GitHub code search 全部查询 0 命中 / 不可用）——参考值本身未证实，为它改 vendor 不划算。
+- **建议**：**维持**。除非「12–20 太窄」是用着不爽的真实痛点——那另算。
+- **证据**：`uiFontSize.ts:4-6,26-27`；上游 ZCode `uiFontSize.ts`（2026-10-11 raw 核实）。
 
-### D2 · future adapter 命名「pi」· **改判更准确**
+### D2 · future adapter 命名「pi」· **改判 → 已落文本**（裁决 2026-10-12）
 
-- **选项 A**：维持裸名「pi」。**选项 B**：改判为「omp（首选）/ gjc」。
-- **优点（B）**：与事实一致——**pi 本体无 ACP**，接不进现有 `AcpBackend`。
-- **缺点 / 代价（B）**：要动 `PRODUCT.md:15` / `ARCHITECTURE.md:78` 的宪法文本。
-- **影响面**：分层=**文档**｜文件=`PRODUCT.md:15`、`ARCHITECTURE.md:78`｜工作量=S｜依赖=D2 的裁决｜回归风险=无（文本）｜门禁=—
-- **建议**：**改判为 omp / gjc**（更准确）。**是否立项**另议（见 E 组）；立项第一步 = omp 平台验证。
-- **证据**：`PRODUCT.md:15`、`ARCHITECTURE.md:74-82`；§4 的 pi 调研。
+- **裁决文本**：`PRODUCT.md:15` / `ARCHITECTURE.md:76-78` 的「opencode V2、pi 为后续适配目标」
+  → **「omp（原生 ACP）/ pi（经第三方桥 pi-acp）/ gjc」**。批次 0 已落。
+- **依据**：pi 本体**官方无 ACP**（自定义 JSONL RPC），裸名「pi」无法直连现有 `AcpBackend`；
+  而 omp / gjc 有原生 `acp` 入口，pi 有第三方桥（见 E3 改写）——命名应指**可接入事实**，不是宽泛家族名。
+- **影响面**：分层=**文档**｜文件=`PRODUCT.md:15`、`ARCHITECTURE.md:76-78`｜工作量=S｜已完成｜回归风险=无（文本）。
+- **建议/状态**：**已改判**（外带一句「2026-10-12 命名改判」留痕）。**是否立项**另议（见 E 组）。
+- **证据**：`PRODUCT.md:15`、`ARCHITECTURE.md:76-78`（已改）；E 组调研。
 
 ---
 
-### E1 · omp（`can1357/oh-my-pi`，MIT，★35k）· **首选**
+### E1 · omp（`can1357/oh-my-pi`，MIT，★35k）· **只备料**（立项时首选）
 
 - **协议入口**：**有 `omp acp`**（JSON-RPC stdio；写操作经 `session/request_permission` 门控；`modes/acp/acp-mode.ts`）——代码 + 文档双证。
 - **优点**：fs/terminal 路由 + 权限门最完整 → 接现有 `AcpBackend` 迁移成本最低；内嵌 ripgrep/bash 免 fork-exec。
 - **缺点 / 代价**：含 **Rust N-API 原生扩展** → 需跨平台预编译工件，**EL7 / glibc 2.17 下限有风险**；fork 生态，长期维护不确定。
 - **影响面**：分层=**核心**｜文件=`src/cli/host-backends.ts`（注册）+ 复用 `acp-backend.ts`｜工作量=M｜依赖=omp 二进制在目标平台（x86_64/arm64/EL7）可得｜回归风险=**低**（`OCRC_BACKENDS` 选择，纯加法）｜门禁=隔离栈 E2E + 权限 dock 联调。
-- **建议**：**立项时首选**，但先做「omp 在目标平台能否运行」的可行性验证（半日）。
+- **建议**：**只备料**（本轮不实现）。立项时首选；第一步=「omp 在目标平台能否运行」平台验证（半日）。
 - **证据**：omp 仓库/文档（desk research，2026-10-11）；`host-backends.ts:82-99`、`backend.ts:192-326`。
 
-### E2 · gjc（`Yeachan-Heo/gajae-code`，MIT，★2.9k）· **次选**
+### E2 · gjc（`Yeachan-Heo/gajae-code`，MIT，★2.9k）· **只备料**（立项时次选）
 
 - **协议入口**：**有 `gjc acp`**（stdio 前端）；文档含 initialize 握手。
 - **优点**：外部控制面克制（broker + capability-scoped attachment，凭据不外露）。
 - **缺点 / 代价**：`gjc acp` 是**薄前端**，依赖**常驻 SDK broker 守护进程** → 多一个进程要纳入 adopt/spawn 生命周期模型；运行时用 Bun。
 - **影响面**：分层=**核心 + 宿主**｜文件=AcpBackend 路径 + 进程生命周期｜工作量=M–L｜依赖=broker 常驻｜回归风险=低（加法），主要复杂点=broker 生命周期｜门禁=隔离栈 E2E。
-- **建议**：**次选**；除非 omp 平台验证失败。
+- **建议**：**只备料**（本轮不实现）。立项时次选（除非 omp 平台验证失败）。
 - **证据**：gjc 仓库/`docs/acp-local-development.md`（desk research）。
 
-### E3 · pi / senpi 本体 · **不作首选**
+### E3 · pi 本体 · **只备料**（2026-10-12 改写：第三方桥存在）
 
-- **协议入口**：**无 ACP**。pi 的 RPC 是**自定义 JSONL（非 JSON-RPC）**；senpi 有 app-server（Codex 兼容 JSON-RPC over WS/stdio/unix，`senpi app-server --listen ws://127.0.0.1:18990`）。
-- **优点**：pi 极简核心、extension/skill/theme 机制；senpi app-server 适合无头托管。
-- **缺点 / 代价**：本体无 ACP → pi 自建桥 **L**；senpi app-server 是 **WS JSON-RPC，非 opencode HTTP 形状** → 无法复用 `OpencodeBackend`，新写适配层 **M–L**。
-- **影响面**：分层=**核心**（新适配层，非 AcpBackend）｜文件=新 backend｜工作量=L（pi）/ M–L（senpi）｜依赖=协议桥稳定性；senpi 线另需 **SUL-1.0（非 OSI）法务复核**｜回归风险=低（加法）｜门禁=隔离栈 E2E。
-- **建议**：**不作首选**。
-- **证据**：pi `docs/rpc.md`、senpi `docs/app-server.md`（desk research）。
+- **协议入口（改写）**：pi **官方无 ACP**（RPC 是自定义 JSONL，非 JSON-RPC）——但**第三方 ACP 桥存在**：
+  `@automatalabs/pi-acp` **v0.9.4**（npm）：「in-process Agent Client Protocol server for the pi coding agent…
+  embeds pi through its published SDK…ACP protocol version 1 over stdio」，bin `pi-acp`，
+  repo `agentprism/agentprism-workflows`（2026-10-11 核实）。即「接 pi」不必等官方、也不动 pi core——
+  走桥即复用 `AcpBackend`，成本降为**桥的维护风险**。
+  （senpi 线另论：app-server 是 Codex 兼容 JSON-RPC over WS/stdio/unix，非 opencode HTTP 形状。）
+- **优点**：pi 极简核心、extension/skill/theme 机制；有桥后接入面与 omp/gjc 同级。
+- **缺点 / 代价**：第三方桥是社区财产（非 pi 官方背书）→ 版本对齐 / 弃坑风险自担；
+  senpi app-server 无法复用 `OpencodeBackend`，新写适配层 M–L；senpi / OmO 线另需 **SUL-1.0（非 OSI）法务复核**。
+- **影响面**：分层=**核心**｜文件=新 backend（经桥则复用 `acp-backend.ts`）｜工作量=S–M（第三方桥）/ M–L（senpi 自写）｜依赖=桥维护活跃度｜回归风险=低（加法）｜门禁=隔离栈 E2E。
+- **建议**：**只备料**。若立项 pi 线，第一步=验 `@automatalabs/pi-acp` 握手 + 会话/工具流保真度。
+- **证据**：pi `docs/rpc.md`；`@automatalabs/pi-acp` v0.9.4（2026-10-11 核实）；senpi `docs/app-server.md`。
 
 ## 3. HarnessAdapter 现状
 
@@ -304,13 +391,44 @@
   **license SUL-1.0 / 非 OSI**）；印证 `docs/next-phase.md:14-15`。
 - **假阳性已排除**：Inflection Pi（pi.ai）、Raspberry Pi、npm `pi-ai`、Senpi-ai（Hyperliquid）、`senpi_ebi`。
 
-**集成面**：pi = 严格 JSONL（非 JSON-RPC），**无 ACP**；senpi = 继承 pi + app-server（WS JSON-RPC）；
-omp = `omp --mode rpc`（NDJSON）+ **`omp acp`**；gjc = **`gjc acp`**（薄前端 + 常驻 broker）。
-**还差验证**：① 实跑 `omp acp`/`gjc acp` 握手 + 权限流；② senpi app-server 长连接/多会话；③ 四 fork 会话格式互操作；
-④ 版本锁定（senpi 日历版本、`senpi-task` 私有不可 pin）；⑤ OmO 的 SUL-1.0 法务复核（若走 senpi 线）。
+**集成面**：pi = 严格 JSONL（非 JSON-RPC），**官方无 ACP**——但第三方桥 **`@automatalabs/pi-acp` v0.9.4**
+存在（「in-process ACP server…embeds pi through its published SDK，ACP v1 over stdio」，bin `pi-acp`，
+repo `agentprism/agentprism-workflows`；2026-10-11 核实）→ 「接 pi」= 复用 `AcpBackend` + 自担第三方桥维护风险；
+senpi = 继承 pi + app-server（WS JSON-RPC）；omp = `omp --mode rpc`（NDJSON）+ **`omp acp`**；
+gjc = **`gjc acp`**（薄前端 + 常驻 broker）。
+**还差验证**：① 实跑 `omp acp`/`gjc acp` 握手 + 权限流；② `pi-acp` 桥的会话/工具流保真 + 版本对齐；
+③ senpi app-server 长连接/多会话；④ 四 fork 会话格式互操作；
+⑤ 版本锁定（senpi 日历版本、`senpi-task` 私有不可 pin）；⑥ OmO 的 SUL-1.0 法务复核（若走 senpi 线）。
 
-## 5. 裁决记录（随 grill 更新）
+## 5. 裁决记录（2026-10-12 收口）
 
-| ID | 项 | 我的建议 | 用户裁决 | 日期 |
+> 来源：2026-10-11/12 逐项 grill（22 项逐条过、含被排除项）。本表为**最终裁决**，
+> 覆盖 §2 各条目的「建议」列；实施批次（0–6）见配套实施计划。
+
+| ID | 项 | 我的建议 | 用户裁决 | 落法（批次） |
 |---|---|---|---|---|
-| — | （待 grill 填写） | — | — | — |
+| A1 | 三层语义令牌 | 保持 | 保持 | + stylelint 令牌约束（批 1） |
+| A2 | superellipse | 保持 | 保持（仅影响打开 web 的浏览器，可接受） | 无 |
+| A3 | 滚动条全局表 | 保持 | 保持 | 无 |
+| A4 | 焦点环全局表 | 保持 → 自纠「修」 | **修** | 恢复 `:focus-visible` 环（批 1） |
+| A5 | 0.5px 发丝高程 | 保持 | 保持（观察到糊再调） | 无 |
+| A6 | ContextMeter / TurnNavigator / TextShimmer | 保持 | 保持 | 无 |
+| A7 | 字号一等设置 | 保持 | 保持 | 无（量程见 D1） |
+| A8 | 行级虚拟化时间线 | 已落地（更正） | 保持 | 无 |
+| B1 | RiskConfirmation | 不做独立组件 | **不做**（与 dock 重叠） | 无 |
+| B2 | Markdown Worker | 实测驱动 | **做**（排 B7 后） | 批 2c |
+| B3 | 主题即 JSON | 不做 | **不做**（代码主题面板已有） | 无 |
+| B4 | CSP + 哈希 | 不做 → 改判「做」 | **做**（内网合规） | 批 3 |
+| B5 | 媒体输出 | 待裁决 | **做** | 批 4 |
+| B6 | 知识库闭环 | 不做 | **不做** | 无 |
+| B7 | 桥接数据面窗口化 | 待裁决 | **做**（先 500/1000 行基线） | 批 2a/2b |
+| B8 | 非图片附件上行 | （本轮补列） | **做**（禁可执行 / 20MB / staging） | 批 5 |
+| B9 | 设置域缺口回填 | （本轮新增） | **做**（4 面） | 批 6 |
+| D1 | 字号量程 | 维持 12–20 | **维持**（上游 verbatim） | 无 |
+| D2 | future adapter 命名 | 改判 | **改判**：omp（原生 ACP）/ pi（经第三方桥 pi-acp）/ gjc | 批 0 文本（已落） |
+| E1 | omp | 立项时首选 | **只备料** | 无（立项另议） |
+| E2 | gjc | 立项时次选 | **只备料** | 无（立项另议） |
+| E3 | pi / senpi | 不作首选 | **只备料**（已改写：第三方桥存在） | 无（立项另议） |
+
+**反向记录（明确排除）**：B1 独立组件、B6 知识库本体、A5 预改、E 组适配器**实现**（只备料）。
+**执行序（用户认可）**：批次 0 → 1 → 2 → 6 → 3 → 4 → 5；每批独立提交、双端门禁全绿进下一批。

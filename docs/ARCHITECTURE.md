@@ -74,8 +74,10 @@ Key facts per shape:
 ### HarnessAdapter (command path) — src/core/agent/backend.ts
 
 **(0.27 规划)** The existing `AgentBackend` seam is formalized into the
-**HarnessAdapter** contract: opencode-1.18 is the first adapter; opencode-V2
-and pi are future adapters. The formalization adds: (a) opencode-specific
+**HarnessAdapter** contract: opencode-1.18 is the first adapter;
+opencode-V2 and **omp (native ACP) / pi (via the third-party pi-acp bridge)
+/ gjc** are future adapters (naming revised 2026-10-12 — pi upstream has no
+ACP of its own). The formalization adds: (a) opencode-specific
 concepts (part kinds, tool names, todo shape) quarantined inside the
 opencode adapter instead of leaking into relay/web shapes, (b) explicit
 capability negotiation per backend (the existing `BackendCapabilities`

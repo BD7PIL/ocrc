@@ -52,6 +52,10 @@
   - `vendor/zcode/ui/src/settings/RemotesSection.tsx` —— **ocrc 新增文件**（223 行，管理远程主机：增删/探测/升级推送）。⚠️ 覆盖快照会丢，重放时从 git 恢复（与条目 4 的 sha256Pure.ts 同列保留清单）。
   - `vendor/zcode/ui/src/SettingsPage.tsx` —— import `RemotesSection` + 渲染分支 `activeSection === "remotes"`。
   - `vendor/zcode/ui/src/lib/settingsNavigation.ts` —— `SettingsSectionId` union 追加 `"remotes"`。
+    ⚠️ **补丁不完整（2026-10-12 核出）**：运行时守卫 `isSettingsSectionId`（约 L62-83）未同步补 `"remotes"` ——
+    写入可用、读回被静默丢弃：`consumePendingSettingsSection`（约 L310）与
+    `readLastSettingsSectionPreference`（约 L138）遇到 remotes 都落回 fallback，
+    「跳转意图」与「上次停留分区」双双失效。修法并入批次 6a（vendor 插槽同批改动），重放本补丁时一并补齐。
   - `vendor/zcode/ui/src/settings/settingsPageConfig.ts` —— lucide import 加 `Globe`；`BASE_SETTINGS_SECTIONS` 追加 remotes 项（`groupId: "agentCapabilities"`）。
   - `vendor/zcode/ui/src/i18n/locales/en-US.ts` / `zh-CN.ts` —— 各加一行 `"settings.remotes.title"`（Remote Hosts / 远程主机）。
 - **原因**：N5 把远程主机收进 /z/ 设置页管理（用户裁决②：remote hosts 在 /z/ 原生管理）。

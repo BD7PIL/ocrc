@@ -12,7 +12,7 @@
 
 三个推论：
 
-- **opencode 是可替换的算力内核**：正式 **HarnessAdapter 接口层**（2026-10-07 裁决）——opencode 1.18 是第一个适配器；opencode V2、pi 为后续适配目标。ocrc 自己的核心是 relay/CardBus/registry/双面板。我们不改 opencode 一行内核，全部通过官方 API 与官方插件机制。
+- **opencode 是可替换的算力内核**：正式 **HarnessAdapter 接口层**（2026-10-07 裁决；**2026-10-12 命名改判**）——opencode 1.18 是第一个适配器；opencode V2、**omp（原生 ACP）/ pi（经第三方桥 pi-acp）/ gjc** 为后续适配目标（原「pi」裸名改判：pi 本体官方无 ACP，裸名接不进现有 `AcpBackend`）。ocrc 自己的核心是 relay/CardBus/registry/双面板。我们不改 opencode 一行内核，全部通过官方 API 与官方插件机制。
 - **双拓扑**，同一张功能矩阵的两种宿主：
   - **独立拓扑（第一公民）**：`ocrc host` 自带进程、spawn 或 **ADOPT**（`OCRC_SERVER_URL` 接入用户已在跑的引擎）自己的 opencode。常驻、开机自启、多机编排、桌面壳都长在这条拓扑上。
   - **共生拓扑（轻量接入）**：opencode 配置 `plugin` 数组加一行——保留「安装最简、进程归 opencode 管」的初心。生命周期随宿主。

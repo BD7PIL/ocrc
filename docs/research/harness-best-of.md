@@ -311,17 +311,25 @@
   - **live 取数未减字节 → 已减（2026-10-13，缺口收口计划 A）**：live 每 tick 改为取**尾部小页**
     （`?limit=20`，`HISTORY_TAIL_PAGE`）与窗口合并，快照/计划目录仍取全量页；每
     `HISTORY_FULL_EVERY_TICKS`（10）个 tick 兜一次全量页。`hasOlderOnLoad` 改读服务端 `hasMore`。
-    R1 修复周期性全量刷新前缀失配后，真实 W3 卡片数 **254→260**、行数 **321→300→303→306**，
-    3 次请求均 HTTP 200；桥接 15.6ms/696.4ms（2.2%），无 W3 longtask。
-    旧的「冻页 tick 成本接近 0」数据作废，不再作为性能证据。
+    **R2 动态对账（隔离栈 4199，`PERF-TAIL-R2`，260→272 卡 / 408 行，`/tmp/ocrc-perf/r2-v3.json`）**：
+    open 期实际卡片 260（130 user + 130 assistant），按 `buildRows` 规则动态期望 390 行；
+    DOM `rowCount=390`、`totalRowCount=300`（尾窗 60 行）。6 个 tick 各新增 user+assistant 2 卡，
+    动态期望 393→408，DOM 每步吻合；每 tick 1 次 `?limit=20`，**5849–6029B**。
+    loadOlder 阶段按钮未出现（`buttonSeen=false`、clicks=0），历史取数 **0 次**；阶段结束 408/408、
+    `reachedAll=true` 只说明 open/tick 已把当前会话全载入，**不代表该阶段分页取数**。
+    R2 产物移除 harness 硬编码 EXPECT；旧 `after-tail-v3.json` 的 `expectedTotal=390` 已过时，不能拿来作 272 卡会话的期望。
+    前次 132,463B 的 open 历史 fetch 是 3 次（含 offset 页），与新增 5.8–6.0KB/tick 分阶段统计。
+    回归：`historyTailWindow.test.ts` 6 例（小页次数 / 第 10 tick 全量 / 合并后 rowId 全等 /
+    小页不污染 hasOlderOnLoad / 锚点缺失快照回退 / 周期 full 前缀失配后持续发帧）。
   - **周期性全量刷新 live freeze → 已定位并修（R1，2026-10-13）**：第 10 个 tick 的 full refresh
     让 recent 头前移，`diffRows` 返回 `null`；旧 guard 把 `deltas=null` 与空数组一起吞掉，在快照回退
     分支前 return，导致服务端卡片继续增长而页面永久冻结。修复为只对 `deltas && deltas.length===0`
     且交互投影未变时 return；`deltas=null` 必走全量 snapshot fallback。
     真实饱和会话复核：修前 220→244 卡片、DOM 停在 303/357；修后第 10 次仍继续收敛（服务端
     220→244，行账 330→357→330→339 等窗口平移后继续增长）。回归 `historyTailWindow.test.ts` 新增第 6 例。
-  - **D 证据修正**：`after-tail-v3.json` 的 `loadOlder.histFetches=0` 表示该阶段没有新增取数（open 期已将窗口灌满），
-    不能再写成「loadOlder 一轮取全」；R2 会补动态期望与阶段边界证据。
+  - **D 证据修正（R2 已核实）**：旧 `after-tail-v3.json` 的 `loadOlder.histFetches=0` 表示该阶段没有新增取数；
+    不能再写成「loadOlder 一轮取全」。新动态 harness 分别记录 open/tick/loadOlder 阶段；该档按钮未出现、未点击，
+    open/tick 后当前 408 行已全载入。
 - **门禁**：`rowWindow.test.ts` 5 例（尾部窗口/firstRowId/单调 id/翻页到耗尽/turn 号稳定）+
   `rowWindowTotals.test.ts` 3 例（对齐档精确/行序 id 单调/非对齐档复现 1 行差）+
   `historyTailWindow.test.ts` 6 例（含周期 full 前缀失配不冻结）+

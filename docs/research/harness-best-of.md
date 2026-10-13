@@ -190,10 +190,13 @@
 
 - **状态**：未落地。vendor markdown 走**主线程** `streamdown`（`vendor/zcode/ui/src/components/ai-elements/message.tsx:13-16,42,429`），**无 markdown Worker**；ocrc 自有 markdown 仅分享页闭包用（`web-next/src/lib/markdown/sanitize.ts`，主线程 marked+hljs+DOMPurify）。
 - **原 C 项 chunk 归因作废**：生产构建把 markdown、vendor UI 与 ocrc bridge 合并进同一 `mermaid-*.js`（约 9.4MB），不能用 chunk 名把 bridge 或 markdown 单独归因；旧台账中「入口 chunk（React+桥接）7–11%」和「markdown 家族 67–76%」均撤回。
-- **R1 demap 测量（2026-10-13，隔离栈 4199）**：`scripts/perf-md-attribution.mjs` 现读取临时 sourcemap，按原始模块路径聚合（map 不入库、不作为产品构建产物）。最终一轮：254 张卡 / 328 行，W1a 无 Mermaid JS 忙时 855.7ms（markdown/mermaid 库 174.0ms = 20.3%；ocrc bridge 17.2ms = 2.0%；vendor UI 233.3ms = 27.3%）；W1b 含 Mermaid JS 忙时 1988.2ms（markdown/mermaid 库 267.2ms = 13.4%；vendor UI 1184.0ms = 59.6%；ocrc bridge 11.0ms = 0.6%）。demap 覆盖 99.9%+（W1a 749.4/855.7ms，W1b 1780.0/1988.2ms；其余是 native/engine frame）。
-- **热点定位**：W1b top files 是 vendor `mermaid-block.tsx:84`（`normalizeCssColorForMermaid`，509.9ms）与 `:118`（`resolveCssColor`，504.6ms），其次为 Mermaid core 98.2ms；不是 ocrc `buildRows`/`diffRows`。这说明当前最直接的优化边界是 vendor Mermaid/CSS 解析，而不是把 ocrc 分享 markdown 迁进 Worker。
-- **W3 live tick（最大窗口前插后）**：服务端卡片 `254 → 256 → 258 → 260`，行数 `321 → 300 → 303 → 306`，3 个 tick HTTP 200；JS 忙时 696.4ms，其中 bridge 15.6ms（2.2%），无 W3 longtask。该窗口此前曾被冻结，见 B7 R1 修复；修复后 tick 真实落地，不能再用旧的「低成本」冻结数据。
-- **结论（数据驱动）**：**B2 暂不重开**。markdown 库本身只占 13–20%，可复现的主要热点是 vendor `mermaid-block` 的 CSS 颜色归一化（vendor 面；若继续优化，应另出 vendor 计划并登记 PATCHES/CHECKLIST）。`buildRows` 增量重建条件（bridge tick >30%）未满足，W3 为 2.2%。
+- **R1 demap 测量（2026-10-13，隔离栈 4199，三轮独立复跑）**：`scripts/perf-md-attribution.mjs` 读临时 sourcemap、按原始模块路径聚合（map 不入库、不作为产品构建产物；`demapAvailable` 按目录实际含 map 判定）。会话 254 卡 / 309–328 行；**宿主负载波动大（load 4–5），单轮绝对毫秒不可比，取跨轮范围**：
+  · **W1a 无 Mermaid**（JS 忙时 0.86–1.59s）：markdown/mermaid 库 **18–22%**；vendor UI 17.5–27.3%；ocrc bridge **2.0–3.2%**；top 单点 `@radix-ui/react-presence:168`（118–594ms）。
+  · **W1b 含 Mermaid**（JS 忙时 1.99–3.18s）：vendor UI **42–60%**（主要就是 `mermaid-block`）；markdown/mermaid 库 **13–17%**；ocrc bridge **0.4–0.6%**。
+  · demap 覆盖率：已映射 88–89% 的 JS 忙时，未映射 ≤1.3ms（其余为 native/engine 帧）。
+- **热点定位（三轮一致）**：W1b top files 恒为 vendor `mermaid-block.tsx:118`（`resolveCssColor`）与 `:84`（`normalizeCssColorForMermaid`），单轮各 324–718ms；其次 Mermaid core 与 `ConversationTimeline.tsx:1776`。**不是 ocrc `buildRows`/`diffRows`**——最直接的优化边界是 vendor Mermaid/CSS 颜色归一化。
+- **W3 live tick（最大窗口前插后，三轮一致形态）**：服务端卡片 `254 → 256 → 258 → 260`，行数随窗口平移（`321→300→303→306` / `309→312→315→318` 两种形态），3 个 tick HTTP 200；bridge 占 JS 忙时 **2.2–2.8%**（13.5–19.1ms / 490–864ms）。**longtask 不恒定**：部分轮次 0 条、部分轮次 3–5 条（54–370ms，热点同为 `react-presence`/`react-dom`/`ConversationTimeline`，非 bridge）。该窗口此前曾被冻结，见 B7 R1 修复。
+- **结论（数据驱动）**：**B2 暂不重开**。markdown 库本身只占 13–22%，可复现的主要热点是 vendor `mermaid-block` 的 CSS 颜色归一化（vendor 面；若继续优化，应另出 vendor 计划并登记 PATCHES/CHECKLIST）。`buildRows` 增量重建条件（bridge tick >30%）未满足，W3 实测 2.2–2.8%。
 - **影响面**（未来若做）：分层=**vendor 面**｜文件=`vendor/zcode/ui/src/components/ai-elements/mermaid-block.tsx` 与相关 Mermaid 渲染；工作量=M｜回归风险=中｜门禁=vendor PATCHES/CHECKLIST + 时间线渲染 E2E + demap 脚本复跑。
 - **证据**：`vendor/zcode/ui/src/components/ai-elements/mermaid-block.tsx:84,118`；`scripts/perf-md-attribution.mjs`；`/tmp/ocrc-perf/md-attribution.json`；`perf-remediation-brief.md:63`。
 
@@ -306,8 +309,8 @@
   也算成命中；限定时间线 + 对比卡片原文后判定无重复。）
 - **如实未做 / 未达标**：
   - **全量 rebuild 未改增量**：`buildRows` 仍对已加载窗口整体重建（窗口本身已由 200 消息页封顶）。
-    R1 demap 的最大窗口 W3 实测 bridge 占 JS 忙时 **2.2%**（15.6/696.4ms），低于 30% 重开阈值；
-    因此维持不做，且旧的「入口 chunk（React+桥接）7–11%」说法已撤回。
+    R1 demap 的最大窗口 W3 实测 bridge 占 JS 忙时 **2.2–2.8%**（13.5–19.1ms / 490–864ms，三轮），
+    低于 30% 重开阈值；因此维持不做，且旧的「入口 chunk（React+桥接）7–11%」说法已撤回。
   - **live 取数未减字节 → 已减（2026-10-13，缺口收口计划 A）**：live 每 tick 改为取**尾部小页**
     （`?limit=20`，`HISTORY_TAIL_PAGE`）与窗口合并，快照/计划目录仍取全量页；每
     `HISTORY_FULL_EVERY_TICKS`（10）个 tick 兜一次全量页。`hasOlderOnLoad` 改读服务端 `hasMore`。

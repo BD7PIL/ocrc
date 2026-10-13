@@ -20,7 +20,7 @@
 //   W1a「首次渲染 · 无 mermaid」/ W1b「首次渲染 · 含 mermaid」= 回合进行中（含 chunk 编译/求值）；
 //   W3 「live tick」= 回合结束后连发 shell tick（桥接 buildRows/diff + 行 update 的成本）。
 import { createRequire } from 'node:module'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -248,7 +248,8 @@ try {
   const opened = await rowsNow()
   out.opened = opened
   console.log('opened rows:', opened)
-  if (opened === null || opened === 0) console.error('警告：时间线元素未出现或初始行数为 0——下面的首次渲染数字可能不代表渲染成本')
+  // 注意：本脚本是**先开空会话再发消息**，首开 0 行是设计内正常态；只有元素缺失才是异常。
+  if (opened === null) console.error('警告：时间线元素未出现——下面的首次渲染数字可能不代表渲染成本')
 
   /** 发一条消息、等回合结束，期间采一次 CPU profile。
    *  窗口必须在回合**真正结束**（busy 回落）后才收尾：否则引擎还在出字、markdown/mermaid
@@ -267,9 +268,9 @@ try {
     await page.waitForTimeout(3000)
     const { profile } = await cdp.send('Profiler.stop')
     const longtasks = await lt()
-    const rows = await rowsNow()
-    if (rows === 0) console.error(`警告：${label} 结束时行数为 0——该窗数字可能不代表渲染成本`)
-    return { label, profile, longtasks, rows, done }
+  const rows = await rowsNow()
+  if (rows === 0) console.error(`警告：${label} 结束时行数为 0——该窗数字可能不代表渲染成本`)
+  return { label, profile, longtasks, rows, done }
   }
 
   // 对照 A：无 mermaid → 对照 B：同规格 + mermaid
@@ -380,6 +381,9 @@ try {
   console.log(`W3 行数轨迹: ${w3RowPath.join(' → ')}（窗口饱和时会平移，持平不代表没更新）`)
   if (w3CardPath[w3CardPath.length - 1] === w3CardPath[0]) {
     console.error('警告：W3 期间服务端卡片数没有增长——tick 没落到会话，数字只是下界')
+  } else if (w3RowPath.slice(1).every((r) => r === w3RowPath[0])) {
+    // 卡片在涨、行数却一动不动 = 桥接没把更新推出去（2026-10-13 R1 修的冻结特征）。
+    console.error('警告：W3 期间卡片增长但行数完全不变——疑似 live 更新未落地，数字只是下界')
   }
 
   const aA = aggregate(A.profile)
@@ -408,7 +412,9 @@ try {
   })
   Object.assign(out, {
     // 口径警告：demap 需要带 map 的 dist；没有 map 时 family 会退化到 chunk 口径（混杂）。
-    demapAvailable: existsSync(join(DIST, 'mermaid-MCJ5UELQ-CvtXjCzx.js.map')),
+    // 口径警告：demap 需要带 map 的 dist。按**目录里实际有没有 .map** 判定，
+    // 不硬编码 chunk 名（hash 每次构建都变；旧写法会把「有 map」误报成 false）。
+    demapAvailable: readdirSync(DIST).some((f) => f.endsWith('.js.map')),
     w1a: dump(A, aA, A.longtasks),
     w1b: dump(B, aB, B.longtasks),
     w3: dump({ label: `W3 live tick ×${ticksOk}`, rows: rowsAfterTicks, done: true }, a3, lt3),

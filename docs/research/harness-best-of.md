@@ -249,12 +249,20 @@
      超限跳过并如实记日志（不静默）。
   4. **投递循环抽成注入式函数** `deliverOutboundMedia`（fetch/send/warn 注入）：逐条独立容错，
      一条失败不拖累其余；`index.ts` 只留一行 send 分发（sendPhoto/sendVideo/sendAudio/sendDocument）。
+     批次 4 后补：分发闭包抽成 `grammyOutboundSender(api, chatId)`（`outbound.ts`）——
+     为的是能用**本地 mock Bot API** 验真发送端（见下）。
   5. 抽取面：`extractMediaUrls`（markdown 链接 + 裸 URL，分类过滤 + 去重 + cap 3）；
      `extractImageUrls`（旧图片相册面）保留不动。
-- **如实未做**：**无 TG 端实测**——隔离栈按设计跑空 token（不轮询 TG），生产 bot 不接受测试流量；
-  改用「注入依赖 + 单测」覆盖投递循环（分发/mime 覆盖/超限/非 2xx/网络错误五路），
-  真机联调留待用户侧验证。
-- **证据**：`m8-journal.ts`（分类/抽取/投递）；`tests/unit/telegram-m8.test.ts`（+9 条，共 15 条）。
+- **TG 端验证（2026-10-13 补，缺口收口 B）**：真 grammy 1.46.0 + 本地 mock Bot API
+  （`http.createServer` + `listen(0,'127.0.0.1')`，`new Bot('123:TEST', { client: { apiRoot } })`）：
+  四种 kind 分别打到 `/bot123:TEST/sendPhoto|sendVideo|sendAudio|sendDocument`；
+  multipart 校验 `chat_id` 分片、payload 字段名与 kind 对应、`attach://<id>` 引用的文件分片
+  带原始 `filename`（含非 ASCII `报告.pdf`）；换 token → 端点前缀跟着变（非硬编码）。
+  即「只差真 bot 投递」：**mock 级集成已验；真 bot 投递仍待用户侧一次确认**（需 token，
+  且生产 bot 不接受测试流量）。
+- **如实未做**：**真 TG 端投递**——隔离栈按设计跑空 token（不轮询 TG），生产 bot 不接受测试流量。
+- **证据**：`m8-journal.ts`（分类/抽取/投递）；`outbound.ts`（`grammyOutboundSender`）；
+  `tests/unit/telegram-m8.test.ts`（+9 条，共 15 条）；`tests/unit/telegram-outbound.test.ts`（2 条）。
 
 ### B6 · 知识库→资产化闭环 `OpenCode-Client` · **不做**
 

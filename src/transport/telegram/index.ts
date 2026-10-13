@@ -40,8 +40,8 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { createLogger } from '../../utils/logger.js'
 import { ocrcHome } from '../../utils/paths.js'
-import { InputFile } from 'grammy'
 import { acquireRuntimeLock, type RuntimeLock } from './runtime-lock.js'
+import { grammyOutboundSender } from './outbound.js'
 import {
   OffsetJournal, extractImageUrls, normalizeMediaKind,
   extractMediaUrls, deliverOutboundMedia,
@@ -748,13 +748,8 @@ export function createTelegramTransport(cfg: TelegramConfig, injected?: { bot?: 
         void deliverOutboundMedia(media, {
           fetchImpl: (url, init) => fetch(url, init),
           warn: (m) => log.warn(m),
-          send: async (kind, { buf, filename }) => {
-            const file = new InputFile(buf, filename)
-            if (kind === 'photo') await bot.api.sendPhoto(chatId, file)
-            else if (kind === 'video') await bot.api.sendVideo(chatId, file)
-            else if (kind === 'audio') await bot.api.sendAudio(chatId, file)
-            else await bot.api.sendDocument(chatId, file)
-          },
+          // 按 kind 分发到 Bot API 的发送端抽到 outbound.ts（可被 mock API 集成测试覆盖）。
+          send: grammyOutboundSender(bot.api, chatId),
         }).catch((err) => log.warn('media output delivery failed', (err as Error).message))
       })
 

@@ -31,11 +31,13 @@ const toolCard = (i: number, tag: string): Card => ({
 const page = (tag: string, n: number): Card[] =>
   Array.from({ length: n }, (_, i) => [userCard(i, tag), toolCard(i, tag)]).flat()
 
+const HISTORY_URL = /\/api\/session\/[^/?]+(?:\?[^/]*)?$/
+
 /** 服务端窗口语义 `[len-limit-offset, len-offset)`（core/history.ts cardsFromMessages）。 */
 function stubPaged(all: Card[]) {
   return vi.fn(async (url: string) => {
     const u = String(url)
-    if (u.includes('/api/session/')) {
+    if (HISTORY_URL.test(u)) {
       const om = /[?&]offset=(\d+)/.exec(u)
       const lm = /[?&]limit=(\d+)/.exec(u)
       const offset = om ? Number(om[1]) : 0

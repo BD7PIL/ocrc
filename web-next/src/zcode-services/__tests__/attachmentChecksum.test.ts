@@ -32,6 +32,9 @@ describe('sha256Pure（非安全上下文回退）', () => {
 })
 
 describe('uploadAttachmentTransaction 在无 subtle 时走回退', () => {
+  // 该用例在并行全量跑时是 ~3.9s（纯 JS sha256 对多档输入做对照），默认 5s 上限
+  // 在宿主负载高时会被顶穿；超时后挂起的异步还会把下一条用例的 digest spy 计数
+  // 顶成 2（2026-10-13 实测两连失败、单跑全绿）。显式放宽到 20s 去抖。
   it('beginParams.checksum 是 sha256:<64 hex> 且与 node 结果一致', async () => {
     // 去掉 subtle（模拟 http 源），保留 randomUUID/getRandomValues（它们在
     // 非安全上下文仍存在）。
@@ -57,7 +60,7 @@ describe('uploadAttachmentTransaction 在无 subtle 时走回退', () => {
     expect(result).toEqual({ ref: 'ocrc-att://probe' })
     expect(beginParams.checksum).toMatch(/^sha256:[0-9a-f]{64}$/)
     expect(beginParams.checksum).toBe(`sha256:${nodeHex(data)}`)
-  })
+  }, 20000)
 
   it('有 subtle 时走原生实现（用可用的假 subtle 验证分支选择，不依赖 jsdom 的 WebCrypto）', async () => {
     const expected = new Uint8Array(32).fill(0xab)

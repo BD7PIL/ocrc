@@ -46,7 +46,7 @@
 | ID | 项 | 来源 | 状态 | 建议 | 详表 |
 |---|---|---|---|---|---|
 | B1 | RiskConfirmation 独立组件 | dsh | 未落地 | **不做独立组件**（与 dock 重叠） | §2 |
-| B2 | Markdown 渲染进 Worker | opencode web | 未落地 | **不做**（B7 后复测：归因未成立，vendor 面） | §2 |
+| B2 | Markdown 渲染进 Worker | opencode web | 未落地 | **归因已成立 → 重开立项**（CDP 实测 markdown 家族占忙时 67–76%） | §2 |
 | B3 | 主题即 JSON | opencode web | 未落地 | **不做**（代码主题面板 vendor 已有） | §2 |
 | B4 | CSP + 主题脚本哈希 | opencode web | **已落地**（批 3） | 头下发 + nonce + 实测 0 违规（enforce） | §2 |
 | B5 | 媒体输出 document / video / audio | grinev | **已落地**（批 4） | 白名单分类 + mime 双信号 + 上限 + 注入式投递 | §2 |
@@ -186,7 +186,7 @@
 - **建议**：**不做独立组件**。语义已由 dock 覆盖；若未来要更强风险语义，给现有 approval 卡加 `risk` 元数据即可（S）。
 - **证据**：`grep -ri riskConfirm` 0 命中；`pendingInteractions.ts:1,46-49`。
 
-### B2 · Markdown 渲染进 Worker `opencode web` · **做 → 复测后判「不做」**（批 2c，2026-10-12）
+### B2 · Markdown 渲染进 Worker `opencode web` · **做 → 复测后判「不做」→ 归因已成立，重开立项**（批 2c 2026-10-12；归因测量 2026-10-13 缺口收口 C）
 
 - **状态**：未落地。vendor markdown 走**主线程** `streamdown`（`vendor/zcode/ui/src/components/ai-elements/message.tsx:13-16,42,429`），**无 markdown Worker**；ocrc 自有 markdown 仅分享页闭包用（`web-next/src/lib/markdown/sanitize.ts`，主线程 marked+hljs+DOMPurify）。
 - **2c 复测结论（B7 之后，2026-10-12）**：**不做**。理由（照批次 2 预定的决策规则走）：
@@ -195,10 +195,31 @@
   2. 时间线里的 markdown 渲染走 vendor 的 `streamdown`（**vendor 面**，改它要 vendor 补丁 + 重放登记），
      而 ocrc 侧 markdown 只在分享页用——把分享页的 marked 挪进 Worker 不改善会话时间线，收益与目标不符。
   3. 单独立项的前置条件（「先证明 markdown 是主线程热点」）**未被任何实测满足**；无数据不动刀。
-- **重启条件**：出现可复现的长会话卡顿，且 CDP Profiler 把主线程耗时明确归到 markdown 解析
-  （而非 row 重建 / vendor 渲染 / React 提交）——那时再立项，且要先定 ocrc 侧 vs vendor 补丁的边界。
-- **影响面**（若将来做）：分层=**壳**｜文件=`web-next/src/lib/markdown/`（现仅分享页消费）｜工作量=M｜回归风险=中｜门禁=双端测试 + 分享页 E2E。
-- **证据**：`message.tsx:13-16,42,429`；`sanitize.ts:1-18,57`；`perf-remediation-brief.md:33,35,43,59,63`；批 2 实测（`/tmp/ocrc-perf/*.json`）。
+- **归因测量（2026-10-13，缺口收口 C）**：脚本 `scripts/perf-md-attribution.mjs`（入库，可复跑；
+  CDP `Profiler` 采样 100µs，按 script URL 聚合 self time；产物 `/tmp/ocrc-perf/md-attribution.json`）。
+  隔离栈 4199，同一会话三窗对照——**W1a** 800 字 markdown（标题/列表/表格/两个高亮代码块/引用/行内公式）、
+  **W1b** 同规格 + 一个 mermaid 流程图、**W2** 切走再切回（chunk 已热的重挂载）：
+  · W1a：JS 忙时 558.5ms（markdown 家族 **399.2ms = 71.5%**；native 103.5ms；入口 chunk（React+桥接）55.8ms = 10%），
+    longtask 319 / 53ms；
+  · W1b：JS 忙时 847.8ms（markdown 家族 **647.3ms = 76.4%**，其中 mermaid-block chunk 280ms = 图布局；
+    native 114.3ms；入口 63.1ms = 7.4%），longtask 165/88/72/68/83/68ms；
+  · W2（行数 10，确认真重挂载）：JS 忙时 491.8ms，markdown 家族 **329.8ms = 67.1%**（mermaid-block 降到 47ms，
+    但 streamdown/micromark 解析 ~280ms 原样复现），longtask 334 / 74ms。
+- **结论（数据驱动，改判）**：**归因成立 → 重开立项**（另出计划，先定 ocrc 侧 vs vendor 补丁边界）。
+  1. 主线程热点就是 markdown 家族 chunk `mermaid-*.js`（9.2MB，含 streamdown + micromark + katex +
+     shiki + mermaid）：首次渲染与**重挂载**都占 67–76% 的 JS 忙时；长任务 ≥50ms 在重挂载时照样出现
+     （334ms）——即不是「一次性 chunk 编译」，而是**每次挂载都要重新解析/渲染**。
+  2. **我方桥接（buildRows/diff）不是热点**：入口 chunk（还含 React 运行时）只占 7–11%，
+     据此**顺带满足**「`buildRows` 全量重建不做」的重开条件（要求 >30%）——该裁决现在是数据支撑的。
+  3. mermaid 的边际成本：首次 +248ms（markdown 家族内）+ 280ms（图布局 chunk）；
+     重挂载时图布局降到 47ms，**markdown 解析那 ~280ms 仍在**。
+  4. 对照 `perf-remediation-brief.md:63` 的 137ms 残余：量级一致且可复现，来源是 markdown 面，
+     不是 row 重建。
+- **影响面**（重开后的候选，待计划裁）：分层=**壳 + vendor 面**｜文件=`vendor/zcode/ui/src/components/ai-elements/message.tsx`、
+  `web-next/src/lib/markdown/`｜工作量=M–L｜回归风险=中（vendor 补丁须 PATCHES 登记 + CHECKLIST 对账）｜
+  门禁=双端测试 + 时间线渲染 E2E + 本脚本复跑对比。
+- **证据**：`message.tsx:13-16,42,429`；`sanitize.ts:1-18,57`；`perf-remediation-brief.md:33,35,43,59,63`；
+  `scripts/perf-md-attribution.mjs`；`/tmp/ocrc-perf/md-attribution.json`。
 
 ### B3 · 主题即 JSON `opencode web` · **不做**（2026-10-12 复核维持）
 
@@ -310,6 +331,8 @@
 - **如实未做 / 未达标**：
   - **全量 rebuild 未改增量**：`buildRows` 仍对已加载窗口整体重建（窗口本身已由 200 消息页封顶）。
     longtask 未因此明显下降（200 档残余 50–64ms；500/1000 档本轮未观测到 ≥50ms 任务）。
+    **重开条件已测（2026-10-13，缺口收口 C）**：入口 chunk（React 运行时 + 桥接 buildRows/diff）
+    只占 JS 忙时 **7–11%**（三窗实测 55.8/63.1/54.4ms），远低于 30% 阈值 → **维持不做，且现在是数据支撑**。
   - **live 取数未减字节 → 已减（2026-10-13，缺口收口计划 A）**：live 每 tick 改为取**尾部小页**
     （`?limit=20`，`HISTORY_TAIL_PAGE`）与窗口合并，快照/计划目录仍取全量页；每
     `HISTORY_FULL_EVERY_TICKS`（10）个 tick 兜一次全量页（更早卡的状态后到——工具
@@ -504,7 +527,7 @@ gjc = **`gjc acp`**（薄前端 + 常驻 broker）。
 | A7 | 字号一等设置 | 保持 | 保持 | 无（量程见 D1） |
 | A8 | 行级虚拟化时间线 | 已落地（更正） | 保持 | 无 |
 | B1 | RiskConfirmation | 不做独立组件 | **不做**（与 dock 重叠） | 无 |
-| B2 | Markdown Worker | 实测驱动 | **做**（排 B7 后）→ 2c 复测改判 **不做**（归因未成立 + vendor 面） | 批 2c 已判 |
+| B2 | Markdown Worker | 实测驱动 | **做**（排 B7 后）→ 2c 改判不做 → **C 项实测归因成立，重开立项** | 归因测量 ✅（待另出计划） |
 | B3 | 主题即 JSON | 不做 | **不做**（代码主题面板已有） | 无 |
 | B4 | CSP + 哈希 | 不做 → 改判「做」 | **做**（内网合规） | 批 3 ✅（enforce） |
 | B5 | 媒体输出 | 待裁决 | **做** | 批 4 ✅ |

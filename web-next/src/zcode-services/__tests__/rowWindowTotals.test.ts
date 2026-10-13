@@ -110,6 +110,10 @@ describe('D · 更早页 id 单调性（1 行差根因）', () => {
   })
 
   it('③ 非对齐档（尾部窗口首行落在 input 行）：复现 1 行差', async () => {
+    // 缺陷触发条件 = 游标（尾部窗口首行）落在 userInput 行上。修前该条件下 vendor
+    // mergeOlderRows 按 `rowId < window[0].rowId` 的数值过滤会把游标前那张 id 更大的
+    // turnHeader 丢掉：实测修前 891/901（每页边界丢 1、共丢 10 行）；本用例断言修后
+    // 901/901、dropped=0 —— 即该用例是这条缺陷的回归门（修前它会失败）。
     // 末卡改成 2 个 tool 块 → 该页 301 行（非 3 的倍数）→ 尾部 60 行窗口的首行落在
     // userInput 行上，其前一张 turnHeader 的 id 更大 → 被 vendor 过滤掉。
     const nPage = [...page('n', 100)]

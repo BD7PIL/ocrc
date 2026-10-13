@@ -189,7 +189,7 @@
 ### B2 · Markdown 渲染进 Worker `opencode web` · **做 → 复测后判「不做」→ demap 复核后暂不重开**（批 2c 2026-10-12；R1 复核 2026-10-13）
 
 - **状态**：未落地。vendor markdown 走**主线程** `streamdown`（`vendor/zcode/ui/src/components/ai-elements/message.tsx:13-16,42,429`），**无 markdown Worker**；ocrc 自有 markdown 仅分享页闭包用（`web-next/src/lib/markdown/sanitize.ts`，主线程 marked+hljs+DOMPurify）。
-- **原 C 项 chunk 归因作废**：生产构建把 markdown、vendor UI 与 ocrc bridge 合并进同一 `mermaid-*.js`（约 9.4MB），不能用 chunk 名把 bridge 或 markdown 单独归因；旧台账中「入口 chunk（React+桥接）7–11%」和「markdown 家族 67–76%」均撤回。
+- **原 C 项 chunk 归因作废**：生产构建把 markdown、vendor UI 与 ocrc bridge 合并进同一 `mermaid-*.js`（9,460,746B ≈ 9.02MiB），不能用 chunk 名把 bridge 或 markdown 单独归因；旧台账中「入口 chunk（React+桥接）7–11%」和「markdown 家族 67–76%」均撤回。
 - **R1 demap 测量（2026-10-13，隔离栈 4199，三轮独立复跑）**：`scripts/perf-md-attribution.mjs` 读临时 sourcemap、按原始模块路径聚合（map 不入库、不作为产品构建产物；`demapAvailable` 按目录实际含 map 判定）。会话 254 卡 / 309–328 行；**宿主负载波动大（load 4–5），单轮绝对毫秒不可比，取跨轮范围**：
   · **W1a 无 Mermaid**（JS 忙时 0.86–1.59s）：markdown/mermaid 库 **18–22%**；vendor UI 17.5–27.3%；ocrc bridge **2.0–3.2%**；top 单点 `@radix-ui/react-presence:168`（118–594ms）。
   · **W1b 含 Mermaid**（JS 忙时 1.99–3.18s）：vendor UI **42–60%**（主要就是 `mermaid-block`）；markdown/mermaid 库 **13–17%**；ocrc bridge **0.4–0.6%**。

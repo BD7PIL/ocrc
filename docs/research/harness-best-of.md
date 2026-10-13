@@ -278,7 +278,7 @@
      （`hasOlderRows` / `mergeOlderRows` / `loadAllOlder` / `apply.row.removed`），它要求
      rowId 随行序单调；N9-1 的内容哈希满足身份稳定却破坏单调（这是上面 ② 的深层原因）。
      现在 = 内容身份 → 单调 id：尾部递增（N9-1 的「追加不位移」保持），更早页从
-     下界递减且**页内逆序发号**（保证数组序 id 递增，vendor 的数值过滤才不丢行）。
+     下界递减且**整块按行序发号**（见「1 行差」条目；最初只逆到卡级，仍非单调）。
   4. **offset 真翻页**：`conversationRowsRangeV4` 改为位置游标 + 服务端
      `[len-limit-offset, len-offset)` 语义逐页前插（最多 5 页/次，防失控），`hasMore` 如实。
   5. **工具卡终态缓存**：消息内所有工具 part 到终态后缓存永不失效（此前 60s TTL 让
@@ -304,11 +304,24 @@
     longtask 未因此明显下降（200 档残余 50–64ms；500/1000 档本轮未观测到 ≥50ms 任务）。
   - **live 取数未减字节**：每 tick 仍取最新 200 消息页（61KB）——服务端无「since 消息」语义，
     改成尾部小页需要新增合并逻辑，本轮未做。
-  - **1 行差**：1000 档收敛 899 / 期望 900（分页边界一行，机制已通；未追到根因）。
+  - **1 行差 → 已定位并修**（2026-10-13，缺口收口计划 D）：根因在**我方**发号，不是 vendor。
+    更早页最初用「逆序干跑」发号，但只逆到**卡**级——卡内 `buildRows` 先推 `turnHeader`
+    再推 `userInput`，而向下号段是**递减**的，于是同卡内 header 的 id 比 input 大，前插页
+    在行序上 id 非单调（实测 `397,396,398,400,399,…`）。vendor
+    `mergeOlderRows`（`conversationProjectionStore.ts:258-266`）按 `rowId < window[0].rowId`
+    过滤：**游标落在 userInput 行时，它前面那张 turnHeader 的 id 更大 → 被过滤掉 → 恰好丢 1 行**。
+    修复 = `assignOlderPageIds`：干跑（只枚举身份、不发号）取该页按行序的身份键，再整块分配
+    向下 id，保证页内 id 随行序递增。
+    **确定性复现（jsdom，`rowWindowTotals.test.ts`）**：与 vendor 同构的 drain（带该过滤）——
+    对齐档（行数 3 的倍数，游标落在 header）900/900 精确；非对齐档（末卡 2 个 tool 块 →
+    301 行 → 游标落在 input）修前 **891/901（丢 10 行，每页边界丢 1）**，修后 **901/901、丢弃 0**；
+    并新增「行序上 id 单调」不变量用例。真实档位 DOM 复测随 A 的隔离栈实测补。
 - **门禁**：`rowWindow.test.ts` 5 例（尾部窗口/firstRowId/单调 id/翻页到耗尽/turn 号稳定）+
+  `rowWindowTotals.test.ts` 3 例（对齐档精确/行序 id 单调/非对齐档复现 1 行差）+
   既有 `rowIdentity.test.ts` 6 例（N9-1 契约）全绿；双端 tsc + 测试 + build 全绿。
-- **证据**：`zcodeAgentService.ts`（`rowIdFor` / `historyWindowFor` / `buildWindowRows` /
-  `conversationRowsRangeV4` / `enrichToolRows`）；`rowWindow.test.ts`；实测产物 `/tmp/ocrc-perf/*.json`。
+- **证据**：`zcodeAgentService.ts`（`rowIdFor` / `assignOlderPageIds` / `historyWindowFor` /
+  `buildWindowRows` / `conversationRowsRangeV4` / `enrichToolRows`）；`rowWindow.test.ts`；
+  `rowWindowTotals.test.ts`；实测产物 `/tmp/ocrc-perf/*.json`。
 
 ### B8 · 非图片附件上行（web 侧）· **做 → 已落地**（批次 5，2026-10-12）
 

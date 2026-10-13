@@ -420,6 +420,29 @@ function rowIdFor(sessionId: string, identity: string, older: boolean): number {
   return id
 }
 
+/** 更早页发号：按**行序**整块发放单调递增的向下 id。
+ *  逐行 rowIdFor 会在卡内倒序（buildRows 先推 turnHeader 再推 userInput，而向下号段
+ *  是递减的），于是前插页在行序上 id 非单调。vendor `mergeOlderRows`
+ *  （conversationProjectionStore.ts:258-266）按 `rowId < window[0].rowId` 过滤，
+ *  游标落在 userInput 行时会把游标前那张 id 更大的 turnHeader 丢掉——实测 1000 行档
+ *  因此少 1 行（非对齐档每页边界丢 1）。干跑（只枚举身份、不发号）先拿到该页按行序的
+ *  身份键，再整块分配，保证页内 id 随行序递增。 */
+function assignOlderPageIds(sessionId: string, page: OcrcCard[]): void {
+  const rows = buildRows(sessionId, page, undefined, {
+    olderCardCount: page.length, turnStart: TURN_BASE - 1, dryIdKeys: true,
+  })
+  const space = rowIdSpace(sessionId)
+  const keys: string[] = []
+  for (const r of rows) {
+    const k = r.__idKey as string | undefined
+    if (k && !space.byKey.has(k) && !keys.includes(k)) keys.push(k)
+  }
+  if (!keys.length) return
+  const base = space.nextHead - keys.length + 1
+  space.nextHead -= keys.length
+  for (let i = 0; i < keys.length; i++) space.byKey.set(keys[i]!, base + i)
+}
+
 /** 内容寻址 rowId 的身份串：卡片 messageId（缺省退 ts+kind——旧引擎消息无 id 时的
  *  兜底，只要同会话内唯一即可）+ 行在卡内的稳定序。 */
 function cardIdentity(c: OcrcCard, index: number): string {
@@ -593,7 +616,7 @@ function goalVerifyRows(sessionId: string, goal: GoalProjection, verifying: bool
   return out
 }
 
-function buildRows(sessionId: string, cards: OcrcCard[], goalArg?: GoalUi, opts?: { turnStart?: number; olderCardCount?: number }): any[] {
+function buildRows(sessionId: string, cards: OcrcCard[], goalArg?: GoalUi, opts?: { turnStart?: number; olderCardCount?: number; dryIdKeys?: boolean }): any[] {
   const rows: any[] = []
   const olderCardCount = opts?.olderCardCount ?? 0
   let turn = (opts?.turnStart ?? TURN_BASE) - 1
@@ -607,15 +630,19 @@ function buildRows(sessionId: string, cards: OcrcCard[], goalArg?: GoalUi, opts?
   // Date.now() 会让每次重建的 rows 全部不同，diff 退化成全量 upsert。
   // rowId 由内容身份派生（见 stableRowId）；turnId 维持 `turn-N` 计数——vendor 用它
   // 作 turn 聚合键，不解析数字。
-  const base = (ts: number, identity: string, kindTag: string, entityId?: string) => ({
-    rowId: rowIdFor(sessionId, `${identity}|${kindTag}`, cardOlder),
-    turnId: `turn-${turn}`,
-    ...(turn > 0 ? { productTurnId: `turn-${turn}` } : {}),
-    ...(entityId ? { entityId } : {}),
-    createdAt: ts,
-    // createdAtSeq 曾等于位置 rowId；现在给单调行计数（vendor 只把它当时间戳用）。
-    createdAtSeq: rows.length + 1,
-  })
+  const base = (ts: number, identity: string, kindTag: string, entityId?: string) => {
+    const idKey = `${identity}|${kindTag}`
+    return {
+      // dryIdKeys：干跑只枚举身份（见 assignOlderPageIds），不发号，把身份键带回调用方。
+      ...(opts?.dryIdKeys ? { __idKey: idKey } : { rowId: rowIdFor(sessionId, idKey, cardOlder) }),
+      turnId: `turn-${turn}`,
+      ...(turn > 0 ? { productTurnId: `turn-${turn}` } : {}),
+      ...(entityId ? { entityId } : {}),
+      createdAt: ts,
+      // createdAtSeq 曾等于位置 rowId；现在给单调行计数（vendor 只把它当时间戳用）。
+      createdAtSeq: rows.length + 1,
+    }
+  }
   for (let ci = 0; ci < cards.length; ci++) {
     const c = cards[ci]!
     const ts = c.ts ?? 0
@@ -1562,10 +1589,10 @@ export function createOcrcZcodeAgentService(): any {
         }
         w.nextOlderOffset += HISTORY_PAGE
         if (page.length < HISTORY_PAGE) w.exhausted = true
-        // 发号（干跑、**逆序**）：更早页在数组序上 id 必须递增——vendor 的
-        // mergeOlderRows/裁剪按 `rowId < 窗口首行` 做数值过滤，页内乱序会丢行。
-        // 逆序建一遍只为把该页身份的 id 发下去（id 空间记忆化，随后的全窗口重建直接复用）。
-        buildRows(sessionId, [...page].reverse(), undefined, { olderCardCount: page.length, turnStart: TURN_BASE - 1 })
+        // 发号：更早页在数组序上 id 必须递增——vendor 的 mergeOlderRows/裁剪按
+        // `rowId < 窗口首行` 做数值过滤，页内乱序会丢行。整块按行序分配（见
+        // assignOlderPageIds）：只逆到卡级不够——卡内 header/input 仍会倒序。
+        assignOlderPageIds(sessionId, page)
         w.older = [...page, ...w.older]
         rows = buildWindowRows(sessionId, w)
         await enrichToolRows(rows, sessionId)

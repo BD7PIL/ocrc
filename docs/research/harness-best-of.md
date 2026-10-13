@@ -211,6 +211,9 @@
 - **缺点 / 代价**：为「运行时主题市场」服务，ocrc **无多主题分发需求**；现有 CSS token 已实现明暗双主题 + 回肤取用（persimmon 封存 `web-next/src/styles/persimmon-theme.css`）。
 - **影响面**：分层=**壳**（且要重写 `theme.css` 架构）｜文件=`theme.css` 全线｜工作量=L｜依赖=无｜回归风险=**高**（与 M9 冻结的配色口径冲突）｜门禁=全站视觉回归。
 - **建议**：**不做**。判据：无需求 + 与冻结口径冲突 + 代码主题面板已有。
+- **指针（2026-10-13）**：用户提出 OpenBitFun 风格导入（审美对齐），另立文档 `docs/research/openbitfun-skin-mapping.md`
+  （映射表 + 候选皮肤 `web-next/src/styles/skin-openbitfun.css`（入库未 import）+ 样张）；**机制裁决不变**——仍是静态
+  CSS 覆盖层，不是主题 JSON/运行时导入，不撞本判例。
 - **证据**：`grep theme.*json` 0 命中；`theme.css:1-20`（token 架构 + M9 裁决）；`codePreviewPreferences.ts:11-20`。
 
 ### B4 · CSP + 主题脚本哈希 `opencode web` · **做 → 已落地（enforce）**（批次 3，2026-10-12）

@@ -1,0 +1,467 @@
+/* skin-openbitfun.css — OpenBitFun 风格候选皮肤 · candidate，未接入（2026-10-13）
+ *
+ * 状态：入库不 import（persimmon 先例）。映射依据全文见
+ * docs/research/openbitfun-skin-mapping.md（逐 token 三列 + A/B 两变体 + 裁决建议）。
+ *
+ * ── 启用配方（样张后若裁决接线）──
+ *   src/zcode/ZCodeApp.tsx:10 `import './zcode-mobile.css'` 之后加一行：
+ *     import '../styles/skin-openbitfun.css'
+ *   零 vendor 字节改动（PATCHES 免登记，vite.config.ts:54 先例）；
+ *   加载顺序 = theme.css(head) → vendor styles.css → 本表，后到者赢。
+ *
+ * ── 变体开关（样张对比用）──
+ *   A 全量（本文件默认）：accent 换 OBF blue/cyan、主按钮 ghost/navy、语义色 OBF。
+ *   B 中性层：给 <html> 加 data-skin-neutral 属性 → 文末「B 差集」恢复 zai 的
+ *   accent/primary/语义色，只留 OBF 底/边/墨/几何。接线时按裁决删掉另一变体。
+ *
+ * ── 来源与纪律 ──
+ *   取色自 GCWing/OpenBitFun（MIT）design-system token 文件，只取色值与设计
+ *   语言，不复制其代码/资产。不改 vendor / theme.css / PRODUCT.md；
+ *   A2 superellipse / A3 滚动条 / A4 焦点环 / D1 字号 / 动效寄存器契约不破
+ *   （焦点环不在此覆盖，--focus-ring → var(--info) 链保持，info 换 OBF 蓝）。
+ *   保留 zai 领域色：终端 ANSI ramp、图表族、node 族、trajectory、find-highlight。
+ *
+ * ── 选择器说明 ──
+ *   vendor 面：vendor 三主题块是同名 class 选择器（.dark / .theme-zai-dark /
+ *   .theme-zai-light，各 (0,1,0)），本表用同名选择器 + 后加载顺序取胜。
+ *   ocrc 面：dark 基底 :root，light 复制 theme.css 的 data-theme 属性轨 +
+ *   prefers-color-scheme 媒体轨（class 轨为 ocrc 既有行为边界，不在皮肤内修复）。
+ *   字锚：--zai-fg-dark/-light 是 ocrc --text* 派生链源头，只换锚点即全链跟随。 */
+
+/* ═════════════ 几何（主题无关；OBF system.tokens.json radius）═════════════ */
+:root {
+  /* ocrc 阶（theme.css L139-145）：14/9/6 → OBF lg 12 / base 8 / sm 6 */
+  --radius:    12px;
+  --radius-sm: 8px;
+  --radius-xs: 6px;
+  /* Tailwind 阶（tailwindcss/theme.css L397-404 同名变量，ocrc/theme.css 已在
+   * 同名碰撞下单值驱动，此处跟随 OBF：md=base 8 / lg 12 / xl 16） */
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  /* Tailwind 阴影 → OBF shadow.xs/sm/base/lg/xl（light 值；.dark 块内翻暗） */
+  --shadow-2xs: 0 1px 2px rgba(16, 26, 39, 0.04);
+  --shadow-xs:  0 1px 2px rgba(16, 26, 39, 0.04);
+  --shadow-sm:  0 2px 4px rgba(16, 26, 39, 0.055);
+  --shadow-md:  0 4px 8px rgba(16, 26, 39, 0.07);
+  --shadow-lg:  0 8px 16px rgba(16, 26, 39, 0.09);
+  --shadow-xl:  0 12px 24px rgba(16, 26, 39, 0.11);
+}
+
+/* ═════════════ A · dark（OBF dark.tokens.json）═════════════ */
+:root {
+  /* 字锚（content.primary = neutral-200；--text-2/3/4、toolcmd/toolout 全链跟随） */
+  --zai-fg-dark: #e8e8e8;
+
+  /* surfaces：canvas #0e0e10 / panel·raised #1c1c1f 两级 + ◇派生 elev2 */
+  --bg:        #0e0e10;
+  --bg-panel:  #1c1c1f;
+  --bg-canvas: #0e0e10;
+  --bg-elev:   #1c1c1f;
+  --bg-elev2:  #232326;
+  --bg-input:  #1c1c1f;
+  --bg-code:   #131316;
+  --border:    rgba(255, 255, 255, 0.12);
+  --border-2:  rgba(255, 255, 255, 0.07);
+
+  --border-hover:      rgba(255, 255, 255, 0.24);
+  --bg-sidebar:        #0e0e10;
+  --bg-header:         #0e0e10;
+  --bg-card:           #1c1c1f;
+  --bg-popover:        #1c1c1f;
+  --bg-popover-header: #232326;
+  --bg-menu:           #1c1c1f;
+  --bg-menu-hover:     #232326;
+  --bg-tab:            #0e0e10;
+  --bg-tab-active:     #1c1c1f;
+  --bg-tag:            rgba(255, 255, 255, 0.1);
+  --oc-unread-dot:     #36c6d7;  /* OBF link.default = cyan-400 */
+  --hover:    rgba(255, 255, 255, 0.06);
+  --selected: rgba(255, 255, 255, 0.12);
+  --surface:       rgba(255, 255, 255, 0.06);
+  --surface-hover: rgba(255, 255, 255, 0.12);
+  --primary:     rgba(255, 255, 255, 0.16);  /* OBF action.primary ghost */
+  --primary-ink: #f3f3f5;
+
+  --accent:    #60a5fa;  /* OBF accent.default = blue-400（A 案；B 由文末差集恢复） */
+  --accent-2:  rgba(96, 165, 250, 0.12);
+  --accent-ink: #0e0e10;
+  --accent-line: rgba(96, 165, 250, 0.4);
+
+  /* 语义（OBF 跨主题恒定；--focus-ring → var(--info) 契约链不动，A4 保持） */
+  --ok:   #1aa73e;
+  --warn: #ff8c00;
+  --err:  #ec221f;
+  --info: #2e7eff;
+
+  --ask-surface:      rgba(46, 126, 255, 0.1);
+  --ask-fg:           color-mix(in srgb, #2e7eff 62%, #fff);
+  --confirm-surface:  rgba(26, 167, 62, 0.1);
+  --confirm-fg:       color-mix(in srgb, #1aa73e 70%, #fff);
+  --idle-task:        #8b5cf6;
+  --idle-task-surface: rgba(139, 92, 246, 0.09);
+
+  --scrim: rgba(0, 0, 0, 0.56);
+
+  --shadow-card:    0 1px 2px rgba(0, 0, 0, 0.9);
+  --shadow-composer: 0 2px 6px rgba(0, 0, 0, 0.32);
+  --shadow-palette: 0 4px 20px rgba(0, 0, 0, 0.48);
+
+  --user-bubble: rgba(255, 255, 255, 0.06);
+  --bubbleline:  rgba(255, 255, 255, 0.12);
+
+  --oc-scrollbar-thumb:      rgba(255, 255, 255, 0.2);
+  --oc-scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
+}
+
+/* ═════════════ A · light（OBF light.tokens.json）═════════════ */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --zai-fg-light:  rgba(0, 0, 0, 0.8);
+  --zai-ink-light: rgba(0, 0, 0, 0.8);
+
+  /* surfaces：canvas #fdfdfd / chrome #f8f8f9 / panel·raised #ffffff */
+  --bg:        #fdfdfd;
+  --bg-panel:  #ffffff;
+  --bg-canvas: #ffffff;
+  --bg-elev:   #ffffff;
+  --bg-elev2:  #f7f7f7;
+  --bg-input:  #ffffff;
+  --bg-code:   #f7f7f7;
+  --border:    rgba(16, 26, 39, 0.15);
+  --border-2:  rgba(16, 26, 39, 0.08);
+
+  --border-hover:      rgba(16, 26, 39, 0.2);
+  --bg-sidebar:        #f8f8f9;
+  --bg-header:         #ffffff;
+  --bg-card:           #ffffff;
+  --bg-popover:        #ffffff;
+  --bg-popover-header: #f8f8f9;
+  --bg-menu:           #ffffff;
+  --bg-menu-hover:     #f7f7f7;
+  --bg-tab:            #f8f8f9;
+  --bg-tab-active:     #ffffff;
+  --bg-tag:            rgba(0, 0, 0, 0.08);
+  --oc-unread-dot:     #059cb0;
+  --hover:    rgba(0, 0, 0, 0.05);
+  --selected: rgba(0, 0, 0, 0.08);
+  --surface:       rgba(16, 26, 39, 0.03);
+  --surface-hover: rgba(0, 0, 0, 0.08);
+  --primary:     #101a27;  /* OBF action.primary = navy-950 实色 */
+  --primary-ink: #ffffff;
+
+  --accent:    #059cb0;  /* OBF accent.default = cyan-500（A 案） */
+  --accent-2:  rgba(5, 156, 176, 0.09);
+  --accent-ink: #ffffff;
+  --accent-line: rgba(5, 156, 176, 0.4);
+
+  --ok:   #1aa73e;
+  --warn: #ff8c00;
+  --err:  #ec221f;
+  --info: #2e7eff;
+
+  --ask-surface:      rgba(46, 126, 255, 0.1);
+  --ask-fg:           color-mix(in srgb, #2e7eff 76%, #000);
+  --confirm-surface:  rgba(26, 167, 62, 0.1);
+  --confirm-fg:       color-mix(in srgb, #1aa73e 68%, #000);
+  --idle-task:        #7c6b99;
+  --idle-task-surface: rgba(124, 107, 153, 0.09);
+
+  --scrim: rgba(16, 26, 39, 0.2);
+
+  --shadow-card:    0 1px 2px rgba(16, 26, 39, 0.04);
+  --shadow-composer: 0 2px 12px rgba(0, 0, 0, 0.08);
+  --shadow-palette: 0 4px 20px rgba(0, 0, 0, 0.12);
+
+  --user-bubble: rgba(16, 26, 39, 0.03);
+  --bubbleline:  rgba(16, 26, 39, 0.15);
+
+  --oc-scrollbar-thumb:      rgba(0, 0, 0, 0.2);
+  --oc-scrollbar-thumb-hover: rgba(0, 0, 0, 0.3);
+}
+
+/* system auto light — 与上面 [data-theme="light"] 逐值一致（theme.css 同款三轨） */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+
+    --zai-fg-light:  rgba(0, 0, 0, 0.8);
+    --zai-ink-light: rgba(0, 0, 0, 0.8);
+
+    --bg:        #fdfdfd;
+    --bg-panel:  #ffffff;
+    --bg-canvas: #ffffff;
+    --bg-elev:   #ffffff;
+    --bg-elev2:  #f7f7f7;
+    --bg-input:  #ffffff;
+    --bg-code:   #f7f7f7;
+    --border:    rgba(16, 26, 39, 0.15);
+    --border-2:  rgba(16, 26, 39, 0.08);
+
+    --border-hover:      rgba(16, 26, 39, 0.2);
+    --bg-sidebar:        #f8f8f9;
+    --bg-header:         #ffffff;
+    --bg-card:           #ffffff;
+    --bg-popover:        #ffffff;
+    --bg-popover-header: #f8f8f9;
+    --bg-menu:           #ffffff;
+    --bg-menu-hover:     #f7f7f7;
+    --bg-tab:            #f8f8f9;
+    --bg-tab-active:     #ffffff;
+    --bg-tag:            rgba(0, 0, 0, 0.08);
+    --oc-unread-dot:     #059cb0;
+    --hover:    rgba(0, 0, 0, 0.05);
+    --selected: rgba(0, 0, 0, 0.08);
+    --surface:       rgba(16, 26, 39, 0.03);
+    --surface-hover: rgba(0, 0, 0, 0.08);
+    --primary:     #101a27;
+    --primary-ink: #ffffff;
+
+    --accent:    #059cb0;
+    --accent-2:  rgba(5, 156, 176, 0.09);
+    --accent-ink: #ffffff;
+    --accent-line: rgba(5, 156, 176, 0.4);
+
+    --ok:   #1aa73e;
+    --warn: #ff8c00;
+    --err:  #ec221f;
+    --info: #2e7eff;
+
+    --ask-surface:      rgba(46, 126, 255, 0.1);
+    --ask-fg:           color-mix(in srgb, #2e7eff 76%, #000);
+    --confirm-surface:  rgba(26, 167, 62, 0.1);
+    --confirm-fg:       color-mix(in srgb, #1aa73e 68%, #000);
+    --idle-task:        #7c6b99;
+    --idle-task-surface: rgba(124, 107, 153, 0.09);
+
+    --scrim: rgba(16, 26, 39, 0.2);
+
+    --shadow-card:    0 1px 2px rgba(16, 26, 39, 0.04);
+    --shadow-composer: 0 2px 12px rgba(0, 0, 0, 0.08);
+    --shadow-palette: 0 4px 20px rgba(0, 0, 0, 0.12);
+
+    --user-bubble: rgba(16, 26, 39, 0.03);
+    --bubbleline:  rgba(16, 26, 39, 0.15);
+
+    --oc-scrollbar-thumb:      rgba(0, 0, 0, 0.2);
+    --oc-scrollbar-thumb-hover: rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* ═════════════ vendor 面 · dark（.dark 与 .theme-zai-dark 同名同值覆盖）═════════════ */
+.dark,
+.theme-zai-dark {
+  --color-background: #0e0e10;
+  --color-background-win-alt: #1c1c1f;
+  --color-background-alt: color-mix(in oklab, #1c1c1f 60%, transparent);
+  --color-brand: #f3f3f5;
+  --color-panel: #1c1c1f;
+  --color-header: #0e0e10;
+  --color-sidebar: #0e0e10;
+  --color-card: #1c1c1f;
+  --color-popover: #1c1c1f;
+  --color-popover-header: #232326;
+  --color-input: #1c1c1f;
+  --color-menu: #1c1c1f;
+  --color-menu-hover: #232326;
+  --color-tab: #0e0e10;
+  --color-tab-active: #1c1c1f;
+  --color-secondary: #232326;
+  --color-toast: #1c1c1f;
+  --color-tooltip: #1c1c1f;
+  --color-tooltip-foreground: #e8e8e8;
+  --color-tooltip-tag: rgba(255, 255, 255, 0.1);
+  --color-tooltip-tag-foreground: #b0b0b0;
+  --color-tag: rgba(255, 255, 255, 0.1);
+  --color-surface: rgba(255, 255, 255, 0.06);
+  --color-surface-hover: rgba(255, 255, 255, 0.12);
+  --color-hover: rgba(255, 255, 255, 0.06);
+  --color-selected: rgba(255, 255, 255, 0.12);
+  --color-border: rgba(255, 255, 255, 0.12);
+  --color-border-hover: rgba(255, 255, 255, 0.24);
+  --color-primary: rgba(255, 255, 255, 0.16);
+  --color-primary-foreground: #f3f3f5;
+  --color-foreground: #e8e8e8;
+  --color-foreground-subtle: #b0b0b0;
+  --color-foreground-subtlest: #858585;
+  --color-success: #1aa73e;
+  --color-warning: #ff8c00;
+  --color-destructive: #ec221f;
+  --color-diff-added: #1aa73e;
+  --color-diff-removed: #ec221f;
+  --color-git-modified: #ff8c00;
+  --color-git-added: #1aa73e;
+  --color-git-deleted: #ec221f;
+  --color-git-renamed: #2e7eff;
+  --color-git-untracked: #1aa73e;
+  --color-git-descendant: #ff8c00;
+  --color-idle-task: #8b5cf6;
+  --color-idle-task-surface: rgba(139, 92, 246, 0.09);
+  --color-accent: #60a5fa;  /* A 案（vendor accent 即 interaction-ask 底，B 由差集恢复 #001d3d） */
+  /* Tailwind 阴影暗色值（OBF dark shadow） */
+  --shadow-2xs: 0 1px 2px rgba(0, 0, 0, 0.9);
+  --shadow-xs:  0 1px 2px rgba(0, 0, 0, 0.9);
+  --shadow-sm:  0 2px 4px rgba(0, 0, 0, 0.8);
+  --shadow-md:  0 4px 8px rgba(0, 0, 0, 0.7);
+  --shadow-lg:  0 8px 16px rgba(0, 0, 0, 0.6);
+  --shadow-xl:  0 12px 24px rgba(0, 0, 0, 0.5);
+  /* 引用型变量（card-selected / *-border / input-focused / terminal-bg/fg /
+   * popover-foreground / git-ignored / usage-heatmap）全部自动跟随，不重写。
+   * 保留 zai：terminal ANSI、usage-chart、context-breakdown、node 族、
+   * trajectory、workflow、find-highlight、interaction-*。 */
+}
+
+/* ═════════════ vendor 面 · light（.theme-zai-light 同名覆盖）═════════════ */
+.theme-zai-light {
+  --color-background: #fdfdfd;
+  --color-panel: #ffffff;
+  --color-header: #ffffff;
+  --color-sidebar: #f8f8f9;
+  --color-card: #ffffff;
+  --color-popover: #ffffff;
+  --color-popover-header: #f8f8f9;
+  --color-input: #ffffff;
+  --color-menu: #ffffff;
+  --color-menu-hover: #f7f7f7;
+  --color-tab: #f8f8f9;
+  --color-tab-active: #ffffff;
+  --color-secondary: #f7f7f7;
+  --color-toast: #ffffff;
+  --color-tooltip: #ffffff;
+  --color-tooltip-foreground: rgba(0, 0, 0, 0.8);
+  --color-tooltip-tag: rgba(0, 0, 0, 0.08);
+  --color-tooltip-tag-foreground: rgba(0, 0, 0, 0.6);
+  --color-tag: rgba(0, 0, 0, 0.08);
+  --color-surface: rgba(16, 26, 39, 0.03);
+  --color-surface-hover: rgba(0, 0, 0, 0.08);
+  --color-hover: rgba(0, 0, 0, 0.05);
+  --color-selected: rgba(0, 0, 0, 0.08);
+  --color-border: rgba(16, 26, 39, 0.15);
+  --color-border-hover: rgba(16, 26, 39, 0.2);
+  --color-primary: #101a27;
+  --color-primary-foreground: #ffffff;
+  --color-foreground: rgba(0, 0, 0, 0.8);
+  --color-foreground-subtle: rgba(0, 0, 0, 0.6);
+  --color-foreground-subtlest: rgba(0, 0, 0, 0.4);
+  --color-success: #1aa73e;
+  --color-warning: #ff8c00;
+  --color-destructive: #ec221f;
+  --color-diff-added: #1aa73e;
+  --color-diff-removed: #ec221f;
+  --color-git-modified: #ff8c00;
+  --color-git-added: #1aa73e;
+  --color-git-deleted: #ec221f;
+  --color-git-renamed: #2e7eff;
+  --color-git-untracked: #1aa73e;
+  --color-git-descendant: #ff8c00;
+  --color-idle-task: #7c6b99;
+  --color-idle-task-surface: rgba(124, 107, 153, 0.09);
+  --color-accent: #d8f8fc;  /* A 案：vendor accent 面 = cyan-100 淡底 */
+  /* --color-brand light 保持 #000000（与恢复值一致，不重写） */
+}
+
+/* ═════════════ B 差集 · data-skin-neutral：恢复 zai accent/primary/语义 ═════════════
+ * 只换底/边/墨/几何时给 <html> 加 data-skin-neutral。中位面（底/边/墨/滚动条/
+ * 阴影/几何/气泡/代码井）不复位，与 A 共用。 */
+:root[data-skin-neutral] {
+  --accent:    #ffffff;
+  --accent-2:  var(--selected);
+  --accent-ink: #000000;
+  --accent-line: rgba(255, 255, 255, 0.25);
+  --primary:     #ffffff;
+  --primary-ink: #000000;
+  --ok:   #46bf72;
+  --warn: #ff8a30;
+  --err:  #ff5c5c;
+  --info: #4099ff;
+  --ask-surface:      #001d3d;
+  --ask-fg:           #80beff;
+  --confirm-surface:  rgba(70, 191, 114, 0.16);
+  --confirm-fg:       #87d9a4;
+  --idle-task:        #7b5ce5;
+  --idle-task-surface: #160d38;
+  --oc-unread-dot:    #38bdf8;
+}
+.theme-zai-light[data-skin-neutral],
+:root[data-skin-neutral][data-theme="light"] {
+  --accent:    #000000;
+  --accent-2:  var(--hover);
+  --accent-ink: #ffffff;
+  --accent-line: rgba(13, 13, 13, 0.22);
+  --primary:     #000000;
+  --primary-ink: #ffffff;
+  --ok:   #1e8a3e;
+  --warn: #e07b00;
+  --err:  #e03131;
+  --info: #0b7fff;
+  --ask-surface:      #ebf4ff;
+  --ask-fg:           #0066dd;
+  --confirm-surface:  #eaf7ee;
+  --confirm-fg:       #166b32;
+  --idle-task:        #9e77ed;
+  --idle-task-surface: #f5f3ff;
+  --oc-unread-dot:    #0ea5e9;
+}
+@media (prefers-color-scheme: light) {
+  :root[data-skin-neutral]:not([data-theme="dark"]) {
+    --accent:    #000000;
+    --accent-2:  var(--hover);
+    --accent-ink: #ffffff;
+    --accent-line: rgba(13, 13, 13, 0.22);
+    --primary:     #000000;
+    --primary-ink: #ffffff;
+    --ok:   #1e8a3e;
+    --warn: #e07b00;
+    --err:  #e03131;
+    --info: #0b7fff;
+    --ask-surface:      #ebf4ff;
+    --ask-fg:           #0066dd;
+    --confirm-surface:  #eaf7ee;
+    --confirm-fg:       #166b32;
+    --idle-task:        #9e77ed;
+    --idle-task-surface: #f5f3ff;
+    --oc-unread-dot:    #0ea5e9;
+  }
+}
+/* vendor 面 B 恢复（(0,2,0) 压过上面同名 (0,1,0) 覆盖） */
+:root[data-skin-neutral],
+.dark[data-skin-neutral],
+.theme-zai-dark[data-skin-neutral] {
+  --color-primary: #ffffff;
+  --color-primary-foreground: #000000;
+  --color-brand: #ffffff;
+  --color-accent: #001d3d;
+  --color-success: #46bf72;
+  --color-warning: #ff8a30;
+  --color-destructive: #ff5c5c;
+  --color-diff-added: #46bf72;
+  --color-diff-removed: #ff5c5c;
+  --color-git-modified: #ff8a30;
+  --color-git-added: #46bf72;
+  --color-git-deleted: #ff5c5c;
+  --color-git-renamed: #4099ff;
+  --color-git-untracked: #46bf72;
+  --color-git-descendant: #ff8a30;
+  --color-idle-task: #7b5ce5;
+  --color-idle-task-surface: #160d38;
+}
+.theme-zai-light[data-skin-neutral] {
+  --color-primary: #000000;
+  --color-primary-foreground: #ffffff;
+  --color-brand: #000000;
+  --color-accent: #ebf4ff;
+  --color-success: #1e8a3e;
+  --color-warning: #e07b00;
+  --color-destructive: #e03131;
+  --color-diff-added: #1e8a3e;
+  --color-diff-removed: #e03131;
+  --color-git-modified: #e07b00;
+  --color-git-added: #1e8a3e;
+  --color-git-deleted: #e03131;
+  --color-git-renamed: #0b7fff;
+  --color-git-untracked: #1e8a3e;
+  --color-git-descendant: #e07b00;
+  --color-idle-task: #9e77ed;
+  --color-idle-task-surface: #f5f3ff;
+}

@@ -1,0 +1,129 @@
+/* zcode-theme-bridge.css — vendor --color-* 桥接层（ocrc ink，2026-10-14）
+ *
+ * 为什么存在：vendor styles.css 的 .dark / .theme-zai-dark / .theme-zai-light
+ * 块以 (0,1,0) 特异性硬定义 --color-primary/-selected/-brand/-foreground 等，
+ * 压过 index.css 的 :root 桥（--color-primary: var(--primary) 等）——不改本表，
+ * vendor 组件（bg-primary/bg-selected/bg-brand/bg-menu-hover…）吃不到 ocrc ink 值。
+ *
+ * 怎么生效：同名 class 选择器 + import 顺序取胜（本表在 ZCodeApp.tsx 中
+ * 于 vendor styles.css 之后 import，同 chunk 保序；zcode-mobile.css 先例）。
+ * 零 vendor 字节改动，PATCHES 免登记。
+ *
+ * 值从哪来：ink v4 样张（用户裁决 + 剂量三指标入带）的 vendor 面字面值
+ * 逐条搬运——与验收样张逐字节同渲；var() 化重构留批 3。
+ * 保留 zai（内容色非界面色，桥不覆盖）：terminal ANSI、usage-chart、
+ * context-breakdown、node 族、trajectory、workflow、find-highlight、
+ * interaction-*、terminal-selection。
+ * ocrc 面同语义 token（--primary/--selected/--ok…）由 theme.css 值层供给，
+ * 本表只管 vendor 词汇。 */
+
+/* ═══ dark（.dark 与 .theme-zai-dark 同名同值覆盖）═══ */
+.dark,
+.theme-zai-dark {
+  --color-background: #0e0e10;
+  --color-background-win-alt: #1c1c1f;
+  --color-background-alt: color-mix(in oklab, #1c1c1f 60%, transparent);
+  --color-panel: #1c1c1f;
+  --color-header: #0e0e10;
+  --color-sidebar: #0e0e10;
+  --color-card: #1c1c1f;
+  --color-popover: #1c1c1f;
+  --color-popover-header: #232326;
+  --color-input: #1c1c1f;
+  --color-menu: #1c1c1f;
+  --color-menu-hover: #232326;
+  --color-tab: #0e0e10;
+  --color-tab-active: #1c1c1f;
+  --color-secondary: #232326;
+  --color-toast: #1c1c1f;
+  --color-tooltip: #232326;
+  --color-tooltip-foreground: #e8e8e8;
+  --color-tooltip-tag: #232326;
+  --color-tooltip-tag-foreground: #b0b0b0;
+  --color-tag: #232326;
+  --color-surface: rgba(255, 255, 255, 0.05);
+  --color-surface-hover: rgba(255, 255, 255, 0.1);
+  --color-hover: rgba(255, 255, 255, 0.04);
+  --color-selected: rgba(251, 139, 60, 0.14);
+  --color-border: rgba(255, 255, 255, 0.16);
+  --color-border-hover: rgba(255, 255, 255, 0.26);
+  --color-primary: rgba(255, 255, 255, 0.16);
+  --color-primary-foreground: #f3f3f5;
+  --color-brand: #f3f3f5;
+  --color-foreground: #e8e8e8;
+  --color-foreground-subtle: #b0b0b0;
+  --color-foreground-subtlest: #858585;
+  --color-success: #6ee7a0;
+  --color-warning: #ffd479;
+  --color-destructive: #f97066;
+  --color-diff-added: #6ee7a0;
+  --color-diff-removed: #f97066;
+  --color-git-modified: #ffd479;
+  --color-git-added: #6ee7a0;
+  --color-git-deleted: #f97066;
+  --color-git-renamed: #8ab4ff;
+  --color-git-untracked: #6ee7a0;
+  --color-git-descendant: #ffd479;
+  --color-idle-task: #c4b5fd;
+  --color-idle-task-surface: rgba(196, 181, 253, 0.09);
+  --color-accent: rgba(251, 139, 60, 0.12);
+  /* Tailwind 阴影（v4 dark 值；几何批 3 前先保阴影节奏一致） */
+  --shadow-2xs: 0 1px 2px rgba(0, 0, 0, 0.6);
+  --shadow-xs:  0 1px 2px rgba(0, 0, 0, 0.6);
+  --shadow-sm:  0 1px 3px rgba(0, 0, 0, 0.6);
+  --shadow-md:  0 4px 8px rgba(0, 0, 0, 0.55);
+  --shadow-lg:  0 8px 16px rgba(0, 0, 0, 0.55);
+  --shadow-xl:  0 12px 24px rgba(0, 0, 0, 0.6);
+  /* 引用型 vendor 变量（card-selected / *-border / input-focused /
+   * terminal-bg/fg / popover-foreground / git-ignored / usage-heatmap）
+   * 全部自动跟随本表值，不重写。Tailwind 阴影随 vendor 默认（几何批 3）。 */
+}
+
+/* ═══ light ═══ */
+.theme-zai-light {
+  --color-background: #fdfdfd;
+  --color-panel: #ffffff;
+  --color-header: #ffffff;
+  --color-sidebar: #f8f8f9;
+  --color-card: #ffffff;
+  --color-popover: #ffffff;
+  --color-popover-header: #f8f8f9;
+  --color-input: #ffffff;
+  --color-menu: #ffffff;
+  --color-menu-hover: #f0f0f0;
+  --color-tab: #f8f8f9;
+  --color-tab-active: #ffffff;
+  --color-secondary: #ececec;
+  --color-toast: #ffffff;
+  --color-tooltip: #ffffff;
+  --color-tooltip-foreground: #262626;
+  --color-tooltip-tag: #ececec;
+  --color-tooltip-tag-foreground: #555555;
+  --color-tag: #ececec;
+  --color-surface: rgba(13, 13, 13, 0.03);
+  --color-surface-hover: rgba(13, 13, 13, 0.06);
+  --color-hover: rgba(13, 13, 13, 0.04);
+  --color-selected: rgba(228, 88, 15, 0.08);
+  --color-border: rgba(13, 13, 13, 0.15);
+  --color-border-hover: rgba(13, 13, 13, 0.24);
+  --color-primary: #16161a;
+  --color-primary-foreground: #ffffff;
+  --color-brand: #16161a;
+  --color-foreground: #262626;
+  --color-foreground-subtle: #6a6a6a;
+  --color-foreground-subtlest: #a1a1a1;
+  --color-success: #1f7a3d;
+  --color-warning: #9a6b00;
+  --color-destructive: #c2372c;
+  --color-diff-added: #1f7a3d;
+  --color-diff-removed: #c2372c;
+  --color-git-modified: #9a6b00;
+  --color-git-added: #1f7a3d;
+  --color-git-deleted: #c2372c;
+  --color-git-renamed: #2456a6;
+  --color-git-untracked: #1f7a3d;
+  --color-git-descendant: #9a6b00;
+  --color-idle-task: #8250df;
+  --color-idle-task-surface: rgba(130, 80, 223, 0.07);
+  --color-accent: rgba(228, 88, 15, 0.08);
+}

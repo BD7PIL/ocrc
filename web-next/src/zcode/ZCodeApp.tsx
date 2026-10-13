@@ -6,6 +6,9 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { AppErrorBoundary, ZCodeIntlProvider, generateMobileDeviceFingerprint, setStreamClientId, setZCodeBrandMessages } from '@zcode/ui'
 // ZCode 原生样式表（独立 Tailwind 入口：自带 source 扫描域 + zai 双主题）。
 import '../../vendor/zcode/ui/src/styles.css'
+// ocrc ink 主题桥（2026-10-14）：vendor --color-* 按 ink 值覆盖。必须在
+// vendor styles.css 之后 import（同名 class 选择器靠顺序取胜）。
+import './zcode-theme-bridge.css'
 // N8-7：移动端壳层适配（安全区 + 触屏 16px 输入字号），ocrc 侧覆盖、不动 vendor。
 import './zcode-mobile.css'
 // U2 品牌层：任何 IntlProvider 实例渲染前注册（含 ErrorBoundary/分享只读页等

@@ -1,13 +1,15 @@
-/* web-next/src/styles/theme.css — ocrc · ZCode zai dual theme, dsh-style
-   three-layer token architecture (2026-10-07 M9 re-skin).
+/* web-next/src/styles/theme.css — ocrc · ocrc ink dual theme, dsh-style
+   three-layer token architecture (2026-10-07 M9 re-skin; 2026-10-14 ink re-skin).
 
-   ── M9 裁决（用户定案）：连颜色一起照抄 ZCode ──
-   值层全部替换为 /tmp/zcode-src/packages/ui/src/styles.css 的
-   .theme-zai-dark（L606+）/ .theme-zai-light（L461+）真实色值（ZCode web
-   的 WEB_DEFAULT_THEME = "zai-dark"，zai 块就是它的实际外观）。ocrc 柿橙
-   静态色板原样封存在 git 历史（1.0.0-rc.1 的本文件），后续回肤从这里取。
-   token 名不变——已渲染的组件零改动换色。zai 没有的 ocrc 专属 token
-   （--text-3/4、--bg-code、发丝高程、radius 阶）按 zai 逻辑 color-mix 派生。
+   ── 2026-10-14 换肤（用户裁决）：默认皮肤 = ocrc ink ──
+   值层替换为 ink v4 样张实测值：中性冷灰双平面轴（dark #0e0e10/#1c1c1f，
+   light #fdfdfd/#f8f8f9）+ 柿橙品牌点缀（accent/焦点环/选中行/用户气泡，
+   剂量经像素级校准：强核心 0.29% ≈ 参照带、全屏零实心品牌块）。
+   冻结口径见 PRODUCT.md；前代 zai 双主题保留为上游对齐参照（vendor 块 +
+   git 历史）；柿橙原始色板封存 persimmon-theme.css（品牌色来源）。
+   token 名不变——已渲染的组件零改动换色。vendor 组件面的 --color-* 由
+   src/zcode/zcode-theme-bridge.css 按 ink 值桥接（零 vendor 字节改动）。
+   语义色采用 persimmon 双套（暗色提亮降饱和、亮色加深，Apple HIG）。
 
    ── 层次（DeepSeek harness design-platform.css 寄存器）──
    LAYER 0 static   原料色板（--zai-*）：ZCode 终端 ANSI/图表/语义 raw 值。
@@ -22,14 +24,14 @@
      - data-theme="light" → forced light
    index.html 的首绘内联脚本在首帧前应用（无 FOUC）。light 发射两次
    （prefers-color-scheme + [data-theme]），两块必须逐值一致——grep
-   KEEP-IN-SYNC。M9 起 light 在全部断点单一取值（zai-light），
+   KEEP-IN-SYNC。light 在全部断点单一取值（ocrc ink 冷纸白轴），
    ≥821px 桌面中性覆盖分叉已废弃。
 
    发虚三铁律（0.26.22，不回退）：不设 -webkit-font-smoothing:antialiased；
    不用 text-rendering:optimizeLegibility；mono 栈带显式 CJK 链。 */
 
 /* ═══════════════════════════════════════════════════════════════════════
-   LAYER 0 — static 原料色板（zai verbatim：终端 ANSI 双 ramp + 图表族）
+   LAYER 0 — static 原料色板（终端 ANSI 双 ramp 保留 zai；前景/油墨锚 = ink）
    ═══════════════════════════════════════════════════════════════════════ */
 :root {
   /* zai-dark terminal bright ramp（语法高亮原料） */
@@ -53,78 +55,79 @@
   --zai-tl-blue:    #0b7fff;
   --zai-tl-red:     #e03131;
   --zai-tl-black:   #5c5c5c;
-  /* 前景双锚（zai foreground：dark=neutral-300，light=neutral-800） */
-  --zai-fg-dark:    #d4d4d4;
+  /* 前景双锚（ocrc ink：dark=中性冷白 #e8e8e8；light=冷墨 #262626。
+     2026-10-14 换肤：值取自用户裁决的 ink v4 样张（剂量三指标入带）。 */
+  --zai-fg-dark:    #e8e8e8;
   --zai-fg-light:   #262626;
-  /* zai 油墨锚（border/toolti-tag 系派生基准：dark=#fff / light=#0d0d0d） */
+  /* 油墨锚（border/toolti-tag 系派生基准：dark=白 / light=冷墨） */
   --zai-ink-dark:   #ffffff;
-  --zai-ink-light:  #0d0d0d;
+  --zai-ink-light:  #262626;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   LAYER 1 — alias 语义 token · dark 基底（= zai-dark）
+   LAYER 1 — alias 语义 token · dark 基底（= ocrc ink dark）
    ═══════════════════════════════════════════════════════════════════════ */
 :root {
   color-scheme: dark;
 
-  /* ── surfaces（zai-dark verbatim）── */
-  --bg:        #161616;  /* zai background — main canvas & sidebar */
-  --bg-panel:  #202020;  /* zai panel / header / tab */
-  --bg-canvas: #161616;
-  --bg-elev:   #2b2b2b;  /* zai card / popover / input / menu / toast */
-  --bg-elev2:  #363636;  /* zai secondary / menu-hover / tag */
-  --bg-input:  #2b2b2b;  /* zai input */
-  --border:    rgba(255, 255, 255, 0.1);   /* zai border */
-  --border-2:  rgba(255, 255, 255, 0.06);  /* derived secondary divider */
+  /* ── surfaces（ocrc ink：中性冷灰双平面）── */
+  --bg:        #0e0e10;  /* main canvas & sidebar（OBF neutral-950 同档） */
+  --bg-panel:  #1c1c1f;  /* panel / header / tab（双平面第二级） */
+  --bg-canvas: #0e0e10;
+  --bg-elev:   #1c1c1f;  /* card / popover / input / menu / toast */
+  --bg-elev2:  #232326;  /* secondary / menu-hover / tag */
+  --bg-input:  #1c1c1f;
+  --border:    rgba(255, 255, 255, 0.16);
+  --border-2:  rgba(255, 255, 255, 0.1);   /* derived secondary divider */
 
   /* ── zai-native aliases（ZCode 类词汇移植件直用）── */
-  --border-hover: rgba(255, 255, 255, 0.15);
-  --bg-sidebar:        #161616;  /* zai sidebar */
-  --bg-header:         #202020;  /* zai header */
-  --bg-card:           #2b2b2b;
-  --bg-popover:        #2b2b2b;
-  --bg-popover-header: #202020;
-  --bg-menu:           #2b2b2b;
-  --bg-menu-hover:     #363636;
-  --bg-tab:            #202020;
-  --bg-tab-active:     #161616;
-  --bg-tag:            #363636;  /* zai tag */
-  --oc-unread-dot:     #38bdf8;  /* zai unread dot (sky-400 on dark) */
-  --hover:    rgba(255, 255, 255, 0.05);
-  --selected: rgba(255, 255, 255, 0.1);
+  --border-hover: rgba(255, 255, 255, 0.26);
+  --bg-sidebar:        #0e0e10;
+  --bg-header:         #0e0e10;
+  --bg-card:           #1c1c1f;
+  --bg-popover:        #1c1c1f;
+  --bg-popover-header: #232326;
+  --bg-menu:           #1c1c1f;
+  --bg-menu-hover:     #232326;
+  --bg-tab:            #0e0e10;
+  --bg-tab-active:     #1c1c1f;
+  --bg-tag:            #232326;
+  --oc-unread-dot:     #fb8b3c;  /* 柿橙未读点（品牌小面积点缀位） */
+  --hover:    rgba(255, 255, 255, 0.04);
+  --selected: rgba(251, 139, 60, 0.14);  /* 选中行染橙（剂量点：OBF identity-surface 语法） */
   --surface:       rgba(255, 255, 255, 0.05);
   --surface-hover: rgba(255, 255, 255, 0.1);
-  --primary:     #ffffff;  /* zai primary（dark = white button） */
-  --primary-ink: #000000;  /* zai primary-foreground */
+  --primary:     rgba(251, 139, 60, 0.18);  /* 主按钮橙染 ghost（18% 透明橙 + 橙字，Telegram 式品牌交互键；非实心块） */
+  --primary-ink: #ffb27d;
 
-  /* ── ink：中性阶（zai foreground #d4d4d4 + 派生 subtle 系）──
-     subtle=60%/subtlest=30% 是 zai 原值；--text-3/--text-4 是 ocrc 档位，
+  /* ── ink：中性阶（冷白锚 + 派生 subtle 系）──
+     subtle=60%/subtlest=30% 比例沿用；--text-3/--text-4 是 ocrc 档位，
      在 subtle 与 subtlest 之间取 45%/30% 保小字号可读。 */
   --text:   var(--zai-fg-dark);
   --text-2: color-mix(in oklab, var(--zai-fg-dark) 60%, transparent);
   --text-3: color-mix(in oklab, var(--zai-fg-dark) 45%, transparent);
   --text-4: color-mix(in oklab, var(--zai-fg-dark) 30%, transparent);
 
-  /* ── chrome accent（zai brand/primary：dark = white）── */
-  --accent:    var(--primary);
-  --accent-2:  var(--selected);
-  --accent-ink:var(--primary-ink);
-  --accent-line: rgba(255, 255, 255, 0.25); /* derived */
-  --focus-ring: var(--info);  /* 键盘焦点环（A4/a11y）：两主题取 info 蓝（dark #4099ff vs 画布 ≥6:1；light #0b7fff ≥3.6:1） */
+  /* ── chrome accent（柿橙品牌层：只做小面积点缀，全屏零实心品牌块）── */
+  --accent:    #fb8b3c;
+  --accent-2:  rgba(251, 139, 60, 0.12);
+  --accent-ink: #211307;
+  --accent-line: rgba(251, 139, 60, 0.5);
+  --focus-ring: var(--accent);  /* 键盘焦点环（A4/a11y）= 品牌橙（OBF focus.ring=accent 同规则；dark 8.14:1 ≥3:1） */
 
-  /* ── semantic（zai verbatim）── */
-  --ok:   #46bf72;  /* zai success / diff-added */
-  --warn: #ff8a30;  /* zai warning */
-  --err:  #ff5c5c;  /* zai destructive / diff-removed */
-  --info: #4099ff;  /* zai terminal-blue / usage-chart-1 */
+  /* ── semantic（ocrc ink：persimmon 双套的暗色档，跨主题色相恒定）── */
+  --ok:   #6ee7a0;  /* success / diff-added */
+  --warn: #ffd479;  /* warning */
+  --err:  #f97066;  /* destructive / diff-removed */
+  --info: #8ab4ff;  /* info 蓝（persimmon 暗档；--focus-ring 不再挂它，仍服务信息语义） */
 
-  /* zai interaction 族（ask/confirmation 卡、idle 任务） */
-  --ask-surface:      #001d3d;                 /* zai interaction-ask-surface */
-  --ask-fg:           #80beff;                 /* zai interaction-ask-foreground */
-  --confirm-surface:  rgba(70, 191, 114, 0.16);
-  --confirm-fg:       #87d9a4;
-  --idle-task:        #7b5ce5;
-  --idle-task-surface:#160d38;
+  /* interaction 族（ask/confirmation 卡、idle 任务；persimmon 暗档） */
+  --ask-surface:      rgba(138, 180, 255, 0.1);
+  --ask-fg:           #b8d2ff;
+  --confirm-surface:  rgba(110, 231, 160, 0.1);
+  --confirm-fg:       #a5ecc4;
+  --idle-task:        #c4b5fd;
+  --idle-task-surface: rgba(196, 181, 253, 0.09);
   --find-highlight:       #542500;
   --find-highlight-active:#ff8a30;
 
@@ -165,11 +168,11 @@
   --elev-prominent: 0 0 0 .5px var(--border), 0 2px 6px rgba(0, 0, 0, .22), 0 24px 64px rgba(0, 0, 0, .35);
   --elev-soft: 0 0 0 .5px var(--border-2), 0 1px 3px rgba(0, 0, 0, .10);
 
-  --shadow-card: 0 1px 4px rgba(0, 0, 0, .35);
-  --shadow-composer: 0 6px 24px rgba(0, 0, 0, .4);
-  --shadow-palette: 0 24px 70px rgba(0, 0, 0, .6);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, .6);
+  --shadow-composer: 0 4px 16px rgba(0, 0, 0, .55);
+  --shadow-palette: 0 12px 40px rgba(0, 0, 0, .6);
 
-  --scrim: rgba(0, 0, 0, .5);
+  --scrim: rgba(0, 0, 0, .6);
 
   /* semantic z-index scale (low → high) */
   --z-sticky:    5;   /* sub-headers, floating composer */
@@ -184,19 +187,19 @@
   --z-modal:   300;   /* dialogs */
   --z-gate:    500;   /* pair gate — above everything */
 
-  /* 滚动条皮肤（ZCode 全局表寄存：thumb = border 色，圆胶囊 3px 透明边） */
-  --oc-scrollbar-thumb: var(--border);
-  --oc-scrollbar-thumb-hover: var(--border-hover);
+  /* 滚动条皮肤（圆胶囊 3px 透明边；ink 字面值，中性白 alpha） */
+  --oc-scrollbar-thumb: rgba(255, 255, 255, 0.18);
+  --oc-scrollbar-thumb-hover: rgba(255, 255, 255, 0.28);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
    LAYER 2 — specific 场景 token · dark
    ═══════════════════════════════════════════════════════════════════════ */
 :root {
-  /* user bubble = zai card 灰 + 发丝线 */
-  --user-bubble: rgba(255, 255, 255, 0.05);  /* zai surface（v4 气泡 = bg-surface） */
+  /* user bubble = 橙染气泡（剂量点：OBF identity-surface 语法）+ 橙发丝线 */
+  --user-bubble: rgba(251, 139, 60, 0.09);
   --user-ink:  var(--zai-fg-dark);
-  --bubbleline:rgba(255, 255, 255, 0.1);
+  --bubbleline:rgba(251, 139, 60, 0.45);
 
   /* 对话系跟随 chrome accent（单 accent 身份；上游 emerald 机制保留） */
   --cv:        var(--accent);
@@ -205,8 +208,8 @@
   --cv-line:   var(--accent-line);
   --cv-bubble: var(--user-bubble);
 
-  /* 代码井 — recessed one step below canvas（zai 无独立 code 井，派生） */
-  --bg-code:   #1a1a1a;
+  /* 代码井 — recessed one step below canvas（ocrc ink 派生） */
+  --bg-code:   #131316;
   --toolcmd:   var(--zai-fg-dark);
   --toolout:   color-mix(in oklab, var(--zai-fg-dark) 55%, transparent);
 
@@ -224,62 +227,62 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   light — zai-light（全断点单一取值；KEEP-IN-SYNC ×2）
+   light — ocrc ink 冷纸白轴（全断点单一取值；KEEP-IN-SYNC ×2）
    ═══════════════════════════════════════════════════════════════════════ */
 :root[data-theme="light"] {
   color-scheme: light;
 
-  /* surfaces（zai-light verbatim） */
-  --bg:        #f8f8f8;  /* zai background */
-  --bg-panel:  #ffffff;  /* zai panel / header */
+  /* surfaces（ocrc ink 冷纸白轴） */
+  --bg:        #fdfdfd;
+  --bg-panel:  #ffffff;
   --bg-canvas: #ffffff;
-  --bg-elev:   #ffffff;  /* zai card */
-  --bg-elev2:  #f0f0f0;  /* zai tab / sidebar / menu-hover */
-  --bg-input:  #ffffff;  /* zai input */
-  --border:    rgba(13, 13, 13, 0.1);
-  --border-2:  rgba(13, 13, 13, 0.06);
+  --bg-elev:   #ffffff;
+  --bg-elev2:  #f0f0f0;
+  --bg-input:  #ffffff;
+  --border:    rgba(13, 13, 13, 0.15);
+  --border-2:  rgba(13, 13, 13, 0.08);
 
-  --border-hover: rgba(13, 13, 13, 0.15);
-  --bg-sidebar:        #f0f0f0;
+  --border-hover: rgba(13, 13, 13, 0.24);
+  --bg-sidebar:        #f8f8f9;
   --bg-header:         #ffffff;
   --bg-card:           #ffffff;
   --bg-popover:        #ffffff;
-  --bg-popover-header: #f8f8f8;
+  --bg-popover-header: #f8f8f9;
   --bg-menu:           #ffffff;
   --bg-menu-hover:     #f0f0f0;
-  --bg-tab:            #f0f0f0;
+  --bg-tab:            #f8f8f9;
   --bg-tab-active:     #ffffff;
-  --bg-tag:            #e6e6e6;
-  --oc-unread-dot:     #0ea5e9;  /* zai unread dot (sky-500 on light) */
-  --hover:    rgba(13, 13, 13, 0.05);
-  --selected: rgba(13, 13, 13, 0.05);
+  --bg-tag:            #ececec;
+  --oc-unread-dot:     #e4580f;  /* 深柿橙未读点 */
+  --hover:    rgba(13, 13, 13, 0.04);
+  --selected: rgba(228, 88, 15, 0.08);  /* 选中行染深橙 */
   --surface:       rgba(13, 13, 13, 0.03);
-  --surface-hover: rgba(13, 13, 13, 0.05);
-  --primary:     #000000;
+  --surface-hover: rgba(13, 13, 13, 0.06);
+  --primary:     #16161a;  /* 主按钮深墨实色（OBF navy 思路的冷墨档） */
   --primary-ink: #ffffff;
 
   --text:   var(--zai-fg-light);
-  --text-2: color-mix(in oklab, var(--zai-fg-light) 60%, transparent);
+  --text-2: color-mix(in oklab, var(--zai-fg-light) 65%, transparent);  /* 65%：60% 时 4.10:1 <4.5（R2），提档 */
   --text-3: color-mix(in oklab, var(--zai-fg-light) 45%, transparent);
   --text-4: color-mix(in oklab, var(--zai-fg-light) 40%, transparent);
 
-  --accent:    var(--primary);
-  --accent-2:  var(--hover);
-  --accent-ink:var(--primary-ink);
-  --accent-line: rgba(13, 13, 13, 0.22);
-  --focus-ring: var(--info);
+  --accent:    #e4580f;
+  --accent-2:  rgba(228, 88, 15, 0.08);
+  --accent-ink: #ffffff;
+  --accent-line: rgba(228, 88, 15, 0.4);
+  --focus-ring: var(--accent);  /* 深橙 vs 纸白 3.62:1 ≥3:1（A4） */
 
-  --ok:   #1e8a3e;
-  --warn: #e07b00;
-  --err:  #e03131;
-  --info: #0b7fff;
+  --ok:   #1f7a3d;
+  --warn: #9a6b00;
+  --err:  #c2372c;
+  --info: #2456a6;
 
-  --ask-surface:      #ebf4ff;
-  --ask-fg:           #0066dd;
-  --confirm-surface:  #eaf7ee;
-  --confirm-fg:       #166b32;
-  --idle-task:        #9e77ed;
-  --idle-task-surface:#f5f3ff;
+  --ask-surface:      rgba(36, 86, 166, 0.08);
+  --ask-fg:           #2456a6;
+  --confirm-surface:  rgba(31, 122, 61, 0.08);
+  --confirm-fg:       #1f7a3d;
+  --idle-task:        #8250df;
+  --idle-task-surface: rgba(130, 80, 223, 0.07);
   --find-highlight:       #fff4eb;
   --find-highlight-active:#ffb26b;
 
@@ -288,14 +291,17 @@
   --elev-soft: 0 0 0 .5px var(--border-2), 0 1px 3px rgba(13, 13, 13, .05);
 
   --shadow-card: 0 1px 3px rgba(13, 13, 13, .06);
-  --shadow-composer: 0 4px 18px rgba(13, 13, 13, .08);
-  --shadow-palette: 0 24px 70px rgba(13, 13, 13, .18);
+  --shadow-composer: 0 4px 16px rgba(13, 13, 13, .08);
+  --shadow-palette: 0 12px 40px rgba(13, 13, 13, .14);
 
   --scrim: rgba(13, 13, 13, .32);
 
-  --user-bubble: rgba(13, 13, 13, 0.03);  /* zai surface */
+  --user-bubble: rgba(228, 88, 15, 0.05);  /* 橙染气泡（淡档） */
   --user-ink:  var(--zai-fg-light);
-  --bubbleline:rgba(13, 13, 13, 0.1);
+  --bubbleline:rgba(228, 88, 15, 0.35);
+
+  --oc-scrollbar-thumb:      rgba(13, 13, 13, 0.2);
+  --oc-scrollbar-thumb-hover: rgba(13, 13, 13, 0.3);
 
   --bg-code:   #f4f4f4;
   --toolcmd:   var(--zai-ink-light);
@@ -319,56 +325,56 @@
   :root:not([data-theme="dark"]) {
     color-scheme: light;
 
-    --bg:        #f8f8f8;
+    --bg:        #fdfdfd;
     --bg-panel:  #ffffff;
     --bg-canvas: #ffffff;
     --bg-elev:   #ffffff;
     --bg-elev2:  #f0f0f0;
     --bg-input:  #ffffff;
-    --border:    rgba(13, 13, 13, 0.1);
-    --border-2:  rgba(13, 13, 13, 0.06);
+    --border:    rgba(13, 13, 13, 0.15);
+    --border-2:  rgba(13, 13, 13, 0.08);
 
-    --border-hover: rgba(13, 13, 13, 0.15);
-    --bg-sidebar:        #f0f0f0;
+    --border-hover: rgba(13, 13, 13, 0.24);
+    --bg-sidebar:        #f8f8f9;
     --bg-header:         #ffffff;
     --bg-card:           #ffffff;
     --bg-popover:        #ffffff;
-    --bg-popover-header: #f8f8f8;
+    --bg-popover-header: #f8f8f9;
     --bg-menu:           #ffffff;
     --bg-menu-hover:     #f0f0f0;
-    --bg-tab:            #f0f0f0;
+    --bg-tab:            #f8f8f9;
     --bg-tab-active:     #ffffff;
-    --bg-tag:            #e6e6e6;
-    --oc-unread-dot:     #0ea5e9;  /* zai unread dot (sky-500 on light) */
-    --hover:    rgba(13, 13, 13, 0.05);
-    --selected: rgba(13, 13, 13, 0.05);
+    --bg-tag:            #ececec;
+    --oc-unread-dot:     #e4580f;  /* 深柿橙未读点 */
+    --hover:    rgba(13, 13, 13, 0.04);
+    --selected: rgba(228, 88, 15, 0.08);  /* 选中行染深橙 */
     --surface:       rgba(13, 13, 13, 0.03);
-    --surface-hover: rgba(13, 13, 13, 0.05);
-    --primary:     #000000;
+    --surface-hover: rgba(13, 13, 13, 0.06);
+    --primary:     #16161a;
     --primary-ink: #ffffff;
 
     --text:   var(--zai-fg-light);
-    --text-2: color-mix(in oklab, var(--zai-fg-light) 60%, transparent);
+    --text-2: color-mix(in oklab, var(--zai-fg-light) 65%, transparent);  /* KEEP-IN-SYNC：65% R2 提档 */
     --text-3: color-mix(in oklab, var(--zai-fg-light) 45%, transparent);
     --text-4: color-mix(in oklab, var(--zai-fg-light) 40%, transparent);
 
-    --accent:    var(--primary);
-    --accent-2:  var(--hover);
-    --accent-ink:var(--primary-ink);
-    --accent-line: rgba(13, 13, 13, 0.22);
-    --focus-ring: var(--info);
+    --accent:    #e4580f;
+    --accent-2:  rgba(228, 88, 15, 0.08);
+    --accent-ink: #ffffff;
+    --accent-line: rgba(228, 88, 15, 0.4);
+    --focus-ring: var(--accent);
 
-    --ok:   #1e8a3e;
-    --warn: #e07b00;
-    --err:  #e03131;
-    --info: #0b7fff;
+    --ok:   #1f7a3d;
+    --warn: #9a6b00;
+    --err:  #c2372c;
+    --info: #2456a6;
 
-    --ask-surface:      #ebf4ff;
-    --ask-fg:           #0066dd;
-    --confirm-surface:  #eaf7ee;
-    --confirm-fg:       #166b32;
-    --idle-task:        #9e77ed;
-    --idle-task-surface:#f5f3ff;
+    --ask-surface:      rgba(36, 86, 166, 0.08);
+    --ask-fg:           #2456a6;
+    --confirm-surface:  rgba(31, 122, 61, 0.08);
+    --confirm-fg:       #1f7a3d;
+    --idle-task:        #8250df;
+    --idle-task-surface: rgba(130, 80, 223, 0.07);
     --find-highlight:       #fff4eb;
     --find-highlight-active:#ffb26b;
 
@@ -377,14 +383,17 @@
     --elev-soft: 0 0 0 .5px var(--border-2), 0 1px 3px rgba(13, 13, 13, .05);
 
     --shadow-card: 0 1px 3px rgba(13, 13, 13, .06);
-    --shadow-composer: 0 4px 18px rgba(13, 13, 13, .08);
-    --shadow-palette: 0 24px 70px rgba(13, 13, 13, .18);
+    --shadow-composer: 0 4px 16px rgba(13, 13, 13, .08);
+    --shadow-palette: 0 12px 40px rgba(13, 13, 13, .14);
 
     --scrim: rgba(13, 13, 13, .32);
 
-    --user-bubble: rgba(13, 13, 13, 0.03);  /* zai surface */
+    --user-bubble: rgba(228, 88, 15, 0.05);  /* 橙染气泡（淡档） */
     --user-ink:  var(--zai-fg-light);
-    --bubbleline:rgba(13, 13, 13, 0.1);
+    --bubbleline:rgba(228, 88, 15, 0.35);
+
+    --oc-scrollbar-thumb:      rgba(13, 13, 13, 0.2);
+    --oc-scrollbar-thumb-hover: rgba(13, 13, 13, 0.3);
 
     --bg-code:   #f4f4f4;
     --toolcmd:   var(--zai-ink-light);

@@ -214,6 +214,9 @@
 - **指针（2026-10-13）**：用户提出 OpenBitFun 风格导入（审美对齐），另立文档 `docs/research/openbitfun-skin-mapping.md`
   （映射表 + 候选皮肤 `web-next/src/styles/skin-openbitfun.css`（入库未 import）+ 样张）；**机制裁决不变**——仍是静态
   CSS 覆盖层，不是主题 JSON/运行时导入，不撞本判例。
+- **终局（2026-10-14）**：经六家体系调研（`ui-color-system-import.md`）+ 四轮样张迭代（v1 暖染否决 → v2 ghost →
+  v3.1 淡染 → v4 焦点环橙，剂量像素级校准入带），**ocrc ink 已接线为默认皮肤**（`22552dde`：theme.css 值层 +
+  zcode-theme-bridge.css vendor 桥，零 vendor 改动）。本判例继续有效：全程无主题 JSON/运行时导入。
 - **证据**：`grep theme.*json` 0 命中；`theme.css:1-20`（token 架构 + M9 裁决）；`codePreviewPreferences.ts:11-20`。
 
 ### B4 · CSP + 主题脚本哈希 `opencode web` · **做 → 已落地（enforce）**（批次 3，2026-10-12）

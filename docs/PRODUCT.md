@@ -97,7 +97,11 @@ ocrc 的已保存 workflow 是一个机器级 store，没有可搬的文件。am
 ## UI 原则（2026-10-06 裁决；2026-10-07 增补）
 
 - **右栏的显示能力 ≥ 中栏**：同一内容在右栏的渲染质量不得低于中栏（tool 输出含 md 切换，subagent 转写走统一 Card 管线）。
-- **配色冻结口径（2026-10-07）**：品牌橙 accent、语义色（ok/warn/err/info）、role 色一律冻结；中性灰阶（bg/border/text 梯子）允许向 ZCode 深色双层底靠拢——逐 token 审查 + 前后对比截图，不一把梭。
+- **配色口径（2026-10-14 修订，替代 2026-10-07 冻结）**：默认皮肤 = **ocrc ink**——中性冷灰双平面轴
+  （dark `#0e0e10/#1c1c1f`、light `#fdfdfd/#f8f8f9`）+ 柿橙品牌点缀（accent/焦点环/选中行/用户气泡/未读点，
+  剂量经像素级校准：强核心 ≈0.27–0.29%、全屏零实心品牌块、整体色彩度 M≈11–12 与 zai 基线同带）。zai 双主题
+  降为上游对齐参照（vendor 块保留）；柿橙原始色板封存 `persimmon-theme.css`（品牌色来源）；回肤/再校准取值
+  见 `docs/research/ui-color-system-import.md`。token 名与三层架构不变。
 - **字体**：ZCode `--ui-font-size:14px` 相对阶梯 7 档 + mono CJK 链（0.26.22 已就位，不回退：无 antialiased、无 optimizeLegibility、mono 不落宋体）+ dsh 式字号一等设置（10–22px 全站缩放）。
 - **动效**：ZCode 寄存器——流式入场 900ms expo-out + 入场去重 LRU、collapse 300ms、`prefers-reduced-motion` 全局降级；compositor-only（transform/opacity）。
 - 发布前必须过 **E2E 门禁**（`scripts/pre-release.sh`：typecheck + 全量测试 + 双 build + 部署 + **真实流式断言**的 live smoke，0.27 起 svelte-check 换 web-next 的 tsc/vitest）。流式断开这类事故的教训：UI 全绿不等于管线绿。

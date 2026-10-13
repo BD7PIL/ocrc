@@ -1,7 +1,7 @@
 # ocrc — 面向 AI 代理的导读
 
 - **产品定义与边界**：[docs/PRODUCT.md](docs/PRODUCT.md) —— 新需求先过这里（分层归属判据 + 明确不做清单）。
-- **架构**：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)（以代码为准，v0.27 重建蓝图）；web 面板 = `web-next/`（React，1.0-rc）。**rc.3 起 `/` 就是 ZCode 壳**（`/z/*`、`/next/z` 为书签别名，同一组件）；rc.2 旧控制台（Home/Session/Automations/Settings/TokenGallery + 命令面板等浮层）已退役——柿橙配色封存在 `web-next/src/styles/persimmon-theme.css`（不参与构建，回肤取用）。
+- **架构**：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)（以代码为准，v0.27 重建蓝图）；web 面板 = `web-next/`（React，1.0-rc）。**rc.3 起 `/` 就是 ZCode 壳**（`/z/*`、`/next/z` 为书签别名，同一组件）；rc.2 旧控制台（Home/Session/Automations/Settings/TokenGallery + 命令面板等浮层）已退役。**默认皮肤 = ocrc ink**（2026-10-14：中性冷灰轴 + 柿橙点缀，`theme.css` 值层 + `src/zcode/zcode-theme-bridge.css` vendor 桥，零 vendor 字节改动）；zai 双主题降为上游对齐参照；柿橙原始色板封存 `web-next/src/styles/persimmon-theme.css`（品牌色来源，回肤取用）。
 - **运维**：[docs/OPS.md](docs/OPS.md)。
 - **开发**：`npm install && npm run build:all` · `npm test`（后端 vitest）· `cd web-next && npm test` · `npm run typecheck`。
   - **隔离 dev 实例（4199）**：`HOME=/tmp/ocrc-z-home OCRC_HOME=/tmp/ocrc-z-home/.ocrc OCRC_BACKENDS=opencode OCRC_SERVER_URL=http://127.0.0.1:4298 OCRC_SERVER_PORT=4298 OCRC_WEB_PORT=4199 OCRC_OFFPEAK_WINDOW=00:00-23:59 node dist/cli/index.js host`（nohup 后台；**OCRC_BACKENDS/OCRC_SERVER_URL 不能省**，漏了会落回 acp:kimi 后端、/api/sessions 恒空）。

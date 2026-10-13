@@ -1,6 +1,15 @@
 # 界面配色体系调研 · 「协调」从哪来 + ocrc 完整导入计划
 
-- **状态**：2026-10-13。回答用户两问——「为什么 OpenBitFun 的观感比现在的 ocrc 协调？」与「能不能继续调研市面上成熟的配色体系（跨行业也行），拿出完整导入计划？」
+- **状态**：2026-10-13 调研定稿；**2026-10-14 批 1 已接线**（提交 `22552dde`，取值 = 用户裁决的 ink v4 样张）。
+  实测剂量：dark S=0.26%/M=11.62，light S=0.29%/M=10.97（参照带 S≈0.27/M≈11–12，全屏零实心品牌块）；
+  R2 对比度 29/29（light `--text-2` 提 65% 修 4.10→4.80:1）；桥接序产物级实证（vendor@409935 < bridge@443055，
+  compute-style 三轨探针 0 diff）。冻结口径已修订（PRODUCT.md「配色口径 2026-10-14」）。
+  **批 2 吸收进批 1**（vendor 桥已随批 1 落地）；批 3（radius 刻度统一 14/9/6→12/8/6、桥接 var() 化、
+  Tailwind 阴影对齐）与批 4 残项（CHECKLIST 登记复核）仍为后续。
+- **剂量方法论（可复用）**：同壳同内容下先测「已被接受」的参照（zai 基线 / OBF 蓝皮肤）得目标带
+  （S≈0.27%、B 无块状、M≈11–12），新皮肤剂量瞄准同一带；管线 = PPM 逐像素 + 绝对色度分档
+  （P 存在感 d≥12 / S 强核心 d≥100 / B=20px 网格最大强占比）+ Hasler–Süsstrunk 色彩度。
+  脚本在会话记录（/tmp/accent-measure.py、dose-final.py、colorfulness.py），fuzz 色距法已废弃（数据偏差）。
 - **定位修正（用户原话）**：「OBF 不是标杆不是标准，是我个人认为还算协调的参考。」——所以本文调研市面上经受过大规模检验的配色体系，提炼可迁移的**方法**，OBF 只降级为样本之一。
 - 证据源：Radix Colors 官方文档、Material Design 3、GitHub Primer、Tailwind v4、Apple HIG（Dark Mode）、Refactoring UI；本地实测 = `persimmon-theme.css`（rc.1 用户调校的柿橙）、`theme.css`（现行 zai）、OpenBitFun tokens（`/tmp/obf/`）。
 

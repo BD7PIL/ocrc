@@ -1,6 +1,10 @@
 # OpenBitFun 设计风格导入 · 映射表与候选皮肤
 
-- **状态**：调研 + 映射 + 样张（2026-10-13）。**未接线**——候选皮肤 `web-next/src/styles/skin-openbitfun.css` 入库但不 import（persimmon 先例），接线等样张裁决。
+- **状态**：调研 + 映射 + 样张（2026-10-13）。**未接线**（入库不 import）。
+  **终局注记（2026-10-14）**：接线裁决走了另一路——用户经六家体系调研（`ui-color-system-import.md`）选定
+  **ocrc ink**（中性轴 + 柿橙，非 OBF 色值），已接线为默认皮肤（`22552dde`）。本文件保留为：覆盖层接缝的
+  接线方法依据（§2 盘点全部有效，`zcode-theme-bridge.css` 即按该接缝落地）；OBF A/B 样张与映射表作为
+  结构可行性证明归档，`skin-openbitfun.css` 仍不参与构建。
 - **来源**：[GCWing/OpenBitFun](https://github.com/GCWing/OpenBitFun)（MIT）。只取色值与设计语言，不复制其代码/资产；MIT 归属在此注明。
 - **判据**：PRODUCT.md:116 归壳层；B3「主题即 JSON/运行时导入」判例不撞——本轮只做静态预设，不碰机制。
 - **证据物**：`/tmp/obf/*.tokens.json`（reference + dark/light + high-contrast×2 + system，不入库）、README 截图 4 张（`openbitfun-desktop.png` 已目视校准）。

@@ -46,7 +46,7 @@
 | ID | 项 | 来源 | 状态 | 建议 | 详表 |
 |---|---|---|---|---|---|
 | B1 | RiskConfirmation 独立组件 | dsh | 未落地 | **不做独立组件**（与 dock 重叠） | §2 |
-| B2 | Markdown 渲染进 Worker | opencode web | 未落地 | **归因已成立 → 重开立项**（CDP 实测 markdown 家族占忙时 67–76%） | §2 |
+| B2 | Markdown 渲染进 Worker | opencode web | 未落地 | **复核后暂不重开**（demap：热点主要在 vendor Mermaid/CSS 解析，markdown 库约 13–17%；需另出 vendor 优化计划） | §2 |
 | B3 | 主题即 JSON | opencode web | 未落地 | **不做**（代码主题面板 vendor 已有） | §2 |
 | B4 | CSP + 主题脚本哈希 | opencode web | **已落地**（批 3） | 头下发 + nonce + 实测 0 违规（enforce） | §2 |
 | B5 | 媒体输出 document / video / audio | grinev | **已落地**（批 4） | 白名单分类 + mime 双信号 + 上限 + 注入式投递 | §2 |
@@ -186,40 +186,16 @@
 - **建议**：**不做独立组件**。语义已由 dock 覆盖；若未来要更强风险语义，给现有 approval 卡加 `risk` 元数据即可（S）。
 - **证据**：`grep -ri riskConfirm` 0 命中；`pendingInteractions.ts:1,46-49`。
 
-### B2 · Markdown 渲染进 Worker `opencode web` · **做 → 复测后判「不做」→ 归因已成立，重开立项**（批 2c 2026-10-12；归因测量 2026-10-13 缺口收口 C）
+### B2 · Markdown 渲染进 Worker `opencode web` · **做 → 复测后判「不做」→ demap 复核后暂不重开**（批 2c 2026-10-12；R1 复核 2026-10-13）
 
 - **状态**：未落地。vendor markdown 走**主线程** `streamdown`（`vendor/zcode/ui/src/components/ai-elements/message.tsx:13-16,42,429`），**无 markdown Worker**；ocrc 自有 markdown 仅分享页闭包用（`web-next/src/lib/markdown/sanitize.ts`，主线程 marked+hljs+DOMPurify）。
-- **2c 复测结论（B7 之后，2026-10-12）**：**不做**。理由（照批次 2 预定的决策规则走）：
-  1. B7 落地后复测，longtask 仍存在（200 档 50–64ms；500/1000 档本轮未观测到 ≥50ms 任务），
-     **但归因未成立**——没有一次测量把耗时指到 markdown 解析上（全程未单独测量 markdown 解析）。
-  2. 时间线里的 markdown 渲染走 vendor 的 `streamdown`（**vendor 面**，改它要 vendor 补丁 + 重放登记），
-     而 ocrc 侧 markdown 只在分享页用——把分享页的 marked 挪进 Worker 不改善会话时间线，收益与目标不符。
-  3. 单独立项的前置条件（「先证明 markdown 是主线程热点」）**未被任何实测满足**；无数据不动刀。
-- **归因测量（2026-10-13，缺口收口 C）**：脚本 `scripts/perf-md-attribution.mjs`（入库，可复跑；
-  CDP `Profiler` 采样 100µs，按 script URL 聚合 self time；产物 `/tmp/ocrc-perf/md-attribution.json`）。
-  隔离栈 4199，同一会话三窗对照——**W1a** 800 字 markdown（标题/列表/表格/两个高亮代码块/引用/行内公式）、
-  **W1b** 同规格 + 一个 mermaid 流程图、**W2** 切走再切回（chunk 已热的重挂载）：
-  · W1a：JS 忙时 558.5ms（markdown 家族 **399.2ms = 71.5%**；native 103.5ms；入口 chunk（React+桥接）55.8ms = 10%），
-    longtask 319 / 53ms；
-  · W1b：JS 忙时 847.8ms（markdown 家族 **647.3ms = 76.4%**，其中 mermaid-block chunk 280ms = 图布局；
-    native 114.3ms；入口 63.1ms = 7.4%），longtask 165/88/72/68/83/68ms；
-  · W2（行数 10，确认真重挂载）：JS 忙时 491.8ms，markdown 家族 **329.8ms = 67.1%**（mermaid-block 降到 47ms，
-    但 streamdown/micromark 解析 ~280ms 原样复现），longtask 334 / 74ms。
-- **结论（数据驱动，改判）**：**归因成立 → 重开立项**（另出计划，先定 ocrc 侧 vs vendor 补丁边界）。
-  1. 主线程热点就是 markdown 家族 chunk `mermaid-*.js`（9.2MB，含 streamdown + micromark + katex +
-     shiki + mermaid）：首次渲染与**重挂载**都占 67–76% 的 JS 忙时；长任务 ≥50ms 在重挂载时照样出现
-     （334ms）——即不是「一次性 chunk 编译」，而是**每次挂载都要重新解析/渲染**。
-  2. **我方桥接（buildRows/diff）不是热点**：入口 chunk（还含 React 运行时）只占 7–11%，
-     据此**顺带满足**「`buildRows` 全量重建不做」的重开条件（要求 >30%）——该裁决现在是数据支撑的。
-  3. mermaid 的边际成本：首次 +248ms（markdown 家族内）+ 280ms（图布局 chunk）；
-     重挂载时图布局降到 47ms，**markdown 解析那 ~280ms 仍在**。
-  4. 对照 `perf-remediation-brief.md:63` 的 137ms 残余：量级一致且可复现，来源是 markdown 面，
-     不是 row 重建。
-- **影响面**（重开后的候选，待计划裁）：分层=**壳 + vendor 面**｜文件=`vendor/zcode/ui/src/components/ai-elements/message.tsx`、
-  `web-next/src/lib/markdown/`｜工作量=M–L｜回归风险=中（vendor 补丁须 PATCHES 登记 + CHECKLIST 对账）｜
-  门禁=双端测试 + 时间线渲染 E2E + 本脚本复跑对比。
-- **证据**：`message.tsx:13-16,42,429`；`sanitize.ts:1-18,57`；`perf-remediation-brief.md:33,35,43,59,63`；
-  `scripts/perf-md-attribution.mjs`；`/tmp/ocrc-perf/md-attribution.json`。
+- **原 C 项 chunk 归因作废**：生产构建把 markdown、vendor UI 与 ocrc bridge 合并进同一 `mermaid-*.js`（约 9.4MB），不能用 chunk 名把 bridge 或 markdown 单独归因；旧台账中「入口 chunk（React+桥接）7–11%」和「markdown 家族 67–76%」均撤回。
+- **R1 demap 测量（2026-10-13，隔离栈 4199）**：`scripts/perf-md-attribution.mjs` 现读取临时 sourcemap，按原始模块路径聚合（map 不入库、不作为产品构建产物）。最终一轮：254 张卡 / 328 行，W1a 无 Mermaid JS 忙时 855.7ms（markdown/mermaid 库 174.0ms = 20.3%；ocrc bridge 17.2ms = 2.0%；vendor UI 233.3ms = 27.3%）；W1b 含 Mermaid JS 忙时 1988.2ms（markdown/mermaid 库 267.2ms = 13.4%；vendor UI 1184.0ms = 59.6%；ocrc bridge 11.0ms = 0.6%）。demap 覆盖 99.9%+（W1a 749.4/855.7ms，W1b 1780.0/1988.2ms；其余是 native/engine frame）。
+- **热点定位**：W1b top files 是 vendor `mermaid-block.tsx:84`（`normalizeCssColorForMermaid`，509.9ms）与 `:118`（`resolveCssColor`，504.6ms），其次为 Mermaid core 98.2ms；不是 ocrc `buildRows`/`diffRows`。这说明当前最直接的优化边界是 vendor Mermaid/CSS 解析，而不是把 ocrc 分享 markdown 迁进 Worker。
+- **W3 live tick（最大窗口前插后）**：服务端卡片 `254 → 256 → 258 → 260`，行数 `321 → 300 → 303 → 306`，3 个 tick HTTP 200；JS 忙时 696.4ms，其中 bridge 15.6ms（2.2%），无 W3 longtask。该窗口此前曾被冻结，见 B7 R1 修复；修复后 tick 真实落地，不能再用旧的「低成本」冻结数据。
+- **结论（数据驱动）**：**B2 暂不重开**。markdown 库本身只占 13–20%，可复现的主要热点是 vendor `mermaid-block` 的 CSS 颜色归一化（vendor 面；若继续优化，应另出 vendor 计划并登记 PATCHES/CHECKLIST）。`buildRows` 增量重建条件（bridge tick >30%）未满足，W3 为 2.2%。
+- **影响面**（未来若做）：分层=**vendor 面**｜文件=`vendor/zcode/ui/src/components/ai-elements/mermaid-block.tsx` 与相关 Mermaid 渲染；工作量=M｜回归风险=中｜门禁=vendor PATCHES/CHECKLIST + 时间线渲染 E2E + demap 脚本复跑。
+- **证据**：`vendor/zcode/ui/src/components/ai-elements/mermaid-block.tsx:84,118`；`scripts/perf-md-attribution.mjs`；`/tmp/ocrc-perf/md-attribution.json`；`perf-remediation-brief.md:63`。
 
 ### B3 · 主题即 JSON `opencode web` · **不做**（2026-10-12 复核维持）
 
@@ -330,43 +306,30 @@
   也算成命中；限定时间线 + 对比卡片原文后判定无重复。）
 - **如实未做 / 未达标**：
   - **全量 rebuild 未改增量**：`buildRows` 仍对已加载窗口整体重建（窗口本身已由 200 消息页封顶）。
-    longtask 未因此明显下降（200 档残余 50–64ms；500/1000 档本轮未观测到 ≥50ms 任务）。
-    **重开条件已测（2026-10-13，缺口收口 C）**：入口 chunk（React 运行时 + 桥接 buildRows/diff）
-    只占 JS 忙时 **7–11%**（三窗实测 55.8/63.1/54.4ms），远低于 30% 阈值 → **维持不做，且现在是数据支撑**。
+    R1 demap 的最大窗口 W3 实测 bridge 占 JS 忙时 **2.2%**（15.6/696.4ms），低于 30% 重开阈值；
+    因此维持不做，且旧的「入口 chunk（React+桥接）7–11%」说法已撤回。
   - **live 取数未减字节 → 已减（2026-10-13，缺口收口计划 A）**：live 每 tick 改为取**尾部小页**
     （`?limit=20`，`HISTORY_TAIL_PAGE`）与窗口合并，快照/计划目录仍取全量页；每
-    `HISTORY_FULL_EVERY_TICKS`（10）个 tick 兜一次全量页（更早卡的状态后到——工具
-    running→done 落在 20 条消息窗口之外时尾部页看不到）。`hasOlderOnLoad` 改读服务端
-    `hasMore`（小页恒「满」，再用 `cards.length >= 200` 自判会把「加载更早」判成永远有货）。
-    **实测（隔离栈 4199，272 卡 / 408 行合成会话）**：tick 取数 **1 次 / 5849–6029B**
-    （旧基线 61KB/tick，≈10×↓，目标 <10KB 达成）；开页仍是 3 次全量页取数（未动）；
-    loadOlder 一轮取全 **408/408**（与卡片数推得的期望 408 精确一致）。
-    回归：`historyTailWindow.test.ts` 5 例（小页次数 / 第 10 tick 全量 / 合并后 rowId 全等 /
-    小页不污染 hasOlderOnLoad / 锚点缺失回落全量）。
-    **如实未做**：锚点缺失的回落是「小页试一次再全量」（多一次取数），未做「记住上次锚点直连全量」。
-    **前提修正（原计划的硬前置①）**：原以为 `approval`/`question` 卡会落到 `cardIdentity` 的
-    位置兜底而漂移——**核实为假**：`buildRows` 只处理 user/assistant（两处 `cardIdentity` 调用点），
-    交互卡不产行，`projectPendingInteractions` 直接用 `requestId` 作 `interactionId`。
-    仍加了 `messageId → requestId → 位置` 的优先级，但标注为**防御性**（无实测缺陷驱动）。
-  - **1 行差 → 已定位并修**（2026-10-13，缺口收口计划 D）：根因在**我方**发号，不是 vendor。
-    更早页最初用「逆序干跑」发号，但只逆到**卡**级——卡内 `buildRows` 先推 `turnHeader`
-    再推 `userInput`，而向下号段是**递减**的，于是同卡内 header 的 id 比 input 大，前插页
-    在行序上 id 非单调（实测 `397,396,398,400,399,…`）。vendor
-    `mergeOlderRows`（`conversationProjectionStore.ts:258-266`）按 `rowId < window[0].rowId`
-    过滤：**游标落在 userInput 行时，它前面那张 turnHeader 的 id 更大 → 被过滤掉 → 恰好丢 1 行**。
-    修复 = `assignOlderPageIds`：干跑（只枚举身份、不发号）取该页按行序的身份键，再整块分配
-    向下 id，保证页内 id 随行序递增。
-    **确定性复现（jsdom，`rowWindowTotals.test.ts`）**：与 vendor 同构的 drain（带该过滤）——
-    对齐档（行数 3 的倍数，游标落在 header）900/900 精确；非对齐档（末卡 2 个 tool 块 →
-    301 行 → 游标落在 input）修前 **891/901（丢 10 行，每页边界丢 1）**，修后 **901/901、丢弃 0**；
-    并新增「行序上 id 单调」不变量用例。真实档位 DOM 复测已在 A 的隔离栈实测中补上：
-    272 卡 / 408 行合成会话翻到底 **408/408**（与卡片数推得的期望精确一致，无丢行）。
+    `HISTORY_FULL_EVERY_TICKS`（10）个 tick 兜一次全量页。`hasOlderOnLoad` 改读服务端 `hasMore`。
+    R1 修复周期性全量刷新前缀失配后，真实 W3 卡片数 **254→260**、行数 **321→300→303→306**，
+    3 次请求均 HTTP 200；桥接 15.6ms/696.4ms（2.2%），无 W3 longtask。
+    旧的「冻页 tick 成本接近 0」数据作废，不再作为性能证据。
+  - **周期性全量刷新 live freeze → 已定位并修（R1，2026-10-13）**：第 10 个 tick 的 full refresh
+    让 recent 头前移，`diffRows` 返回 `null`；旧 guard 把 `deltas=null` 与空数组一起吞掉，在快照回退
+    分支前 return，导致服务端卡片继续增长而页面永久冻结。修复为只对 `deltas && deltas.length===0`
+    且交互投影未变时 return；`deltas=null` 必走全量 snapshot fallback。
+    真实饱和会话复核：修前 220→244 卡片、DOM 停在 303/357；修后第 10 次仍继续收敛（服务端
+    220→244，行账 330→357→330→339 等窗口平移后继续增长）。回归 `historyTailWindow.test.ts` 新增第 6 例。
+  - **D 证据修正**：`after-tail-v3.json` 的 `loadOlder.histFetches=0` 表示该阶段没有新增取数（open 期已将窗口灌满），
+    不能再写成「loadOlder 一轮取全」；R2 会补动态期望与阶段边界证据。
 - **门禁**：`rowWindow.test.ts` 5 例（尾部窗口/firstRowId/单调 id/翻页到耗尽/turn 号稳定）+
   `rowWindowTotals.test.ts` 3 例（对齐档精确/行序 id 单调/非对齐档复现 1 行差）+
+  `historyTailWindow.test.ts` 6 例（含周期 full 前缀失配不冻结）+
   既有 `rowIdentity.test.ts` 6 例（N9-1 契约）全绿；双端 tsc + 测试 + build 全绿。
 - **证据**：`zcodeAgentService.ts`（`rowIdFor` / `assignOlderPageIds` / `historyWindowFor` /
-  `buildWindowRows` / `conversationRowsRangeV4` / `enrichToolRows`）；`rowWindow.test.ts`；
-  `rowWindowTotals.test.ts`；实测产物 `/tmp/ocrc-perf/*.json`。
+  `buildWindowRows` / `conversationRowsRangeV4` / `liveUpdate` / `enrichToolRows`）；
+  `rowWindow.test.ts`；`rowWindowTotals.test.ts`；`historyTailWindow.test.ts`；
+  `scripts/perf-md-attribution.mjs`；`/tmp/ocrc-perf/md-attribution.json`。
 
 ### B8 · 非图片附件上行（web 侧）· **做 → 已落地**（批次 5，2026-10-12）
 
@@ -528,7 +491,7 @@ gjc = **`gjc acp`**（薄前端 + 常驻 broker）。
 | A7 | 字号一等设置 | 保持 | 保持 | 无（量程见 D1） |
 | A8 | 行级虚拟化时间线 | 已落地（更正） | 保持 | 无 |
 | B1 | RiskConfirmation | 不做独立组件 | **不做**（与 dock 重叠） | 无 |
-| B2 | Markdown Worker | 实测驱动 | **做**（排 B7 后）→ 2c 改判不做 → **C 项实测归因成立，重开立项** | 归因测量 ✅（待另出计划） |
+| B2 | Markdown Worker | 实测驱动 | **做**（排 B7 后）→ 2c 改判不做 → **R1 demap 复核暂不重开**（vendor Mermaid/CSS 热点） | R1 归因 ✅（另出 vendor 优化计划再议） |
 | B3 | 主题即 JSON | 不做 | **不做**（代码主题面板已有） | 无 |
 | B4 | CSP + 哈希 | 不做 → 改判「做」 | **做**（内网合规） | 批 3 ✅（enforce） |
 | B5 | 媒体输出 | 待裁决 | **做** | 批 4 ✅ |

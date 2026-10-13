@@ -1334,8 +1334,12 @@ async function liveUpdate(sessionId: string): Promise<void> {
   const nextInteractions = projectPendingInteractions(cards)
   const interactionsSig = JSON.stringify(nextInteractions)
   const interactionsChanged = lastInteractionsBySession.get(sessionId) !== interactionsSig
-  // diff 空且投影未变即不发：此前用整行 stringify 判等守卫，浅比较版直接以 deltas.length 为准。
-  if ((!deltas || deltas.length === 0) && !interactionsChanged) return
+  // 只跳过「真的无变化」：deltas=[]（diff 成功且为空）+ 投影未变。
+  // deltas=null 是**不能 diff**（前缀失配/截断，见 diffRows 注释），必须走下面的
+  // 全量快照回退——此前把两者一起 return（在回退分支之前），会话长过 200 消息页后
+  // 周期性全量刷新的头前移会永久失配：基线不更新 → 每个 tick 都失配 → 页面冻结
+  // （2026-10-13 R1 复核实测：服务端卡片 220→244，DOM 行数停住不动）。
+  if (deltas && deltas.length === 0 && !interactionsChanged) return
   lastRowsBySession.set(sessionId, nextRows)
   lastInteractionsBySession.set(sessionId, interactionsSig)
   for (const [subId, sub] of subs) {

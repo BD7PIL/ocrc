@@ -164,6 +164,29 @@ describe('B7 live 尾部小页取数', () => {
     state.cards = history(30, 5000)
     await tick('ses_tail_anchor')
     expect(tails().length, '先试了小页').toBe(1)
-    expect(fulls().length, '锚点失败后回落全量').toBe(2)
+    // 全量页 3 次 = 订阅 1 + 锚点失败回落 1 + 前缀失配（会话重置）后快照回退再取 1：
+    // 第 3 次正是「不静默丢帧」——重置后的页面靠全量快照重建，而不是停在被清空的窗口上。
+    expect(fulls().length, '订阅 + 锚点回落 + 快照回退').toBe(3)
+  })
+
+  it('⑥ 窗口头前移（周期性全量刷新）后仍持续下发帧——前缀失配必须回退全量快照', async () => {
+    // 回归（2026-10-13 R1 复核发现，P0）：会话长过 200 消息页后，第 10 个 tick 的
+    // 周期性全量刷新把窗口头前移 → 既有行前缀失配（diffRows 返回 null）。liveUpdate
+    // 此前把「失配」与「无变化」一起吞（`(!deltas || length===0) && !interactionsChanged`
+    // → return，在快照回退分支**之前**）→ 基线永不更新 → 之后每个 tick 都失配 →
+    // 页面**永久冻结**（实测：服务端卡片 220→244，DOM 行数停在 357）。
+    // 契约：deltas=null 时调用方必须回退全量快照（见 diffRows 的注释）。
+    const state = { cards: history(110) } // 220 卡 > 200 消息页（饱和）
+    const { fetchStub } = stubHistory(state)
+    vi.stubGlobal('fetch', fetchStub)
+    const { frames } = await subscribe('ses_tail_slide')
+    const before = frames.filter((f) => f?.frame?.payload).length
+    for (let i = 0; i < 11; i++) {
+      state.cards = [...state.cards, userCard(2000 + i), asstCard(2000 + i)]
+      await tick('ses_tail_slide')
+    }
+    const emitted = frames.filter((f) => f?.frame?.payload).slice(before)
+    // 修复前：第 10、11 个 tick（全量刷新及其后）零帧 → 此断言失败
+    expect(emitted.length, '11 个 tick 都应至少有一帧（含第 10 个 tick 的全量刷新）').toBeGreaterThanOrEqual(11)
   })
 })

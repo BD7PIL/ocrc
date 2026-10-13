@@ -302,8 +302,21 @@
 - **如实未做 / 未达标**：
   - **全量 rebuild 未改增量**：`buildRows` 仍对已加载窗口整体重建（窗口本身已由 200 消息页封顶）。
     longtask 未因此明显下降（200 档残余 50–64ms；500/1000 档本轮未观测到 ≥50ms 任务）。
-  - **live 取数未减字节**：每 tick 仍取最新 200 消息页（61KB）——服务端无「since 消息」语义，
-    改成尾部小页需要新增合并逻辑，本轮未做。
+  - **live 取数未减字节 → 已减（2026-10-13，缺口收口计划 A）**：live 每 tick 改为取**尾部小页**
+    （`?limit=20`，`HISTORY_TAIL_PAGE`）与窗口合并，快照/计划目录仍取全量页；每
+    `HISTORY_FULL_EVERY_TICKS`（10）个 tick 兜一次全量页（更早卡的状态后到——工具
+    running→done 落在 20 条消息窗口之外时尾部页看不到）。`hasOlderOnLoad` 改读服务端
+    `hasMore`（小页恒「满」，再用 `cards.length >= 200` 自判会把「加载更早」判成永远有货）。
+    **实测（隔离栈 4199，272 卡 / 408 行合成会话）**：tick 取数 **1 次 / 5849–6029B**
+    （旧基线 61KB/tick，≈10×↓，目标 <10KB 达成）；开页仍是 3 次全量页取数（未动）；
+    loadOlder 一轮取全 **408/408**（与卡片数推得的期望 408 精确一致）。
+    回归：`historyTailWindow.test.ts` 5 例（小页次数 / 第 10 tick 全量 / 合并后 rowId 全等 /
+    小页不污染 hasOlderOnLoad / 锚点缺失回落全量）。
+    **如实未做**：锚点缺失的回落是「小页试一次再全量」（多一次取数），未做「记住上次锚点直连全量」。
+    **前提修正（原计划的硬前置①）**：原以为 `approval`/`question` 卡会落到 `cardIdentity` 的
+    位置兜底而漂移——**核实为假**：`buildRows` 只处理 user/assistant（两处 `cardIdentity` 调用点），
+    交互卡不产行，`projectPendingInteractions` 直接用 `requestId` 作 `interactionId`。
+    仍加了 `messageId → requestId → 位置` 的优先级，但标注为**防御性**（无实测缺陷驱动）。
   - **1 行差 → 已定位并修**（2026-10-13，缺口收口计划 D）：根因在**我方**发号，不是 vendor。
     更早页最初用「逆序干跑」发号，但只逆到**卡**级——卡内 `buildRows` 先推 `turnHeader`
     再推 `userInput`，而向下号段是**递减**的，于是同卡内 header 的 id 比 input 大，前插页

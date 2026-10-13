@@ -51,11 +51,23 @@ interface OcrcCard {
 }
 
 const HISTORY_PAGE = 200
+/** live 尾部小页：每 tick 只取最新 N 条消息（实测 61KB → ~6KB），全量页由快照/
+ *  计划目录/周期性兜底负责。合并锚点靠卡片稳定身份（见 mergeTailPage）。 */
+const HISTORY_TAIL_PAGE = 20
+/** live 每 N 个 tick 强制一次全量页：兜住「更早卡的状态后到」（工具 running→done
+ *  发生在 20 条消息窗口之外时，尾部小页永远看不到）。 */
+const HISTORY_FULL_EVERY_TICKS = 10
 
-async function ocrcHistory(taskId: string, offset = 0): Promise<OcrcCard[]> {
+interface HistoryPage {
+  cards: OcrcCard[]
+  /** 服务端「更早可能存在」（`cards.length >= limit` 启发，见 core/history.ts）。 */
+  hasMore: boolean
+}
+
+async function ocrcHistoryPage(taskId: string, offset = 0, limit = HISTORY_PAGE): Promise<HistoryPage> {
   let res: Response
   try {
-    const q = offset > 0 ? `?limit=${HISTORY_PAGE}&offset=${offset}` : `?limit=${HISTORY_PAGE}`
+    const q = offset > 0 ? `?limit=${limit}&offset=${offset}` : `?limit=${limit}`
     res = await fetch(`/api/session/${taskId}${q}`, {
       headers: { Authorization: `Bearer ${token()}` },
     })
@@ -66,8 +78,15 @@ async function ocrcHistory(taskId: string, offset = 0): Promise<OcrcCard[]> {
     throw e
   }
   hostConn.restOk()
-  if (!res.ok) return []
-  return ((await res.json()) as { cards: OcrcCard[] }).cards ?? []
+  if (!res.ok) return { cards: [], hasMore: false }
+  const body = (await res.json()) as { cards?: OcrcCard[]; hasMore?: boolean }
+  const cards = body.cards ?? []
+  // 服务端未给 hasMore（旧引擎/桩）时退回同源启发，不静默变成「已到底」。
+  return { cards, hasMore: typeof body.hasMore === 'boolean' ? body.hasMore : cards.length >= limit }
+}
+
+async function ocrcHistory(taskId: string, offset = 0): Promise<OcrcCard[]> {
+  return (await ocrcHistoryPage(taskId, offset, HISTORY_PAGE)).cards
 }
 
 // ── B7 历史窗口：最新页 + 更早页（offset 翻页）─────────────────────────
@@ -82,22 +101,61 @@ interface HistoryWindow {
   nextOlderOffset: number
   /** 引擎侧已确认没有更早消息。 */
   exhausted: boolean
-  /** 最近一次取最新页时是否满页（满页 ⇒ 更早消息可能存在）。 */
+  /** 最近一次**全量**取最新页时服务端是否报还有更早（tail 合并不更新它）。 */
   hasOlderOnLoad: boolean
+  /** 距上次全量页的 live tick 数（每 HISTORY_FULL_EVERY_TICKS 强制一次全量）。 */
+  ticksSinceFull: number
 }
 const historyWindows = new Map<string, HistoryWindow>()
 const HISTORY_WINDOW_MAX_SESSIONS = 50
 
-/** 取/刷新窗口。refresh=true 只换最新页（已加载的更早页保留）；网络失败如实抛（P5）。 */
-async function historyWindowFor(sessionId: string, refresh: boolean): Promise<HistoryWindow> {
+/** 卡片的稳定身份（无 id 的遗留卡返回 undefined）。 */
+function stableCardKey(c: OcrcCard): string | undefined {
+  return c.messageId ?? c.requestId
+}
+
+/** live 尾部小页合并：按「尾部页第一张稳定身份卡」在 recent 里定位锚点，锚点之前的
+ *  部分（更老）保留，锚点起用尾部页整替——中间被截掉/被回退的卡片不留残影。
+ *  返回 null 表示锚点不可定位（会话被重置/身份缺失）→ 调用方回落全量页。 */
+function mergeTailPage(recent: OcrcCard[], tail: OcrcCard[]): OcrcCard[] | null {
+  if (!tail.length) return recent
+  const anchor = tail.find((c) => stableCardKey(c) !== undefined)
+  const key = anchor ? stableCardKey(anchor) : undefined
+  if (!key) return null
+  const i = recent.findIndex((c) => stableCardKey(c) === key)
+  if (i === -1) return null
+  return [...recent.slice(0, i), ...tail]
+}
+
+/** 取/刷新窗口。refresh=false 直接复用；refresh=true 按 mode 刷新：
+ *  `full` = 取最新 200 消息页并更新 hasOlderOnLoad/exhausted（快照、计划目录、周期兜底）；
+ *  `tail` = 取最新 20 消息小页与 recent 合并（live 每 tick，实测 61KB → ~6KB），
+ *  **不动** hasOlderOnLoad/exhausted（小页满不满与「更早是否存在」无关）。
+ *  锚点缺失时回落 full。网络失败如实抛（P5）。 */
+async function historyWindowFor(sessionId: string, refresh: boolean, mode: 'full' | 'tail' = 'full'): Promise<HistoryWindow> {
   const existing = historyWindows.get(sessionId)
   if (existing && !refresh) return existing
-  const cards = await ocrcHistory(sessionId)
-  const w: HistoryWindow = existing ?? { older: [], recent: [], nextOlderOffset: HISTORY_PAGE, exhausted: false, hasOlderOnLoad: false }
-  w.recent = cards
-  // 满页启发与服务端同源（cards.length >= limit ⇒ 更早可能存在，宁可多要一页空页）。
-  w.hasOlderOnLoad = cards.length >= HISTORY_PAGE
+  const w: HistoryWindow = existing ?? { older: [], recent: [], nextOlderOffset: HISTORY_PAGE, exhausted: false, hasOlderOnLoad: false, ticksSinceFull: 0 }
+  if (mode === 'tail' && existing) {
+    w.ticksSinceFull += 1
+    if (w.ticksSinceFull < HISTORY_FULL_EVERY_TICKS) {
+      const page = await ocrcHistoryPage(sessionId, 0, HISTORY_TAIL_PAGE)
+      const merged = mergeTailPage(w.recent, page.cards)
+      if (merged) {
+        w.recent = merged
+        historyWindows.set(sessionId, w)
+        return w
+      }
+      // 锚点不可定位 → 不能静默丢帧，回落全量页（下面统一走）。
+    }
+  }
+  const page = await ocrcHistoryPage(sessionId, 0, HISTORY_PAGE)
+  w.recent = page.cards
+  // 满页启发改读服务端 hasMore（与 core/history.ts 同源）：小页化后不能再用
+  // `cards.length >= 200` 自判，否则恒 false → 误判 exhausted → 「加载更早」消失。
+  w.hasOlderOnLoad = page.hasMore
   if (!w.hasOlderOnLoad && w.older.length === 0) w.exhausted = true
+  w.ticksSinceFull = 0
   if (!historyWindows.has(sessionId) && historyWindows.size >= HISTORY_WINDOW_MAX_SESSIONS) historyWindows.clear()
   historyWindows.set(sessionId, w)
   return w
@@ -444,9 +502,13 @@ function assignOlderPageIds(sessionId: string, page: OcrcCard[]): void {
 }
 
 /** 内容寻址 rowId 的身份串：卡片 messageId（缺省退 ts+kind——旧引擎消息无 id 时的
- *  兜底，只要同会话内唯一即可）+ 行在卡内的稳定序。 */
+ *  兜底，只要同会话内唯一即可）+ 行在卡内的稳定序。
+ *  requestId 优先级是**防御性**的：交互卡（approval/question）当前不产行
+ *  （buildRows 只处理 user/assistant；dock 投影直接用 requestId 作 interactionId），
+ *  但「只有 requestId 的卡」若哪天进入行投影，位置兜底会随窗口位移漂 id——按
+ *  messageId → requestId → 位置 排序，任何稳定 id 都优先于位置。 */
 function cardIdentity(c: OcrcCard, index: number): string {
-  return c.messageId ?? `${c.ts ?? 0}:${c.kind}:${index}`
+  return c.messageId ?? c.requestId ?? `${c.ts ?? 0}:${c.kind}:${index}`
 }
 
 /** N9-4 feedback 回读：localStorage `ocrc.feedback` 按 entityId（卡片 messageId）
@@ -1251,10 +1313,11 @@ async function liveUpdate(sessionId: string): Promise<void> {
   const subs = [...subscriptions.entries()].filter(([, s]) => s.sessionId === sessionId)
   const prevRows = lastRowsBySession.get(sessionId)
   if (!subs.length || !prevRows) return
-  // B7：live 只刷新最新页（已加载的更早页保留在窗口里），建行走全窗口。
+  // B7：live 只刷新**尾部小页**（20 消息）并与窗口合并——每 tick 取最新 200 消息页
+  // 实测 61KB，小页化后 ~6KB；每 HISTORY_FULL_EVERY_TICKS 个 tick 兜一次全量。
   let window_: HistoryWindow
   try {
-    window_ = await historyWindowFor(sessionId, true)
+    window_ = await historyWindowFor(sessionId, true, 'tail')
   } catch {
     return
   }

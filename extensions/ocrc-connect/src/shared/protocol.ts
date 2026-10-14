@@ -13,6 +13,9 @@ export interface SshProfile {
   /** Local forward port on the panel host (default 4096 — openchamber's
    *  auto-detect port; keeping the default means zero env config). */
   localPort: number
+  /** Absolute directories ON THE REMOTE the workspace browser may touch
+   *  (batch 4 fs/git endpoints). Empty = the whole face stays 403. */
+  allowedRoots?: string[]
 }
 
 export interface TunnelStatus {
@@ -41,6 +44,9 @@ export function normalizeProfile(raw: Partial<SshProfile> & { host: string }): S
     keyPath: raw.keyPath?.trim() || undefined,
     remotePort: raw.remotePort && raw.remotePort > 0 ? raw.remotePort : DEFAULT_REMOTE_PORT,
     localPort: raw.localPort && raw.localPort > 0 ? raw.localPort : DEFAULT_LOCAL_PORT,
+    allowedRoots: Array.isArray(raw.allowedRoots)
+      ? raw.allowedRoots.map((r) => String(r).trim()).filter((r) => r.startsWith('/'))
+      : undefined,
   }
 }
 

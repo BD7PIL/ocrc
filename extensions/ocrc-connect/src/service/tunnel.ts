@@ -80,7 +80,7 @@ export function createTunnelSupervisor(deps: SupervisorDeps = {}) {
     return { ...s, engine: reachable ? 'reachable' : 'unreachable' }
   }
 
-  return { start, stop, status, statusProbed, get profile() { return profile } }
+  return { start, stop, status, statusProbed, get profile() { return profile }, activeProfile: () => profile }
 }
 
 /** Probe the controlled engine through the local forward: any HTTP response

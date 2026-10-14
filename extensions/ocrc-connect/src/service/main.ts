@@ -9,6 +9,12 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { createTunnelSupervisor } from './tunnel.js'
 import { normalizeProfile, type SshProfile } from '../shared/protocol.js'
+import {
+  sshExec, normalizeVirtualPath, isInsideRoots,
+  buildListScript, parseListOutput,
+  buildReadScript, buildWriteScript, buildStatScript, buildMkdirScript,
+  buildGitScript, parseGitStatus,
+} from './remote-fs.js'
 
 const PORT = Number(process.env.OPENCHAMBER_SERVICE_PORT ?? 0)
 const TOKEN = process.env.OPENCHAMBER_SERVICE_TOKEN ?? ''
@@ -93,6 +99,108 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { status: supervisor.status() })
       return
     }
+
+    // ── batch 4: fs/git-over-ssh (remote workspace face) ────────────────────
+    // Every endpoint resolves the ACTIVE profile (last connected), requires the
+    // path to be absolute and inside that profile's allowedRoots, then spawns
+    // one `ssh <profile> <script>` round-trip. The active profile is the one
+    // the supervisor last started — the workspace browser edits what the
+    // tunnel points at, never an arbitrary machine.
+    if (url.pathname.startsWith('/fs/') || url.pathname.startsWith('/git/')) {
+      const profile = supervisor.activeProfile()
+      if (!profile) { json(res, 409, { error: 'no active profile — connect first' }); return }
+      const roots = profile.allowedRoots ?? []
+      const body = (req.method === 'POST' ? await readBody(req) : {}) as Record<string, unknown>
+      const vpath = normalizeVirtualPath(String(body.path ?? url.searchParams.get('path') ?? ''))
+      if (!vpath) { json(res, 400, { error: 'path must be absolute without .. segments' }); return }
+      if (roots.length === 0 || !isInsideRoots(vpath, roots)) {
+        json(res, 403, { error: `path outside allowedRoots (${roots.join(', ') || 'none declared'})` })
+        return
+      }
+      const R = profile
+
+      if (req.method === 'POST' && url.pathname === '/fs/list') {
+        const { code, stdout, stderr } = await sshExec(R, buildListScript(vpath), { timeoutMs: 20_000 })
+        if (code !== 0) { json(res, 502, { error: stderr.trim().split('\n')[0] || `ssh exit ${code}` }); return }
+        const { entries, error } = parseListOutput(stdout)
+        if (error) { json(res, 404, { error }); return }
+        json(res, 200, { path: vpath, entries })
+        return
+      }
+      if (req.method === 'POST' && url.pathname === '/fs/read') {
+        const max = Math.min(Number(body.maxBytes) || 512 * 1024, 2 * 1024 * 1024)
+        const { code, stdout, stderr } = await sshExec(R, buildReadScript(vpath, max), { timeoutMs: 30_000 })
+        if (code !== 0) { json(res, 502, { error: stderr.trim().split('\n')[0] || `ssh exit ${code}` }); return }
+        if (stdout.startsWith('ERR: not-a-file')) { json(res, 404, { error: 'not a file' }); return }
+        if (stdout.startsWith('ERR: too-large:')) { json(res, 413, { error: `file larger than ${max} bytes (${stdout.split(':')[2]} total)` }); return }
+        const sizeLine = stdout.split('\n').find((l) => l.startsWith('SIZE:'))
+        const b64 = stdout.split('\n').filter((l) => !l.startsWith('SIZE:')).join('')
+        json(res, 200, { path: vpath, size: sizeLine ? Number(sizeLine.slice(5)) : undefined, encoding: 'base64', content: b64.trim() })
+        return
+      }
+      if (req.method === 'POST' && url.pathname === '/fs/write') {
+        const content = typeof body.content === 'string' ? body.content : ''
+        const b64 = Buffer.from(content, 'utf-8').toString('base64')
+        const { script, stdin } = buildWriteScript(vpath, b64)
+        const { code, stdout, stderr } = await sshExec(R, script, { timeoutMs: 30_000, stdin })
+        if (code !== 0) { json(res, 502, { error: stderr.trim().split('\n')[0] || `ssh exit ${code}` }); return }
+        json(res, 200, { path: vpath, backup: stdout.includes('bak:') ? `${vpath}.bak` : null })
+        return
+      }
+      if (req.method === 'POST' && url.pathname === '/fs/stat') {
+        const { code, stdout, stderr } = await sshExec(R, buildStatScript(vpath), { timeoutMs: 15_000 })
+        if (code !== 0) { json(res, 502, { error: stderr.trim().split('\n')[0] || `ssh exit ${code}` }); return }
+        const kv = new Map(stdout.split('\n').map((l) => [l.slice(0, l.indexOf(':')), l.slice(l.indexOf(':') + 1)]))
+        json(res, 200, { path: vpath, type: kv.get('type') ?? 'missing', size: kv.get('size') ? Number(kv.get('size')) : undefined, mtime: kv.get('mtime') ? Number(kv.get('mtime')) : undefined })
+        return
+      }
+      if (req.method === 'POST' && url.pathname === '/fs/mkdir') {
+        const { code, stderr } = await sshExec(R, buildMkdirScript(vpath), { timeoutMs: 15_000 })
+        if (code !== 0) { json(res, 502, { error: stderr.trim().split('\n')[0] || `ssh exit ${code}` }); return }
+        json(res, 200, { path: vpath })
+        return
+      }
+
+      // git/*: the ROOT is the allowed root itself (or body.root — still
+      // allowlist-checked above via vpath).
+      const root = vpath
+      if (req.method === 'POST' && url.pathname === '/git/status') {
+        const { code, stdout } = await sshExec(R, buildGitScript(root, 'status'), { timeoutMs: 20_000 })
+        if (code !== 0) { json(res, 502, { error: `ssh exit ${code}` }); return }
+        json(res, 200, { root, ...parseGitStatus(stdout) })
+        return
+      }
+      if (req.method === 'POST' && url.pathname === '/git/diff') {
+        const paths = Array.isArray(body.paths) ? body.paths.map(String) : undefined
+        const { code, stdout } = await sshExec(R, buildGitScript(root, 'diff', { paths }), { timeoutMs: 30_000, maxStdout: 300_000 })
+        if (code !== 0) { json(res, 502, { error: `ssh exit ${code}` }); return }
+        json(res, 200, { root, diff: stdout })
+        return
+      }
+      if (req.method === 'POST' && url.pathname === '/git/log') {
+        const { code, stdout } = await sshExec(R, buildGitScript(root, 'log'), { timeoutMs: 20_000 })
+        if (code !== 0) { json(res, 502, { error: `ssh exit ${code}` }); return }
+        json(res, 200, { root, log: stdout.split('\n').filter((l) => l.trim()).slice(0, 30) })
+        return
+      }
+      if (req.method === 'POST' && url.pathname === '/git/stage') {
+        const paths = Array.isArray(body.paths) ? body.paths.map(String) : undefined
+        const { code, stdout, stderr } = await sshExec(R, buildGitScript(root, 'stage', { paths }), { timeoutMs: 30_000 })
+        if (code !== 0) { json(res, 502, { error: stderr.trim().split('\n')[0] || `ssh exit ${code}` }); return }
+        json(res, 200, { root, ok: stdout.includes('staged') })
+        return
+      }
+      if (req.method === 'POST' && url.pathname === '/git/commit') {
+        const message = typeof body.message === 'string' && body.message.trim() ? body.message.trim() : undefined
+        if (!message) { json(res, 400, { error: 'message required' }); return }
+        const { code, stdout } = await sshExec(R, buildGitScript(root, 'commit', { message }), { timeoutMs: 30_000 })
+        if (code !== 0) { json(res, 502, { error: `ssh exit ${code}` }); return }
+        const nothing = stdout.includes('nothing-to-commit')
+        json(res, nothing ? 409 : 200, { root, committed: !nothing, output: stdout.trim().split('\n')[0] })
+        return
+      }
+    }
+
     json(res, 404, { error: 'not found' })
   } catch (e) {
     json(res, 500, { error: e instanceof Error ? e.message : String(e) })

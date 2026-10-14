@@ -11,6 +11,9 @@ export function normalizeProfile(raw) {
         keyPath: raw.keyPath?.trim() || undefined,
         remotePort: raw.remotePort && raw.remotePort > 0 ? raw.remotePort : DEFAULT_REMOTE_PORT,
         localPort: raw.localPort && raw.localPort > 0 ? raw.localPort : DEFAULT_LOCAL_PORT,
+        allowedRoots: Array.isArray(raw.allowedRoots)
+            ? raw.allowedRoots.map((r) => String(r).trim()).filter((r) => r.startsWith('/'))
+            : undefined,
     };
 }
 /** argv for the tunnel spawn. One ssh process = forward + keepalive:

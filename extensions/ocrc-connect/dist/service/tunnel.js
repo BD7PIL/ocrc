@@ -79,7 +79,7 @@ export function createTunnelSupervisor(deps = {}) {
         const reachable = await probeEngine(profile.localPort).catch(() => false);
         return { ...s, engine: reachable ? 'reachable' : 'unreachable' };
     }
-    return { start, stop, status, statusProbed, get profile() { return profile; } };
+    return { start, stop, status, statusProbed, get profile() { return profile; }, activeProfile: () => profile };
 }
 /** Probe the controlled engine through the local forward: any HTTP response
  *  (even 401/404) proves the tunnel + server are up. */

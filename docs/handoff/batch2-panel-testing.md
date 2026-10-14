@@ -59,3 +59,37 @@ git clone https://github.com/BD7PIL/ocrc.git
 ## 6. 后续（稳定后）
 
 CI 推送到 `BD7PIL/ocrc-ext-connect` 与 `BD7PIL/ocrc-ext-omo` 两仓库（分支根 = 扩展根，产物已提交）→ 面板改用 git URL 安装 → 自更新按 package.json `version` 递增自动走。
+
+---
+
+## 批次 4 增补（2.0.0-alpha.4）：远程工作区（ocrc-connect 0.2.0）
+
+> 前置：上面第 1 节的隧道已通。工作区面板在**同一个「ocrc Connect」扩展里**，
+> 面板顶部新增「连接 / 远程工作区」两个 tab。
+
+### 7. 新验收：远程工作区
+
+1. **配置工作区根**：「远程工作区」tab →「+ 根目录」→ 填被控机上的绝对路径
+   （如 `/home/<user>/project`）。根目录存在 host.storage，service 每次请求都会
+   复核白名单——面板改了立即生效，且面板被篡改也扩不了权。
+2. **浏览**：点目录进子层，「← 上级」回退；文件带大小。
+3. **编辑**：点文件打开（>512KB 拒开）→ 改 → 「保存」。保存 = 远端 mktemp →
+   原文件备份为 `*.bak` → 原子 mv。远端断线时保存会报错而不是写半个文件。
+4. **git**：状态/diff/暂存全部/提交；Work Status 徽标会带当前分支
+   （`ocrc 隧道：已连 · 引擎可达 · master`）。
+5. **安全边界（刻意行为）**：白名单外路径一律 403；`..` 一律 400；
+   未连接隧道时工作区 tab 显示提示而不是空列表。
+
+### 8. 本机已验证的部分（无需重测）
+
+`extensions/ocrc-connect/scripts/accept-workspace.sh` 在 EL7 本机 loopback SSH
+活体跑通全链：browse → read → atomic write(.bak) → diff → stage → commit →
+status clean，403/400 守卫生效。你在 Win/Mac 上要验证的只是**同一套端点在
+openchamber 宿主里的 UI 呈现**（iframe + host.storage + service 桥）。
+
+### 9. 批次 4 已知边界
+
+- diff 视图只取前 200KB（更大走命令行）；git 面板不做分支切换/合并——那是
+  「远程工作区查看+轻编辑」的边界，不是 git 客户端。
+- 徽标分支取**第一个**白名单根（多根时以第一个为准）。
+- 面板编辑器无语法高亮（IIFE 面不引重依赖，刻意保持）。

@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.0.0-alpha.4 — 批次 4：远程工作区面板桥（A 路线）（2026-10-15）
+
+> 上游 openchamber 的 Files/Git 面板硬绑面板宿主磁盘（#3113 拒绝代理远端）——
+> 「远程工作区」以 **ocrc-connect 扩展自己的端点 + UI** 补齐，不碰上游路由。
+
+### feat(extensions/ocrc-connect 0.2.0)
+
+- **A1 service fs/git-over-ssh**：`/fs/list|read|write|stat|mkdir` +
+  `/git/status|diff|log|stage|commit` + `/git-branch` 徽标端点——service 在面板
+  宿主直接 `ssh <profile> <script>`，keyed 输出（无刮取）、base64 文件往返、
+  原子写（mktemp→`*.bak` 备份→mv）、diff 截断 200KB。manifest 声明
+  `permissions.exec: ["ssh"]`。被控端**零新增守护**（ssh exec 即远端）。
+- **路径白名单**：档案新增 `allowedRoots`（远端绝对路径数组）；空 = 全部 403；
+  路径必须绝对且段前缀落在根内，`..` 段在 ssh 之前拒绝。
+- **A2 面板 UI**：扩展内「连接 / 远程工作区」双 tab——文件树（逐目录懒加载，
+  >512KB 拒开）、编辑器（保存走原子写 + `.bak`）、git 面板
+  （status/diff/暂存全部/提交）；工作区根存 host.storage（service 每请求复核，
+  面板滞后也扩不了权）；statusSection 徽标升级为 隧道+引擎+当前分支。
+
+### A3 验收与交付
+- `scripts/accept-workspace.sh`：EL7 loopback SSH 活体全链
+  （browse→read→atomic write(.bak)→diff→stage→commit→clean + 403/400 守卫），
+  10/10 绿。期间实修一处 EL7 git 兼容 bug（`git add -- -A` 把 -A 当 pathspec）。
+- handoff 增补批次 4 验收段（Win/Mac 只验 UI 呈现，端点已活体验证）。
+
 ## 2.0.0-alpha.3 — 批次 3：远程通道 agent 工具化（四工具全套）（2026-10-15）
 
 > 用户原话痛点：「跨设备共享工作目录共享工作空间——OCRC 的远程通道能不能让 agent

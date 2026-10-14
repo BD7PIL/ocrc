@@ -180,7 +180,9 @@ export function buildGitScript(root, sub, args = {}) {
         case 'log':
             return [cd, 'git log --oneline -n 30 2>&1 || echo "ERR: not-a-repo"'].join('\n');
         case 'stage':
-            return [cd, `git add -- ${args.paths?.length ? args.paths.map(q).join(' ') : '-A'} && echo staged`].join('\n');
+            // `git add -- -A` passes -A as a PATHSPEC (EL7 git rejects it) — the
+            // `--` separator only makes sense with real paths after it.
+            return [cd, `git add ${args.paths?.length ? '-- ' + args.paths.map(q).join(' ') : '-A'} && echo staged`].join('\n');
         case 'commit':
             return [
                 cd,

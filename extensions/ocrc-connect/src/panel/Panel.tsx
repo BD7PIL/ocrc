@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { connectHost, type GuestRequestMethod, type GuestRequestResult, type HostClient } from '@openchamber/sdk'
 import type { ServiceApiShape, SshProfile, TunnelStatus } from '../shared/protocol.js'
+import { Workspace } from './Workspace.js'
 
 const LAST_KEY = 'lastProfileId'
+const ROOTS_KEY = 'workspaceRoots'
 
 type RequestFn = (path: string, method?: GuestRequestMethod, body?: unknown) => Promise<GuestRequestResult>
 
@@ -17,6 +19,7 @@ async function jsonCall(request: RequestFn, path: string, method: GuestRequestMe
 export function Panel() {
   const [host, setHost] = useState<HostClient | null>(null)
   const [err, setErr] = useState('')
+  const [tab, setTab] = useState<'connect' | 'workspace'>('connect')
   const [state, setState] = useState<ServiceApiShape>({ status: { profileId: null, tunnel: 'down', engine: 'unknown' }, profiles: [] })
 
   useEffect(() => {
@@ -78,8 +81,27 @@ export function Panel() {
   }
 
   const s: TunnelStatus = state.status
+  const loadRoots = useCallback(async (): Promise<string[] | undefined> => {
+    try {
+      const raw = await host?.storage.get(ROOTS_KEY)
+      if (typeof raw === 'string' && raw.trim()) return JSON.parse(raw) as string[]
+    } catch { /* absent on first run */ }
+    return undefined
+  }, [host])
+  const saveRoots = useCallback(async (roots: string[]) => {
+    try { await host?.storage.set(ROOTS_KEY, JSON.stringify(roots)) } catch { /* storage full/unavailable */ }
+  }, [host])
+
   return (
     <div style={{ padding: 12, display: 'grid', gap: 10 }}>
+      <div className="row" style={{ gap: 8 }}>
+        <button className={tab === 'connect' ? 'primary' : ''} onClick={() => setTab('connect')}>连接</button>
+        <button className={tab === 'workspace' ? 'primary' : ''} onClick={() => setTab('workspace')}>远程工作区</button>
+      </div>
+      {tab === 'workspace'
+        ? <Workspace request={request} status={s} profiles={state.profiles} onLoadRoots={loadRoots} onRootsChanged={saveRoots} />
+        : (
+      <>
       <div className="row">
         <strong>ocrc 连接</strong>
         <span className={`pill ${s.tunnel === 'up' ? 'ok' : 'err'}`}>隧道 {s.tunnel === 'up' ? '已连' : s.tunnel === 'starting' ? '建立中' : '未连'}</span>
@@ -108,6 +130,8 @@ export function Panel() {
       <div className="muted" style={{ fontSize: 12 }}>
         隧道落地 127.0.0.1:{state.profiles[0]?.localPort ?? 4096}——openchamber 启动时自动探测该端口，零环境变量。
       </div>
+      </>
+      )}
     </div>
   )
 }

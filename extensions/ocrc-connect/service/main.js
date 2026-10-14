@@ -100,6 +100,22 @@ const server = http.createServer(async (req, res) => {
         // one `ssh <profile> <script>` round-trip. The active profile is the one
         // the supervisor last started — the workspace browser edits what the
         // tunnel points at, never an arbitrary machine.
+        if (req.method === 'GET' && url.pathname === '/git-branch') {
+            // Badge helper: the FIRST allowed root's branch (best-effort, fast fail).
+            const profile = supervisor.activeProfile();
+            const root = profile?.allowedRoots?.[0];
+            if (!profile || !root) {
+                json(res, 200, { branch: null });
+                return;
+            }
+            const { code, stdout } = await sshExec(profile, buildGitScript(root, 'status'), { timeoutMs: 8_000 });
+            if (code !== 0) {
+                json(res, 200, { branch: null });
+                return;
+            }
+            json(res, 200, { branch: parseGitStatus(stdout).branch ?? null });
+            return;
+        }
         if (url.pathname.startsWith('/fs/') || url.pathname.startsWith('/git/')) {
             const profile = supervisor.activeProfile();
             if (!profile) {

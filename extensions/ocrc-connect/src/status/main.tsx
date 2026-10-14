@@ -16,9 +16,21 @@ export function StatusMain() {
       try {
         const r = await host.serviceRequest({ method: 'GET', path: '/status' })
         if (!alive) return
-        const body = JSON.parse(r.body) as { status: { tunnel: string; engine: string } }
+        const body = JSON.parse(r.body) as { status: { tunnel: string; engine: string; profileId: string | null } }
         const t = body.status
-        setLine(`ocrc 隧道：${t.tunnel === 'up' ? `已连 · 引擎${t.engine === 'reachable' ? '可达' : '不可达'}` : t.tunnel === 'starting' ? '建立中' : '未连'}`)
+        // Batch 4: the badge also shows the active workspace's git branch —
+        // one best-effort call; any failure just drops the suffix.
+        let branch = ''
+        if (t.tunnel === 'up' && t.engine === 'reachable') {
+          try {
+            const gr = await host.serviceRequest({ method: 'GET', path: '/git-branch' })
+            if (alive && gr.status === 200) {
+              const gb = JSON.parse(gr.body) as { branch?: string }
+              if (gb.branch) branch = ` · ${gb.branch}`
+            }
+          } catch { /* branch line is best-effort */ }
+        }
+        setLine(`ocrc 隧道：${t.tunnel === 'up' ? `已连 · 引擎${t.engine === 'reachable' ? '可达' : '不可达'}${branch}` : t.tunnel === 'starting' ? '建立中' : '未连'}`)
         setTone(t.tunnel === 'up' ? (t.engine === 'reachable' ? 'ok' : 'err') : t.tunnel === 'starting' ? '' : 'err')
       } catch {
         if (alive) { setLine('ocrc 隧道：服务未运行'); setTone('err') }

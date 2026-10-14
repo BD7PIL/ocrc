@@ -1,5 +1,50 @@
 # Changelog
 
+## 2.0.0-alpha.5 — 批次 5：配置与凭据桥（2026-10-15）
+
+> 调研（`docs/research/llm-config-fallback-survey.md`）实锤的唯一产品缺口：
+> openchamber 面板写的 agents/MCP/providers 配置落在**面板宿主磁盘**，external
+> 引擎收不到（key 例外——走引擎 credential API 已通）。本批次把这条通道补齐。
+
+### feat(extensions/ocrc-connect 0.3.0): 配置桥
+- **E3 实测**：`OPENCODE_CONFIG` 附加层与全局配置合并（bridge 层 `agent` 段可覆盖
+  内置 agent）——桥选型定为**分键合并写回被控端主 opencode.json**（不依赖 env、
+  adopt 场景同样生效）。
+- `POST /config/source|preview|apply`：读面板宿主 openchamber 配置产物（user 层
+  opencode.json 的 agent/mcp.servers/providers 段 + 平铺 `agents/*.md`，路径解析
+  与上游 shared.js 逐条对齐）→ 深合并预览（面板段逐叶覆盖、被控端独有键全保留、
+  ocrc 自有键不碰）→ 原子应用（mktemp+mv，`*.ocrc-bak` 兜底，明确"需引擎重启"
+  提示，不自动重启）。密钥不在桥接范围。
+- 面板第三 tab「配置同步」：源清单 → 预览 → 应用。
+
+### feat(plugin): 凭据通道增强
+- **第五工具 `ocrc_remote_sync_auth`**：既有 syncAuth（auth.json → 被控端 0600）
+  工具化——五工具同注册面（V1 hooks.tool / ATTACHED 代理 / V2 transform，
+  namespace ocrc 契约）。
+- **`remotes.json` per-host `env` 字段**：`buildExtraEnvExports` 注入远端 serve
+  进程（排序稳定、单引号转义、非法变量名丢弃）——env-only provider（AWS_*/AZURE_*
+  类）的 KEY 通道；API 响应脱敏为 `envKeys`（值不出 remotes.json）。
+
+### feat(core): 白名单修订（syncConfig）
+- 新增 `agents`、`skills`（复数目录——openchamber Agents UI 与 v2 的首选形状）
+  与 `oh-my-opencode-slim.json`（omo per-agent 模型链 + `fallback.*`，被控端
+  编排与面板宿主同配置）。`plugin/` 仍刻意缺席。
+
+### 调研归档
+- `docs/research/llm-config-fallback-survey.md`：六问带来源答案（引擎无跨
+  provider fallback 仅同模型重试；openchamber 是分类路由非故障转移；omo-slim
+  有完整链但 v2 宿主为 steering 语义；KEY 五路通道；skills.urls 是唯一官方
+  skills 远端原语）。
+
+### 测试与验收
+- 主包 1037+ 新增：第五工具 handler×4、env 导出×3、白名单×2（全绿）。
+- 扩展 24+8：config-bridge 路径解析/段清单/合并策略/apply 脚本（全绿）。
+- 活体验收（隔离目录、显式路径）：preview 正确保留远端独有 provider/MCP、
+  apply 后面板段合入 + reviewer.md 推送 + `.ocrc-bak` 落盘。
+- 事故记录：E3 期间 loopback ssh 的远端 `$HOME` 是真实家目录，syncConfig 实验
+  误写真实 `~/.config/opencode/`——已全量恢复原状（现役配置 opencode.jsonc 未
+  受影响），教训入记忆（ssh 写入实验必须显式 HOME/路径）。
+
 ## 2.0.0-alpha.4 — 批次 4：远程工作区面板桥（A 路线）（2026-10-15）
 
 > 上游 openchamber 的 Files/Git 面板硬绑面板宿主磁盘（#3113 拒绝代理远端）——

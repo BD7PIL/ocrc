@@ -191,3 +191,53 @@ describe('syncDirectory guards (2.0.0-alpha.3)', () => {
     expect(res).toEqual({ ok: false, detail: 'unknown remote' })
   })
 })
+
+describe('extra env exports (batch 5)', () => {
+  it('buildExtraEnvExports: empty/undefined → empty string', async () => {
+    const { buildExtraEnvExports } = await import('../../src/core/remote-host')
+    expect(buildExtraEnvExports(undefined)).toBe('')
+    expect(buildExtraEnvExports({})).toBe('')
+  })
+
+  it('renders sorted, single-quoted exports; hostile values inert; bad names dropped', async () => {
+    const { buildExtraEnvExports } = await import('../../src/core/remote-host')
+    const out = buildExtraEnvExports({ B: "x'; rm -rf ~; '", A: 'v', 'bad name': 'z' })
+    expect(out.startsWith('export ')).toBe(true)
+    expect(out).toContain(`A='v'`)
+    expect(out.indexOf("A='v'")).toBeLessThan(out.indexOf(`B='x'`))
+    expect(out).toContain(`B='x'\\''; rm -rf ~; '\\'''`)
+    expect(out).not.toContain('bad name')
+  })
+
+  it('buildServeCommand appends env exports before the password', async () => {
+    const { buildServeCommand } = await import('../../src/core/remote-host')
+    const cmd = buildServeCommand('/usr/bin/opencode', 4199, 'pw', undefined, { AWS_REGION: 'cn-north-1' })
+    expect(cmd).toContain(`AWS_REGION='cn-north-1'`)
+    expect(cmd.indexOf('AWS_REGION')).toBeLessThan(cmd.indexOf('OPENCODE_SERVER_PASSWORD'))
+  })
+})
+
+describe('config whitelist (batch 5 additions)', () => {
+  it('includes plural agents/skills and the omo config file', async () => {
+    const { CONFIG_SYNC_ENTRIES } = await import('../../src/core/remote-host')
+    expect(CONFIG_SYNC_ENTRIES).toContain('agents')
+    expect(CONFIG_SYNC_ENTRIES).toContain('skills')
+    expect(CONFIG_SYNC_ENTRIES).toContain('oh-my-opencode-slim.json')
+    // and the deliberate absence of plugin/ stays
+    expect(CONFIG_SYNC_ENTRIES).not.toContain('plugin')
+  })
+
+  it('buildConfigEntries picks up the new entries when they exist', async () => {
+    const { buildConfigEntries } = await import('../../src/core/remote-host')
+    const dir = mkdtempSync(join(tmpdir(), 'ocrc-cfg5-'))
+    writeFileSync(join(dir, 'opencode.json'), '{}')
+    mkdirSync(join(dir, 'agents'))
+    mkdirSync(join(dir, 'skills'))
+    writeFileSync(join(dir, 'oh-my-opencode-slim.json'), '{}')
+    const entries = buildConfigEntries(dir)
+    expect(entries).toContain('agents')
+    expect(entries).toContain('skills')
+    expect(entries).toContain('oh-my-opencode-slim.json')
+    expect(entries).not.toContain('skill') // singular absent
+  })
+})

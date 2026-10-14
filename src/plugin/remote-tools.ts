@@ -101,7 +101,18 @@ const SPEC_REMOTE_CREATE_SESSION: RemoteToolSpec = {
   },
 }
 
-export const REMOTE_TOOL_SPECS = [SPEC_REMOTE_LIST, SPEC_REMOTE_SYNC, SPEC_REMOTE_PROVISION, SPEC_REMOTE_CREATE_SESSION]
+const SPEC_REMOTE_SYNC_AUTH: RemoteToolSpec = {
+  name: 'remote_sync_auth',
+  description:
+    'Copy this machine\'s LLM credentials (opencode auth.json) to an ocrc remote host (chmod 0600), so ' +
+    'sessions created there authenticate with the same provider logins. Use after remote_provision when ' +
+    'the remote reports missing credentials, and before remote_create_session on a fresh remote.',
+  args: {
+    remote_id: { type: 'string', description: 'Remote id from ocrc_remote_list', required: true },
+  },
+}
+
+export const REMOTE_TOOL_SPECS = [SPEC_REMOTE_LIST, SPEC_REMOTE_SYNC, SPEC_REMOTE_PROVISION, SPEC_REMOTE_CREATE_SESSION, SPEC_REMOTE_SYNC_AUTH]
 
 // ── handlers (mounting-neutral; one result string per call) ───────────────────
 
@@ -183,6 +194,21 @@ async function hRemoteCreateSession(deps: RemoteToolDeps, args: Args): Promise<s
     log.warn(`remote_create_session: ${(err as Error).message}`)
     return `remote_create_session failed: ${(err as Error).message}`
   }
+}
+
+async function hRemoteSyncAuth(deps: RemoteToolDeps, args: Args): Promise<string> {
+  const id = args.remote_id?.trim()
+  if (!id) return 'remote_sync_auth failed: remote_id is required'
+  if (deps.attached) {
+    const res = await call<{ ok?: boolean; detail?: string; error?: string }>(deps.attached, `/api/remotes/${encodeURIComponent(id)}/sync-auth`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
+    return res.detail ?? res.error ?? (res.ok ? 'credentials synced' : 'sync-auth failed')
+  }
+  const { manager } = requireLocal(deps)
+  const result = await manager.syncAuth(id)
+  return result.detail
 }
 
 // ── formatting / plumbing ─────────────────────────────────────────────────────
@@ -274,6 +300,13 @@ export function createRemoteToolsV1(deps: RemoteToolDeps): Record<string, Return
         try { return await hRemoteCreateSession(deps, args) } catch (err) { return guard(deps, SPEC_REMOTE_CREATE_SESSION.name, err) }
       },
     }),
+    [SPEC_REMOTE_SYNC_AUTH.name]: tool({
+      description: SPEC_REMOTE_SYNC_AUTH.description,
+      args: zodArgs(SPEC_REMOTE_SYNC_AUTH),
+      async execute(args: Record<string, string>) {
+        try { return await hRemoteSyncAuth(deps, args) } catch (err) { return guard(deps, SPEC_REMOTE_SYNC_AUTH.name, err) }
+      },
+    }),
   }
   return t
 }
@@ -342,6 +375,16 @@ export async function registerRemoteToolsV2(ctxTool: V2ToolRegistrar, deps: Remo
       output: { output: { type: 'string' } },
       execute: async (args) => {
         try { return { output: await hRemoteCreateSession(deps, (args ?? {}) as Args) } } catch (err) { return { output: guard(deps, SPEC_REMOTE_CREATE_SESSION.name, err) } }
+      },
+    })
+    o.add({
+      name: SPEC_REMOTE_SYNC_AUTH.name,
+      description: SPEC_REMOTE_SYNC_AUTH.description,
+      options: { namespace: 'ocrc', codemode: false },
+      args: specJsonArgs(SPEC_REMOTE_SYNC_AUTH),
+      output: { output: { type: 'string' } },
+      execute: async (args) => {
+        try { return { output: await hRemoteSyncAuth(deps, (args ?? {}) as Args) } } catch (err) { return { output: guard(deps, SPEC_REMOTE_SYNC_AUTH.name, err) } }
       },
     })
   })

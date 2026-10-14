@@ -139,10 +139,25 @@ export function buildProxyExports(p: RemoteProxyEnv | undefined): string {
   return out.length ? `export ${out.join(' ')}; ` : ''
 }
 
-/** The remote shell line that runs ocrc's own serve instance. */
-export function buildServeCommand(opencodePath: string, remotePort: number, password: string, proxy?: RemoteProxyEnv): string {
+/** Batch 5 (2.0.0-alpha.5): render the per-remote `env` map into the same
+ *  single-quoted export prefix — the env-only provider channel (AWS_* /
+ *  AZURE_* style vars models.dev providers read from process.env and
+ *  opencode.json cannot carry). Deterministic key order keeps the serve
+ *  command stable across restarts; invalid names are dropped rather than
+ *  smuggled through. */
+export function buildExtraEnvExports(env: Record<string, string> | undefined): string {
+  if (!env || Object.keys(env).length === 0) return ''
   const q = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
-  return `export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"; ${buildProxyExports(proxy)}OPENCODE_SERVER_PASSWORD=${q(password)} ${q(opencodePath)} serve --hostname 127.0.0.1 --port ${remotePort}`
+  const out = Object.keys(env).sort()
+    .filter((k) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k))
+    .map((k) => `${k}=${q(env[k])}`)
+  return out.length ? `export ${out.join(' ')}; ` : ''
+}
+
+/** The remote shell line that runs ocrc's own serve instance. */
+export function buildServeCommand(opencodePath: string, remotePort: number, password: string, proxy?: RemoteProxyEnv, env?: Record<string, string>): string {
+  const q = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
+  return `export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"; ${buildProxyExports(proxy)}${buildExtraEnvExports(env)}OPENCODE_SERVER_PASSWORD=${q(password)} ${q(opencodePath)} serve --hostname 127.0.0.1 --port ${remotePort}`
 }
 
 /** "ldd (GNU libc) 2.17" → "2.17" */
@@ -165,8 +180,17 @@ export function buildProvisionCommand(version: string): string {
 // ── config sync (0.26.6, see docs/remote-provisioning-design.md §3) ──────────
 
 /** The ~/.config/opencode whitelist pushed by syncConfig. `plugin/` is
- *  deliberately absent — the remote opencode must not load ocrc itself. */
-export const CONFIG_SYNC_ENTRIES = ['opencode.json', 'AGENTS.md', 'CLAUDE.md', 'command', 'agent', 'skill'] as const
+ *  deliberately absent — the remote opencode must not load ocrc itself.
+ *  Batch 5 (2.0.0-alpha.5) additions:
+ *  - `agents` / `skills` — the PLURAL dirs both openchamber's Agents/MCP UI
+ *    and v2 prefer (v2 scans singular+plural; panel hosts write plural);
+ *  - `oh-my-opencode-slim.json` — the omo config (per-agent model fallback
+ *    chains + `fallback.*`), synced so the remote orchestrator behaves like
+ *    the panel host's. */
+export const CONFIG_SYNC_ENTRIES = [
+  'opencode.json', 'AGENTS.md', 'CLAUDE.md', 'command', 'agent', 'skill',
+  'agents', 'skills', 'oh-my-opencode-slim.json',
+] as const
 
 /** Which whitelist entries exist locally (pure via the injected exists fn). */
 export function buildConfigEntries(
@@ -589,7 +613,7 @@ export function createRemoteHostManager(opts: { store: RemotesStore }): RemoteHo
               httpsProxy: remote.httpsProxy,
               noProxy: remote.noProxy,
               caPath: remote.caPath,
-            })
+            }, remote.env)
         const args = buildSshArgs(remote, r.localPort!, command)
         setState(id, 'launching', `ssh → ${remote.host}:${remote.remotePort} (local :${r.localPort})`)
         // args end with the serve command which embeds the generated password —

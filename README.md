@@ -208,6 +208,8 @@ with (Telegram, web panel, any transport) can call:
 - `ocrc_remote_provision` — install/upgrade opencode there (pin drift aware)
 - `ocrc_remote_create_session` — open a session in a directory **on the remote**
   (never call it from the session it creates)
+- `ocrc_remote_sync_auth` — copy this machine's LLM credentials (auth.json,
+  0600) to the remote, so remote sessions authenticate with the same logins
 
 Typical flow: "把当前工作区推到 lab 机然后在那边开会话" → the agent lists
 remotes, syncs the workspace, creates the remote session. Works unchanged on

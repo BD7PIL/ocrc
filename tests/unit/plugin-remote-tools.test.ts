@@ -201,7 +201,7 @@ describe('remote_create_session handler', () => {
 
 describe('V2 registration (E2-verified contract)', () => {
   it('specs cover the four names with required args declared', () => {
-    expect(REMOTE_TOOL_SPECS.map((s) => s.name)).toEqual(['remote_list', 'remote_sync_workspace', 'remote_provision', 'remote_create_session'])
+    expect(REMOTE_TOOL_SPECS.map((s) => s.name)).toEqual(['remote_list', 'remote_sync_workspace', 'remote_provision', 'remote_create_session', 'remote_sync_auth'])
     const sync = REMOTE_TOOL_SPECS.find((s) => s.name === 'remote_sync_workspace')!
     expect(Object.keys(sync.args).sort()).toEqual(['entries', 'local_root', 'remote_id', 'remote_target'])
     expect(sync.args.remote_id.required).toBe(true)
@@ -220,7 +220,7 @@ describe('V2 registration (E2-verified contract)', () => {
       },
     }
     await registerRemoteToolsV2(registrar, localDeps())
-    expect(added.map((t) => t.name)).toEqual(['remote_list', 'remote_sync_workspace', 'remote_provision', 'remote_create_session'])
+    expect(added.map((t) => t.name)).toEqual(['remote_list', 'remote_sync_workspace', 'remote_provision', 'remote_create_session', 'remote_sync_auth'])
     for (const t of added) {
       expect((t.options as { namespace?: string }).namespace).toBe('ocrc')
       expect(t.output).toEqual({ output: { type: 'string' } })
@@ -306,7 +306,57 @@ describe('attached mounting (host-proxy handlers)', () => {
 describe('v1 tool face sanity', () => {
   it('exposes all four tools with descriptions', () => {
     const tools = createRemoteToolsV1(localDeps())
-    expect(Object.keys(tools).sort()).toEqual(['remote_create_session', 'remote_list', 'remote_provision', 'remote_sync_workspace'])
+    expect(Object.keys(tools).sort()).toEqual(['remote_create_session', 'remote_list', 'remote_provision', 'remote_sync_auth', 'remote_sync_workspace'])
     for (const t of Object.values(tools)) expect(t.description.length).toBeGreaterThan(20)
+  })
+})
+
+// ── batch 5: remote_sync_auth (fifth tool) ────────────────────────────────────
+
+describe('remote_sync_auth handler (batch 5)', () => {
+  it('calls manager.syncAuth and returns its detail', async () => {
+    let seenId: string | undefined
+    const deps = localDeps({
+      syncAuth: async (id) => { seenId = id; return { ok: true, detail: 'credentials synced' } },
+    })
+    const tools = createRemoteToolsV1(deps)
+    const out = await tools.remote_sync_auth.execute({ remote_id: 'lab' }, {})
+    expect(seenId).toBe('lab')
+    expect(out).toBe('credentials synced')
+  })
+
+  it('missing remote_id reads as a plain failure', async () => {
+    const tools = createRemoteToolsV1(localDeps())
+    expect(await tools.remote_sync_auth.execute({}, {})).toContain('remote_id is required')
+  })
+
+  it('v2 registration includes remote_sync_auth with namespace ocrc', async () => {
+    const added: Array<Record<string, unknown>> = []
+    const registrar: V2ToolRegistrar = {
+      transform: async (fn) => {
+        await fn({ add: (t) => added.push(t as Record<string, unknown>), update: () => {}, remove: () => {}, list: () => [] })
+      },
+    }
+    await registerRemoteToolsV2(registrar, localDeps())
+    const auth = added.find((t) => t.name === 'remote_sync_auth')
+    expect(auth).toBeDefined()
+    expect((auth!.options as { namespace?: string }).namespace).toBe('ocrc')
+  })
+
+  it('attached mounting posts to the host sync-auth route', async () => {
+    const urls: string[] = []
+    const origFetch = globalThis.fetch
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      urls.push(String(url))
+      return new Response(JSON.stringify({ ok: true, detail: 'credentials synced' }), { status: 200 })
+    }) as typeof fetch
+    try {
+      const tools = createRemoteToolsV1({ attached: { baseUrl: 'http://h', resolveToken: () => 'tok', version: 'test' } })
+      const out = await tools.remote_sync_auth.execute({ remote_id: 'lab' }, {})
+      expect(urls[0]).toBe('http://h/api/remotes/lab/sync-auth')
+      expect(out).toBe('credentials synced')
+    } finally {
+      globalThis.fetch = origFetch
+    }
   })
 })

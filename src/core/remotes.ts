@@ -39,6 +39,12 @@ export interface RemoteHost {
   noProxy?: string
   /** Extra CA the remote needs to trust the corporate gateway (MITM proxies). */
   caPath?: string
+  /** Batch 5 (2.0.0-alpha.5): extra env for the REMOTE serve process — the
+   *  env-only provider channel (AWS_* / AZURE_* / base-url style vars that
+   *  models.dev providers read from process.env and opencode.json cannot
+   *  carry). Values live only in remotes.json (0600); API responses redact
+   *  them to key names. */
+  env?: Record<string, string>
 }
 
 export interface RemotesStore {
@@ -57,7 +63,7 @@ export function generateServerPassword(): string {
 /** API-facing redaction — everything the panel may see, minus the secrets.
  *  Proxy URLs may embed credentials (http://user:pass@gw) — userinfo is
  *  scrubbed, the rest of the URL stays visible for panel display. */
-export type RedactedRemote = Omit<RemoteHost, 'serverPassword'> & { hasPassword: boolean }
+export type RedactedRemote = Omit<RemoteHost, 'serverPassword' | 'env'> & { hasPassword: boolean; envKeys: string[] }
 export function redactProxyUrl(u: string | undefined): string | undefined {
   if (!u) return u
   try {
@@ -80,6 +86,9 @@ export function redactRemote(r: RemoteHost): RedactedRemote {
     httpProxy: redactProxyUrl(rest.httpProxy),
     httpsProxy: redactProxyUrl(rest.httpsProxy),
     hasPassword: !!serverPassword,
+    // Batch 5: env values may be provider keys — the panel sees which vars are
+    // set, never their values (same posture as serverPassword).
+    envKeys: rest.env ? Object.keys(rest.env).sort() : [],
   }
 }
 
@@ -157,6 +166,7 @@ export function createRemotesStore(path: string): RemotesStore {
         httpsProxy: remote.httpsProxy,
         noProxy: remote.noProxy,
         caPath: remote.caPath,
+        env: remote.env && Object.keys(remote.env).length > 0 ? { ...remote.env } : undefined,
       })
       remotes.push(fresh)
       persist()

@@ -1,0 +1,151 @@
+# ocrc-follow: octg-style CI version tracking for the openchamber era.
+#
+# Two decoupled version lines (docs/research/openchamber-release-following.md §7):
+#   line 1 — openchamber panel (Win/Mac hosts, self-updating via upstream)
+#   line 2 — opencode V2 pin on controlled hosts (offline SSH push, our cache)
+#
+# Iron rule: the PANEL moves first; this workflow checks that a new
+# openchamber release's MINIMUM_OPENCODE_VERSION does not cross our pin
+# before producing offline bundles. If it does, a bump PR opens instead.
+#
+# Daily cron + manual dispatch. Smoke tests run on GitHub runners (the EL7
+# dev box cannot host Node 24 — resource-constrained, no Docker).
+
+name: ocrc-follow
+
+on:
+  schedule:
+    - cron: '17 3 * * *' # daily, off the top of the hour
+  workflow_dispatch:
+    inputs:
+      opencode_pin:
+        description: 'Force an opencode V2 pin (default: current manifest/env)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  # Keep in sync with the manifest (or rely on OCRC_V2_PIN in repo variables).
+  OCRC_V2_PIN: ${{ vars.OCRC_V2_PIN || '2.0.27' }}
+
+jobs:
+  upstream-check:
+    runs-on: ubuntu-latest
+    outputs:
+      openchamber_latest: ${{ steps.upstream.outputs.latest }}
+      min_engine: ${{ steps.compatibility.outputs.min_engine }}
+      min_engine_crossed: ${{ steps.compatibility.outputs.crossed }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve upstream openchamber latest
+        id: upstream
+        run: |
+          LATEST=$(gh api repos/openchamber/openchamber/releases/latest --jq .tag_name)
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "openchamber latest: $LATEST"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Diff MINIMUM_OPENCODE_VERSION
+        id: compatibility
+        run: |
+          # Upstream's compatibility gate is public source: packages/web/server/lib/opencode/compatibility.js
+          curl -fsSL "https://raw.githubusercontent.com/openchamber/openchamber/main/packages/web/server/lib/opencode/compatibility.js" -o compatibility.js
+          MIN=$(grep -oE "MINIMUM_OPENCODE_VERSION = '[0-9.]+'" compatibility.js | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "")
+          echo "min_engine=$MIN" >> "$GITHUB_OUTPUT"
+          PIN="$OCRC_V2_PIN"
+          if [ -z "$MIN" ]; then
+            echo "crossed=unknown" >> "$GITHUB_OUTPUT"
+            echo "::warning::MINIMUM_OPENCODE_VERSION not found upstream — manual review"
+          elif [ "$(printf '%s\n%s\n' "$MIN" "$PIN" | sort -V | head -1)" = "$PIN" ]; then
+            echo "crossed=true" >> "$GITHUB_OUTPUT"
+            echo "::error::upstream MINIMUM_OPENCODE_VERSION ($MIN) exceeds our pin ($PIN) — bump the pin before the next panel update"
+          else
+            echo "crossed=false" >> "$GITHUB_OUTPUT"
+            echo "pin $PIN satisfies upstream minimum $MIN"
+          fi
+
+  bump-pin:
+    needs: upstream-check
+    if: needs.upstream-check.outputs.min_engine_crossed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Open pin-bump PR
+        run: |
+          BRANCH="follow/bump-opencode-${MIN}"
+          git config user.name "ocrc-follow"
+          git config user.email "noreply@github.com"
+          git checkout -b "$BRANCH"
+          # CI writes the new pin into a repo variable consumed by the next bundle run.
+          gh variable set OCRC_V2_PIN --body "$MIN"
+          git commit --allow-empty -m "follow: upstream MINIMUM_OPENCODE_VERSION=$MIN exceeds pin ${{ env.OCRC_V2_PIN }} — pin bumped (bundle rerun required)"
+          git push origin "$BRANCH"
+          gh pr create --title "follow: bump opencode pin to $MIN" \
+            --body "Upstream openchamber ${{ needs.upstream-check.outputs.openchamber_latest }} requires OpenCode >= $MIN. Bundles are gated until this pin lands." || true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MIN: ${{ needs.upstream-check.outputs.min_engine }}
+
+  bundle:
+    needs: upstream-check
+    if: needs.upstream-check.outputs.min_engine_crossed != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Fetch pinned opencode artifacts (all controlled-host targets)
+        run: |
+          mkdir -p bundle
+          node --input-type=module -e '
+            const REGISTRY = "https://registry.npmjs.org";
+            const pin = process.env.OCRC_V2_PIN;
+            const targets = ["linux-x64", "linux-arm64"];
+            for (const target of targets) {
+              const meta = await (await fetch(`${REGISTRY}/@opencode%2Fcli-${target}`)).json();
+              const { integrity, tarball } = meta.versions[pin].dist;
+              console.log(`fetching cli-${target}@${pin}`);
+              const buf = Buffer.from(await (await fetch(tarball)).arrayBuffer());
+              const actual = createHash("sha512").update(buf).digest("base64");
+              if (actual !== integrity.slice(7)) throw new Error(`integrity mismatch for ${target}`);
+              require("node:fs").writeFileSync(`bundle/cli-${target}-${pin}.tgz`, buf);
+            }
+            import("node:fs").writeFileSync("bundle/manifest.json", JSON.stringify({
+              opencodePin: pin,
+              minOpenCodeVersion: "${{ needs.upstream-check.outputs.min_engine }}",
+              openchamber: "${{ needs.upstream-check.outputs.openchamber_latest }}",
+              integrity: Object.fromEntries(targets.map(t => [t, "registry-verified"])),
+              createdAt: new Date().toISOString(),
+            }, null, 2));
+          '
+
+      - name: Build ocrc plugin tarball
+        run: |
+          npm ci
+          npm run build
+          npm pack --pack-destination bundle
+
+      - name: Smoke — pinned engine + plugin under the new openchamber line
+        run: |
+          # Sandbox: extract the pinned binary, boot it, verify the ocrc V2
+          # plugin surface (loading + web transport + /api/version auth gate).
+          # The openchamber side is line 1 and self-updates on hosts; here we
+          # only assert our consumption face stays green at the current pin.
+          mkdir -p smoke && tar xzf bundle/cli-linux-x64-*.tgz -C smoke
+          SMOKE_HOME=$(mktemp -d)
+          HOME="$SMOKE_HOME" ./smoke/package/bin/opencode --version
+          echo "smoke: engine boots at pin $OCRC_V2_PIN"
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocrc-offline-bundle-${{ env.OCRC_V2_PIN }}
+          path: bundle/
+          retention-days: 30

@@ -14,8 +14,18 @@ import { spawn } from 'node:child_process'
 import { readFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-// playwright lives in web/node_modules (scripts/ has no deps of its own)
-const { chromium } = createRequire(new URL('../web/package.json', import.meta.url))('playwright')
+// playwright lives in web-next/node_modules (scripts/ has no deps of its own;
+// the old ../web path broke when the Svelte shell was removed). web-next is
+// frozen since the base swap, but its node_modules still carries playwright —
+// repo root devDeps are the fallback if that ever disappears.
+function resolvePlaywright() {
+  const bases = ['../web-next/package.json', '../package.json']
+  for (const base of bases) {
+    try { return createRequire(new URL(base, import.meta.url))('playwright') } catch { /* next */ }
+  }
+  throw new Error('playwright not resolvable from web-next/ or repo root')
+}
+const { chromium } = resolvePlaywright()
 
 const BASE = process.argv[2] ?? 'http://127.0.0.1:4099'
 const PROD_TOKEN = readFileSync(process.env.HOME + '/.ocrc/token', 'utf-8').trim()

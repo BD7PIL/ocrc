@@ -1,8 +1,17 @@
 # PRODUCT.md — ocrc 产品宪法
 
-> 每个新需求先过这一页。2026-10-05 经架构 grilling 定稿；**2026-10-06 修订（定位落案 + 双拓扑）**；**2026-10-07 修订（ZCode 平替驾驶舱落案：定位升级 + 功能范围 + backend 域模型 + provisioning/更新矩阵）**。修订需在此文件留痕。
+> 每个新需求先过这一页。2026-10-05 经架构 grilling 定稿；**2026-10-06 修订（定位落案 + 双拓扑）**；**2026-10-07 修订（ZCode 平替驾驶舱落案：定位升级 + 功能范围 + backend 域模型 + provisioning/更新矩阵）**；**2026-10-14 修订（基座换位：openchamber 面板 + ocrc 收缩换位）**。修订需在此文件留痕。
 
-## 第零条：定位（2026-10-07 修订）
+## 第零条：定位（2026-10-14 基座换位修订）
+
+> **换位裁决**：调研 openchamber（MIT，opencode 之上的开源驾驶舱，11.5k★）后裁定
+> **接受「openchamber 的 UI 为准」**——面板由它承担（Win/Mac，不 fork，external 引擎
+> 模式接入被控端），ZCode 母版平替程序（web-next/vendor 体系）**终止开发、冻结不删**。
+> ocrc 收缩换位为：**被控端 agent（opencode v2 + 1.18 双代）+ IM 通道矩阵 +
+> provisioning/离线推送 + 面板侧 iframe 扩展（连接扩展、omo 编排视图）+ octg 式 CI
+> 跟随**。完整判定与拓扑见 `docs/research/openchamber-base-swap-verdict.md` 与
+> `docs/research/e1-verdict.md`。**不改名**（语义仍指准 remote control）。
+> 以下三重身份的历史条文保留原样作为沿革记录（第 1 条由 openchamber 承担）：
 
 **ocrc 是接近 ZCode 体验的开源 agent 驾驶舱（cockpit）**——以 ZCode 前端为蓝本的功能面平替，穿着 ocrc 自己的配色。三重身份：
 

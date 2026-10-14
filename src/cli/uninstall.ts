@@ -21,19 +21,27 @@ function bridgeFiles(): string[] {
   return files
 }
 
-/** Remove the ocrc npm entry (and any legacy directory-path entry) from an opencode config. */
+/** Remove the ocrc npm entry (and any legacy directory-path entry) from an opencode config.
+ *  Both keys are cleaned: V1 `plugin` and V2 `plugins` (E1 dual-write rule —
+ *  installs may have landed in either across generations). */
 function removeConfigEntry(path: string): boolean {
   if (!existsSync(path)) return false
   let config: Record<string, any>
   try { config = JSON.parse(readFileSync(path, 'utf-8')) } catch { return false }
-  const plugins: PluginEntry[] = config.plugin ?? []
-  const filtered = plugins.filter((e) => {
-    const name = Array.isArray(e) ? e[0] : e
-    return !(name === PKG_NAME || name === REPO_ROOT || name.startsWith('opencode-remote-control'))
-  })
-  if (filtered.length === plugins.length) return false
-  if (filtered.length > 0) config.plugin = filtered
-  else delete config.plugin
+  let changed = false
+  for (const key of ['plugin', 'plugins'] as const) {
+    if (!Array.isArray(config[key])) continue
+    const plugins: PluginEntry[] = config[key]
+    const filtered = plugins.filter((e) => {
+      const name = Array.isArray(e) ? e[0] : e
+      return !(name === PKG_NAME || name === REPO_ROOT || name.startsWith('opencode-remote-control'))
+    })
+    if (filtered.length === plugins.length) continue
+    if (filtered.length > 0) config[key] = filtered
+    else delete config[key]
+    changed = true
+  }
+  if (!changed) return false
   writeFileSync(path, JSON.stringify(config, null, 2) + '\n')
   return true
 }

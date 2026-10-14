@@ -1,5 +1,50 @@
 # Changelog
 
+## 2.0.0-alpha.1 — 转型批次 1：openchamber 基座 + opencode v2 被控端（2026-10-14）
+
+> 口径：产品基座换位裁决落地（`docs/research/openchamber-base-swap-verdict.md`）——
+> 面板让位给 openchamber（Win/Mac，不 fork），ocrc 收缩为**引擎侧 agent + 通道 +
+> provisioning + CI 跟随**。E1 四项实验全绿（`docs/research/e1-verdict.md`）。
+
+### feat(cli): 插件键代际契约（E1-4 分键而治）
+- `install`：V1 `plugin` 数组存在（1.18.x 宿主）才写 `plugin`，否则写 V2
+  `plugins` 数组——绝不双写（v2 引擎两键都解析，双键=双实例化）。
+  V1 键让渡给 openchamber managed 物化（实测其对象形态会整体覆盖数组）。
+- `uninstall`：同时清理两键的 ocrc 项；**不触碰** openchamber 持有的对象形态
+  `plugin` 键。7 项契约单测（`tests/unit/cli/plugin-key.test.ts`）。
+
+### feat(core): bin-cache —— V2 工件自持缓存与离线推送（PRODUCT 第零点六条 v2 化）
+- 新 `core/bin-cache.ts`：registry metadata `dist.integrity`（sha512-base64）→
+  下载 `@opencode/cli-<target>@<pin>` tgz → 校验 → 缓存
+  `~/.ocrc/bin-cache/<pin>/` → 解包取二进制。E1 实验已端到端走通。
+- `remote-host.provision` 新增 **V2 pin 推送路径**：缓存 → scp → 远端
+  `--version` 验证，失败回落本机二进制 scp（1.x 动态跟随路径原样保留）。
+- **pin 机制双轨**：`manifest.json`（声明式，CI 产出）> `OCRC_V2_PIN` env >
+  本机动态跟随（legacy）。漂移检测：远端版本 ≠ pin 时 provision 返回
+  `drift: remote x != pin y`，供面板「推送升级」动作消费。
+- 9 项单测（`tests/unit/bincache.test.ts`）。
+
+### ci: ocrc-follow 双线跟随流水线
+- 新 `.github/workflows/ocrc-follow.yml`：每日 cron 监听 openchamber 最新版 →
+  diff 上游 `compatibility.js` 的 `MINIMUM_OPENCODE_VERSION` → **未越线**才产
+  离线 bundle（opencode tgz×2 平台 + ocrc 插件 tgz + manifest）；**越线**自动
+  开 bump-pin PR 并 gate bundle。冒烟挂 GitHub runner（EL7 开发机不跑 Node 24）。
+- 顺序铁律落地：面板先升 → CI 确认 MINIMUM 未越线 → bundle → SSH 推送被控端。
+
+### 实验记录（E1，docs/research/e1-verdict.md）
+- opencode 2.0.27 在 EL7/glibc 2.17 原生可跑；omo-slim 3.0.4 同框加载成功
+  （ast-grep 原生件需 GLIBC_2.29 → 懒加载降级，编排主链不受影响）。
+- V2 编排语义原生暴露：`parentID` 会话树 + `subagent` 工具 part
+  （`state.metadata.sessionID`）+ `/api/event` 单流——批次 2 的 omo 视图
+  扩展可全语义化，无需解析 omo 私有格式。
+- ocrc V2 插件在 2.0.27 全指标健康（dual-export/PRIMARY/web transport/
+  TG polling/卡片流）。
+
+### 不变/退役边界
+- 1.18.x 兼容零回退：V1 键写入路径、动态跟随、旧 provision 全保留。
+- web-next 冻结不删（CI 剔除其步骤另行提交）；npm 发布维持冻结。
+- 批次 2（本版不含）：openchamber 连接扩展、omo 编排视图扩展。
+
 ## 1.0.0-rc.7 — 远控会话（P-remote：对齐 ZCode v3.15.1 配对语义，无中继，桌面锚不受控）(2026-10-10)
 
 > 口径：官方 v3.15.1 加了手机扫码连接的半个远控弹层；ocrc 把这半补齐成

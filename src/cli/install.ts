@@ -76,7 +76,16 @@ function migrateLegacyConfig(): boolean {
 const PKG_NAME = '@bd7pil/ocrc'
 
 /**
- * Ensure the npm plugin entry (`"@bd7pil/ocrc"`) exists in an opencode config.
+ * Ensure the ocrc plugin entry exists in an opencode config.
+ *
+ * Key contract (E1 dual-write experiment, 2026-10-14, docs/research/e1-verdict.md):
+ * opencode V2 reads the `plugins` array; V1 (1.18.x) reads `plugin`. On a V2
+ * host the engine parses BOTH keys, so writing the V1 key too would
+ * double-instantiate the plugin (the PRIMARY lock absorbs it, but startup
+ * cost and log noise are real). Worse, openchamber's managed-plugin
+ * materialization may claim the V1 `plugin` key with an OBJECT shape, which
+ * would overwrite a V1 array wholesale. So: `plugins` is ours alone on V2
+ * hosts; `plugin` is ceded to V1/opencodechamber.
  *
  * Verified on opencode 1.18.x (experiment 2026-10-05): the `plugin` array is
  * the only plugin load path in serve mode — opencode installs npm entries
@@ -99,12 +108,16 @@ function ensureNpmPluginEntry(): 'written' | 'present' | 'manual' {
     if (!existsSync(path)) continue
     let config: Record<string, any>
     try { config = JSON.parse(readFileSync(path, 'utf-8')) } catch { continue }
-    const plugins: unknown[] = Array.isArray(config.plugin) ? config.plugin : []
+    // A V1 `plugin` array means a 1.18.x host: write there. Otherwise write
+    // the V2 `plugins` array (the key V2 reads; openchamber never writes it).
+    const legacy = Array.isArray(config.plugin) ? config.plugin : null
+    const key = legacy ? 'plugin' : 'plugins'
+    const plugins: unknown[] = legacy ?? (Array.isArray(config.plugins) ? config.plugins : [])
     const present = plugins.some((e) => (Array.isArray(e) ? e[0] : e) === PKG_NAME)
     if (present) return 'present'
-    config.plugin = [...plugins, PKG_NAME]
+    config[key] = [...plugins, PKG_NAME]
     writeFileSync(path, JSON.stringify(config, null, 2) + '\n')
-    console.log(`  Added "${PKG_NAME}" to the plugin array in ${path}`)
+    console.log(`  Added "${PKG_NAME}" to the ${key} array in ${path}`)
     return 'written'
   }
   return 'manual'
@@ -156,12 +169,12 @@ export async function runInstall(options: InstallOptions): Promise<void> {
   // homes — they are dead weight at best and ghost-PRIMARY sources at worst.
   cleanupLegacyBridges()
 
-  // npm installs must appear in the plugin array — the only supported
-  // plugin-mode load path on 1.18.x.
+  // npm installs must appear in the plugin array — V1 `plugin` or V2 `plugins`
+  // per the host generation (see ensureNpmPluginEntry's key contract).
   if (ensureNpmPluginEntry() === 'manual') {
     console.log(`\n  ACTION NEEDED — add the npm package to your opencode config`)
-    console.log(`  (opencode.json / opencode.jsonc "plugin" array):`)
-    console.log(`\n      "plugin": [ "@bd7pil/ocrc" ]\n`)
+    console.log(`  (opencode.json / opencode.jsonc "plugins" array on V2, "plugin" on 1.18.x):`)
+    console.log(`\n      "plugins": [ "@bd7pil/ocrc" ]\n`)
     console.log(`  opencode installs it on next start; upgrades ship via npm + restart.`)
   }
 

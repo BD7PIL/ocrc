@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import net from 'node:net'
 import { createLogger } from '../utils/logger.js'
+import { cacheArtifact, extractBinary, npmTargetFor, resolveV2Pin, binCacheRoot } from './bin-cache.js'
 import type { RemoteHost, RemotesStore } from './remotes.js'
 
 const log = createLogger('remote-host')
@@ -363,6 +364,47 @@ export function createRemoteHostManager(opts: { store: RemotesStore }): RemoteHo
     return ''
   }
 
+  /** scp a binary to the remote's ~/.local/bin/opencode and verify it runs.
+   *  Returns the success result, or undefined on failure (state already set). */
+  async function pushBinaryViaScp(
+    id: string,
+    remote: RemoteHost,
+    src: string,
+    pushLog: (id: string, line: string) => void,
+  ): Promise<{ ok: true; detail: string } | undefined> {
+    const tmp = `.ocrc-opencode-upload.$$`
+    const scp = await new Promise<{ code: number | null; err: string }>((resolve) => {
+      const child = spawn('scp', [
+        '-o', 'BatchMode=yes', '-P', String(remote.port || 22),
+        src, `${sshTarget(remote)}:${tmp}`,
+      ], { stdio: ['ignore', 'ignore', 'pipe'] })
+      let err = ''
+      child.stderr?.on('data', (d: Buffer) => { err += d.toString() })
+      child.on('error', (e) => resolve({ code: null, err: e.message }))
+      child.on('close', (code) => resolve({ code, err }))
+    })
+    if (scp.code !== 0) {
+      const detail = `scp failed: ${scp.err.trim().split('\n')[0] ?? ''}`
+      setState(id, 'error', detail)
+      pushLog(id, detail)
+      return undefined
+    }
+    const place = await sshExec(remote,
+      `mkdir -p "$HOME/.local/bin" && mv "$HOME/${tmp}" "$HOME/.local/bin/opencode" && chmod 755 "$HOME/.local/bin/opencode" && "$HOME/.local/bin/opencode" --version | head -1`,
+      { timeoutMs: 60_000 })
+    if (place.code === 0 && /^\d+\.\d+/.test(place.stdout.trim())) {
+      pushLog(id, `installed via scp: ~/.local/bin/opencode (${place.stdout.trim()})`)
+      const insp = rt(id).inspection
+      if (insp) rt(id).inspection = { ...insp, opencodePath: '$HOME/.local/bin/opencode', version: place.stdout.trim() }
+      setState(id, insp?.authPresent === false ? 'needs-auth' : 'unknown', `installed via scp`)
+      return { ok: true, detail: `installed via scp (${place.stdout.trim()})` }
+    }
+    const detail = `scp install verify failed: ${(place.stderr || place.stdout).trim().split('\n')[0] ?? ''}`
+    setState(id, 'error', detail)
+    pushLog(id, detail)
+    return undefined
+  }
+
   const manager: RemoteHostManager = {
     async assignPort(id) {
       const r = rt(id)
@@ -400,6 +442,14 @@ export function createRemoteHostManager(opts: { store: RemotesStore }): RemoteHo
       void inspection
       if (insp.opencodePath) {
         pushLog(id, `opencode already present: ${insp.opencodePath} (${insp.version ?? '?'})`)
+        // Drift detection (PRODUCT 第零点六条): a V2 pin whose version differs
+        // from the remote's is surfaced, not silently accepted — the panel
+        // turns this into the "push upgrade to pin x.y.z" one-click action.
+        const pin = resolveV2Pin()
+        if (pin && insp.version && !insp.version.startsWith(pin)) {
+          pushLog(id, `版本漂移：远端 ${insp.version} ≠ pin ${pin}（可在面板推送升级）`)
+          return { ok: true, detail: `drift: remote ${insp.version} != pin ${pin}` }
+        }
         return { ok: true, detail: 'already installed' }
       }
 
@@ -425,9 +475,26 @@ export function createRemoteHostManager(opts: { store: RemotesStore }): RemoteHo
 
       pushLog(id, `installer failed (exit ${install.code}): ${(install.stderr || install.stdout).trim().split('\n').slice(-3).join(' | ')}`)
       }
-      // Path 2: no internet on the remote — scp push (same official artifact)
-      // when the platform matches. NEVER a musl/compat build: the official
-      // baseline is the whole point of this project.
+      // Path 2: no internet on the remote — push from the local cache. Two
+      // flavors: (a) V2 pin artifact from bin-cache (offline bundle contract,
+      // sha512-verified, works even when THIS host has no matching binary);
+      // (b) scp of the local binary (legacy dynamic-follow, platform must
+      // match). NEVER a musl/compat build — the official baseline is the
+      // whole point of this project.
+      const v2Pin = resolveV2Pin()
+      const remoteArch = inspection?.arch
+      if (v2Pin && inspection?.platform === 'linux' && remoteArch) {
+        try {
+          const target = npmTargetFor('linux', remoteArch)
+          pushLog(id, `pushing pinned V2 artifact ${v2Pin} (${target}) from bin-cache`)
+          const tgz = await cacheArtifact(v2Pin, target)
+          const bin = await extractBinary(tgz, join(binCacheRoot(), v2Pin, `extract-${target}`))
+          const ok = await pushBinaryViaScp(id, remote, bin, pushLog)
+          if (ok) return ok
+        } catch (e) {
+          pushLog(id, `bin-cache push failed (${e instanceof Error ? e.message : String(e)}); falling back to local binary`)
+        }
+      }
       const localPlatform = `${process.platform === 'darwin' ? 'darwin' : 'linux'} ${process.arch === 'arm64' ? 'arm64' : 'x86_64'}`
       const remotePlatform = `${inspection?.platform ?? '?'} ${inspection?.arch ?? '?'}`
       if (inspection?.platform === 'linux' && inspection?.arch && localPlatform.includes(inspection.arch)) {
@@ -436,34 +503,8 @@ export function createRemoteHostManager(opts: { store: RemotesStore }): RemoteHo
           execFile('sh', ['-c', 'command -v opencode || echo ""'], (err, stdout) => resolve(String(stdout).trim()))
         })
         const src = localBin || process.execPath
-        const tmp = `.ocrc-opencode-upload.$$`
-        const scp = await new Promise<{ code: number | null; err: string }>((resolve) => {
-          const child = spawn('scp', [
-            '-o', 'BatchMode=yes', '-P', String(remote.port || 22),
-            src, `${sshTarget(remote)}:${tmp}`,
-          ], { stdio: ['ignore', 'ignore', 'pipe'] })
-          let err = ''
-          child.stderr?.on('data', (d: Buffer) => { err += d.toString() })
-          child.on('error', (e) => resolve({ code: null, err: e.message }))
-          child.on('close', (code) => resolve({ code, err }))
-        })
-        if (scp.code !== 0) {
-          const detail = `scp failed: ${scp.err.trim().split('\n')[0] ?? ''}`
-          setState(id, 'error', detail)
-          return { ok: false, detail }
-        }
-        const place = await sshExec(remote,
-          `mkdir -p "$HOME/.local/bin" && mv "$HOME/${tmp}" "$HOME/.local/bin/opencode" && chmod 755 "$HOME/.local/bin/opencode" && "$HOME/.local/bin/opencode" --version | head -1`,
-          { timeoutMs: 60_000 })
-        if (place.code === 0 && /^\d+\.\d+/.test(place.stdout.trim())) {
-          pushLog(id, `installed via scp: ~/.local/bin/opencode (${place.stdout.trim()})`)
-          rt(id).inspection = { ...insp, opencodePath: '$HOME/.local/bin/opencode', version: place.stdout.trim() }
-          setState(id, insp.authPresent === false ? 'needs-auth' : 'unknown', `installed via scp`)
-          return { ok: true, detail: `installed via scp (${place.stdout.trim()})` }
-        }
-        const detail = `scp install verify failed: ${(place.stderr || place.stdout).trim().split('\n')[0] ?? ''}`
-        setState(id, 'error', detail)
-        return { ok: false, detail }
+        const ok = await pushBinaryViaScp(id, remote, src, pushLog)
+        if (ok) return ok
       }
 
       const detail = `install failed and platform mismatch (local ${localPlatform} vs remote ${remotePlatform})`

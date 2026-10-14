@@ -197,6 +197,24 @@ loopback traffic direct. The generated Basic password never leaves
 Requires only system ssh + a reachable host (`~/.ssh/config`, ProxyJump work
 as-is; verified against OpenSSH 7.4 on EL7).
 
+### Remote tools for the agent (2.0.0-alpha.3+)
+
+The same remote channel is exposed to **the model itself** — the agent you chat
+with (Telegram, web panel, any transport) can call:
+
+- `ocrc_remote_list` — enabled remotes with lifecycle state, version, platform
+- `ocrc_remote_sync_workspace` — push a local directory to the remote over the
+  tar pipeline (`*.ocrc-bak` backups on collisions; `..` escapes rejected)
+- `ocrc_remote_provision` — install/upgrade opencode there (pin drift aware)
+- `ocrc_remote_create_session` — open a session in a directory **on the remote**
+  (never call it from the session it creates)
+
+Typical flow: "把当前工作区推到 lab 机然后在那边开会话" → the agent lists
+remotes, syncs the workspace, creates the remote session. Works unchanged on
+opencode 1.18 (hooks.tool) and 2.x (`context.tool.transform`, see
+`docs/research/e2-verdict.md`); in attached mode every call proxies to the
+host's token-guarded API.
+
 ## Security model
 
 - One allowlisted Telegram user; web devices hold a token generated at first

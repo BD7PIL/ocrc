@@ -1,5 +1,48 @@
 # Changelog
 
+## 2.0.0-alpha.3 — 批次 3：远程通道 agent 工具化（四工具全套）（2026-10-15）
+
+> 用户原话痛点：「跨设备共享工作目录共享工作空间——OCRC 的远程通道能不能让 agent
+> 直接使用？」本版把远程通道从「面板/IM 专属」升级为**引擎 agent 的一等工具面**，
+> 通道无关：Telegram、web 面板、任何 transport 里的会话都能直接用。
+
+### feat(plugin): ocrc_remote_* 四工具（E2 裁决路径）
+
+E2 spike（`docs/research/e2-verdict.md`，2.0.27 隔离栈实测）：v2 promise 插件的
+`context.tool.transform(add/update/remove)` 是**引擎真实的运行时工具注册面**——
+`@opencode-ai/plugin` 2.0.18 的类型没写它，但引擎传了。关键契约：自定义工具必须带
+`options:{namespace:'ocrc'}` 才能到达模型面（否则进 registry 但被 agent 工具集过滤）；
+`execute` 返回 `{output}` 且 `output` 声明 `{output:{type:'string'}}`。
+
+- `remote_list`：remotes.json 的 enabled 主机 + 状态机状态 + 版本/平台。
+- `remote_sync_workspace`：参数化 tar 管道（`manager.syncDirectory`：本地根/条目/
+  远端目标三元组），`*.ocrc-bak` 备份语义与 syncConfig 同族；条目 `..` 越界与
+  非 `~,/,$HOME` 目标直接拒绝（远端 target 单引号转义防注入）。
+- `remote_provision`：provision/漂移检测/pin 推升级（bin-cache 路径复用）。
+- `remote_create_session`：经 registry 在 `remote:<id>` 的远端目录开会话
+  （web create-session 同机制）；工具描述声明防递归契约。
+
+### 三种装配（一套 handler 层 `src/plugin/remote-tools.ts`）
+- **V1 PRIMARY**：hooks.tool 并入（与 rc-status/notify 同面）。
+- **V1 ATTACHED**：同 handler，全部薄代理到宿主 token API
+  （新增 `POST /api/remotes/:id/sync-workspace` 路由）。
+- **V2 setup**：`ctx.tool.transform` 批量注册（PRIMARY 在 startCore 后晚绑定；
+  ATTACHED 在 standdown 前挂上——V2 宿主 attach 不再退化为摆烂）。
+
+### 集成实测（e2-lab 隔离栈，零生产流量）
+真 v2.0.27 引擎加载 ocrc PRIMARY 插件：四工具全部出现在 LLM 工具面；
+stub LLM 发起 `ocrc_remote_list` 调用 → 引擎执行 → `status:completed` +
+「No enabled ocrc remotes」正确落地。加载工程注意：本地路径插件 = **目录**
+（引擎找 `<dir>/index.js`，package.json main 不参与——工程以 index.js 重导出
+dist 入口解决，vendor/ 必须随包分发）。
+
+### 测试
+- 新增 `tests/unit/plugin-remote-tools.test.ts`（18 项：参数化 sync、四 handler
+  mock manager、V2 注册契约、ATTACHED 代理、v1 面完整性）。
+- `tests/unit/remote-host.test.ts` 增补 syncDirectory 守卫 3 项
+  （越界拒绝/相对目标拒绝/未知 remote）。
+- 全量 1037 项后端测试 + typecheck 绿。
+
 ## 2.0.0-alpha.2 — 批次 2：两个 openchamber iframe 扩展（2026-10-14）
 
 > 面板侧能力以 openchamber 扩展形态回归；本机开发与测试完成，

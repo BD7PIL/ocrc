@@ -65,6 +65,10 @@ export interface RemoteHostManager {
    *  remote — the ocrc answer to ZCode's selective skills/MCP export-import.
    *  Never overwrites silently: remote collisions back up to *.ocrc-bak. */
   syncConfig(id: string): Promise<{ ok: boolean; detail: string }>
+  /** 2.0.0-alpha.3: parameterized syncConfig — push ANY local directory
+   *  (workspace) to an absolute target on the remote. Same tar|ssh pipeline
+   *  and *.ocrc-bak backup semantics as syncConfig. */
+  syncDirectory(id: string, opts: { localRoot: string; entries?: string[]; remoteTarget: string }): Promise<{ ok: boolean; detail: string }>
   status(id: string): RemoteStatus | undefined
   statusAll(): RemoteStatus[]
   /** Boot-time: start every enabled remote (tunnels come up in background). */
@@ -199,6 +203,36 @@ export function buildConfigApplyScript(): string {
     'done',
     'rm -rf "$S"',
     'echo "sync-config: applied"',
+  ].join('\n')
+}
+
+/**
+ * The remote side of syncDirectory, fed a gzipped tar on stdin: untar into a
+ * staging dir, move every file into `$TARGET` backing up any collision to
+ * *.ocrc-bak (same no-silent-overwrite semantics as syncConfig). TARGET is
+ * expanded inside the remote shell (so `~` and `$HOME` both work).
+ */
+export function buildWorkspaceApplyScript(remoteTarget: string): string {
+  const q = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
+  return [
+    'set -e',
+    `D="${q(remoteTarget)}"`,
+    'S="$(mktemp -d)"',
+    'tar -xzf - -C "$S"',
+    'cd "$S"',
+    'find . -type f | sed \'s#^\\./##\' | while IFS= read -r rel; do',
+    '  tgt="$D/$rel"',
+    '  mkdir -p "$(dirname "$tgt")"',
+    '  if [ -f "$tgt" ]; then',
+    '    cp -p "$tgt" "$tgt.ocrc-bak"',
+    '    echo "backup: $rel"',
+    '  else',
+    '    echo "new: $rel"',
+    '  fi',
+    '  mv "$S/$rel" "$tgt"',
+    'done',
+    'rm -rf "$S"',
+    'echo "sync-workspace: applied"',
   ].join('\n')
 }
 
@@ -686,6 +720,62 @@ export function createRemoteHostManager(opts: { store: RemotesStore }): RemoteHo
       const applied = stdout.split('\n').filter((l) => l.startsWith('new:') || l.startsWith('backup:')).length
       const backedUp = stdout.split('\n').filter((l) => l.startsWith('backup:')).length
       const detail = `synced ${applied} file(s)${backedUp ? `, ${backedUp} backed up to *.ocrc-bak` : ''}`
+      pushLog(id, detail)
+      return { ok: true, detail }
+    },
+
+    async syncDirectory(id, syncOpts) {
+      const remote = opts.store.get(id)
+      if (!remote) return { ok: false, detail: 'unknown remote' }
+      const localRoot = syncOpts.localRoot.replace(/\/+$/, '') || '/'
+      if (!existsSync(localRoot)) return { ok: false, detail: `local root not found: ${localRoot}` }
+      // Entries default to the whole root; explicit entries must stay INSIDE it.
+      // Any `..` segment is rejected outright (resolve-then-prefix checks can be
+      // bypassed by stripping tricks, and tar -C would happily follow).
+      const entries = (syncOpts.entries?.length ? syncOpts.entries : ['.']).map((e) => {
+        if (e.split('/').includes('..')) throw new Error(`entry escapes local root: ${e}`)
+        const norm = (e.startsWith('/') ? e : `${localRoot}/${e.replace(/^\.?\//, '')}`).replace(/\/+/g, '/')
+        if (!norm.startsWith(`${localRoot}/`) && norm !== localRoot) throw new Error(`entry escapes local root: ${e}`)
+        return norm.startsWith(`${localRoot}/`) ? norm.slice(localRoot.length + 1) : '.'
+      })
+      if (!syncOpts.remoteTarget || !syncOpts.remoteTarget.startsWith('/') && !syncOpts.remoteTarget.startsWith('~') && !syncOpts.remoteTarget.startsWith('$HOME')) {
+        return { ok: false, detail: 'remoteTarget must be an absolute path (/, ~, or $HOME form)' }
+      }
+      pushLog(id, `$ sync-workspace ${localRoot} → ${syncOpts.remoteTarget} (${entries.join(' ')})`)
+
+      const tar = spawn('tar', ['-czf', '-', '-C', localRoot, ...entries], { stdio: ['ignore', 'pipe', 'pipe'] })
+      const ssh = spawn('ssh', [
+        '-o', 'BatchMode=yes',
+        '-o', 'ConnectTimeout=10',
+        '-o', 'StrictHostKeyChecking=no',
+        '-p', String(remote.port || 22),
+        sshTarget(remote),
+        buildWorkspaceApplyScript(syncOpts.remoteTarget),
+      ], { stdio: ['pipe', 'pipe', 'pipe'] })
+
+      const result = new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
+        let stdout = ''
+        let stderr = ''
+        ssh.stdout?.on('data', (d: Buffer) => { stdout += d.toString() })
+        ssh.stderr?.on('data', (d: Buffer) => { stderr += d.toString() })
+        ssh.on('error', (err) => resolve({ code: null, stdout, stderr: `${stderr}\n${err.message}` }))
+        ssh.on('close', (code) => resolve({ code, stdout, stderr }))
+        tar.on('error', (err) => {
+          try { ssh.kill() } catch { /* gone */ }
+          resolve({ code: null, stdout, stderr: `tar: ${err.message}` })
+        })
+        tar.stdout?.pipe(ssh.stdin)
+      })
+      const { code, stdout, stderr } = await result
+      for (const line of stdout.split('\n')) if (line.trim()) pushLog(id, line.trim())
+      if (code !== 0) {
+        const detail = `sync-workspace failed (exit ${code}): ${(stderr || stdout).trim().split('\n')[0] ?? ''}`
+        pushLog(id, detail)
+        return { ok: false, detail }
+      }
+      const applied = stdout.split('\n').filter((l) => l.startsWith('new:') || l.startsWith('backup:')).length
+      const backedUp = stdout.split('\n').filter((l) => l.startsWith('backup:')).length
+      const detail = `synced ${applied} file(s) to ${syncOpts.remoteTarget}${backedUp ? `, ${backedUp} backed up to *.ocrc-bak` : ''}`
       pushLog(id, detail)
       return { ok: true, detail }
     },

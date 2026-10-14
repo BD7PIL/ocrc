@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { formatScheduleList, parseScheduleCreate, scheduleCreatedMessage, type ScheduleCreateArgs } from './schedule-tool.js'
 import { createWorkflowTools, skillGateHook } from './workflow-tools.js'
+import { createRemoteToolsV1 } from './remote-tools.js'
 import type { Schedule } from '../core/scheduler.js'
 import { ocrcHome } from '../utils/paths.js'
 import { createLogger } from '../utils/logger.js'
@@ -177,6 +178,11 @@ export function createAttachedHooks(opts: AttachedOpts): AttachedHandle {
   // set — an engine session is both the place workflows are authored and the place
   // their subagents run, so both halves must be visible to the same model.
   Object.assign(tools, createWorkflowTools(opts))
+
+  // Batch 3 (2.0.0-alpha.3): the remote-channel four-tool face — every handler
+  // proxies to the host's token-guarded API (the host owns the manager), same
+  // stateless-and-idempotent contract as every other attached tool.
+  Object.assign(tools, createRemoteToolsV1({ attached: opts }))
 
   log.info(`ATTACHED to ${opts.baseUrl} — ${Object.keys(tools).length} tool(s), no transports`)
 

@@ -152,3 +152,42 @@ describe('remote backend derates (0.26.0)', () => {
     expect(typeof local.getVcsDiff).toBe('function')
   })
 })
+
+describe('syncDirectory guards (2.0.0-alpha.3)', () => {
+  it('rejects entries that escape the local root before touching ssh', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ocrc-sync-'))
+    const { createRemotesStore } = await import('../../src/core/remotes')
+    const store = createRemotesStore(join(dir, 'remotes.json'))
+    store.upsert({ id: 'lab', host: '127.0.0.1', port: 22, remotePort: 4301 })
+    const { createRemoteHostManager } = await import('../../src/core/remote-host')
+    const mgr = createRemoteHostManager({ store })
+    await expect(mgr.syncDirectory('lab', { localRoot: dir, remoteTarget: '~/ws', entries: ['../escape'] }))
+      .rejects.toThrow(/entry escapes local root/)
+  })
+
+  it('rejects relative remoteTarget; accepts ~ and absolute forms', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ocrc-sync-'))
+    const { createRemotesStore } = await import('../../src/core/remotes')
+    const store = createRemotesStore(join(dir, 'remotes.json'))
+    store.upsert({ id: 'lab', host: '127.0.0.1', port: 22, remotePort: 4301 })
+    const { createRemoteHostManager } = await import('../../src/core/remote-host')
+    const mgr = createRemoteHostManager({ store })
+    const rel = await mgr.syncDirectory('lab', { localRoot: dir, remoteTarget: 'workspaces/rel' })
+    expect(rel.ok).toBe(false)
+    expect(rel.detail).toContain('absolute path')
+    // missing local root is surfaced without any ssh attempt
+    const miss = await mgr.syncDirectory('lab', { localRoot: join(dir, 'nope'), remoteTarget: '~/ws' })
+    expect(miss.ok).toBe(false)
+    expect(miss.detail).toContain('local root not found')
+  })
+
+  it('unknown remote id fails with a plain detail', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ocrc-sync-'))
+    const { createRemotesStore } = await import('../../src/core/remotes')
+    const store = createRemotesStore(join(dir, 'remotes.json'))
+    const { createRemoteHostManager } = await import('../../src/core/remote-host')
+    const mgr = createRemoteHostManager({ store })
+    const res = await mgr.syncDirectory('ghost', { localRoot: dir, remoteTarget: '~/ws' })
+    expect(res).toEqual({ ok: false, detail: 'unknown remote' })
+  })
+})

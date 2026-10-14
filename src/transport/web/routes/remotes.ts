@@ -85,4 +85,23 @@ export function registerRemotes(app: Hono, remotes?: RemotesStore, manager?: Rem
     const result = await manager.syncConfig(c.req.param('id'))
     return c.json(result, result.ok ? 200 : 502)
   })
+
+  /** 2.0.0-alpha.3: parameterized workspace sync — push any local directory to
+   *  an absolute remote target (same *.ocrc-bak backup semantics). Used by the
+   *  remote_sync_workspace agent tool AND exposed to the panel. */
+  app.post('/api/remotes/:id/sync-workspace', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { localRoot?: string; entries?: string[]; remoteTarget?: string }
+    if (!body.localRoot || typeof body.localRoot !== 'string') return c.json({ error: 'localRoot required' }, 400)
+    if (!body.remoteTarget || typeof body.remoteTarget !== 'string') return c.json({ error: 'remoteTarget required' }, 400)
+    try {
+      const result = await manager.syncDirectory(c.req.param('id'), {
+        localRoot: body.localRoot,
+        entries: Array.isArray(body.entries) ? body.entries.filter((e): e is string => typeof e === 'string') : undefined,
+        remoteTarget: body.remoteTarget,
+      })
+      return c.json(result, result.ok ? 200 : 502)
+    } catch (err) {
+      return c.json({ ok: false, detail: (err as Error).message }, 400)
+    }
+  })
 }

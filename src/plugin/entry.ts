@@ -29,6 +29,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { createV1ControlPlane, createV2ControlPlane, type ControlPlane } from './control-plane.js'
 import { createOpencodeBackend } from '../core/agent/opencode-backend.js'
+import { createRemoteToolsV1, registerRemoteToolsV2, type RemoteToolDeps } from './remote-tools.js'
 import type { V2Context } from './v2/types.js'
 
 // Read from package.json at runtime (tsc emits unbundled JS, so ../../package.json
@@ -109,19 +110,25 @@ const v2Setup = async (ctx: V2Context, options?: Record<string, unknown>) => {
   process.env.OCRC_MODE = 'plugin'
   log.info(`v${VERSION} starting (V2 setup)`)
 
-  // P0-3: a live host owns the transports — attach instead of electing. Checked
-  // BEFORE the transient-process gate below: attaching owns no transports, so it
-  // is safe (and useful) even in a one-shot `opencode run` process. Also checked
-  // before config load: an attached plugin needs no Telegram token.
-  //
-  // Note: the V2 setup contract exposes no tool-registration surface (see
-  // docs/v2-api-notes.md), so on a V2 host "attach" degenerates to "stand down" —
-  // owning nothing is still the correct answer, we just cannot offer tools there.
+  // Batch 3 (2.0.0-alpha.3): the V2 tool face EXISTS at runtime even though the
+  // SDK types omit it — `context.tool.transform(add/update/remove)` verified
+  // end-to-end on 2.0.27 (docs/research/e2-verdict.md). Both mountings register
+  // the ocrc_remote_* four-tool face:
+  //  - ATTACHED: a host owns the lock → tools proxy to the host's HTTP API;
+  //  - PRIMARY:  the plugin owns the manager → tools call it in-process.
+  // A V2 host with no live host and a transient `run` process skips PRIMARY
+  // registration exactly as before (no transports are owned there either).
+  const toolCtx = (ctx as unknown as { tool?: import('./remote-tools.js').V2ToolRegistrar }).tool
   const target = hostTarget()
   if (target) {
+    if (target.kind === 'attach' && toolCtx) {
+      log.info(`host owns the primary lock — ATTACHED (V2 tool face) to ${target.baseUrl}`)
+      await registerRemoteToolsV2(toolCtx, { attached: { baseUrl: target.baseUrl, resolveToken: hostTokenFromDisk, version: VERSION } })
+      return async () => {}
+    }
     log.info(
       target.kind === 'attach'
-        ? `host owns the primary lock — standing down (V2 setup has no tool surface; would attach to ${target.baseUrl})`
+        ? `host owns the primary lock but exposes no tool face — standing down (would attach to ${target.baseUrl})`
         : `host owns the primary lock but ${target.reason} — standing down`,
     )
     return async () => {}
@@ -151,6 +158,15 @@ const v2Setup = async (ctx: V2Context, options?: Record<string, unknown>) => {
 
   const plane = createV2ControlPlane(ctx)
   const hooks = await startCore(plane, config, primary)
+  // Batch 3: on the PRIMARY V2 path the registry/manager live inside startCore —
+  // register the tool face against a late-bound view of them.
+  if (toolCtx && hooks.remoteToolsDeps) {
+    try {
+      await registerRemoteToolsV2(toolCtx, { local: hooks.remoteToolsDeps() })
+    } catch (err) {
+      log.warn(`remote tools V2 registration failed: ${(err as Error).message}`)
+    }
+  }
   // V2's setup contract returns a cleanup function.
   return () => hooks.dispose()
 }
@@ -620,9 +636,19 @@ async function startCore(plane: ControlPlane, config: ReturnType<typeof loadPlug
 
     const v1EventHook = plane.eventHook?.(dispatchEvent)
 
+    // Batch 3: late-bound remote tool deps — the V2 setup registers the tool
+    // face AFTER startCore returns (transform needs the booted registry).
+    const remoteToolsDeps = (): RemoteToolDeps['local'] => ({
+      remotes: remotesStore,
+      manager: remoteManager,
+      registry,
+    })
+
     return {
+      remoteToolsDeps,
       ...(v1EventHook ? { event: v1EventHook } : {}),
       tool: {
+        ...createRemoteToolsV1({ local: remoteToolsDeps() }),
         'rc-status': tool({
           description: 'Show ocrc plugin status',
           args: {},

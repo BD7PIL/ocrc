@@ -1,8 +1,11 @@
-// Stage build outputs into the install shape openchamber expects
-// (manifest entry paths are package-root-relative):
-//   dist/panel/index.html + main.js   ← contributes.panel.entry
-//   dist/status/index.html + main.js  ← contributes.statusSection.entry
-//   dist/service/main.js              ← contributes.service.entry (tsc emits here directly)
+// Stage build outputs into the INSTALL shape: this package directory IS the
+// openchamber install root (manifest entries are package-root-relative), so
+// staged artifacts land at the package root and a fresh clone is directly
+// folder-installable without any build:
+//   panel/index.html + main.js   ← contributes.panel.entry
+//   status/index.html + main.js  ← contributes.statusSection.entry
+//   service/main.js (+ ../shared)← contributes.service.entry
+// Build intermediates stay under dist/ (gitignored).
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -25,18 +28,18 @@ const html = (title) => `<!doctype html>
 </html>
 `
 
-rmSync(join(out, 'panel'), { recursive: true, force: true })
-rmSync(join(out, 'status'), { recursive: true, force: true })
+rmSync(join(root, 'panel'), { recursive: true, force: true })
+rmSync(join(root, 'status'), { recursive: true, force: true })
 rmSync(join(root, 'service'), { recursive: true, force: true })
-mkdirSync(join(out, 'panel'), { recursive: true })
-mkdirSync(join(out, 'status'), { recursive: true })
+mkdirSync(join(root, 'panel'), { recursive: true })
+mkdirSync(join(root, 'status'), { recursive: true })
 
-cpSync(join(out, 'panel-assets', 'main.js'), join(out, 'panel', 'main.js'))
-cpSync(join(out, 'status-assets', 'main.js'), join(out, 'status', 'main.js'))
-writeFileSync(join(out, 'panel', 'index.html'), html('ocrc connect'))
-writeFileSync(join(out, 'status', 'index.html'), html('ocrc tunnel'))
-cpSync(join(root, 'src', 'panel', 'theme.css'), join(out, 'panel', 'theme.css'))
-cpSync(join(root, 'src', 'panel', 'theme.css'), join(out, 'status', 'theme.css'))
+cpSync(join(out, 'panel-assets', 'main.js'), join(root, 'panel', 'main.js'))
+cpSync(join(out, 'status-assets', 'main.js'), join(root, 'status', 'main.js'))
+writeFileSync(join(root, 'panel', 'index.html'), html('ocrc connect'))
+writeFileSync(join(root, 'status', 'index.html'), html('ocrc tunnel'))
+cpSync(join(root, 'src', 'panel', 'theme.css'), join(root, 'panel', 'theme.css'))
+cpSync(join(root, 'src', 'panel', 'theme.css'), join(root, 'status', 'theme.css'))
 
 // service: manifest entry is <root>/service/main.js; its '../shared/protocol.js'
 // import resolves to <root>/shared/ — stage both at package root.
@@ -45,4 +48,4 @@ rmSync(join(root, 'shared'), { recursive: true, force: true })
 cpSync(join(out, 'service'), join(root, 'service'), { recursive: true })
 if (existsSync(join(out, 'shared'))) cpSync(join(out, 'shared'), join(root, 'shared'), { recursive: true })
 
-console.log('[stage-dist] dist/panel + dist/status + dist/service ready')
+console.log('[stage-dist] panel/ + status/ + service/ + shared/ staged at package root')

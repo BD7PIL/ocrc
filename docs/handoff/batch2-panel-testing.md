@@ -18,20 +18,21 @@
 
 ## 2. 装两个扩展（各约 1 分钟）
 
-扩展产物随 Release 附件分发（`ocrc-extensions-0.1.0.tar.gz`），先下载解压得到两个目录：
+**方式 A（推荐，git clone）**——仓库的扩展目录就是安装根（构建产物已提交），clone 后零构建直接装：
 
 ```
-ocrc-connect/    # 隧道扩展（panel + status + service）
-ocrc-omo-view/   # omo 编排视图扩展（panel）
+git clone https://github.com/BD7PIL/ocrc.git
+# 两个扩展目录：ocrc/extensions/ocrc-connect 与 ocrc/extensions/ocrc-omo-view
 ```
 
-面板 → Settings → Extensions → **Add extension**：
+面板 → Settings → Extensions → **Add extension** → 选 **folder**：
 
-- ocrc-connect：选 **folder** 安装（指向解压出的 `ocrc-connect/` 目录）。
-  装完会出现一次 **service 能力审批**（openchamber 将代为拉起一个本机进程）——批准。
-- ocrc-omo-view：同样 folder 安装，纯只读，审批面最小（sessions 能力）。
+- ocrc-connect：指向 `extensions/ocrc-connect/`。装完出现一次 **service 能力审批**（openchamber 代为拉起本机进程）——批准。
+- ocrc-omo-view：指向 `extensions/ocrc-omo-view/`，纯只读，审批面最小（sessions 能力）。
 
-> 备选（拿到 git 仓库分发后）：直接粘仓库 URL 安装，自带每小时自更新。手动装的扩展不参与自更新，升级 = 重装。
+**方式 B（Release 附件）**：下载 Release 附件 `ocrc-extensions-*.tar.gz` 解压（内部目录已是安装形状），同样 folder 安装。
+
+> 手动/folder 安装不参与自更新，升级 = 重新 clone + 重装（或走下节的 CI 扩展仓库路线）。
 
 ## 3. 验收清单（按序）
 

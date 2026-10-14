@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { connectHost, type GuestRequestMethod, type GuestRequestResult, type HostClient } from '@openchamber/sdk'
 import type { ServiceApiShape, SshProfile, TunnelStatus } from '../shared/protocol.js'
 import { Workspace } from './Workspace.js'
+import { ConfigSync } from './ConfigSync.js'
 
 const LAST_KEY = 'lastProfileId'
 const ROOTS_KEY = 'workspaceRoots'
@@ -19,7 +20,7 @@ async function jsonCall(request: RequestFn, path: string, method: GuestRequestMe
 export function Panel() {
   const [host, setHost] = useState<HostClient | null>(null)
   const [err, setErr] = useState('')
-  const [tab, setTab] = useState<'connect' | 'workspace'>('connect')
+  const [tab, setTab] = useState<'connect' | 'workspace' | 'configsync'>('connect')
   const [state, setState] = useState<ServiceApiShape>({ status: { profileId: null, tunnel: 'down', engine: 'unknown' }, profiles: [] })
 
   useEffect(() => {
@@ -97,10 +98,13 @@ export function Panel() {
       <div className="row" style={{ gap: 8 }}>
         <button className={tab === 'connect' ? 'primary' : ''} onClick={() => setTab('connect')}>连接</button>
         <button className={tab === 'workspace' ? 'primary' : ''} onClick={() => setTab('workspace')}>远程工作区</button>
+        <button className={tab === 'configsync' ? 'primary' : ''} onClick={() => setTab('configsync')}>配置同步</button>
       </div>
       {tab === 'workspace'
         ? <Workspace request={request} status={s} profiles={state.profiles} onLoadRoots={loadRoots} onRootsChanged={saveRoots} />
-        : (
+        : tab === 'configsync'
+          ? <ConfigSync request={request} status={s} profiles={state.profiles} />
+          : (
       <>
       <div className="row">
         <strong>ocrc 连接</strong>

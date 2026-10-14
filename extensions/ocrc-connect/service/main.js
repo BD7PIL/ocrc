@@ -5,11 +5,22 @@
  *  Authorization: Bearer <token>. */
 import http from 'node:http';
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
+/** Small helper so the bridge endpoints read panel-host files through one
+ *  null-on-failure shape. */
+function readFileSyncLocal(path) {
+    try {
+        return readFileSync(path, 'utf-8');
+    }
+    catch {
+        return null;
+    }
+}
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createTunnelSupervisor } from './tunnel.js';
 import { normalizeProfile } from '../shared/protocol.js';
 import { sshExec, normalizeVirtualPath, isInsideRoots, buildListScript, parseListOutput, buildReadScript, buildWriteScript, buildStatScript, buildMkdirScript, buildGitScript, parseGitStatus, } from './remote-fs.js';
+import { inspectConfigSource, extractBridgeSections, deepMerge, } from './config-bridge.js';
 const PORT = Number(process.env.OPENCHAMBER_SERVICE_PORT ?? 0);
 const TOKEN = process.env.OPENCHAMBER_SERVICE_TOKEN ?? '';
 const PROFILES_FILE = process.env.OCRC_CONNECT_PROFILES
@@ -253,6 +264,124 @@ const server = http.createServer(async (req, res) => {
                 }
                 const nothing = stdout.includes('nothing-to-commit');
                 json(res, nothing ? 409 : 200, { root, committed: !nothing, output: stdout.trim().split('\n')[0] });
+                return;
+            }
+        }
+        // ── batch 5: config bridge (panel-host config → remote engine) ──────────
+        // openchamber writes agent/mcp/provider edits to the PANEL HOST's
+        // ~/.config/opencode; an external engine reads its own disk. These
+        // endpoints carry those edits over the ssh face. No auth secrets are
+        // copied — provider keys stay in the engine's own credential store.
+        if (url.pathname.startsWith('/config/')) {
+            const profile = supervisor.activeProfile();
+            if (!profile) {
+                json(res, 409, { error: 'no active profile — connect first' });
+                return;
+            }
+            const R = profile;
+            const body = (req.method === 'POST' ? await readBody(req) : {});
+            const remotePath = typeof body.remotePath === 'string' && body.remotePath.startsWith('/')
+                ? body.remotePath
+                : '$HOME/.config/opencode/opencode.json';
+            if (req.method === 'POST' && url.pathname === '/config/source') {
+                const report = inspectConfigSource();
+                json(res, 200, report);
+                return;
+            }
+            if (req.method === 'POST' && url.pathname === '/config/preview' || req.method === 'POST' && url.pathname === '/config/apply') {
+                const apply = url.pathname === '/config/apply';
+                // 1. read the panel-host source
+                const report = inspectConfigSource();
+                if (report.parseError) {
+                    json(res, 422, { error: `panel config unparseable: ${report.parseError}` });
+                    return;
+                }
+                if (!report.exists) {
+                    json(res, 404, { error: `no panel-host config at ${report.configPath}` });
+                    return;
+                }
+                const raw = readFileSyncLocal(report.configPath);
+                if (raw === null) {
+                    json(res, 500, { error: 'panel config unreadable' });
+                    return;
+                }
+                let panelCfg;
+                try {
+                    panelCfg = JSON.parse(raw.replace(/^\uFEFF/, ''));
+                }
+                catch (e) {
+                    json(res, 422, { error: `panel config unparseable: ${e.message}` });
+                    return;
+                }
+                const bridge = extractBridgeSections(panelCfg);
+                // agent markdown files ride along as a separate payload
+                const agentMd = [];
+                for (const f of report.agentFiles) {
+                    try {
+                        const c = readFileSyncLocal(f.path);
+                        if (c !== null)
+                            agentMd.push({ name: f.name, content: c });
+                    }
+                    catch { /* skip */ }
+                }
+                // 2. read the REMOTE's current file over ssh (base64; missing = empty)
+                const readCmd = `if [ -f "${remotePath.replace(/"/g, '\\"')}" ]; then base64 < "${remotePath.replace(/"/g, '\\"')}"; else echo MISSING; fi`;
+                const rd = await sshExec(R, readCmd, { timeoutMs: 20_000 });
+                if (rd.code !== 0) {
+                    json(res, 502, { error: rd.stderr.trim().split('\n')[0] || `ssh exit ${rd.code}` });
+                    return;
+                }
+                let remoteCfg = {};
+                let remoteExisted = false;
+                if (!rd.stdout.trim().startsWith('MISSING')) {
+                    try {
+                        remoteCfg = JSON.parse(Buffer.from(rd.stdout.trim(), 'base64').toString('utf-8'));
+                        remoteExisted = true;
+                    }
+                    catch { /* corrupt remote file: treat as empty, bak will preserve it */
+                        remoteExisted = true;
+                    }
+                }
+                // 3. merge (panel wins per leaf; remote-only keys preserved)
+                const merged = deepMerge(remoteCfg, bridge);
+                const mergedJson = JSON.stringify(merged, null, 2);
+                const summary = {
+                    remotePath,
+                    remoteExisted,
+                    sectionsBridged: Object.keys(bridge),
+                    agentFilesBridged: agentMd.map((a) => a.name),
+                    changed: JSON.stringify(remoteCfg) !== JSON.stringify(merged),
+                };
+                if (!apply) {
+                    json(res, 200, { ...summary, mergedPreview: mergedJson.slice(0, 16_000) });
+                    return;
+                }
+                // 4. apply: merged json atomically, *.ocrc-bak first
+                const { script, stdin } = (() => {
+                    const P = remotePath.replace(/"/g, '\\"');
+                    const lines = ['set -e'];
+                    lines.push(`P="${P}"`, 'D=$(dirname "$P")', 'mkdir -p "$D"', 'T=$(mktemp "$D/.ocrc-cfg.XXXXXX")', 'base64 -d > "$T"');
+                    if (remoteExisted)
+                        lines.push('cp -p "$P" "$P.ocrc-bak" && echo "bak: $P.ocrc-bak"');
+                    lines.push('mv "$T" "$P"', 'echo "written: $P"');
+                    return { script: lines.join('\n'), stdin: Buffer.from(mergedJson, 'utf-8').toString('base64') };
+                })();
+                const wr = await sshExec(R, script, { timeoutMs: 30_000, stdin });
+                if (wr.code !== 0) {
+                    json(res, 502, { error: wr.stderr.trim().split('\n')[0] || `ssh exit ${wr.code}` });
+                    return;
+                }
+                // agent md files: tar-style per-file write (small count, loop is fine)
+                const mdResults = [];
+                for (const md of agentMd) {
+                    const target = typeof body.agentsDir === 'string' && body.agentsDir.startsWith('/')
+                        ? `${body.agentsDir.replace(/\/+$/, '')}/${md.name}.md`
+                        : '$HOME/.config/opencode/agents/' + md.name + '.md';
+                    const ws = buildWriteScript(target, Buffer.from(md.content, 'utf-8').toString('base64'));
+                    const r2 = await sshExec(R, ws.script, { timeoutMs: 20_000, stdin: ws.stdin });
+                    mdResults.push({ name: md.name, ok: r2.code === 0 });
+                }
+                json(res, 200, { ...summary, applied: true, agentMdResults: mdResults, note: '配置已写入远端——引擎重启或重载后生效（ocrc 不自动重启被控引擎）' });
                 return;
             }
         }

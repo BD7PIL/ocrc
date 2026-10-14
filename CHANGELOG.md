@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.0.0-alpha.2 — 批次 2：两个 openchamber iframe 扩展（2026-10-14）
+
+> 面板侧能力以 openchamber 扩展形态回归；本机开发与测试完成，
+> Win/Mac 侧动作清单见 `docs/handoff/batch2-panel-testing.md`（唯一 handoff）。
+
+### extensions/ocrc-connect 0.1.0 — 连接/隧道扩展
+- panel：SSH 档案管理（存 host.storage）+ 隧道/引擎双状态卡 + 连接断开；
+  statusSection「ocrc 隧道」健康徽标。
+- service（面板宿主本机进程，openchamber 代拉）：spawn `ssh -N -L
+  127.0.0.1:4096:…` + 指数退避重连；`/health`（15s 契约）+ Bearer token 门 +
+  `/status|/connect|/disconnect|/profiles`；档案镜像落盘，单档案自动重连。
+- 引擎接入零环境变量：隧道落地 openchamber 自动探测端口 4096。
+- 7 项单测 + 本机活体验证（真实 SSH 隧道转发 /global/health 200、disconnect 断链）。
+
+### extensions/ocrc-omo-view 0.1.0 — omo 编排视图扩展
+- 只读编排树：E1 实证的 v2 `parentId` 会话树 → orchestrator/专家分支；
+  节点带 agent 名/活动态/结果，点击跳转会话；dangling parent 降级为根不丢节点。
+- capabilities 最小面（sessions）；5 项单测（树构建/降级/计数/展平）。
+- 两包 panel 产物均 classic-IIFE（openchamber 沙箱无 ESM），构建产物提交进仓库。
+
+### ci
+- ci.yml 追加两扩展的 install/typecheck/test/build 步骤。
+
 ## 2.0.0-alpha.1 — 转型批次 1：openchamber 基座 + opencode v2 被控端（2026-10-14）
 
 > 口径：产品基座换位裁决落地（`docs/research/openchamber-base-swap-verdict.md`）——

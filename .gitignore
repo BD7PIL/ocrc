@@ -36,3 +36,11 @@ tsconfig.tsbuildinfo
 .zcode/
 .deep-memory/
 .omo/
+
+# openchamber extensions: install-time build is NOT supported upstream —
+# built artifacts under extensions/*/ must be committed (only node_modules stays out).
+!extensions/*/dist/
+!extensions/*/service/
+!extensions/*/shared/
+extensions/*/dist/panel-assets/
+extensions/*/dist/status-assets/

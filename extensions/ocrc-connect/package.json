@@ -1,0 +1,52 @@
+{
+  "name": "ocrc-connect",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ocrc connect — SSH tunnel profiles for openchamber (external opencode engine on a controlled host)",
+  "openchamber": {
+    "apiVersion": 1,
+    "contributes": {
+      "panel": {
+        "id": "ocrc-connect",
+        "name": "ocrc Connect",
+        "icon": "link",
+        "entry": "panel/index.html"
+      },
+      "statusSection": {
+        "entry": "status/index.html",
+        "title": "ocrc tunnel",
+        "height": 96,
+        "defaultExpanded": false
+      },
+      "service": {
+        "entry": "service/main.js",
+        "runtime": "host"
+      }
+    }
+  },
+  "scripts": {
+    "build": "npm run build:panel && npm run build:status && npm run build:service && node ./scripts/stage-dist.mjs",
+    "build:panel": "vite build",
+    "build:status": "vite build --config vite.status.config.ts",
+    "build:service": "tsc -p tsconfig.service.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@openchamber/sdk": "^2.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.8",
+    "@vitejs/plugin-react": "^4.5.2",
+    "jsdom": "^26.1.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "@testing-library/react": "^16.3.0",
+    "typescript": "~5.8.3",
+    "vite": "^7.0.0",
+    "vitest": "^3.2.4"
+  }
+}

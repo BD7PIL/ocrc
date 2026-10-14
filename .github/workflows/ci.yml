@@ -21,10 +21,12 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
-      - name: Install (plugin + web-next)
+      - name: Install (plugin + web-next + extensions)
         run: |
           npm ci
           npm --prefix web-next ci
+          npm --prefix extensions/ocrc-connect ci
+          npm --prefix extensions/ocrc-omo-view ci
 
       - name: Typecheck (plugin)
         run: npm run typecheck
@@ -43,3 +45,12 @@ jobs:
 
       - name: Test (web-next shell)
         run: npm --prefix web-next run test
+
+      - name: Typecheck + test + build (extensions)
+        run: |
+          npm --prefix extensions/ocrc-connect run typecheck
+          npm --prefix extensions/ocrc-connect test
+          npm --prefix extensions/ocrc-connect run build
+          npm --prefix extensions/ocrc-omo-view run typecheck
+          npm --prefix extensions/ocrc-omo-view test
+          npm --prefix extensions/ocrc-omo-view run build

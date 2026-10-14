@@ -1,0 +1,117 @@
+/* ocrc ink theme tokens for guest iframes — LAYER 0 anchors + LAYER 1 aliases
+ * copied from web-next/src/styles/theme.css (keep values in sync with it).
+ * The host theme arrives via applyHostTheme()/data-theme on <html>; we ship
+ * both ramps and follow the same contract:
+ *   no attribute → prefers-color-scheme; data-theme="dark"/"light" forces. */
+
+:root {
+  --zai-fg-dark:  #e8e8e8;
+  --zai-fg-light: #262626;
+
+  color-scheme: dark;
+  /* dark = ocrc ink (neutral cold-gray two-plane + persimmon accent) */
+  --bg:        #0e0e10;
+  --bg-panel:  #1c1c1f;
+  --bg-elev:   #1c1c1f;
+  --bg-elev2:  #232326;
+  --border:    rgba(255, 255, 255, 0.16);
+  --border-2:  rgba(255, 255, 255, 0.1);
+  --hover:     rgba(255, 255, 255, 0.04);
+  --surface:   rgba(255, 255, 255, 0.05);
+  --text:   var(--zai-fg-dark);
+  --text-2: color-mix(in oklab, var(--zai-fg-dark) 60%, transparent);
+  --text-3: color-mix(in oklab, var(--zai-fg-dark) 45%, transparent);
+  --accent:    #fb8b3c;
+  --accent-2:  rgba(251, 139, 60, 0.12);
+  --accent-ink: #211307;
+  --ok:   #6ee7a0;
+  --warn: #ffd479;
+  --err:  #f97066;
+  --info: #8ab4ff;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg:        #fdfdfd;
+  --bg-panel:  #ffffff;
+  --bg-elev:   #ffffff;
+  --bg-elev2:  #f0f0f0;
+  --border:    rgba(13, 13, 13, 0.15);
+  --border-2:  rgba(13, 13, 13, 0.08);
+  --hover:     rgba(13, 13, 13, 0.04);
+  --surface:   rgba(13, 13, 13, 0.03);
+  --text:   var(--zai-fg-light);
+  --text-2: color-mix(in oklab, var(--zai-fg-light) 65%, transparent);
+  --text-3: color-mix(in oklab, var(--zai-fg-light) 45%, transparent);
+  --accent:    #e4580f;
+  --accent-2:  rgba(228, 88, 15, 0.08);
+  --accent-ink: #ffffff;
+  --ok:   #1f7a3d;
+  --warn: #9a6b00;
+  --err:  #c2372c;
+  --info: #2456a6;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --bg:        #fdfdfd;
+    --bg-panel:  #ffffff;
+    --bg-elev:   #ffffff;
+    --bg-elev2:  #f0f0f0;
+    --border:    rgba(13, 13, 13, 0.15);
+    --border-2:  rgba(13, 13, 13, 0.08);
+    --hover:     rgba(13, 13, 13, 0.04);
+    --surface:   rgba(13, 13, 13, 0.03);
+    --text:   var(--zai-fg-light);
+    --text-2: color-mix(in oklab, var(--zai-fg-light) 65%, transparent);
+    --text-3: color-mix(in oklab, var(--zai-fg-light) 45%, transparent);
+    --accent:    #e4580f;
+    --accent-2:  rgba(228, 88, 15, 0.08);
+    --accent-ink: #ffffff;
+    --ok:   #1f7a3d;
+    --warn: #9a6b00;
+    --err:  #c2372c;
+    --info: #2456a6;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 ui-sans-serif, system-ui, sans-serif;
+}
+button {
+  font: inherit;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+button:hover { background: var(--hover); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.primary { background: var(--accent-2); color: var(--accent); border-color: transparent; }
+input {
+  font: inherit;
+  background: var(--bg-elev);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.row { display: flex; align-items: center; gap: 8px; }
+.muted { color: var(--text-2); }
+.pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+}
+.pill.ok   { color: var(--ok);   border-color: color-mix(in oklab, var(--ok) 40%, transparent); }
+.pill.err  { color: var(--err);  border-color: color-mix(in oklab, var(--err) 40%, transparent); }
+.pill.warn { color: var(--warn); border-color: color-mix(in oklab, var(--warn) 40%, transparent); }

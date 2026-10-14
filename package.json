@@ -1,0 +1,48 @@
+{
+  "name": "ocrc-omo-view",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ocrc omo view — orchestration tree for oh-my-opencode-slim subagent sessions, read-only",
+  "openchamber": {
+    "apiVersion": 1,
+    "contributes": {
+      "panel": {
+        "id": "ocrc-omo-view",
+        "name": "omo 编排",
+        "icon": "git-branch",
+        "entry": "panel/index.html"
+      },
+      "actions": [
+        {
+          "id": "ocrc-omo-inspect",
+          "label": "查看编排",
+          "where": "session",
+          "mode": "open",
+          "payload": ["messages"]
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "npm run build:panel && node ./scripts/stage-dist.mjs",
+    "build:panel": "vite build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@openchamber/sdk": "^2.3.2"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.8",
+    "@vitejs/plugin-react": "^4.5.2",
+    "jsdom": "^26.1.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "@testing-library/react": "^16.3.0",
+    "typescript": "~5.8.3",
+    "vite": "^7.0.0",
+    "vitest": "^3.2.4"
+  }
+}

@@ -45,7 +45,7 @@
 **优点**：压缩质量判断权交给最懂上下文的模型本身；零外部服务零独立调用成本；确定性管线 + 多层保护扎实；22 个测试文件含 prompt-cache 回归脚本（`test-dcp-cache.sh`）；配置有 JSON Schema（dcp.schema.json）+ 7 个可覆盖 prompt；4.3K★/9.2k 周下载/≥14 个衍生叉包（含 Claude Code 移植 claude-dcp、ZCode 移植 zcode-dcp）的社区验证。
 
 **缺点/限制**（README 自述 + open issues 一手抓取）：
-1. **维护放缓，新工作转向继任项目 Sleev**（README 明示；本地代理形态——选型最重要的信号：作者用自己的行动承认了 hook 层的天花板）。
+1. **维护放缓（未死）：新工作移至 Sleev（后证实为闭源商业产品，见 §6）**——README 明示；本地代理形态。选型最重要的信号：作者用自己的行动承认了 hook 层的天花板；但 dcp 下载量仍是 Sleev 的 ~20 倍，插件继续维护。
 2. **prompt cache 击穿**：视图改写打断缓存前缀，按 token 计费可能反而更贵（README 明示）——插件层做消息改写的结构性死穴。
 3. 已知 bug：#549 消息 ID 别名 4 位上限；#632 GPT 系把 `@N@` 压缩引用标签抄进回复（V2）；#608 nudge 文本泄漏到 UI；#393 斜杠命令仅 TUI 生效。
 4. 功能缺口：#489 已压缩历史无法重新压缩；#457 `/fork message` 后可能泄漏 pre-fork 消息；#258 不修剪 thinking token。
@@ -105,9 +105,40 @@ headroom 与 deep-memory 把「不改字节稳定前缀」当设计约束（live
 | headroom | 面板宿主（Win/Mac）跑代理，塞进 ocrc 已有 **form-B air-gap 模式**（`ssh -R` 反向推 HTTPS_PROXY 给被控 opencode）——与三项目唯一现成咬合点 | 代理本体跑不了 EL7（Python≥3.10 vs EL7 glibc/Python 3.6）；遥测 beacon 需显式关；企业版功能边界 |
 | deep-memory | 战略资产（唯一知识层 + CJK） | **v2 兼容移植是前置关**；单测盲区需真机 E2E 补 |
 
-## 5. 战略结论
+## 5. 战略结论（初版；§6 Sleev 增补后有修订，见 §6.2）
 
-1. **别把三者当竞品选型——它们是三层**：headroom（字节层，已被工业界商品化，Apache 免费拿用）⊃ dcp（会话注意力层，hook 形态已被作者自己放弃，继任 Sleev 转代理层）⊃ deep-memory（知识层，仍是空旷地带）。
+1. **别把三者当竞品选型——它们是三层**：headroom（字节层，已被工业界商品化，Apache 免费拿用）⊃ dcp（会话注意力层，官方建议新装用 Sleev，但插件继续可用、仍是唯一可审计的开源插件选项）⊃ deep-memory（知识层，仍是空旷地带）。
 2. **token 经济学已经被 headroom 用 Apache-2.0 免费解决**，deep-memory 不该追赶压缩特性；其护城河在：CJK、Markdown 透明性、compaction checkpoint、零基建 MIT——这四点 dcp/headroom 都给不了。
 3. **若复活 deep-memory，优先级**：v2 兼容移植（dcp 的 `lib/v2/` 是现成地图）> 真机 E2E 补 mock 盲区 > 记忆质量（去重/检索）——而不是任何压缩特性。
 4. **对 ocrc 生产 v2 引擎，今天能落地的**是 dcp（已支持 v2）或 headroom（form-B 代理位）；deep-memory 需先补 v2 移植。
+
+## 6. 增补：Sleev 深调研（2026-10-15 同日补）
+
+> 初版只引了 dcp README 一句 "most new work moved to Sleev" 就下了「行业收敛到代理层」的判断，没查 Sleev 本体。补查后该判断**被加强**，但开源选型格局**被改写**。
+
+### 6.1 核心事实（全部一手：npm registry / sleev.ai 官方文档 / GitHub API / dcp README 原文）
+
+| 项 | 事实 | 证据 |
+|---|---|---|
+| 本体 | **Sleev Labs Inc.（美国公司）的商业闭源产品**——本地 Rust 网关 daemon，默认 `127.0.0.1:17321`，OpenAI/Anthropic/Gemini 兼容透传 + 每请求上下文重写 | https://registry.npmjs.org/sleev/latest （`repository` 指向 `github.com/sleev-labs/sleev` 但**该仓库私有，匿名 404**）；https://sleev.ai/docs/config/gateway-bind |
+| license | **专有 EULA**（npm README 原话 "proprietary software owned by Sleev Labs Inc."，"does not grant open-source rights"），**不继承 dcp 的 AGPL**；无法自审网关对 prompt 做了什么，隐私依赖官方声明（"does not send your conversation history, prompts, code… to our servers"） | https://registry.npmjs.org/sleev （readme Legal 节）；https://sleev.ai/eula ；https://sleev.ai/docs/faq |
+| 作者链 | npm maintainer `sleeve-org`（dansmolsky@gmail.com）= dcp 提交署名 Daniel Smolsky = dcp ko-fi 收款人——身份强吻合（在公司内的确切职务无公开页面） | https://registry.npmjs.org/sleev/latest ；dcp commits API |
+| 节奏 | v1.8.10（2026-10-14）；~110 个版本几乎周更（2026-05 起真实发布）；**配额制**：无账号 500 次/月、免费账号 2,000 次/月、Starter $5/1 万次、Pro $20 无限（仅命中 premium 模型名单且实际省了 token 的请求计数，超额后请求直连不再优化） | https://registry.npmjs.org/sleev （time 字段）；https://sleev.ai/pricing ；https://sleev.ai/docs/premium-requests |
+| 下载量 | 近 30 天 **2,720**（dcp 同期 53,177——**dcp 仍是主流，约为 Sleev 的 20 倍**） | https://api.npmjs.org/downloads/point/last-month/sleev ；https://api.npmjs.org/downloads/point/last-month/@tarquinen/opencode-dcp |
+| dcp 现状 | **未死未归档**：最后 commit 2026-09-25，release v3.2.0（2026-09-20），节奏放缓、近期 tag 均 beta。README Project Status 原文："DCP remains available for OpenCode plugin users, but new features are landing in Sleev first. If you are starting fresh, we recommend trying Sleev" | dcp README；https://api.github.com/repos/Tarquinen/opencode-dynamic-context-pruning/releases |
+| 概念继承 | dcp 的 compress 工具被收归网关后台决策——"optimizes session context when the expected savings outweigh provider-cache update costs"；**网关自己有压缩 LLM 调用**（"Sleev's costs include the gateway's own compression calls"，用哪个模型/供应商未披露）；阈值 nudge / 保护规则 / 占位符机制无公开对应（闭源不可验证） | https://sleev.ai/ ；https://sleev.ai/performance （footnote 原文） |
+| opencode 支持 | **v1 和 v2（beta）双支持**：改 provider baseURL + `sleev-provider`/`sleev-harness` headers（或 URL 路由前缀 `/sleev/<harness>/<provider>`）；opencode 1 需 `compaction.prune:false` 把上下文管理让给 Sleev；provider 矩阵所有 harness 中最广（anthropic/openai/codex/copilot/google/moonshotai/kimi/zai/zen/opencode-go 等；anthropic 仅 API key，不支持 Claude Max 订阅） | https://sleev.ai/docs/harness-setup/opencode ；https://sleev.ai/docs/config/providers |
+| 跨会话记忆 | **没有**（全量文档 grep 无 memory/cross-session/persist；自称管理 "transient session state"；"Context optimization, caching, and session history stay strictly on your device"） | https://sleev.ai/llms-full.txt ；https://sleev.ai/docs/what-is-sleev |
+| 自报基准 | DeepSWE 1.1、113 任务：input tokens 18.57M→3.49M（**-81%**）、成本 $18.08→$3.99/任务、solve rate 持平（61.1%→61.9%）；对比组含 Headroom（$120.22/会话）。厂商自研基准（官方自注 "not comparable to official leaderboard scores"）；EULA 第 6 条允许善意独立基准测试但要求公开方法论；复现仓库 https://github.com/sleev-labs/benchmark （1★，唯一公开代码） | https://sleev.ai/performance ；https://sleev.ai/eula |
+| 可审计性 | 主仓库私有、无公开 issues/测试/roadmap——**不可审计** | https://api.github.com/repos/sleev-labs/sleev → 404 |
+
+### 6.2 修订后的结论（覆盖 §5 中被改写的两条）
+
+1. **「行业收敛到代理/传输层」信号加强**：dcp 作者不只是把新工作挪去代理形态——是**成立公司、做了闭源商业产品**。插件 hook 层的天花板现在有两条独立证据（dcp→Sleev、headroom 的 wrap 生态）且带商业级背书。
+2. **但压缩层开源选型格局改写**：代理层开源选项只剩 **headroom（Apache-2.0）**；Sleev 闭源 + 配额计费 + 不可自审，对 air-gap / 自审 / 成本可控三类场景全部减分——**仅作商业替代项记录，不作推荐**。dcp 没有死：仍是唯一可审计、可自改的 opencode 插件选项，下载量是 Sleev 的 ~20 倍；初版「hook 形态已被作者自己放弃」表述过重，修正为「官方建议新装用 Sleev，插件继续可用、新功能 Sleev 优先」。
+3. **跨会话记忆四项目全空白**：Sleev 加入后确认——dcp/headroom/Sleev 三家都不做持久知识层。deep-memory 的生态位比初版判断更空旷、更独特。
+4. **对 ocrc 拓扑**：Sleev 理论上也能塞 form-B `ssh -R` 代理位（网关跑面板宿主），但闭源 + 计费 + 流量不可自审与 ocrc 的 air-gap/隐私定位相性差；headroom（Apache、本地、遥测可关）保持 form-B 首选，dcp 保持被控端插件首选。**E5→D2→D3 行动计划不受影响**（Sleev 只改选型表述，不改行动顺序）。
+
+### 6.3 证据边界（不做推测的部分）
+
+`sleev-labs/sleev` 私有 → star 数 / open issues / 测试覆盖 / 源码级机制（dcp 的占位符与嵌套摘要是否保留、Guidance 注入的具体实现）均不可验证；内部压缩调用用哪个模型或供应商、是否需要额外 API key 未披露；Tarquinen（Daniel Smolsky）在 Sleev Labs 的确切职务无公开确认；HN/X 上无社区讨论帖（hn.algolia.com 搜索为空）。

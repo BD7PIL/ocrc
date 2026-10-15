@@ -19,7 +19,9 @@
           "label": "查看编排",
           "where": "session",
           "mode": "open",
-          "payload": ["messages"]
+          "payload": [
+            "messages"
+          ]
         }
       ]
     }

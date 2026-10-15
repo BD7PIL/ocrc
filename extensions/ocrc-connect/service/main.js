@@ -21,6 +21,7 @@ import { createTunnelSupervisor } from './tunnel.js';
 import { normalizeProfile } from '../shared/protocol.js';
 import { sshExec, normalizeVirtualPath, isInsideRoots, buildListScript, parseListOutput, buildReadScript, buildWriteScript, buildStatScript, buildMkdirScript, buildGitScript, parseGitStatus, } from './remote-fs.js';
 import { inspectConfigSource, extractBridgeSections, deepMerge, } from './config-bridge.js';
+import { omoRemotePaths, buildOmoReadScript, parseOmoReadOutput, buildOmoWriteScript, summarizeOmoConfig, validateOmoWriteContent, applyOmoEdits, sanitizeOmoFallback, } from './omo-config.js';
 const PORT = Number(process.env.OPENCHAMBER_SERVICE_PORT ?? 0);
 const TOKEN = process.env.OPENCHAMBER_SERVICE_TOKEN ?? '';
 const PROFILES_FILE = process.env.OCRC_CONNECT_PROFILES
@@ -264,6 +265,118 @@ const server = http.createServer(async (req, res) => {
                 }
                 const nothing = stdout.includes('nothing-to-commit');
                 json(res, nothing ? 409 : 200, { root, committed: !nothing, output: stdout.trim().split('\n')[0] });
+                return;
+            }
+        }
+        // ── batch 5.1: omo-slim config (user layer, read + structured/raw write) ─
+        // The remote path is assembled here — never taken from the request — so
+        // these endpoints can only touch oh-my-opencode-slim.json[c] under the
+        // remote $HOME. Writes are validated server-side (422 before any ssh),
+        // atomic, and back the prior file up to *.ocrc-bak. The engine hot-reloads
+        // this file (~300ms, inference fields only — E4 evidence).
+        if (url.pathname === '/omo/config') {
+            const profile = supervisor.activeProfile();
+            if (!profile) {
+                json(res, 409, { error: 'no active profile — connect first' });
+                return;
+            }
+            const R = profile;
+            const scope = url.searchParams.get('scope') ?? 'user';
+            if (scope !== 'user') {
+                json(res, 400, { error: `scope '${scope}' 不支持——项目层写入走工作区同步通道` });
+                return;
+            }
+            if (req.method === 'GET') {
+                const { code, stdout, stderr } = await sshExec(R, buildOmoReadScript(omoRemotePaths()), { timeoutMs: 20_000 });
+                if (code !== 0) {
+                    json(res, 502, { error: stderr.trim().split('\n')[0] || `ssh exit ${code}` });
+                    return;
+                }
+                const { format, size, raw } = parseOmoReadOutput(stdout);
+                json(res, 200, summarizeOmoConfig(format, size, raw));
+                return;
+            }
+            if (req.method === 'POST') {
+                const body = (await readBody(req));
+                const hasStructured = body.preset !== undefined || body.fallback !== undefined;
+                const hasRaw = typeof body.content === 'string';
+                if (hasStructured === hasRaw) {
+                    json(res, 400, { error: '请求体必须且只能包含 content（原始 JSON）或 preset/fallback（结构化编辑）之一' });
+                    return;
+                }
+                // 1. read current remote doc (structured edits need the untouched rest)
+                const rd = await sshExec(R, buildOmoReadScript(omoRemotePaths()), { timeoutMs: 20_000 });
+                if (rd.code !== 0) {
+                    json(res, 502, { error: rd.stderr.trim().split('\n')[0] || `ssh exit ${rd.code}` });
+                    return;
+                }
+                const cur = parseOmoReadOutput(rd.stdout);
+                if (cur.format === 'missing' && hasStructured) {
+                    json(res, 409, { error: '远端尚无 omo 配置——先在被控端跑一次 oh-my-opencode-slim install 生成基准配置' });
+                    return;
+                }
+                // 2. compute the next document
+                let next;
+                if (hasRaw) {
+                    const v = validateOmoWriteContent(body.content);
+                    if (!v.ok) {
+                        json(res, 422, { error: v.err });
+                        return;
+                    }
+                    next = v.parsed;
+                }
+                else {
+                    const curParsed = summarizeOmoConfig(cur.format, cur.size, cur.raw);
+                    if (curParsed.parseError || !curParsed.parsed) {
+                        json(res, 409, { error: `远端配置当前不可解析，拒绝盲写覆盖（请用原始 JSON 编辑修复）：${curParsed.parseError ?? 'unknown'}` });
+                        return;
+                    }
+                    const fallback = body.fallback === undefined ? undefined : body.fallback === null
+                        ? null
+                        : typeof body.fallback === 'object' && !Array.isArray(body.fallback)
+                            ? sanitizeOmoFallback(body.fallback)
+                            : { ok: false, err: 'fallback 必须是对象或 null' };
+                    if (fallback && 'err' in fallback && fallback.ok === false) {
+                        json(res, 422, { error: fallback.err });
+                        return;
+                    }
+                    const presetOk = body.preset === undefined || body.preset === null
+                        || (typeof body.preset === 'string' && body.preset.trim() !== '');
+                    if (!presetOk) {
+                        json(res, 422, { error: 'preset 必须是非空字符串或 null（清除）' });
+                        return;
+                    }
+                    if (typeof body.preset === 'string' && curParsed.parsed.presets
+                        && typeof curParsed.parsed.presets === 'object' && !Array.isArray(curParsed.parsed.presets)) {
+                        const names = Object.keys(curParsed.parsed.presets);
+                        if (!names.includes(body.preset)) {
+                            json(res, 422, { error: `预设 '${body.preset}' 不存在——现有：${names.join(', ')}` });
+                            return;
+                        }
+                    }
+                    next = applyOmoEdits(curParsed.parsed, {
+                        preset: body.preset,
+                        fallback: body.fallback === undefined ? undefined : body.fallback === null ? null : fallback.value,
+                    });
+                }
+                // 3. write target: keep .jsonc if that is what the remote has (its
+                //    comments are already lost — flagged via willConvertToJson), else .json
+                const converted = cur.format === 'jsonc';
+                const target = converted ? omoRemotePaths().jsonc : omoRemotePaths().json;
+                const { script, stdin } = buildOmoWriteScript(target, Buffer.from(JSON.stringify(next, null, 2) + '\n', 'utf-8').toString('base64'));
+                const wr = await sshExec(R, script, { timeoutMs: 30_000, stdin });
+                if (wr.code !== 0) {
+                    json(res, 502, { error: wr.stderr.trim().split('\n')[0] || `ssh exit ${wr.code}` });
+                    return;
+                }
+                const backupLine = wr.stdout.split('\n').find((l) => l.startsWith('bak:'));
+                json(res, 200, {
+                    ok: true,
+                    target,
+                    backup: backupLine ? backupLine.slice(5).trim() : null,
+                    commentsWillBeLost: converted || undefined,
+                    note: '已写入——v2 宿主约 300ms 内热重载（对新的编排子会话生效，ocrc 不重启引擎）',
+                });
                 return;
             }
         }

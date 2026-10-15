@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { TunnelStatus, SshProfile } from '../shared/protocol.js'
 import type { RequestFn } from './service-client.js'
+import { OmoOrchestration } from './OmoOrchestration.js'
 
 /** Batch 5: the config-sync tab — panel-host config artifacts (agents/MCP/
  *  provider sections written by openchamber's own UI) carried to the remote
@@ -71,6 +72,7 @@ export function ConfigSync(props: { request: RequestFn; status: TunnelStatus; pr
 
   return (
     <div style={{ display: 'grid', gap: 10, padding: 12 }}>
+      <OmoOrchestration request={request} />
       <div className="row">
         <strong>配置同步</strong>
         <span className="pill ok">{activeProfile?.name ?? status.profileId}</span>

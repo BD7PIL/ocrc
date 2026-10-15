@@ -1,5 +1,40 @@
 # Changelog
 
+## 2.0.0-alpha.6 — 批次 5.1：omo-slim 配置的 UI 控制（2026-10-15）
+
+> 批次 5 收尾时的用户追问「能不能在 UI 中控制 omo slim 的配置」——openchamber
+> 原生不能，本批次用既有 ssh 面补上。调研 + E4 spike 实证归档：
+> `docs/research/omo-config-surface.md`。
+
+### feat(extensions/ocrc-connect 0.4.0): /omo/config 端点 + 「omo 编排」区块
+- **E4 spike（e2-lab 隔离栈）**：omo-slim 3.0.4 离线接入被控端——installer
+  `--no-tui` 生成 `.json` 基准配置（2 250 B）+ V1 `plugin` 键注册（v2.0.27 接受，
+  与 ocrc 的 V2 `plugins` 分键而治再证）；agents 面 6 omo 代理就位，prompt 走
+  stub LLM 由 orchestrator 接管。**热重载铁证**：外部改文件 → `[plugin] runtime
+  profiles refreshed from disk`（两次）；坏 JSON → `refresh failed`，
+  last-known-good 保留；agents 注册面不热变（只热生效推理字段，对新编排子会话
+  生效）。
+- `GET /omo/config?scope=user`：远端路径**服务端拼装**（仅
+  `$HOME/.config/opencode/oh-my-opencode-slim.json[c]`，不接受任意路径），
+  base64 读回 `{exists, format, activePreset, presetNames, fallback, agentChains,
+  parsed, schema, commentsWillBeLost}`。
+- `POST /omo/config`：原始 JSON 逃生门与结构化编辑（preset/fallback）二选一；
+  服务端校验（坏 JSON/负数重试/未知 fallback 字段/不存在预设名 → 422/409
+  **不落盘**），mktemp + `*.ocrc-bak` + mv 原子写；`.jsonc` 保留扩展名写入并
+  如实标记注释丢失。
+- **vendor schema**：`oh-my-opencode-slim.schema.json`（3.0.4 包根，MIT，~68KB）
+  内嵌为 TS 模块（`scripts/vendor-omo-schema.mjs` 可重生成），air-gap 零网络。
+- 面板「配置同步」tab 顶部新增「omo 编排」：活跃预设下拉（预设名集合来自当前
+  parsed，不硬编码）+ fallback 四控件（官方默认 placeholder、空值=不动）+
+  per-agent 模型链只读树 + 「编辑原始 JSON」逃生门。
+
+### 测试与验收
+- ocrc-connect 23 新单测（jsonc 剥注释、双格式探测、fallback 白名单校验、
+  原子写脚本、结构化编辑保键），47/47 全绿。
+- E4 栈集成闭环：GET 读回基准配置（schema 内嵌）；POST 结构化编辑
+  （preset→opencode-go + fallback 五字段）→ 写入 + `.ocrc-bak` →
+  **引擎热重载日志实证**；坏 JSON/负数字段 422 路径实测拒绝。
+
 ## 2.0.0-alpha.5 — 批次 5：配置与凭据桥（2026-10-15）
 
 > 调研（`docs/research/llm-config-fallback-survey.md`）实锤的唯一产品缺口：

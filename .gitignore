@@ -43,3 +43,4 @@ tsconfig.tsbuildinfo
 !extensions/*/status/
 !extensions/*/service/
 !extensions/*/shared/
+coverage/

@@ -46,4 +46,4 @@
 - **sysT-in-handler 时序怪象**（E5 遗留）：在 context handler 内调用 v1 systemTransform 后，同步 mutation 不落请求——D2 用「预热缓存 + 纯同步应用」绕开，未查明根因（复现现场 /tmp/e5-lab 保留至下批次结束）。
 - **idle 整理子会话**（`session.create + promptAsync`）：client 适配器已实现映射（create/prompt 实测接受参数），但 idle 触发→子会话→回写 MEMORY.md 全链未在 v2 实测；v1 逻辑未动，风险低。
 - **npm 发布**：0.15.0 已打 tag 推送 GitHub，npm publish 按惯例等用户点头。
-- **真机 E2E harness**（计划中的「三个真机 bug 场景化」）：453 测试中的 mock 覆盖未变，此项延后——e5-lab 手动验收已覆盖加载/注入/compaction 三条主链。
+- ~~**真机 E2E harness**~~ **已补齐（同日）**：`opencode-deep-memory/scripts/e2e-real-bugs.mjs`（`npm run e2e:real-bugs`，commit ffaef13）把 0.14.1 三真机 bug 场景化——① 真实工具调用形状（无 scope/type）的 memory_store 不崩；② 真实 `- content` 格式的写时去重命中 + 短行不误报；③ pending-consolidation 消费后同步落盘（走真实 spawn→consume→persist 流）。12 断言，exit 1 on failure。注意：子会话摘要内部的去重是 LLM 的职责（apply 经 validateConsolidation 后原文写入），脚本断言 apply 成功 + 条目保留 + 合并，重复折叠的单测回归在 tests/extract/consolidate.test.ts:296。

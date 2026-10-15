@@ -25,15 +25,19 @@ import { homedir } from 'node:os';
 /** The sections the bridge carries from the panel-host opencode.json. */
 export const BRIDGE_SECTIONS = ['agent', 'agents', 'mcp', 'providers', 'provider'];
 /** Locate the panel-host opencode.json the way openchamber does:
- *  OPENCODE_CONFIG_DIR > XDG_CONFIG_HOME > ~/.config, then opencode.json[c]. */
-export function resolvePanelConfigPath(env = process.env) {
+ *  OPENCODE_CONFIG_DIR > XDG_CONFIG_HOME > (%APPDATA%\opencode on Windows) >
+ *  ~/.config, then opencode.json[c]. The %APPDATA% branch runs only on win32 —
+ *  Windows has no XDG convention, and the ~/.config fallback left the
+ *  配置同步 tab empty on real Windows panel hosts (PRODUCT.md Windows 余项). */
+export function resolvePanelConfigPath(env = process.env, platform = process.platform) {
     const dir = env.OPENCODE_CONFIG_DIR?.trim()
         || (env.XDG_CONFIG_HOME?.trim() ? join(env.XDG_CONFIG_HOME.trim(), 'opencode') : '')
+        || (platform === 'win32' && env.APPDATA?.trim() ? join(env.APPDATA.trim(), 'opencode') : '')
         || join(homedir(), '.config', 'opencode');
     return join(dir, 'opencode.json');
 }
-export function resolvePanelAgentsDir(env = process.env) {
-    const cfg = resolvePanelConfigPath(env);
+export function resolvePanelAgentsDir(env = process.env, platform = process.platform) {
+    const cfg = resolvePanelConfigPath(env, platform);
     return join(cfg, '..', 'agents');
 }
 /** Inventory the panel-host artifacts WITHOUT reading secret-bearing values

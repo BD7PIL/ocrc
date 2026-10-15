@@ -3,10 +3,12 @@ import { ToolStreamBridge } from '../../../src/transport/telegram/tool-stream-br
 import { __resetStreamThrottleForTests } from '../../../src/transport/telegram/streaming/stream-throttle.js'
 
 function fakeApi() {
+  // Loose arg tuples: the bridge is the unit under test; assertions only read
+  // positional call args (chatId, text, messageId...), so mock calls are any[].
   return {
-    sendMessage: vi.fn(async () => ({ message_id: 21 })),
-    editMessageText: vi.fn(async () => true),
-    deleteMessage: vi.fn(async () => true),
+    sendMessage: vi.fn(async (..._args: any[]) => ({ message_id: 21 })),
+    editMessageText: vi.fn(async (..._args: any[]) => true),
+    deleteMessage: vi.fn(async (..._args: any[]) => true),
   }
 }
 

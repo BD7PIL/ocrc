@@ -64,11 +64,21 @@ describe('remote paths + scripts', () => {
   })
   it('write script backs up and writes atomically', () => {
     const { script, stdin } = buildOmoWriteScript('$HOME/.config/opencode/oh-my-opencode-slim.json', 'e30=')
-    expect(script).toContain('P=\'$HOME/.config/opencode/oh-my-opencode-slim.json\'')
+    // $HOME must survive for REMOTE expansion — double quotes, not single
+    // (single quotes froze it into a literal directory name; acceptance
+    // regression from 2.0.0-alpha.7).
+    expect(script).toContain('P="$HOME/.config/opencode/oh-my-opencode-slim.json"')
+    expect(script).not.toContain("P='$HOME")
     expect(script).toContain('.ocrc-omo.')
     expect(script).toContain('cp -p "$P" "$P.ocrc-bak"')
     expect(script).toContain('mv "$T" "$P"')
     expect(stdin).toBe('e30=')
+  })
+  it('read script also double-quotes the $HOME paths (remote expansion)', () => {
+    const s = buildOmoReadScript(omoRemotePaths())
+    expect(s).toContain('JC="$HOME/.config/opencode/oh-my-opencode-slim.jsonc"')
+    expect(s).toContain('JJ="$HOME/.config/opencode/oh-my-opencode-slim.json"')
+    expect(s).not.toContain("JC='$HOME")
   })
 })
 

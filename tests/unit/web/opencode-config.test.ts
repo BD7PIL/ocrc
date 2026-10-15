@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { fetchOpencodeConfig } from '../../../src/transport/web/opencode-config'
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals() })
 
 describe('fetchOpencodeConfig', () => {
   it('GETs <baseUrl>/config and returns parsed JSON', async () => {

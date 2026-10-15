@@ -1,6 +1,6 @@
 {
   "name": "ocrc-connect",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "description": "ocrc connect — SSH tunnel profiles + remote workspace (fs/git-over-ssh) for openchamber (external opencode engine on a controlled host)",
@@ -23,7 +23,9 @@
         "entry": "service/main.js",
         "runtime": "host",
         "permissions": {
-          "exec": ["ssh"]
+          "exec": [
+            "ssh"
+          ]
         }
       }
     }

@@ -1,6 +1,6 @@
 {
   "name": "@bd7pil/ocrc",
-  "version": "2.0.0-alpha.6",
+  "version": "2.0.0-alpha.7",
   "description": "Remote-control opencode from Telegram and a web PWA — live sessions, tool streams, approvals, SSH remote hosts, schedules. Plugin mode or standalone host.",
   "type": "module",
   "main": "dist/plugin/entry.js",
@@ -28,9 +28,10 @@
     "build:all": "npm run build && npm run build:dwf && npm run build:web-next",
     "prepublishOnly": "npm run build:all",
     "typecheck": "tsc --noEmit",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:integration": "vitest run tests/integration",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "build:dwf": "node scripts/build-dwf.mjs"
   },
   "bin": {
@@ -39,6 +40,7 @@
   "files": [
     "dist",
     "bin",
+    "ops",
     "patches",
     "web-next/dist",
     "vendor/zcode-dwf/dist"
@@ -62,19 +64,20 @@
     "react-resizable-panels": "^4.14.2",
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
-    "typescript": "^5.9.0",
     "undici": "^7.30.0",
     "unified": "^11.0.5",
     "ws": "^8.20.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@types/diff": "^7.0.2",
+    "@types/diff": "^8.0.0",
     "@types/node": "^20.14.0",
     "@types/qrcode": "^1.5.6",
     "@types/ws": "^8.18.1",
+    "@vitest/coverage-v8": "^1.6.1",
     "playwright-core": "^1.63.0",
     "tsx": "^4.15.0",
+    "typescript": "^5.9.0",
     "vitest": "^1.6.0"
   },
   "license": "MIT",

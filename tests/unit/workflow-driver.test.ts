@@ -263,7 +263,7 @@ describe('P1 — the ask boundary is a real count', () => {
     journal.createRun(runRecord(RUN))
     startAsk(driver)
     expect(driver.pendingBoundarySessions()).toEqual(['ses_actor'])
-    driver.dispose()
+    driver.dispose!() // 生产 driver 必实现 dispose；WorkflowDriver 合同标可选（fake 可省）
     expect(driver.inFlightSessions()).toEqual([])
     expect(driver.pendingBoundarySessions()).toEqual(['ses_actor'])
     await driver.notifyTurnEnd('ses_actor')

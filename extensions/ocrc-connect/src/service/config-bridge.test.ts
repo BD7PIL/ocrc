@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest'
+import { join } from 'node:path'
+import { homedir } from 'node:os'
 import {
   resolvePanelConfigPath, resolvePanelAgentsDir,
   inspectConfigSource, extractBridgeSections, deepMerge, buildConfigApplyScript,
   BRIDGE_SECTIONS,
-} from './config-bridge'
+} from './config-bridge.js'
 
 describe('panel path resolution (mirrors openchamber shared.js)', () => {
   it('OPENCODE_CONFIG_DIR wins; then XDG; then ~/.config/opencode', () => {
@@ -12,6 +14,18 @@ describe('panel path resolution (mirrors openchamber shared.js)', () => {
     const p = resolvePanelConfigPath({})
     expect(p.endsWith('opencode.json')).toBe(true)
     expect(resolvePanelAgentsDir({ OPENCODE_CONFIG_DIR: '/x/y' })).toBe('/x/y/agents')
+  })
+
+  it('win32: %APPDATA%\\opencode is the fallback when no explicit env is set', () => {
+    // The Windows panel host has no XDG layout — the ~/.config fallback left
+    // the 配置同步 tab empty on real Windows hosts.
+    const p = resolvePanelConfigPath({ APPDATA: 'C:\\Users\\u\\AppData\\Roaming' }, 'win32')
+    expect(p).toBe(join('C:\\Users\\u\\AppData\\Roaming', 'opencode', 'opencode.json'))
+    // XDG still wins over APPDATA (explicit override wins).
+    expect(resolvePanelConfigPath({ XDG_CONFIG_HOME: '/xdg', APPDATA: 'C:\\r' }, 'win32')).toBe('/xdg/opencode/opencode.json')
+    // The %APPDATA% branch never fires on POSIX.
+    expect(resolvePanelConfigPath({ APPDATA: 'C:\\r' }, 'linux')).toBe(join(homedir(), '.config', 'opencode', 'opencode.json'))
+    expect(resolvePanelAgentsDir({ APPDATA: 'C:\\Users\\u\\AppData\\Roaming' }, 'win32')).toBe(join('C:\\Users\\u\\AppData\\Roaming', 'opencode', 'agents'))
   })
 })
 

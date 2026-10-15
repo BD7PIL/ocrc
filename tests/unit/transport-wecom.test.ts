@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { createWeComTransport } from '../../src/transport/wecom/index'
 import { createCardBus } from '../../src/core/card-bus'
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals() })
 
 function setup() {
   const bus = createCardBus()

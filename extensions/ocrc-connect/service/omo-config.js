@@ -89,12 +89,21 @@ export function parseOmoConfig(raw, format) {
 }
 /** Remote read script: prefer .jsonc (omo reads jsonc first too), fall back
  *  to .json. Keyed output — FORMAT / SIZE / MISSING / base64 body. */
+/** Remote-shell-quote a path that may contain a $HOME expression. Unlike the
+ *  fs/git scripts (absolute literal paths, single quotes correct), the omo
+ *  paths deliberately carry `$HOME` for REMOTE expansion — single quotes
+ *  would freeze it into a literal directory name (found by the alpha.7
+ *  acceptance script: writes silently landed in ~/$HOME/.config/opencode).
+ *  Double quotes let the remote shell expand $HOME while still protecting
+ *  embedded specials; the two fixed filenames carry no other specials. */
+function qq(s) {
+    return `"${s.replaceAll('"', '\\"')}"`;
+}
 export function buildOmoReadScript(paths) {
-    const q = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
     return [
         'set -e',
-        `JC=${q(paths.jsonc)}`,
-        `JJ=${q(paths.json)}`,
+        `JC=${qq(paths.jsonc)}`,
+        `JJ=${qq(paths.json)}`,
         'if [ -f "$JC" ]; then echo "FORMAT:jsonc"; wc -c < "$JC" | tr -d " " | sed "s/^/SIZE:/"',
         'elif [ -f "$JJ" ]; then echo "FORMAT:json"; wc -c < "$JJ" | tr -d " " | sed "s/^/SIZE:/"',
         'else echo "FORMAT:missing"; exit 0; fi',
@@ -117,10 +126,9 @@ export function parseOmoReadOutput(stdout) {
  *  base64 -d, back up the replaced file to *.ocrc-bak, mv. Emits
  *  `bak: <path>` when a backup was made, `written: <path>` on success. */
 export function buildOmoWriteScript(target, b64) {
-    const q = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
     const script = [
         'set -e',
-        `P=${q(target)}`,
+        `P=${qq(target)}`,
         'D=$(dirname "$P")',
         'mkdir -p "$D"',
         'T=$(mktemp "$D/.ocrc-omo.XXXXXX")',

@@ -69,6 +69,10 @@ export function createTunnelSupervisor(deps = {}) {
             catch { /* gone */ }
             child = undefined;
         }
+        // A stopped tunnel has no active profile: the fs/git/omo/config faces
+        // must 409 until the next /connect (found by the alpha.7 acceptance —
+        // stop() used to leave the old profile "active").
+        profile = undefined;
     }
     async function statusProbed() {
         if (!profile)

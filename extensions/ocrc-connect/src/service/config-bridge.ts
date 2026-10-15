@@ -36,16 +36,26 @@ export interface ConfigSourceReport {
 }
 
 /** Locate the panel-host opencode.json the way openchamber does:
- *  OPENCODE_CONFIG_DIR > XDG_CONFIG_HOME > ~/.config, then opencode.json[c]. */
-export function resolvePanelConfigPath(env: { OPENCODE_CONFIG_DIR?: string; XDG_CONFIG_HOME?: string } = process.env as Record<string, string | undefined>): string {
+ *  OPENCODE_CONFIG_DIR > XDG_CONFIG_HOME > (%APPDATA%\opencode on Windows) >
+ *  ~/.config, then opencode.json[c]. The %APPDATA% branch runs only on win32 —
+ *  Windows has no XDG convention, and the ~/.config fallback left the
+ *  配置同步 tab empty on real Windows panel hosts (PRODUCT.md Windows 余项). */
+export function resolvePanelConfigPath(
+  env: { OPENCODE_CONFIG_DIR?: string; XDG_CONFIG_HOME?: string; APPDATA?: string } = process.env as Record<string, string | undefined>,
+  platform: NodeJS.Platform = process.platform,
+): string {
   const dir = env.OPENCODE_CONFIG_DIR?.trim()
     || (env.XDG_CONFIG_HOME?.trim() ? join(env.XDG_CONFIG_HOME.trim(), 'opencode') : '')
+    || (platform === 'win32' && env.APPDATA?.trim() ? join(env.APPDATA.trim(), 'opencode') : '')
     || join(homedir(), '.config', 'opencode')
   return join(dir, 'opencode.json')
 }
 
-export function resolvePanelAgentsDir(env: { OPENCODE_CONFIG_DIR?: string; XDG_CONFIG_HOME?: string } = process.env as Record<string, string | undefined>): string {
-  const cfg = resolvePanelConfigPath(env)
+export function resolvePanelAgentsDir(
+  env: { OPENCODE_CONFIG_DIR?: string; XDG_CONFIG_HOME?: string; APPDATA?: string } = process.env as Record<string, string | undefined>,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const cfg = resolvePanelConfigPath(env, platform)
   return join(cfg, '..', 'agents')
 }
 

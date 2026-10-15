@@ -114,8 +114,6 @@ function fakeState() {
     markAssistantDelivered: vi.fn(),
     getAssistantDeliveredAt: vi.fn(),
     dropSession: vi.fn(),
-    getSessionCost: vi.fn(),
-    setSessionCost: vi.fn(),
     flush: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -140,9 +138,12 @@ describe('remoteControlPlugin', () => {
   // in-worker path (opencode pushes events to the plugin). Drive the hook
   // directly and flush the microtask queue so dispatchEvent's awaits settle.
   const emit = async (ev: any) => {
-    await plug.event({ event: ev })
+    await plug.event!({ event: ev }) // PRIMARY 挂载必有 event 钩子（inert 例外，这里不会走到）
     await new Promise((resolve) => setImmediate(resolve))
   }
+  // ToolContext face for tool().execute — rc-status ignores both args, but the
+  // tool() signature requires them (mock, no behavior semantics).
+  const toolFnCtx: any = {}
 
   beforeEach(async () => {
     cardBus = fakeCardBus()
@@ -185,7 +186,7 @@ describe('remoteControlPlugin', () => {
 
   afterEach(async () => {
     // Stop the setInterval poll timer
-    await plug.dispose()
+    await plug.dispose?.()
     vi.clearAllMocks()
   })
 
@@ -213,7 +214,7 @@ describe('remoteControlPlugin', () => {
       expect(tgTransport.start).toHaveBeenCalledTimes(1)
       await vi.advanceTimersByTimeAsync(1000)
       expect(tgTransport.start).toHaveBeenCalledTimes(2)
-      await p.dispose()
+      await p.dispose?.()
     } finally {
       vi.useRealTimers()
     }
@@ -310,8 +311,8 @@ describe('remoteControlPlugin', () => {
   // ── rc-status tool ──
 
   it('rc-status returns version and transport info', async () => {
-    const toolFn = plug.tool['rc-status']
-    const result = await toolFn.execute()
+    const toolFn = plug.tool!['rc-status'] // PRIMARY 挂载必带 rc-status 工具
+    const result = await toolFn.execute({}, toolFnCtx)
     expect(result).toContain('ocrc v')
     expect(result).toMatch(/Telegram:\s+active/)
     expect(result).toContain('Web:')
@@ -329,13 +330,13 @@ describe('remoteControlPlugin', () => {
   // ── Dispose ──
 
   it('dispose stops transports, clear timer, and stops push', async () => {
-    await plug.dispose()
+    await plug.dispose?.()
     expect(tgTransport.stop).toHaveBeenCalled()
     expect(push.stop).toHaveBeenCalled()
   })
 
   it('dispose flushes debounced state writes', async () => {
-    await plug.dispose()
+    await plug.dispose?.()
     expect(state.flush).toHaveBeenCalled()
   })
 

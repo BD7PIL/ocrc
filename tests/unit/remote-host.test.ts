@@ -82,7 +82,7 @@ describe('remote-host pure helpers', () => {
   })
 
   it('buildSshArgs: tunnel spec, BatchMode, ExitOnForwardFailure, optional command', () => {
-    const args = buildSshArgs({ host: 'box.lan', port: 2222, user: 'u', remotePort: 4199 }, 41001)
+    const args = buildSshArgs({ id: 't', enabled: true, host: 'box.lan', port: 2222, user: 'u', remotePort: 4199 }, 41001)
     expect(args).toContain('127.0.0.1:41001:127.0.0.1:4199')
     expect(args).toContain('-N')
     expect(args).toContain('-p')
@@ -91,7 +91,7 @@ describe('remote-host pure helpers', () => {
     expect(args).toContain('BatchMode=yes')
     expect(args.at(-1)).toBe('u@box.lan')
 
-    const withCmd = buildSshArgs({ host: 'box.lan', port: 22, user: undefined, remotePort: 4199 }, 1, 'serve here')
+    const withCmd = buildSshArgs({ id: 't', enabled: true, host: 'box.lan', port: 22, user: undefined, remotePort: 4199 }, 1, 'serve here')
     expect(withCmd.at(-2)).toBe('box.lan')
     expect(withCmd.at(-1)).toBe('serve here')
   })

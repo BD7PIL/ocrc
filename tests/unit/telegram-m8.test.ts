@@ -166,7 +166,6 @@ describe('B5 投递循环（注入依赖，隔离栈无 bot 也能测）', () =>
   it('超限跳过并如实记日志（photo 10MB 线）', async () => {
     const warned: string[] = []
     const res = await deliverOutboundMedia([{ url: 'https://x/big.png', kind: 'photo' }], {
-      chatId: 1,
       fetchImpl: async () => mkRes(11 * 1024 * 1024, 'image/png'),
       send: async () => { throw new Error('should not send') },
       warn: (m) => warned.push(m),
@@ -177,7 +176,6 @@ describe('B5 投递循环（注入依赖，隔离栈无 bot 也能测）', () =>
 
   it('非 2xx 跳过（不静默当成功）', async () => {
     const res = await deliverOutboundMedia([{ url: 'https://x/a.pdf', kind: 'document' }], {
-      chatId: 1,
       fetchImpl: async () => mkRes(10, 'application/pdf', false),
       send: async () => { throw new Error('should not send') },
     })

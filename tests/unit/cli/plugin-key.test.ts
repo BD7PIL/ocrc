@@ -86,3 +86,31 @@ describe('plugin key generation contract (E1 dual-write rule)', () => {
     expect(c.plugins).toBeUndefined()
   })
 })
+
+describe('managed materialization coexistence (E1-4 regression)', () => {
+  it('install preserves an openchamber-owned object-shaped `plugin` key', async () => {
+    const managed = { '@openchamber/managed-tools': [{ tools: ['websearch'] }] }
+    writeFileSync(configPath(), JSON.stringify({ plugin: managed, model: 'x' }))
+    await runInstall({ yes: true })
+    const c = read()
+    // Managed object key untouched; ocrc went to the V2 `plugins` array.
+    expect(c.plugin).toEqual(managed)
+    expect(c.plugins).toContain(PKG)
+  })
+
+  it('install keeps ocrc in `plugins` when managed later materializes the V1 key', async () => {
+    // Order of operations on a real host: ocrc install first, THEN openchamber
+    // materializes its object-shaped `plugin` key. The ocrc entry must survive.
+    writeFileSync(configPath(), JSON.stringify({ plugins: [PKG, 'omo-slim'] }))
+    await runInstall({ yes: true })
+    // Simulate managed materialization writing the object-form V1 key.
+    const c0 = read()
+    c0.plugin = { '@openchamber/managed-tools': [{ tools: ['websearch'] }] }
+    writeFileSync(configPath(), JSON.stringify(c0))
+    // Re-run install (idempotence pass) — ocrc must still be in `plugins`.
+    await runInstall({ yes: true })
+    const c = read()
+    expect(c.plugins).toContain(PKG)
+    expect(c.plugin).toEqual({ '@openchamber/managed-tools': [{ tools: ['websearch'] }] })
+  })
+})

@@ -239,8 +239,9 @@ npm test                           # 后端 vitest（853 例）
 npm run typecheck
 cd web-next && npm test            # /z/ 桥接 vitest（161 例）；npm run typecheck
 
-# 隔离 dev 实例（4199）——AGENTS.md 有完整命令；scripts/spike-restart.sh 是 4598
-# 遗留脚本，误跑会拉起同 token 的竞争实例把隔离 host 顶死（Telegram 409）。
+# 隔离 dev 实例（4199）——AGENTS.md 有完整命令。scripts/spike-restart.sh
+# （4598 遗留，误跑会抢 TG token 顶死隔离 host）已于 2.0.0-alpha.7 删除；
+# scripts/v2-restart.sh 仅限 /tmp/ocrc-spike 沙盒，非沙盒环境会自我拒绝。
 ```
 
 > 本地 vitest 不编译 web 的全部组件——CI 才是完整门禁（历史上两次构建错误只有

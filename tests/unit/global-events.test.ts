@@ -28,7 +28,7 @@ describe('startGlobalEvents', () => {
       },
     } as any
     const seen: Array<[string, string | undefined]> = []
-    const h = startGlobalEvents({ client, onEvent: (e, d) => seen.push([e.type, d]), retryBaseMs: 5 })
+    const h = startGlobalEvents({ client, onEvent: (e, d) => seen.push([e.type ?? '', d ?? undefined]), retryBaseMs: 5 })
     await tick(30)
     h.stop()
     expect(seen).toContainEqual(['session.idle', '/repo-a'])

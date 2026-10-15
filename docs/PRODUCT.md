@@ -132,8 +132,8 @@ ocrc 的已保存 workflow 是一个机器级 store，没有可搬的文件。am
 |---|---|---|
 | **核心** | relay / CardBus / registry / HarnessAdapter seam | 换掉任何壳它都不变 |
 | **壳** | Telegram ✅ / Web（Svelte PWA→M4 退役；**web-next React 壳** ✅ 规划 M0 起）/ ocrc Desktop（规划中，与 web 共用 app 层） | 可替换的表现面 |
-| **宿主** | 独立拓扑：host（spawn / **adopt `OCRC_SERVER_URL`**）✅ / Windows 壳=adopt desktop（规划中）；共生拓扑：V1 插件 ✅（npm 数组，1.18.x 唯一可靠路径）/ V2 插件（待立项）；SSH remote ✅（WSL/Docker 补真中） | opencode 在哪跑、谁当主 |
-| **分发** | npm 包 ✅ / 桌面安装器（随壳）/ 企业离线分发（未来；自持工件缓存是其地基） | 别人怎么装 |
+| **宿主** | 独立拓扑：host（spawn / **adopt `OCRC_SERVER_URL`**）✅ / Windows 壳=adopt desktop（**归属待裁决**——基座换位后由 openchamber 桌面版承接，见 research/openchamber-base-swap-verdict.md）；共生拓扑：V1 插件 ✅（npm 数组，1.18.x）/ V2 插件 ✅（`plugins` 键 + setup 契约，批次 1-3 交付，CI 跟随 ocrc-follow.yml）；SSH remote ✅（WSL/Docker 补真中） | opencode 在哪跑、谁当主 |
+| **分发** | npm 包 ✅（发布冻结待裁决）/ 桌面安装器（随壳，归属待裁决）/ 企业离线分发：bin-cache + ocrc-follow.yml 离线 bundle ✅（2026-10-15 起） | 别人怎么装 |
 
 代码里这个原则已经成立：`ControlPlane` seam 隔离四种宿主入口，核心共用。
 

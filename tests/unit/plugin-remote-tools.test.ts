@@ -4,6 +4,36 @@ import { createRemoteToolsV1, registerRemoteToolsV2, REMOTE_TOOL_SPECS, type V2T
 import type { RemoteHostManager } from '../../src/core/remote-host'
 import type { RemotesStore, RemoteHost } from '../../src/core/remotes'
 import type { BackendRegistry } from '../../src/core/agent/registry'
+import type { BackendCapabilities } from '../../src/core/agent/backend'
+import type { ToolContext } from '@opencode-ai/plugin'
+
+/** Minimal complete ToolContext: v1 handlers never read it, but the tool() face requires it. */
+const toolCtx: ToolContext = {
+  sessionID: 'ses_test',
+  messageID: 'msg_test',
+  agent: 'test',
+  directory: '/tmp/ocrc-test',
+  worktree: '/tmp/ocrc-test',
+  abort: new AbortController().signal,
+  metadata: () => {},
+  ask: async () => {},
+}
+
+/** All required BackendCapabilities members, defaulting false. */
+const caps = (over: Partial<BackendCapabilities> = {}): BackendCapabilities => ({
+  liveMirror: false,
+  tuiSelect: false,
+  workspaces: false,
+  freeformWorkspace: false,
+  diff: false,
+  todos: false,
+  catalog: false,
+  mcp: false,
+  commands: false,
+  sessionControls: false,
+  imageInput: false,
+  ...over,
+})
 
 describe('buildWorkspaceApplyScript (2.0.0-alpha.3 syncDirectory)', () => {
   it('embeds a quoted remote target and keeps the *.ocrc-bak semantics', () => {
@@ -43,7 +73,7 @@ function fakeRemotes(list: Array<Partial<RemoteHost> & { id: string }>): Remotes
   }
 }
 
-function fakeManager(overrides: Partial<Pick<RemoteHostManager, 'syncDirectory' | 'provision' | 'status'>> = {}): RemoteHostManager {
+function fakeManager(overrides: Partial<Pick<RemoteHostManager, 'syncDirectory' | 'provision' | 'status' | 'syncAuth'>> = {}): RemoteHostManager {
   return {
     assignPort: async () => 40000,
     inspect: async () => ({}),
@@ -64,7 +94,7 @@ function fakeManager(overrides: Partial<Pick<RemoteHostManager, 'syncDirectory' 
 function fakeRegistry(backends: Array<{ id: string }>): BackendRegistry {
   const byId = new Map(backends.map((b) => [b.id, { id: b.id, capabilities: {}, createSession: async () => ({ id: `ses_new_${b.id}` }) }]))
   return {
-    list: () => [...byId.keys()].map((id) => ({ id, capabilities: {} })),
+    list: () => [...byId.keys()].map((id) => ({ id, capabilities: caps() })),
     all: () => [...byId.entries()].map(([id, b]) => ({ id, backend: b as never })),
     registerBackend: () => {},
     get: (id) => byId.get(id) as never,
@@ -97,7 +127,7 @@ describe('remote_list handler', () => {
       status: (id) => (id === 'lab' ? { id, state: 'online', localPort: 40123, inspection: { version: '2.0.27', platform: 'linux', arch: 'x86_64' }, logTail: [] } : undefined),
     })
     const tools = createRemoteToolsV1(deps)
-    const out = await tools.remote_list.execute({}, {})
+    const out = await tools.remote_list.execute({}, toolCtx)
     expect(out).toContain('lab: online')
     expect(out).toContain('opencode 2.0.27')
     expect(out).toContain('10.0.0.7:4199')
@@ -109,7 +139,7 @@ describe('remote_list handler', () => {
       local: { remotes: fakeRemotes([]), manager: fakeManager(), registry: fakeRegistry([{ id: 'primary' }]) },
     }
     const tools = createRemoteToolsV1(deps)
-    const out = await tools.remote_list.execute({}, {})
+    const out = await tools.remote_list.execute({}, toolCtx)
     expect(out).toContain('No enabled ocrc remotes')
     expect(out).toContain('远程主机')
   })
@@ -127,7 +157,7 @@ describe('remote_sync_workspace handler', () => {
       },
     })
     const tools = createRemoteToolsV1(deps)
-    const out = await tools.remote_sync_workspace.execute({ remote_id: 'lab', local_root: '/tmp/proj', remote_target: '~/ws' }, {})
+    const out = await tools.remote_sync_workspace.execute({ remote_id: 'lab', local_root: '/tmp/proj', remote_target: '~/ws' }, toolCtx)
     expect(seen).toEqual({ id: 'lab', opts: { localRoot: '/tmp/proj', entries: undefined, remoteTarget: '~/ws' } })
     expect(out).toBe('synced 3 file(s) to ~/ws')
   })
@@ -138,15 +168,15 @@ describe('remote_sync_workspace handler', () => {
       syncDirectory: async (id, opts) => { seen = { id, opts }; return { ok: true, detail: 'ok' } },
     })
     const tools = createRemoteToolsV1(deps)
-    await tools.remote_sync_workspace.execute({ remote_id: 'lab', local_root: '/p', remote_target: '~/w', entries: 'src docs' }, {})
+    await tools.remote_sync_workspace.execute({ remote_id: 'lab', local_root: '/p', remote_target: '~/w', entries: 'src docs' }, toolCtx)
     expect(seen?.opts.entries).toEqual(['src', 'docs'])
   })
 
   it('missing args read as plain tool failures, not throws', async () => {
     const tools = createRemoteToolsV1(localDeps())
-    expect(await tools.remote_sync_workspace.execute({}, {})).toContain('remote_id is required')
-    expect(await tools.remote_sync_workspace.execute({ remote_id: 'lab' }, {})).toContain('local_root is required')
-    expect(await tools.remote_sync_workspace.execute({ remote_id: 'lab', local_root: '/p' }, {})).toContain('remote_target is required')
+    expect(await tools.remote_sync_workspace.execute({}, toolCtx)).toContain('remote_id is required')
+    expect(await tools.remote_sync_workspace.execute({ remote_id: 'lab' }, toolCtx)).toContain('local_root is required')
+    expect(await tools.remote_sync_workspace.execute({ remote_id: 'lab', local_root: '/p' }, toolCtx)).toContain('remote_target is required')
   })
 })
 
@@ -162,14 +192,14 @@ describe('remote_provision handler', () => {
       },
     })
     const tools = createRemoteToolsV1(deps)
-    const out = await tools.remote_provision.execute({ remote_id: 'lab' }, {})
+    const out = await tools.remote_provision.execute({ remote_id: 'lab' }, toolCtx)
     expect(seenPath).toBe('auto')
     expect(out).toContain('drift: remote 1.18.32 != pin 2.0.27')
   })
 
   it('rejects unknown paths', async () => {
     const tools = createRemoteToolsV1(localDeps())
-    const out = await tools.remote_provision.execute({ remote_id: 'lab', path: 'sideload' }, {})
+    const out = await tools.remote_provision.execute({ remote_id: 'lab', path: 'sideload' }, toolCtx)
     expect(out).toContain('path must be auto | push | install')
   })
 })
@@ -183,7 +213,7 @@ describe('remote_create_session handler', () => {
     registry.tag = (sid, bid) => { tagged = [sid, bid] }
     const deps: RemoteToolDeps = { local: { remotes: fakeRemotes([{ id: 'lab', host: 'h' }]), manager: fakeManager(), registry } }
     const tools = createRemoteToolsV1(deps)
-    const out = await tools.remote_create_session.execute({ remote_id: 'lab', directory: '/home/u/work', title: 'demo' }, {})
+    const out = await tools.remote_create_session.execute({ remote_id: 'lab', directory: '/home/u/work', title: 'demo' }, toolCtx)
     expect(out).toContain('ses_new_remote:lab')
     expect(out).toContain('/home/u/work')
     expect(tagged).toEqual(['ses_new_remote:lab', 'remote:lab'])
@@ -191,7 +221,7 @@ describe('remote_create_session handler', () => {
 
   it('unknown remote id reads as a normal failure with a hint', async () => {
     const tools = createRemoteToolsV1(localDeps())
-    const out = await tools.remote_create_session.execute({ remote_id: 'nope', directory: '/x' }, {})
+    const out = await tools.remote_create_session.execute({ remote_id: 'nope', directory: '/x' }, toolCtx)
     expect(out).toContain('no backend remote:nope')
     expect(out).toContain('is the remote enabled?')
   })
@@ -237,7 +267,7 @@ describe('V2 registration (E2-verified contract)', () => {
     }
     await registerRemoteToolsV2(registrar, localDeps({ status: (id) => (id === 'lab' ? { id, state: 'online', logTail: [] } : undefined) }))
     const list = added.find((t) => t.name === 'remote_list')!
-    const res = await (list.execute as (args: unknown, ctx: unknown) => Promise<{ output: string }>)({}, {})
+    const res = await (list.execute as (args: unknown, ctx: unknown) => Promise<{ output: string }>)({}, toolCtx)
     expect(res.output).toContain('lab: online')
   })
 })
@@ -257,7 +287,7 @@ describe('attached mounting (host-proxy handlers)', () => {
     }) as typeof fetch
     try {
       const tools = createRemoteToolsV1({ attached: { baseUrl: 'http://127.0.0.1:4092', resolveToken: () => 'tok', version: 'test' } })
-      const out = await tools.remote_list.execute({}, {})
+      const out = await tools.remote_list.execute({}, toolCtx)
       expect(calls[0]).toBe('http://127.0.0.1:4092/api/remotes')
       expect(out).toContain('lab: online')
       expect(out).not.toContain('x:')
@@ -275,7 +305,7 @@ describe('attached mounting (host-proxy handlers)', () => {
     }) as typeof fetch
     try {
       const tools = createRemoteToolsV1({ attached: { baseUrl: 'http://h', resolveToken: () => 'tok', version: 'test' } })
-      const out = await tools.remote_create_session.execute({ remote_id: 'lab', directory: '/r/work' }, {})
+      const out = await tools.remote_create_session.execute({ remote_id: 'lab', directory: '/r/work' }, toolCtx)
       expect(bodies[0]).toEqual(JSON.stringify({ backendId: 'remote:lab', directory: '/r/work' }))
       expect(out).toContain('ses_r1 created on remote:lab')
     } finally {
@@ -292,7 +322,7 @@ describe('attached mounting (host-proxy handlers)', () => {
     }) as typeof fetch
     try {
       const tools = createRemoteToolsV1({ attached: { baseUrl: 'http://h', resolveToken: () => 'tok', version: 'test' } })
-      const out = await tools.remote_sync_workspace.execute({ remote_id: 'lab', local_root: '/p', remote_target: '~/w', entries: 'a b' }, {})
+      const out = await tools.remote_sync_workspace.execute({ remote_id: 'lab', local_root: '/p', remote_target: '~/w', entries: 'a b' }, toolCtx)
       expect(bodies[0]).toEqual(JSON.stringify({ localRoot: '/p', remoteTarget: '~/w', entries: ['a', 'b'] }))
       expect(out).toBe('synced 2 file(s)')
     } finally {
@@ -320,14 +350,14 @@ describe('remote_sync_auth handler (batch 5)', () => {
       syncAuth: async (id) => { seenId = id; return { ok: true, detail: 'credentials synced' } },
     })
     const tools = createRemoteToolsV1(deps)
-    const out = await tools.remote_sync_auth.execute({ remote_id: 'lab' }, {})
+    const out = await tools.remote_sync_auth.execute({ remote_id: 'lab' }, toolCtx)
     expect(seenId).toBe('lab')
     expect(out).toBe('credentials synced')
   })
 
   it('missing remote_id reads as a plain failure', async () => {
     const tools = createRemoteToolsV1(localDeps())
-    expect(await tools.remote_sync_auth.execute({}, {})).toContain('remote_id is required')
+    expect(await tools.remote_sync_auth.execute({}, toolCtx)).toContain('remote_id is required')
   })
 
   it('v2 registration includes remote_sync_auth with namespace ocrc', async () => {
@@ -352,7 +382,7 @@ describe('remote_sync_auth handler (batch 5)', () => {
     }) as typeof fetch
     try {
       const tools = createRemoteToolsV1({ attached: { baseUrl: 'http://h', resolveToken: () => 'tok', version: 'test' } })
-      const out = await tools.remote_sync_auth.execute({ remote_id: 'lab' }, {})
+      const out = await tools.remote_sync_auth.execute({ remote_id: 'lab' }, toolCtx)
       expect(urls[0]).toBe('http://h/api/remotes/lab/sync-auth')
       expect(out).toBe('credentials synced')
     } finally {

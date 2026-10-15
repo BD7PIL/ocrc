@@ -31,11 +31,23 @@ jobs:
       - name: Typecheck (plugin)
         run: npm run typecheck
 
-      - name: Test (plugin — unit + integration)
+      - name: Typecheck (tests — the test tree is typechecked too)
+        run: npm run typecheck:tests
+
+      - name: Test (plugin — unit)
         run: npm test
+
+      - name: Test (plugin — integration, fake bot)
+        run: npm run test:integration
 
       - name: Build (plugin)
         run: npm run build
+
+      - name: Coverage (plugin, baseline report)
+        if: matrix.node-version == 22
+        run: |
+          npx vitest run --coverage --coverage.reporter=text --coverage.reporter=json-summary
+          npx vitest run --coverage --coverage.reporter=text-summary 2>/dev/null | tail -20 || true
 
       - name: Typecheck (web-next shell)
         run: npm --prefix web-next run typecheck
@@ -54,3 +66,28 @@ jobs:
           npm --prefix extensions/ocrc-omo-view run typecheck
           npm --prefix extensions/ocrc-omo-view test
           npm --prefix extensions/ocrc-omo-view run build
+
+      # The extensions' install artifacts (panel/ status/ service/ shared/) are
+      # committed for zero-build folder installs — CI rebuilds from src and
+      # fails if the committed shape drifted from source.
+      - name: Extension dist consistency (staged artifacts match src)
+        run: |
+          git diff --exit-code -- extensions/ocrc-connect/panel extensions/ocrc-connect/status extensions/ocrc-connect/service extensions/ocrc-connect/shared
+          git diff --exit-code -- extensions/ocrc-omo-view/panel extensions/ocrc-omo-view/service extensions/ocrc-omo-view/shared
+          echo "extension artifacts in sync with src"
+
+      # Windows-handoff artifact: both extensions at their install shape,
+      # packed for the panel's folder install (batch6 handoff §2).
+      - name: Pack ocrc-extensions tarball
+        run: |
+          mkdir -p pack
+          cp -r extensions/ocrc-connect extensions/ocrc-omo-view pack/
+          rm -rf pack/*/src pack/*/node_modules pack/*/dist pack/*/tests
+          tar czf ocrc-extensions-${{ github.sha }}.tar.gz -C pack ocrc-connect ocrc-omo-view
+
+      - name: Upload extension pack
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocrc-extensions-${{ github.sha }}
+          path: ocrc-extensions-${{ github.sha }}.tar.gz
+          retention-days: 30

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, chmodSync, unlinkSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, chmodSync, unlinkSync, mkdirSync, copyFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 import { join, resolve, dirname } from 'node:path'
 import { homedir } from 'node:os'
@@ -61,7 +61,11 @@ function migrateLegacyConfig(): boolean {
   if (!existsSync(GLOBAL_OPENCODE_JSON)) return false
   let config: Record<string, any>
   try { config = JSON.parse(readFileSync(GLOBAL_OPENCODE_JSON, 'utf-8')) } catch { return false }
-  const plugins: Array<string | [string, unknown]> = config.plugin ?? []
+  // The V1 `plugin` key is ceded to openchamber's managed materialization,
+  // which writes an OBJECT shape ({"@openchamber/managed-tools": [...]}).
+  // Only an ARRAY can carry legacy ocrc entries — anything else is left alone.
+  const plugins = config.plugin
+  if (!Array.isArray(plugins)) return false
   const isLegacy = (e: string | [string, unknown]) => {
     const name = Array.isArray(e) ? e[0] : e
     return name === REPO_ROOT || name === 'opencode-remote-control@latest' || /opencode-remote-control$/.test(name)
@@ -169,6 +173,8 @@ export async function runInstall(options: InstallOptions): Promise<void> {
   // homes — they are dead weight at best and ghost-PRIMARY sources at worst.
   cleanupLegacyBridges()
 
+  installV2PinManifest()
+
   // npm installs must appear in the plugin array — V1 `plugin` or V2 `plugins`
   // per the host generation (see ensureNpmPluginEntry's key contract).
   if (ensureNpmPluginEntry() === 'manual') {
@@ -204,6 +210,32 @@ function cleanupLegacyBridges(): void {
       } catch { /* best effort */ }
     }
   }
+}
+
+/**
+ * Materialize the repo's declarative V2 pin manifest (ops/v2-pin-manifest.json)
+ * into <OCRC_HOME>/bin-cache/manifest.json, where bin-cache.ts readManifest()
+ * picks it up. Pin precedence: manifest > OCRC_V2_PIN env > dynamic-follow —
+ * without this copy the declarative layer only existed in CI, never on the
+ * provisioned host.
+ */
+export function installV2PinManifest(): boolean {
+  const src = join(REPO_ROOT, 'ops', 'v2-pin-manifest.json')
+  if (!existsSync(src)) return false
+  try {
+    const manifest = JSON.parse(readFileSync(src, 'utf-8'))
+    if (typeof manifest.opencodePin !== 'string') return false
+    const ocrcHome = process.env.OCRC_HOME ?? join(homedir(), '.ocrc')
+    const destDir = join(ocrcHome, 'bin-cache')
+    const dest = join(destDir, 'manifest.json')
+    if (!existsSync(dest)) {
+      mkdirSync(destDir, { recursive: true })
+      copyFileSync(src, dest)
+      console.log(`  V2 pin manifest → ${dest} (pin ${manifest.opencodePin})`)
+      return true
+    }
+    return false
+  } catch { /* best effort — env pin remains as fallback */ return false }
 }
 
 export async function main(args: string[] = process.argv.slice(2)): Promise<void> {

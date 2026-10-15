@@ -70,6 +70,10 @@ export function createTunnelSupervisor(deps: SupervisorDeps = {}) {
     stopped = true
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = undefined }
     if (child) { try { child.kill('SIGTERM') } catch { /* gone */ } child = undefined }
+    // A stopped tunnel has no active profile: the fs/git/omo/config faces
+    // must 409 until the next /connect (found by the alpha.7 acceptance —
+    // stop() used to leave the old profile "active").
+    profile = undefined
   }
 
   async function statusProbed(): Promise<TunnelStatus> {

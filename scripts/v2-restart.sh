@@ -2,9 +2,15 @@
 # V2 host restart + plugin-health verification (unattended batch, 2026-09-28).
 # Retries up to 3 times: the V2.0.15 host intermittently skips plugin init
 # (historical flakiness; boot-hang itself was fixed by the machine reboot).
+#
+# GUARD: this script is bound to the disposable v2-spike sandbox below
+# (hardcoded /tmp paths, port 4599). It must NEVER run against a production
+# or shared stack: it kills every process matching the baseline binary path.
+# Refuse to run unless the sandbox home actually exists.
 set -u
 
 REPO=/home/demo/develop/opencode-plugin/ocrc
+[ -d /tmp/ocrc-spike/home ] || { echo "REFUSING: /tmp/ocrc-spike sandbox missing — this script only runs in the disposable v2-spike stack (see OPS.md)."; exit 1; }
 BIN=/tmp/opencode-v2-baseline/opencode
 LOG=/tmp/ocrc-spike/home/.ocrc/ocrc.log
 V2LOG=/tmp/ocrc-spike/v2-retest2.log

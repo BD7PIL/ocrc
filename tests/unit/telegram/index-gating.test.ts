@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import type { Bot } from 'grammy'
+import type { Bot, Api } from 'grammy'
 import { createTelegramTransport } from '../../../src/transport/telegram/index'
 
 /**
@@ -142,9 +142,11 @@ describe('status() before init', () => {
     Object.defineProperty(fakeBot, 'botInfo', {
       get() { throw new Error('Bot information unavailable!') },
     })
-    expect(() => transport.status()).not.toThrow()
-    // M8: status now carries the runtime 状态 sink (state + detail)
-    expect(transport.status()).toEqual({ connected: false, username: undefined, runtime: { state: 'idle', detail: undefined } })
+    expect(() => transport.status!).not.toThrow()
+    // M8: status now carries the runtime 状态 sink (state + detail) — Telegram
+    // transport always implements status(), but the Transport interface marks it
+    // optional, so the assertion sites use non-null.
+    expect(transport.status!()).toEqual({ connected: false, username: undefined, runtime: { state: 'idle', detail: undefined } })
   })
 })
 

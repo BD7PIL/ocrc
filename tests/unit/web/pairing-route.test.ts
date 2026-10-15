@@ -3,6 +3,15 @@ import { buildServer } from '../../../src/transport/web/server'
 import { createTokenAuth } from '../../../src/connectivity/auth/token'
 import { singleBackendRegistry } from '../../../src/core/agent/registry'
 import { createPairingStore } from '../../../src/connectivity/pairing'
+import type { BackendCapabilities } from '../../../src/core/agent/backend'
+
+function fakeCaps(over: Partial<BackendCapabilities> = {}): BackendCapabilities {
+  return {
+    liveMirror: false, tuiSelect: false, workspaces: false, freeformWorkspace: false,
+    diff: false, todos: false, catalog: false, mcp: false, commands: false,
+    sessionControls: false, imageInput: false, ...over,
+  }
+}
 
 function fakeState() {
   return {
@@ -30,24 +39,28 @@ function appWith(pairing?: ReturnType<typeof createPairingStore>, token = 'test-
   const auth = createTokenAuth({ token, devBypass: false, devEmail: 'd@l', host: '127.0.0.1', sessions: pairing })
   return buildServer({
     auth,
+    // Auth-only backend mock: pairing routes never touch the turn surface.
     registry: singleBackendRegistry({
       id: 'opencode',
-      capabilities: { liveMirror: false },
+      capabilities: fakeCaps(),
       listSessionSummaries: vi.fn().mockResolvedValue([]),
       listSessions: vi.fn().mockResolvedValue([]),
       hasSession: vi.fn().mockResolvedValue(true),
       ping: vi.fn().mockResolvedValue(true),
-    }),
+    } as unknown as import('../../../src/core/agent/backend').AgentBackend),
     state: fakeState(),
     cardBus: { publish: vi.fn(), subscribeAll: () => () => {}, currentSeq: () => 0 } as any,
     pairing,
   } as any)
 }
 
+// Production peer detection reads c.env.incoming.socket.remoteAddress, which
+// @hono/node-server provides via the Hono Env (app.fetch's third arg). In
+// tests that is app.request()'s third parameter — NOT part of RequestInit.
 const LOOPBACK = { incoming: { socket: { remoteAddress: '127.0.0.1' } } }
 const LAN = { incoming: { socket: { remoteAddress: '192.168.26.5' } } }
 // Loopback peer + devBypass OFF: requests still need the Bearer token.
-const authed = (t: string) => ({ headers: { authorization: `Bearer ${t}` }, ...LOOPBACK })
+const authed = (t: string) => ({ headers: { authorization: `Bearer ${t}` } })
 
 describe('P-remote session lifecycle routes (auth-gated)', () => {
   // buildServer-mounted session routes sit behind the auth guard (401 test
@@ -69,8 +82,8 @@ describe('P-remote session lifecycle routes (auth-gated)', () => {
     // off → exchange dead
     const off = await app.request('/api/pair/exchange', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ pending: 'x' }), ...LOOPBACK,
-    } as any)
+      body: JSON.stringify({ pending: 'x' }),
+    } as any, LOOPBACK as any)
     expect(off.status).toBe(404)
 
     const start = await sess.request('/api/pair/session/start', { method: 'POST' })
@@ -80,7 +93,7 @@ describe('P-remote session lifecycle routes (auth-gated)', () => {
     expect(startBody.epoch).toBe(1)
 
     // onboarding now renders a QR; the pending is multi-use
-    const ob = await app.request('/api/pair/onboarding', { ...LOOPBACK })
+    const ob = await app.request('/api/pair/onboarding', {}, LOOPBACK as any)
     const obBody = await ob.json() as any
     expect(obBody.status).toBe('on')
     expect(obBody.url).toContain('#pair=')
@@ -89,12 +102,12 @@ describe('P-remote session lifecycle routes (auth-gated)', () => {
 
     const ex1 = await app.request('/api/pair/exchange', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ pending }), ...LOOPBACK,
-    } as any)
+      body: JSON.stringify({ pending }),
+    } as any, LOOPBACK as any)
     const ex2 = await app.request('/api/pair/exchange', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ pending }), ...LOOPBACK,
-    } as any)
+      body: JSON.stringify({ pending }),
+    } as any, LOOPBACK as any)
     expect(ex1.status).toBe(200)
     expect(ex2.status).toBe(200)
     const cred1 = (await ex1.json() as any).token
@@ -103,7 +116,7 @@ describe('P-remote session lifecycle routes (auth-gated)', () => {
     expect(cred2).toBeTruthy()
     expect(cred1).not.toBe(cred2) // per-device credentials
     // a session credential authorizes like a token (middleware hook)
-    const probe = await app.request('/api/me', { headers: { authorization: `Bearer ${cred1}` }, ...LAN })
+    const probe = await app.request('/api/me', { headers: { authorization: `Bearer ${cred1}` } }, LAN as any)
     expect(probe.status).toBe(200)
 
     // refresh → credentials die, pending rotates
@@ -113,23 +126,23 @@ describe('P-remote session lifecycle routes (auth-gated)', () => {
     expect(refBody.paired).toBe(0)
     const stale = await app.request('/api/pair/exchange', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ pending }), ...LOOPBACK,
-    } as any)
+      body: JSON.stringify({ pending }),
+    } as any, LOOPBACK as any)
     expect(stale.status).toBe(404) // old-epoch pending dead
-    const kicked = await app.request('/api/me', { headers: { authorization: `Bearer ${cred1}` }, ...LAN })
+    const kicked = await app.request('/api/me', { headers: { authorization: `Bearer ${cred1}` } }, LAN as any)
     expect(kicked.status).toBe(401) // refresh kicked the phone
 
     // stop → gate closed; onboarding reports off
     const stop = await sess.request('/api/pair/session/stop', { method: 'POST' })
     expect((await stop.json() as any).active).toBe(false)
-    const obOff = await app.request('/api/pair/onboarding', { ...LOOPBACK })
+    const obOff = await app.request('/api/pair/onboarding', {}, LOOPBACK as any)
     expect((await obOff.json() as any).status).toBe('off')
   })
 
   it('session endpoints require auth at all (no token → 401, before any loopback logic)', async () => {
     const store = createPairingStore()
     const app = appWith(store, 'test-token-0123456789abcdef')
-    const res = await app.request('/api/pair/session/start', { method: 'POST', ...LOOPBACK })
+    const res = await app.request('/api/pair/session/start', { method: 'POST', }, LOOPBACK as any)
     expect(res.status).toBe(401)
   })
 
@@ -149,7 +162,7 @@ describe('P-remote session lifecycle routes (auth-gated)', () => {
     try {
       const store = createPairingStore()
       const app = appWith(store, 'test-token-0123456789abcdef')
-      const res = await app.request('/api/pair/onboarding', { ...LOOPBACK })
+      const res = await app.request('/api/pair/onboarding', {}, LOOPBACK as any)
       const body = await res.json() as any
       expect(body.status).toBe('off')
       expect(body.url).toBeUndefined()
@@ -239,8 +252,8 @@ describe('M11 routes retained under session semantics', () => {  it('POST /api/p
     store.start()
     const noBody = await app.request('/api/pair/exchange', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({}), ...LOOPBACK,
-    } as any)
+      body: JSON.stringify({}),
+    } as any, LOOPBACK as any)
     expect(noBody.status).toBe(400)
   })
 
@@ -266,12 +279,13 @@ describe('M11 routes retained under session semantics', () => {  it('POST /api/p
       auth,
       registry: singleBackendRegistry({
         id: 'opencode',
-        capabilities: { liveMirror: false },
+        capabilities: fakeCaps(),
         listSessionSummaries: vi.fn().mockResolvedValue([]),
         listSessions: vi.fn().mockResolvedValue([]),
         hasSession: vi.fn().mockResolvedValue(true),
         ping: vi.fn().mockResolvedValue(true),
-      }),
+        // Auth-only backend mock: pairing routes never touch the turn surface.
+      } as unknown as import('../../../src/core/agent/backend').AgentBackend),
       state: fakeState(),
       cardBus: { publish: vi.fn(), subscribeAll: () => () => {}, currentSeq: () => 0 } as any,
       pairing: store,

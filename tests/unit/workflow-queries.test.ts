@@ -14,7 +14,7 @@ import {
   WORKFLOW_QUERY_LIMITS,
 } from '../../src/core/workflow/queries'
 import { buildCreateWorkflowDisplay } from '../../src/core/workflow/display'
-import type { NodeRecord, RunEvent } from '../../vendor/zcode-dwf/dist/dynamic-workflow/src/index.js'
+import type { NodeRecord, RunEvent, WorkflowErrorCode } from '../../vendor/zcode-dwf/dist/dynamic-workflow/src/index.js'
 
 let dir: string
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'ocrc-wf-query-')) })
@@ -27,7 +27,7 @@ function fixture(opts: {
   nodes?: NodeRecord[]
   status?: 'running' | 'completed' | 'stopped'
   stopReason?: 'user' | 'superseded'
-  failure?: { code: string; message: string }
+  failure?: { code: WorkflowErrorCode; message: string }
   name?: string
   scriptText?: string
 } = {}) {

@@ -17,7 +17,5 @@
   "include": [
     "src/service/**/*.ts"
   ],
-  "exclude": [
-    "src/service/**/*.test.ts"
-  ]
+  "exclude": []
 }

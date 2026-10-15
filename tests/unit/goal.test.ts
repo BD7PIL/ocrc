@@ -61,7 +61,11 @@ interface Harness {
   infos: Array<{ title: string; body: string }>
 }
 
-function harness(over: Partial<GoalDeps> = {}): Harness {
+/** Harness overrides: GoalDeps plus a backend injection slot (not a real dep —
+ *  it is mounted into singleBackendRegistry, never spread into GoalDeps). */
+type HarnessOverrides = Partial<GoalDeps> & { backend?: AgentBackend }
+
+function harness(over: HarnessOverrides = {}): Harness {
   const state = createFileBackedState(join(dir, 'state.json'))
   const dispatched: IncomingMessage[] = []
   const changes: Array<{ sessionId: string; goal: unknown; verifying: boolean }> = []
@@ -70,7 +74,8 @@ function harness(over: Partial<GoalDeps> = {}): Harness {
   cardBus.subscribeAll((c) => {
     if (c.kind === 'info') infos.push({ title: c.title, body: c.sections.map((s) => s.body).join('\n') })
   })
-  const backend = (over as any).backend ?? fakeBackend()
+  const { backend: injectedBackend, ...rest } = over
+  const backend = injectedBackend ?? fakeBackend()
   const deps: GoalDeps = {
     state,
     registry: singleBackendRegistry(backend),
@@ -78,9 +83,8 @@ function harness(over: Partial<GoalDeps> = {}): Harness {
     cardBus,
     onGoalChanged: (sessionId, goal, verifying) => { changes.push({ sessionId, goal, verifying }) },
     now: () => 1_000_000,
-    ...over,
+    ...rest,
   }
-  delete (deps as any).backend
   const manager = createGoalManager(deps)
   return { manager, state, bus: cardBus, dispatched, changes, infos }
 }
@@ -426,9 +430,9 @@ describe('goal manager', () => {
     // 造一份超预算的转录：头部塞满旧轮次，最新一轮的产出在最后
     for (let i = 1; i <= 40; i++) {
       h.bus.publish({ kind: 'user', sessionId: 'ses_1', text: `第 ${i} 轮的续跑指令`.padEnd(300, '·'), ts: i * 2 })
-      h.bus.publish({ kind: 'assistant', sessionId: 'ses_1', blocks: [{ type: 'text', text: `第 ${i} 轮产出 ${'x'.repeat(300)}` }], meta: {}, ts: i * 2 + 1 })
+      h.bus.publish({ kind: 'assistant', sessionId: 'ses_1', blocks: [{ type: 'text', text: `第 ${i} 轮产出 ${'x'.repeat(300)}` }], meta: {} })
     }
-    h.bus.publish({ kind: 'assistant', sessionId: 'ses_1', blocks: [{ type: 'text', text: '最新一轮：Created step41.txt' }], meta: {}, ts: 999 })
+    h.bus.publish({ kind: 'assistant', sessionId: 'ses_1', blocks: [{ type: 'text', text: '最新一轮：Created step41.txt' }], meta: {} })
     h.manager.set('ses_1', '目标')
     await h.manager.handleTurnEnd('ses_1')
     const prompt = seen[0]!
@@ -447,7 +451,7 @@ describe('goal manager', () => {
     // 本轮刚结束的那一轮只在 bus 上（引擎历史还没提交）——fakeBackend.getHistory 返回空，
     // 证据里出现这段话就证明走的是 bus。
     h.bus.publish({ kind: 'user', sessionId: 'ses_1', text: '本轮用户输入', ts: 1 })
-    h.bus.publish({ kind: 'assistant', sessionId: 'ses_1', blocks: [{ type: 'text', text: '本轮刚做完的产出' }], meta: {}, ts: 2 })
+    h.bus.publish({ kind: 'assistant', sessionId: 'ses_1', blocks: [{ type: 'text', text: '本轮刚做完的产出' }], meta: {} })
     h.manager.set('ses_1', '目标')
     await h.manager.handleTurnEnd('ses_1')
     expect(seen[0]).toContain('Recent transcript:')

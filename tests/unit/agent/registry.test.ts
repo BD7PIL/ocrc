@@ -3,7 +3,9 @@ import { createBackendRegistry } from '../../../src/core/agent/registry'
 import type { AgentBackend, BackendCapabilities } from '../../../src/core/agent/backend'
 
 const caps = (over: Partial<BackendCapabilities> = {}): BackendCapabilities => ({
-  liveMirror: false, tuiSelect: false, workspaces: false, diff: false, todos: false, catalog: false, mcp: false, commands: false, ...over,
+  liveMirror: false, tuiSelect: false, workspaces: false, freeformWorkspace: false,
+  diff: false, todos: false, catalog: false, mcp: false, commands: false,
+  sessionControls: false, imageInput: false, ...over,
 })
 const fakeBackend = (id: string, c?: Partial<BackendCapabilities>): AgentBackend =>
   ({ id, capabilities: caps(c) } as unknown as AgentBackend)

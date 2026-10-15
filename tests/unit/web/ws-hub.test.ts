@@ -13,12 +13,9 @@ function fakeWs() {
   }
 }
 
-function fakeClient() {
-  return {
-    session: {
-      list: vi.fn().mockResolvedValue({ data: [] }),
-    },
-  } as any
+function fakeRegistry() {
+  // ws-hub only touches registry.all()/tag() (fetchSessionSummaries path).
+  return { all: () => [], tag: vi.fn() } as any
 }
 
 function fakeState() {
@@ -31,7 +28,7 @@ function fakeState() {
 describe('WsHub', () => {
   it('broadcastDelta follows the subscription filter and is never buffered', async () => {
     const bus = createCardBus()
-    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const hub = createWsHub({ cardBus: bus, registry: fakeRegistry(), state: fakeState() })
     const sub = fakeWs()
     const other = fakeWs()
     await hub.attach(sub as any, { email: 'u@x' } as any)
@@ -51,7 +48,7 @@ describe('WsHub', () => {
   })
   it('broadcastGoal follows the subscription filter and carries verifying', async () => {
     const bus = createCardBus()
-    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const hub = createWsHub({ cardBus: bus, registry: fakeRegistry(), state: fakeState() })
     const sub = fakeWs()
     const other = fakeWs()
     await hub.attach(sub as any, { email: 'u@x' } as any)
@@ -73,7 +70,7 @@ describe('WsHub', () => {
 
   it('broadcasts cards for subscribed sessionId', async () => {
     const bus = createCardBus()
-    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const hub = createWsHub({ cardBus: bus, registry: fakeRegistry(), state: fakeState() })
     const ws = fakeWs()
     await hub.attach(ws as any, { email: 'u@x' } as any)
     hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_1' })
@@ -83,7 +80,7 @@ describe('WsHub', () => {
 
   it('does not forward cards for other sessions', async () => {
     const bus = createCardBus()
-    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const hub = createWsHub({ cardBus: bus, registry: fakeRegistry(), state: fakeState() })
     const ws = fakeWs()
     await hub.attach(ws as any, { email: 'u@x' } as any)
     hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_1' })
@@ -94,7 +91,7 @@ describe('WsHub', () => {
 
   it('does NOT broadcast proactive (push) cards to web — live', async () => {
     const bus = createCardBus()
-    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const hub = createWsHub({ cardBus: bus, registry: fakeRegistry(), state: fakeState() })
     const ws = fakeWs()
     await hub.attach(ws as any, { email: 'u@x' } as any)
     hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_1' })
@@ -108,7 +105,7 @@ describe('WsHub', () => {
     const bus = createCardBus()
     bus.publish({ kind: 'info', sessionId: 'ses_1', title: 'Session finished', sections: [], proactive: true }) // seq 1
     bus.publish({ kind: 'assistant', sessionId: 'ses_1', blocks: [], meta: {} })                                 // seq 2
-    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const hub = createWsHub({ cardBus: bus, registry: fakeRegistry(), state: fakeState() })
     const ws = fakeWs()
     await hub.attach(ws as any, { email: 'u@x' } as any)
     hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_1', sinceSeq: 0 })
@@ -117,7 +114,7 @@ describe('WsHub', () => {
   })
 
   it('replies pong to ping', async () => {
-    const hub = createWsHub({ cardBus: createCardBus(), client: fakeClient(), state: fakeState() })
+    const hub = createWsHub({ cardBus: createCardBus(), registry: fakeRegistry(), state: fakeState() })
     const ws = fakeWs()
     await hub.attach(ws as any, { email: 'u@x' } as any)
     hub.handleClientMessage(ws as any, { type: 'ping' })
@@ -130,7 +127,7 @@ describe('WsHub', () => {
     bus.publish({ kind: 'assistant', sessionId: 'ses_1', blocks: [], meta: {} }) // seq 2
     bus.publish({ kind: 'assistant', sessionId: 'ses_1', blocks: [], meta: {} }) // seq 3
 
-    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const hub = createWsHub({ cardBus: bus, registry: fakeRegistry(), state: fakeState() })
     const ws = fakeWs()
     await hub.attach(ws as any, { email: 'u@x' } as any)
     hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_1', sinceSeq: 1 })
@@ -143,7 +140,7 @@ describe('WsHub', () => {
   it('replays nothing when sinceSeq is current', async () => {
     const bus = createCardBus()
     bus.publish({ kind: 'user', sessionId: 'ses_1', text: 'a', ts: 0 }) // seq 1
-    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const hub = createWsHub({ cardBus: bus, registry: fakeRegistry(), state: fakeState() })
     const ws = fakeWs()
     await hub.attach(ws as any, { email: 'u@x' } as any)
     hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_1', sinceSeq: 1 })
@@ -155,7 +152,7 @@ describe('WsHub', () => {
     bus.publish({ kind: 'user', sessionId: 'ses_1', text: 'a', ts: 0 })         // seq 1
     bus.publish({ kind: 'assistant', sessionId: 'ses_1', blocks: [], meta: {} }) // seq 2
     bus.publish({ kind: 'assistant', sessionId: 'ses_1', blocks: [], meta: {} }) // seq 3
-    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const hub = createWsHub({ cardBus: bus, registry: fakeRegistry(), state: fakeState() })
     const ws = fakeWs()
     await hub.attach(ws as any, { email: 'u@x' } as any)
     hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_1', sinceSeq: 1 })
@@ -165,7 +162,7 @@ describe('WsHub', () => {
   it('flags replayEnd complete=false when the snapshot predates the buffer (torn feed)', async () => {
     const bus = createCardBus(2)
     for (let i = 0; i < 5; i++) bus.publish({ kind: 'user', sessionId: 'ses_1', text: `m${i}`, ts: 0 }) // seq 1..5, buffer holds 4-5
-    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const hub = createWsHub({ cardBus: bus, registry: fakeRegistry(), state: fakeState() })
     const ws = fakeWs()
     await hub.attach(ws as any, { email: 'u@x' } as any)
     hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_1', sinceSeq: 1 })
@@ -178,7 +175,7 @@ describe('WsHub', () => {
     const bus = createCardBus()
     bus.publish({ kind: 'user', sessionId: 'ses_1', text: 'a', ts: 0 }) // seq 1
     bus.drop('ses_1') // buffer AND seq counter reset → currentSeq = 0
-    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const hub = createWsHub({ cardBus: bus, registry: fakeRegistry(), state: fakeState() })
     const ws = fakeWs()
     await hub.attach(ws as any, { email: 'u@x' } as any)
     hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_1', sinceSeq: 1 })
@@ -226,7 +223,7 @@ describe('WsHub', () => {
 describe('WsHub multi-subscribe (right-pane live tabs)', () => {
   it('forwards cards for BOTH the viewed session and a pane-subscribed child', async () => {
     const bus = createCardBus()
-    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const hub = createWsHub({ cardBus: bus, registry: fakeRegistry(), state: fakeState() })
     const ws = fakeWs()
     await hub.attach(ws as any, { email: 'u@x' } as any)
     hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_main' })
@@ -240,7 +237,7 @@ describe('WsHub multi-subscribe (right-pane live tabs)', () => {
 
   it('unsubscribe stops forwarding that session but keeps the other', async () => {
     const bus = createCardBus()
-    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const hub = createWsHub({ cardBus: bus, registry: fakeRegistry(), state: fakeState() })
     const ws = fakeWs()
     await hub.attach(ws as any, { email: 'u@x' } as any)
     hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_main' })
@@ -255,7 +252,7 @@ describe('WsHub multi-subscribe (right-pane live tabs)', () => {
 
   it('replays the newly-subscribed child only (not the whole main feed)', async () => {
     const bus = createCardBus()
-    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const hub = createWsHub({ cardBus: bus, registry: fakeRegistry(), state: fakeState() })
     const ws = fakeWs()
     await hub.attach(ws as any, { email: 'u@x' } as any)
     hub.handleClientMessage(ws as any, { type: 'subscribe', sessionId: 'ses_main' })
@@ -270,7 +267,7 @@ describe('WsHub multi-subscribe (right-pane live tabs)', () => {
 describe('WsHub fan-out stringify', () => {
   it('sends identical card bytes to multiple clients (single serialization)', async () => {
     const bus = createCardBus()
-    const hub = createWsHub({ cardBus: bus, client: fakeClient(), state: fakeState() })
+    const hub = createWsHub({ cardBus: bus, registry: fakeRegistry(), state: fakeState() })
     const wsA = fakeWs()
     const wsB = fakeWs()
     await hub.attach(wsA as any, { email: 'a@x' } as any)

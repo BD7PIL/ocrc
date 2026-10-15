@@ -73,9 +73,16 @@ export function Panel() {
     if (!line) return
     const [uh, port] = line.split(':')
     const [user, h] = uh.includes('@') ? uh.split('@') : ['', uh]
+    // Optional private key path ON THIS PANEL HOST. Windows' ssh-agent service
+    // is Disabled by default, so BatchMode ssh there usually needs an explicit
+    // -i key path — empty = use the default ~/.ssh key.
+    const keyPath = window.prompt('私钥路径（面板宿主机上的绝对路径，可选；留空用默认 ~/.ssh 密钥）') ?? ''
     try {
       const r = await jsonCall(request, '/profiles', 'POST', {
-        profile: { host: h, user: user || 'root', port: port ? Number(port) : undefined },
+        profile: {
+          host: h, user: user || 'root', port: port ? Number(port) : undefined,
+          keyPath: keyPath.trim() || undefined,
+        },
       }) as { profiles: SshProfile[] }
       setState((s) => ({ ...s, profiles: r.profiles }))
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)) }

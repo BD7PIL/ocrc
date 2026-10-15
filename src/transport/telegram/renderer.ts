@@ -220,7 +220,13 @@ export class TelegramSessionRenderer {
   /** Delete the '⏳ Working…' placeholder if one is pending. */
   private async clearThinkingPlaceholder(): Promise<void> {
     if (this.thinkingMessageId) {
-      await this.bot.deleteMessage(this.chatId, Number(this.thinkingMessageId)).catch(() => {})
+      // `.catch` guards Telegram errors, but a host bot without the method
+      // (test fakes, stripped clients) throws synchronously INSIDE the async
+      // call and rejects the promise — which used to escape into finalize's
+      // try and kill the whole chunked send (last-resort 3800-char dump).
+      try {
+        await this.bot.deleteMessage(this.chatId, Number(this.thinkingMessageId))
+      } catch { /* placeholder cleanup is best-effort */ }
       this.thinkingMessageId = undefined
     }
   }

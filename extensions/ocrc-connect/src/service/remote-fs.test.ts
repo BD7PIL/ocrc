@@ -4,7 +4,7 @@ import {
   buildListScript, parseListOutput,
   buildReadScript, buildWriteScript, buildStatScript, buildMkdirScript,
   buildGitScript, parseGitStatus,
-} from './remote-fs'
+} from './remote-fs.js'
 
 describe('path guards', () => {
   it('normalizeVirtualPath: absolute only, no .. segments, collapses slashes', () => {

@@ -1,11 +1,8 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { mergeDiscoveries, scanSource, toggleSkill } from '../../src/core/skills-manager.js'
-import { mkdirSync, writeFileSync, symlinkSync, rmSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 
 describe('mergeDiscoveries', () => {
   it('flags the same name from two sources as conflict', () => {

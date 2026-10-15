@@ -10,7 +10,7 @@ import {
   summarize,
 } from '../../src/core/settings-service.js'
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals() })
 
 function tempConfig(content: string): string {
   const dir = mkdtempSync(join(tmpdir(), 'ocrc-settings-'))

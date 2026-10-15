@@ -16,7 +16,7 @@ import { createEscalationRegistry } from '../../src/core/workflow/escalations'
 import { projectRun, projectRuns, serializePreview, WORKFLOW_PROJECTION_LIMITS } from '../../src/core/workflow/projection'
 import { analyzePhases } from '../../src/core/workflow/phases'
 import { compileScript } from '../../src/core/workflow/manager'
-import type { NodeRecord, RunEvent } from '../../vendor/zcode-dwf/dist/dynamic-workflow/src/index.js'
+import type { NodeRecord, RunEvent, WorkflowErrorCode } from '../../vendor/zcode-dwf/dist/dynamic-workflow/src/index.js'
 
 let dir: string
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'ocrc-wf-proj-')) })
@@ -31,7 +31,7 @@ function fixture(opts: {
   supersededBy?: string
   resumedFrom?: string
   result?: unknown
-  failure?: { code: string; message: string }
+  failure?: { code: WorkflowErrorCode; message: string }
   nodes?: NodeRecord[]
   actors?: Array<{ siteId: string; ordinal: number; name?: string; sessionId?: string }>
 }) {
@@ -306,9 +306,9 @@ describe('projectRun — resumable / result / concurrency / bounds', () => {
     const done = fixture({ status: 'completed', result: { files: 3 } })
     expect(project(done.journal, done.runId).resultPreview).toBe('{\n  "files": 3\n}')
 
-    const failed = fixture({ status: 'errored', failure: { code: 'ScriptError', message: 'boom' } })
+    const failed = fixture({ status: 'errored', failure: { code: 'DriverError', message: 'boom' } })
     const run = project(failed.journal, failed.runId)
-    expect(run.error).toBe('ScriptError: boom')
+    expect(run.error).toBe('DriverError: boom')
     expect(run.status).toBe('errored')
   })
 

@@ -8,7 +8,10 @@ afterEach(() => {
 
 describe('createV2ControlPlane', () => {
   it('maps the V2 event iterator into V1 shapes and feeds the backend registry', async () => {
-    const events: V2Event[] = [
+    // control-plane reads ev.data.title (via `as any`), but V2Event's structural
+    // slice doesn't declare it — extend at the test boundary, not in src.
+    type V2EventWithTitle = V2Event & { data?: { title?: string } }
+    const events: V2EventWithTitle[] = [
       { type: 'session.created', data: { sessionID: 'ses_v1', title: 'from stream' }, location: { directory: '/w' } },
       { type: 'session.text.delta', data: { sessionID: 'ses_v1', assistantMessageID: 'msg1', ordinal: 0, delta: 'he' } },
       { type: 'permission.asked', data: { sessionID: 'ses_v1', id: 'p1', action: 'bash', resources: ['*'] } },

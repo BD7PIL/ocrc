@@ -12,8 +12,10 @@ function makeHarness(opts: { promptResult?: Promise<{ stopReason: string }> } = 
     listSessions: vi.fn(async () => ({ sessions: [] })),
     deleteSession: vi.fn(async () => ({})),
     authenticate: vi.fn(async () => ({})),
-    prompt: vi.fn(async (p: { sessionId: string; prompt: Array<{ text: string }> }) => {
-      promptCalls.push({ sessionId: p.sessionId, text: p.prompt[0].text })
+    prompt: vi.fn(async (p: { sessionId: string; prompt: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }> }) => {
+      const first = p.prompt[0]
+      if (first && first.type === 'text') promptCalls.push({ sessionId: p.sessionId, text: first.text })
+      else promptCalls.push({ sessionId: p.sessionId, text: '' })
       return opts.promptResult ? await opts.promptResult : { stopReason: 'end_turn' }
     }),
     cancel: vi.fn(async (p: { sessionId: string }) => { cancelCalls.push(p.sessionId); return {} }),

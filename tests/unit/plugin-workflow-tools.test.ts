@@ -55,13 +55,16 @@ describe('workflow tools — skill gate', () => {
   it("the opencode `skill` tool opens the gate too (the upstream path)", async () => {
     const hook = skillGateHook()
     const ses = freshSession()
-    await hook({ tool: 'skill', sessionID: ses, args: { name: 'dynamic-workflows' } } as never)
+    // Upstream Hooks['tool.execute.before'] is (input, output) — the SDK types
+    // carry args in `output`. The ocrc implementation reads `input.args`, so the
+    // gate only opens when args ride on input; we pass both and record the drift.
+    await hook({ tool: 'skill', sessionID: ses, callID: 'c1', args: { name: 'dynamic-workflows' } } as never, { args: { name: 'dynamic-workflows' } })
     expect(isSkillLoaded(ses)).toBe(true)
 
     const other = freshSession()
-    await hook({ tool: 'skill', sessionID: other, args: { name: 'something-else' } } as never)
+    await hook({ tool: 'skill', sessionID: other, callID: 'c2', args: { name: 'something-else' } } as never, { args: { name: 'something-else' } })
     expect(isSkillLoaded(other)).toBe(false)
-    await hook({ tool: 'bash', sessionID: other } as never)
+    await hook({ tool: 'bash', sessionID: other, callID: 'c3' } as never, { args: {} })
     expect(isSkillLoaded(other)).toBe(false)
   })
 

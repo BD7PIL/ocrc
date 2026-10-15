@@ -194,8 +194,9 @@ describe('vendored dwf: sandbox run with a fake driver', () => {
     // The engine accepted the submitted value (no repair was needed).
     expect(run.verdicts).toEqual([{ kind: 'accept' }])
     // The script's return value crossed back out of the sandbox (RunSettlement
-    // calls it `artifact` — it is the top-level `return`).
-    expect(settlement.artifact).toMatchObject({
+    // calls it `artifact` — it is the top-level `return`). Narrow the union to
+    // the completed member first.
+    expect(settlement.status === 'completed' ? settlement.artifact : undefined).toMatchObject({
       verdict: { ok: true, reason: 'no findings' },
       summary: 'one-line summary',
     })

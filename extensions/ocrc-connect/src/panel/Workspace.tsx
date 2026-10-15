@@ -136,7 +136,14 @@ export function Workspace(props: {
 
   const addRoot = useCallback(async () => {
     const line = window.prompt('被控机上的工作区绝对路径（如 /home/user/project）')
-    if (!line || !line.startsWith('/')) return
+    if (!line) return
+    // Roots are POSIX paths ON THE CONTROLLED HOST — a Windows panel user
+    // typing C:\... is the most predictable mistake; surface it instead of
+    // silently ignoring the input.
+    if (!line.startsWith('/')) {
+      setErr('工作区根必须是被控机（Linux）上的绝对路径，以 / 开头 — Windows 盘符路径（C:\\…）不在此处使用。')
+      return
+    }
     const next = [...new Set([...roots, line.replace(/\/+$/, '')])]
     setRoots(next)
     await props.onRootsChanged?.(next)

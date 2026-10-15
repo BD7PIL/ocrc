@@ -1,5 +1,69 @@
 # Changelog
 
+## 2.0.0-alpha.7 — 批次 6：全项目痛点清理 + 测试完善 + Windows 移交（2026-10-16）
+
+目标终态：全部开发测试在 EL7 闭环，产出 `docs/handoff/batch6-windows-testing.md`
+移交包（PowerShell 前置检查 + 9 步验收 + 回传诊断），2.0 拓扑首次交 Windows 真机。
+
+### Fixed — 本轮揪出的 6 个真实 bug
+
+1. **install.ts managed 对象键 TypeError**：`migrateLegacyConfig` 假设 V1
+   `plugin` 键必为数组；openchamber managed 物化写的是**对象**——在 managed
+   宿主上跑 install 直接崩。回归测试锁进 plugin-key.test.ts（E1-4 承诺）。
+2. **renderer deleteMessage 同步 throw**：无 deleteMessage 的 bot（测试 fake、
+   精简客户端）让 `clearThinkingPlaceholder` 的 `.catch` 形同虚设（同步 throw
+   照样 reject），finalize 整体跌进兜底路径 → 长回答被截成 3800 字符。
+   integration 测试此前从未被执行，一接进来就暴露。
+3. **omo 配置远端写入路径冻结**（批次 5.1 全链真机从未写对过）：`$HOME` 被
+   单引号包进远端脚本 → 远端 shell 不展开 → 写进字面 `~/$HOME/.config/opencode/`
+   目录。单测全 mock 了 sshExec 所以从未暴露——accept 脚本真机跑出来的。
+4. **tunnel.stop() 不清 activeProfile**：断开后 fs/git/omo/config 面仍拿着旧
+   profile 工作，不再 409。
+5. **ocrc-follow.yml fail-open**：上游 compatibility.js 解析失败（crossed=unknown）
+   时 bundle 照样产出。改 fail-closed（仅 crossed=false 产 bundle）。
+6. **config-bridge 面板宿主路径**：Windows 无 XDG，`~/.config` fallback 让
+   配置同步 tab 在真实 Windows 面板上空白。加 `%APPDATA%\opencode`（win32）分支。
+
+### Added
+
+- **accept-workspace.sh 全端点覆盖**：10 → 25 步，覆盖全部 21 个端点 + 401/409/
+  422/400/`..` 守卫（原只测 11 个端点）。**service/main.ts 7 个单测**（鉴权/路由
+  分发/CRUD/错误映射/profiles 重启持久化）。
+- **tests/ 树类型检查**：`typecheck:tests`（tsconfig.tests.json）+ 90 处既有
+  类型错清零，进 CI 门禁。
+- **coverage 基线**：`@vitest/coverage-v8`，src/ 口径 statements 72.6%，CI 出报告。
+- **v2 pin 声明式 manifest**：`ops/v2-pin-manifest.json`（manifest > env > 动态
+  跟随的第一层真正落位）；install 时物化到 `<OCRC_HOME>/bin-cache/manifest.json`；
+  CI bump-pin 同步重写 manifest + repo variable；bundle 附带 pin-manifest.json。
+- **CI 冒烟增强**（兑现 e1/e2/release-following 三份裁决的承诺）：E1-4 双写
+  不变量断言、注册面 smoke（四远程工具在 dist 可见）、消费面冒烟（插件 tarball
+  解包 + dist 加载面）。
+- **测试补全**：i18n en/zh 键一致性 + 占位符插槽一致（656 键双向零差异）；6 个
+  无测试路由（settings-project/offpeak/share/policy/catalog/version）19 用例；
+  新增 managed 共存 / E1-4 回归用例。453→**1071** 后端测试全绿。
+- **Windows 移交包**：`docs/handoff/batch6-windows-testing.md`——全仓第一份
+  PowerShell 诊断材料（ssh -V / ssh-agent 启用 / 手动隧道 / 日志路径）；批次 5
+  「配置同步」与 5.1「omo 编排」两个 tab 的验收（此前无 handoff 增补）。
+- **CI 扩展 tar.gz artifact**（兑现 batch2 handoff §2 方式 B）：免 clone 的
+  Windows 安装包；扩展 dist 一致性校验（`git diff --exit-code`）进 CI。
+
+### Changed
+
+- ocrc-connect **0.5.0**：win32 配置路径、keyPath 档案输入、工作区根目录
+  Windows 盘符路径显式报错（原静默忽略）。
+- 删 `scripts/spike-restart.sh`（4598 遗留，误跑抢 TG token 顶死 4199——OPS.md
+  曾两次警告）；`v2-restart.sh` 加沙盒自拒护栏。
+- 仓库根 ~48 个调试垃圾文件清理；`/tmp/e1-lab` token 核查（无命中）；OPS.md/
+  PRODUCT.md 对齐 2.0 现实（V2 插件已交付、离线 bundle、spike 脚本删除）。
+- package.json 卫生：typescript → devDependencies；@types/diff 7→8 对齐 diff@9。
+- extension dist 三份并存的不一致碎屑（3 个误跟踪的 dist 文件）随 dist 校验
+  步骤澄清。
+
+### 不做（本轮明确）
+
+npm publish（冻结待裁决）；扩展独立仓库与自更新（需建仓）；web-next 解冻；
+被控端 Windows 原生化；@opencode-ai/sdk 升 2.x；签名 bundle 与 SSH 自动推送。
+
 ## 2.0.0-alpha.6 — 批次 5.1：omo-slim 配置的 UI 控制（2026-10-15）
 
 > 批次 5 收尾时的用户追问「能不能在 UI 中控制 omo slim 的配置」——openchamber

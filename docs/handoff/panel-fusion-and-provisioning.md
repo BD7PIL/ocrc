@@ -19,13 +19,13 @@ guest 帧吃宿主的主题令牌、用宿主的组件套件，视觉语言与�
 | 1 | 三个 guest 入口接入宿主主题（`applyHostReady`），五份重复 `theme.css` 收敛成一份 `guest.css` | `extensions/*/src/shared/{host-theme.ts,guest.css}` |
 | 2 | React 绑定宿主的 SDK 组件套件（按钮/徽标/字段/选择/tabs/列表/空态/横幅/开关） | `extensions/*/src/shared/kit.tsx` |
 | 3 | 图标换成宿主同款 Remixicon（替掉 📁📄⎇▾▸└✓✗） | `@remixicon/react` 依赖 |
-| 4 | 四个真实缺陷修复：`window.prompt` ×4 → 内联表单；omo 视图 `onItem`/`onDirectory` 从未订阅；omo 树可点 `<div>` → 真按钮；tab 切换清空草稿 | `extensions/ocrc-connect/src/panel/*`、`extensions/ocrc-omo-view/src/panel/Panel.tsx` |
+| 4 | 四个真实缺陷修复：`window.prompt` ×4 → 内联表单；omo 视图 `onItem`/`onDirectory` 从未订阅；omo 树可点 `<div>` → 真按钮；tab 切换清空草稿 | `extensions/ocrc-remote/src/panel/*`、`extensions/ocrc-omo-view/src/panel/Panel.tsx` |
 | 5 | 两个**契约性**缺陷修复：`countSubagents` 依赖宿主从不发送的 `agent` 字段（面板永远显示「暂无编排」）；`outcome` 判的是 `succeeded` 而宿主发的是 `completed` | `extensions/ocrc-omo-view/src/shared/tree.ts` |
-| 6 | Work Status 区块：`setHeight` 自适应、`setStatusControls` 宿主渲染控件、`setBadge` 待办数、`toast` 报错 | `extensions/ocrc-connect/src/status/main.tsx` |
-| 7 | **主机视图**：四档就绪 + 引擎版本/漂移 + 部署预演与一次确认 + 能力盘点与转发落地 | `extensions/ocrc-connect/src/panel/HostView.tsx` |
-| 8 | service 侧六个新模块：探测 / 取件 / 安装 / 能力 / 转发 / 项目级配置（+ 凭据通道） | `extensions/ocrc-connect/src/service/*` |
-| 9 | **移除**「写被控端全局配置」的整条路径（旧入口返回 410 并指向新端点） | `extensions/ocrc-connect/src/service/main.ts` |
-| 10 | 三道新门禁：guest 产物不变量、CDP 视觉对照、provisioning 真机验收 | `scripts/check-guest-bundles.mjs`、`scripts/cdp/guest-ui.mjs`、`extensions/ocrc-connect/scripts/accept-provision.sh` |
+| 6 | Work Status 区块：`setHeight` 自适应、`setStatusControls` 宿主渲染控件、`setBadge` 待办数、`toast` 报错 | `extensions/ocrc-remote/src/status/main.tsx` |
+| 7 | **主机视图**：四档就绪 + 引擎版本/漂移 + 部署预演与一次确认 + 能力盘点与转发落地 | `extensions/ocrc-remote/src/panel/HostView.tsx` |
+| 8 | service 侧六个新模块：探测 / 取件 / 安装 / 能力 / 转发 / 项目级配置（+ 凭据通道） | `extensions/ocrc-remote/src/service/*` |
+| 9 | **移除**「写被控端全局配置」的整条路径（旧入口返回 410 并指向新端点） | `extensions/ocrc-remote/src/service/main.ts` |
+| 10 | 三道新门禁：guest 产物不变量、CDP 视觉对照、provisioning 真机验收 | `scripts/check-guest-bundles.mjs`、`scripts/cdp/guest-ui.mjs`、`extensions/ocrc-remote/scripts/accept-provision.sh` |
 
 ---
 
@@ -33,11 +33,11 @@ guest 帧吃宿主的主题令牌、用宿主的组件套件，视觉语言与�
 
 | 门禁 | 命令 | 本轮结果 |
 |---|---|---|
-| 扩展单测 | `cd extensions/ocrc-connect && npm test` | **207 通过**（改动前 56；含真机形状的探测/身份/安装输出解析） |
+| 扩展单测 | `cd extensions/ocrc-remote && npm test` | **207 通过**（改动前 56；含真机形状的探测/身份/安装输出解析） |
 | 类型 | `npm run typecheck` + `tsc -p tsconfig.service.json` | 绿 |
 | guest 产物不变量 | `node scripts/check-guest-bundles.mjs` | 3 个 bundle：无 `process.env`、有主题桥、无 `window.prompt`；两份共享层逐字节一致 |
 | CDP 视觉对照 | `node scripts/cdp/guest-ui.mjs` | **48/48**；真 Edge + 真 `sandbox="allow-scripts"` iframe，明暗两套主题各截一张（`/tmp/ocrc-guest-ui/`） |
-| provisioning 验收（真机） | `extensions/ocrc-connect/scripts/accept-provision.sh --target demo@192.168.26.101` | **全过**：探测 RHEL 7.9 / glibc 2.17 → 四档就绪 → 规划（`@opencode/cli-linux-x64@2.0.27` via remote）→ 确认门禁 → 项目级配置写入（密钥改写为 `{env:…}`）→ **全局层 md5 未变** → 幂等 → 粘性合并 → 转发落地 |
+| provisioning 验收（真机） | `extensions/ocrc-remote/scripts/accept-provision.sh --target demo@192.168.26.101` | **全过**：探测 RHEL 7.9 / glibc 2.17 → 四档就绪 → 规划（`@opencode/cli-linux-x64@2.0.27` via remote）→ 确认门禁 → 项目级配置写入（密钥改写为 `{env:…}`）→ **全局层 md5 未变** → 幂等 → 粘性合并 → 转发落地 |
 | 安装脚本本体 | 本地起 sh 跑一遍生成的脚本 | 校验 → 解包 → 验版本 → 落盘 → marker 记 sha512；篡改则拒绝且不动旧件 |
 
 **安装段（真把工件装进被控端 `~/.opencode/bin`）默认不跑**，需要 `--with-install` 且只对一次性容器或
@@ -104,24 +104,24 @@ guest 帧吃宿主的主题令牌、用宿主的组件套件，视觉语言与�
 
 | # | 交付 | 位置 |
 |---|---|---|
-| 1 | **命令面**：`/ocrc-host`（现状）与 `/ocrc-plan`（待办）——把四档就绪、引擎、能力缺口打包成 chip 交给模型 | `extensions/ocrc-connect/{package.json,src/panel/commands.ts}` |
+| 1 | **命令面**：`/ocrc-host`（现状）与 `/ocrc-plan`（待办）——把四档就绪、引擎、能力缺口打包成 chip 交给模型 | `extensions/ocrc-remote/{package.json,src/panel/commands.ts}` |
 | 2 | 主机视图「交给模型」：**在此项目上新建会话**（目录已是 openchamber 项目时）+ **贴到当前对话**；`sent` 四态如实显示 | `src/panel/HostView.tsx` |
 | 3 | **运行时补齐**：`~/.ocrc/runtime/<pkg>/<slot>` 落点、入口由包自己的 `bin` 解析、marker 幂等、非 ocrc 目录不碰、失败不留半截目录 | `src/service/runtime.ts` |
 | 4 | 三个新端点：`POST /runtime/plan` / `/runtime/apply` / `/runtime/remove`；`/capabilities` 出参加 `runtime` | `src/service/main.ts` |
 | 5 | 探测扩项：`npm --version` 与 `nodeOk`（≥ 20） | `src/service/detect.ts` |
 | 6 | **npx 改写接线**（D13 从「有规则」变成「真写进配置」）：`/project-config` 写入前把已就位的运行时改成真实入口，并逐条回报 `npxRewrites` | `src/service/main.ts`、`src/panel/ConfigSync.tsx` |
 | 7 | 转发端口变化可见：`/forwards` 的 `portChanges` + 改写后的 URL（跟着实际端口走） | `src/shared/provision.ts`、`src/panel/HostView.tsx` |
-| 8 | 门禁扩项：CDP 加一段真实命令解析 + 交接（48 → **57** 项）；验收脚本加 `--with-runtime` | `scripts/cdp/guest-ui.mjs`、`extensions/ocrc-connect/scripts/accept-provision.sh` |
+| 8 | 门禁扩项：CDP 加一段真实命令解析 + 交接（48 → **57** 项）；验收脚本加 `--with-runtime` | `scripts/cdp/guest-ui.mjs`、`extensions/ocrc-remote/scripts/accept-provision.sh` |
 
 ### 7.2 证据（都在本机可复跑）
 
 | 门禁 | 命令 | 结果 |
 |---|---|---|
-| 扩展单测 | `cd extensions/ocrc-connect && npm test` | **305 通过**（第一轮 207；新增命令摘要/运行时脚本与决策/端点契约/端口改写） |
+| 扩展单测 | `cd extensions/ocrc-remote && npm test` | **305 通过**（第一轮 207；新增命令摘要/运行时脚本与决策/端点契约/端口改写） |
 | 类型 | `npx tsc --noEmit` + `tsc -p tsconfig.service.json` | 绿 |
 | guest 产物不变量 | `node scripts/check-guest-bundles.mjs` | 3 bundle / 3 共享文件逐字节一致；**新增清单门禁**：用 SDK 自己的 `parseManifest` 解析 `package.json`（命令名、能力名、入口路径），并钉住「不许有 `contributes.background`」（它会把命令解析抢给隐藏帧）——两条都做过反向验证 |
 | CDP 视觉与动线 | `node scripts/cdp/guest-ui.mjs` | **57/57**：多出「`/ocrc-host` 真解析成 chip」「chip 五字段与机器可读 data」「按钮真建会话（`start-session` 被宿主收到）」 |
-| provisioning 全链验收（真机） | `extensions/ocrc-connect/scripts/accept-provision.sh --target demo@192.168.26.101 --with-install --with-runtime --registry-host 192.168.26.1` | **1–24 步全过**：探测 RHEL 7.9 / glibc 2.17 / node v20.20.2 / npm 10.8.2 → 规划 → 确认门禁 → 项目级配置（密钥改写、全局 md5 未变）→ 幂等 → 粘性合并 → 转发 → **引擎真装（remote 取件）** → **换过字节的工件被拒且旧件未动** → 卸载 → **运行时真装（`npm install` 落到 `~/.ocrc/runtime/ocrc-accept-runtime/1.0.0`，入口 = 包自己的 `.bin` 垫片）** → 幂等短路 → 重盘变 `present` → **npx 改写写进项目配置** → 不存在的包如实报 npm 的错误且不留残渣 → 移除只删我们的槽位 |
+| provisioning 全链验收（真机） | `extensions/ocrc-remote/scripts/accept-provision.sh --target demo@192.168.26.101 --with-install --with-runtime --registry-host 192.168.26.1` | **1–24 步全过**：探测 RHEL 7.9 / glibc 2.17 / node v20.20.2 / npm 10.8.2 → 规划 → 确认门禁 → 项目级配置（密钥改写、全局 md5 未变）→ 幂等 → 粘性合并 → 转发 → **引擎真装（remote 取件）** → **换过字节的工件被拒且旧件未动** → 卸载 → **运行时真装（`npm install` 落到 `~/.ocrc/runtime/ocrc-accept-runtime/1.0.0`，入口 = 包自己的 `.bin` 垫片）** → 幂等短路 → 重盘变 `present` → **npx 改写写进项目配置** → 不存在的包如实报 npm 的错误且不留残渣 → 移除只删我们的槽位 |
 
 **这一轮新增的验收开关**：`--with-runtime`（在被控端真跑一次 `npm install`）、
 `--registry-host`（远程靶机时 fixture registry 绑定的面板侧地址；loopback 靶机用默认值）。
@@ -168,7 +168,7 @@ guest 帧吃宿主的主题令牌、用宿主的组件套件，视觉语言与�
    `~/.opencode/bin`，**不覆盖**你既有的 `~/.local/bin/opencode`。
 4. 不出网的被控机：先在面板侧点**下载工件到面板**，再推送。
 
-### 第二轮增补（`ocrc-connect` **0.6.0**）
+### 第二轮增补（`ocrc-remote` **0.6.0**）
 
 5. **必须重装扩展**：`0.5.0` 的产物在面板里跑起来，主机视图会报 `操作失败 / not found`
    （新端点还不存在）。重装后版本应为 `0.6.0`。

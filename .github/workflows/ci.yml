@@ -25,7 +25,7 @@ jobs:
         run: |
           npm ci
           npm --prefix web-next ci
-          npm --prefix extensions/ocrc-connect ci
+          npm --prefix extensions/ocrc-remote ci
           npm --prefix extensions/ocrc-omo-view ci
 
       - name: Typecheck (plugin)
@@ -60,9 +60,9 @@ jobs:
 
       - name: Typecheck + test + build (extensions)
         run: |
-          npm --prefix extensions/ocrc-connect run typecheck
-          npm --prefix extensions/ocrc-connect test
-          npm --prefix extensions/ocrc-connect run build
+          npm --prefix extensions/ocrc-remote run typecheck
+          npm --prefix extensions/ocrc-remote test
+          npm --prefix extensions/ocrc-remote run build
           npm --prefix extensions/ocrc-omo-view run typecheck
           npm --prefix extensions/ocrc-omo-view test
           npm --prefix extensions/ocrc-omo-view run build
@@ -72,7 +72,7 @@ jobs:
       # fails if the committed shape drifted from source.
       - name: Extension dist consistency (staged artifacts match src)
         run: |
-          git diff --exit-code -- extensions/ocrc-connect/panel extensions/ocrc-connect/status extensions/ocrc-connect/service extensions/ocrc-connect/shared
+          git diff --exit-code -- extensions/ocrc-remote/panel extensions/ocrc-remote/status extensions/ocrc-remote/service extensions/ocrc-remote/shared
           git diff --exit-code -- extensions/ocrc-omo-view/panel extensions/ocrc-omo-view/service extensions/ocrc-omo-view/shared
           echo "extension artifacts in sync with src"
 
@@ -88,9 +88,9 @@ jobs:
       - name: Pack ocrc-extensions tarball
         run: |
           mkdir -p pack
-          cp -r extensions/ocrc-connect extensions/ocrc-omo-view pack/
+          cp -r extensions/ocrc-remote extensions/ocrc-omo-view pack/
           rm -rf pack/*/src pack/*/node_modules pack/*/dist pack/*/tests
-          tar czf ocrc-extensions-${{ github.sha }}.tar.gz -C pack ocrc-connect ocrc-omo-view
+          tar czf ocrc-extensions-${{ github.sha }}.tar.gz -C pack ocrc-remote ocrc-omo-view
 
       - name: Upload extension pack
         uses: actions/upload-artifact@v4

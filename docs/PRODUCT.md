@@ -1,4 +1,4 @@
-# PRODUCT.md — ocrc 产品宪法
+# PRODUCT.md — OCRC 产品宪法
 
 > 每个新需求先过这一页。2026-10-05 经架构 grilling 定稿；**2026-10-06 修订（定位落案 + 双拓扑）**；**2026-10-07 修订（ZCode 平替驾驶舱落案：定位升级 + 功能范围 + backend 域模型 + provisioning/更新矩阵）**；**2026-10-14 修订（基座换位：openchamber 面板 + ocrc 收缩换位）**；**2026-10-16 修订（面板侧 provisioning 与项目级配置：换位后第一份能力契约，见第零点九条与 `docs/research/panel-provisioning-verdict.md`）**；**2026-10-16 二次修订（动线接入 + 运行时闭环：主机现状以命令 chip 交给模型、运行能在被控端真落地，见第零点九条末三段）**；**2026-10-17 修订（对端能力：远程 openchamber 实例 + 引擎 v2 门禁 + 出网中继 + 三级重连，见第零点十条）**。修订需在此文件留痕。
 
@@ -120,7 +120,7 @@ ocrc 的已保存 workflow 是一个机器级 store，没有可搬的文件。am
 > 上游同构参照是 ZCode 的 `detect → deploy → exec → 握手` 管线（被控端只需 sshd + POSIX sh + tar + 可写 `$HOME`）。
 
 - **全链落在面板侧扩展**（D2）：检测 → 取工件 → 推送/联网安装 → 写配置，四步都在
-  `extensions/ocrc-connect`。引擎侧 ocrc 的 provisioning 降为「已装 ocrc 的被控机」辅助路径——
+  `extensions/ocrc-remote`。引擎侧 ocrc 的 provisioning 降为「已装 ocrc 的被控机」辅助路径——
   鸡生蛋：被控机连引擎都没有时，那边没有 ocrc 可驱动。
 - **自动程度固定为「检测全自动、安装与写配置一次显式确认」**（D3）：检测在连接时与手动刷新时自动跑；
   安装/写配置必须一次显式确认，可勾「此主机不再询问」。阶段 2/3 会往被控端装东西，这条门禁不得绕开。

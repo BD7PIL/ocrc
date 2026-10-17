@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — OCRC 收敛（2026-10-17）
+
+- 扩展 `ocrc-connect` 改名为 **`ocrc-remote`**（`panel.id` 同步；旧安装需卸载重装）。品牌写作 OCRC；CLI 命令与 npm 包名保持小写。
+- 远程实例核心折进扩展 service：不再需要 `:4099` 常驻，长操作改为 job + 轮询；UI 隧道归桌面壳，service 持有反向出网腿。
+- 内嵌试验结论：扩展不能 iframe 对端（guest CSP `frame-src` + 对端 `frame-ancestors`），入口回退桌面版原生 Remote Instances。
+- EL7 终端：node-pty 按 glibc 2.17 重建（`scripts/remote-node-pty-glibc217.sh`），面板终端可用。
+
 ## 2.0.0-alpha.7 — 批次 6：全项目痛点清理 + 测试完善 + Windows 移交（2026-10-16）
 
 目标终态：全部开发测试在 EL7 闭环，产出 `docs/handoff/batch6-windows-testing.md`
@@ -49,7 +56,7 @@
 
 ### Changed
 
-- ocrc-connect **0.5.0**：win32 配置路径、keyPath 档案输入、工作区根目录
+- ocrc-remote **0.5.0**：win32 配置路径、keyPath 档案输入、工作区根目录
   Windows 盘符路径显式报错（原静默忽略）。
 - 删 `scripts/spike-restart.sh`（4598 遗留，误跑抢 TG token 顶死 4199——OPS.md
   曾两次警告）；`v2-restart.sh` 加沙盒自拒护栏。
@@ -70,7 +77,7 @@ npm publish（冻结待裁决）；扩展独立仓库与自更新（需建仓）
 > 原生不能，本批次用既有 ssh 面补上。调研 + E4 spike 实证归档：
 > `docs/research/omo-config-surface.md`。
 
-### feat(extensions/ocrc-connect 0.4.0): /omo/config 端点 + 「omo 编排」区块
+### feat(extensions/ocrc-remote 0.4.0): /omo/config 端点 + 「omo 编排」区块
 - **E4 spike（e2-lab 隔离栈）**：omo-slim 3.0.4 离线接入被控端——installer
   `--no-tui` 生成 `.json` 基准配置（2 250 B）+ V1 `plugin` 键注册（v2.0.27 接受，
   与 ocrc 的 V2 `plugins` 分键而治再证）；agents 面 6 omo 代理就位，prompt 走
@@ -93,7 +100,7 @@ npm publish（冻结待裁决）；扩展独立仓库与自更新（需建仓）
   per-agent 模型链只读树 + 「编辑原始 JSON」逃生门。
 
 ### 测试与验收
-- ocrc-connect 23 新单测（jsonc 剥注释、双格式探测、fallback 白名单校验、
+- ocrc-remote 23 新单测（jsonc 剥注释、双格式探测、fallback 白名单校验、
   原子写脚本、结构化编辑保键），47/47 全绿。
 - E4 栈集成闭环：GET 读回基准配置（schema 内嵌）；POST 结构化编辑
   （preset→opencode-go + fallback 五字段）→ 写入 + `.ocrc-bak` →
@@ -105,7 +112,7 @@ npm publish（冻结待裁决）；扩展独立仓库与自更新（需建仓）
 > openchamber 面板写的 agents/MCP/providers 配置落在**面板宿主磁盘**，external
 > 引擎收不到（key 例外——走引擎 credential API 已通）。本批次把这条通道补齐。
 
-### feat(extensions/ocrc-connect 0.3.0): 配置桥
+### feat(extensions/ocrc-remote 0.3.0): 配置桥
 - **E3 实测**：`OPENCODE_CONFIG` 附加层与全局配置合并（bridge 层 `agent` 段可覆盖
   内置 agent）——桥选型定为**分键合并写回被控端主 opencode.json**（不依赖 env、
   adopt 场景同样生效）。
@@ -147,9 +154,9 @@ npm publish（冻结待裁决）；扩展独立仓库与自更新（需建仓）
 ## 2.0.0-alpha.4 — 批次 4：远程工作区面板桥（A 路线）（2026-10-15）
 
 > 上游 openchamber 的 Files/Git 面板硬绑面板宿主磁盘（#3113 拒绝代理远端）——
-> 「远程工作区」以 **ocrc-connect 扩展自己的端点 + UI** 补齐，不碰上游路由。
+> 「远程工作区」以 **ocrc-remote 扩展自己的端点 + UI** 补齐，不碰上游路由。
 
-### feat(extensions/ocrc-connect 0.2.0)
+### feat(extensions/ocrc-remote 0.2.0)
 
 - **A1 service fs/git-over-ssh**：`/fs/list|read|write|stat|mkdir` +
   `/git/status|diff|log|stage|commit` + `/git-branch` 徽标端点——service 在面板
@@ -217,7 +224,7 @@ dist 入口解决，vendor/ 必须随包分发）。
 > 面板侧能力以 openchamber 扩展形态回归；本机开发与测试完成，
 > Win/Mac 侧动作清单见 `docs/handoff/batch2-panel-testing.md`（唯一 handoff）。
 
-### extensions/ocrc-connect 0.1.0 — 连接/隧道扩展
+### extensions/ocrc-remote 0.1.0 — 连接/隧道扩展
 - panel：SSH 档案管理（存 host.storage）+ 隧道/引擎双状态卡 + 连接断开；
   statusSection「ocrc 隧道」健康徽标。
 - service（面板宿主本机进程，openchamber 代拉）：spawn `ssh -N -L

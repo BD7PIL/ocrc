@@ -441,6 +441,17 @@ export function buildForwardArgs(spec: ForwardSpec): string[] {
   ]
 }
 
+/** Reverse-only forward for the external-tunnel mode: the desktop shell owns
+ *  the UI's `-L`, this process owns the `-R` egress leg. Same ssh options, no
+ *  `-L`, so the two processes cannot fight over the local port. */
+export function buildRelayForwardArgs(spec: ForwardSpec): string[] {
+  if (!spec.reverse) throw new Error('relay forward requires a reverse spec')
+  const args = buildForwardArgs(spec)
+  const i = args.indexOf('-L')
+  if (i !== -1) args.splice(i, 2)
+  return args
+}
+
 /** Health/identity probe targets on the forwarded URL, in the order the plan
  *  checks them. `capabilities` must contain `api.runtime-url.v1` — that is the
  *  one openchamber's own host probe treats as a hard requirement. */

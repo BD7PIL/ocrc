@@ -35,13 +35,16 @@ export interface RemoteInstancesStore {
    * is skipped rather than clobbering an unsaved change (the 100 ms debounce).
    */
   reload(): void
+  /** Write any debounced change now. The extension service is long-lived, so it
+   *  opts out of the process-exit hook and calls this on shutdown instead. */
+  flush(): void
 }
 
 export function remoteInstancesPath(home: string): string {
   return join(home, 'remote-instances.json')
 }
 
-export function createRemoteInstancesStore(path: string): RemoteInstancesStore {
+export function createRemoteInstancesStore(path: string, opts: { flushOnExit?: boolean } = {}): RemoteInstancesStore {
   let instances: RemoteInstance[] = []
 
   function load(): void {
@@ -84,7 +87,7 @@ export function createRemoteInstancesStore(path: string): RemoteInstancesStore {
     // …but a short-lived process (the CLI) exits before that timer fires, so the
     // last write is flushed synchronously at exit. Without this, `ocrc remote add`
     // prints a record it never saved.
-    if (!exitHooked) {
+    if (opts.flushOnExit !== false && !exitHooked) {
       exitHooked = true
       process.on('exit', writeNow)
     }
@@ -124,6 +127,13 @@ export function createRemoteInstancesStore(path: string): RemoteInstancesStore {
     reload() {
       // 有未落盘的本地改动就不动（避免把刚改的开关读没了）
       if (!pending) load()
+    },
+    flush() {
+      if (writeQueued) {
+        clearTimeout(writeQueued)
+        writeQueued = undefined
+      }
+      writeNow()
     },
     get: (id) => {
       const i = instances.find((x) => x.id === id)

@@ -40,7 +40,7 @@
 │   ├─ /api/remote-instance/*   装机 / 启动 / 停止 / 状态 / 日志 / 转发     │
 │   ├─ ssh -N -L 127.0.0.1:<local> : 127.0.0.1:<remote>   （转发 = 唯一的连接）│
 │   ├─ [P3] 本地代理 + ssh -R 127.0.0.1:<proxy>  ← 供对端引擎出网           │
-│   └─ 面板扩展（extensions/ocrc-connect 改造为"远程实例"面板）             │
+│   └─ 面板扩展（extensions/ocrc-remote 改造为"远程实例"面板）             │
 │  浏览器 / PWA（桌面或手机，LAN）──▶ http://127.0.0.1:<local>               │
 └──────────────────────────────────────────────────────────────────────────┘
                                    │ ssh（免密）
@@ -109,9 +109,9 @@
 
 | 文件 | 改动 |
 |---|---|
-| `extensions/ocrc-connect/src/panel/Panel.tsx` | "连接"页改为**远程实例**页：实例卡片（状态、远端端口、本地 URL、"打开"按钮）、装机预演与一次确认、启动/停止、日志抽屉 |
-| `extensions/ocrc-connect/src/panel/HostView.tsx` | 四档就绪收敛为"实例就绪度"（ssh → 运行时 → 应用 → 引擎 → 转发），保留既有检测逻辑 |
-| `extensions/ocrc-connect/src/service/*` | 能力盘点/运行时补齐/配置同步**保留**（它们是"能力包"面，不属于远程实例）；隧道相关（`tunnel.ts`）由宿主接管后降级为兼容路径 |
+| `extensions/ocrc-remote/src/panel/Panel.tsx` | "连接"页改为**远程实例**页：实例卡片（状态、远端端口、本地 URL、"打开"按钮）、装机预演与一次确认、启动/停止、日志抽屉 |
+| `extensions/ocrc-remote/src/panel/HostView.tsx` | 四档就绪收敛为"实例就绪度"（ssh → 运行时 → 应用 → 引擎 → 转发），保留既有检测逻辑 |
+| `extensions/ocrc-remote/src/service/*` | 能力盘点/运行时补齐/配置同步**保留**（它们是"能力包"面，不属于远程实例）；隧道相关（`tunnel.ts`）由宿主接管后降级为兼容路径 |
 
 ### 3.3 被控端载荷（不写代码，随包推）
 

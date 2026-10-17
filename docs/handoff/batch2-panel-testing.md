@@ -22,12 +22,12 @@
 
 ```
 git clone https://github.com/BD7PIL/ocrc.git
-# 两个扩展目录：ocrc/extensions/ocrc-connect 与 ocrc/extensions/ocrc-omo-view
+# 两个扩展目录：ocrc/extensions/ocrc-remote 与 ocrc/extensions/ocrc-omo-view
 ```
 
 面板 → Settings → Extensions → **Add extension** → 选 **folder**：
 
-- ocrc-connect：指向 `extensions/ocrc-connect/`。装完出现一次 **service 能力审批**（openchamber 代为拉起本机进程）——批准。
+- ocrc-remote：指向 `extensions/ocrc-remote/`。装完出现一次 **service 能力审批**（openchamber 代为拉起本机进程）——批准。
 - ocrc-omo-view：指向 `extensions/ocrc-omo-view/`，纯只读，审批面最小（sessions 能力）。
 
 **方式 B（Release 附件）**：下载 Release 附件 `ocrc-extensions-*.tar.gz` 解压（内部目录已是安装形状），同样 folder 安装。
@@ -47,7 +47,7 @@ git clone https://github.com/BD7PIL/ocrc.git
 
 - **换引擎要重启面板**：扩展触碰不到 openchamber server 的引擎配置；隧道建立后若面板没认出引擎，重启 openchamber 一次。
 - **手机 / VS Code 不加载扩展**：隧道跑在面板宿主上，手机经面板正常用会话（只是看不到这两个扩展的面板）。
-- **ocrc-connect 的 service 有本机进程权限**：这是 openchamber 扩展模型里唯一能守护 SSH 进程的方式，装时一次性审批。
+- **ocrc-remote 的 service 有本机进程权限**：这是 openchamber 扩展模型里唯一能守护 SSH 进程的方式，装时一次性审批。
 - **面板宿主重启后**：若只有一个 SSH 档案，service 会自动重连；多个档案需手动点一次（刻意保持歧义手动）。
 
 ## 5. 出问题时回传什么
@@ -62,7 +62,7 @@ CI 推送到 `BD7PIL/ocrc-ext-connect` 与 `BD7PIL/ocrc-ext-omo` 两仓库（分
 
 ---
 
-## 批次 4 增补（2.0.0-alpha.4）：远程工作区（ocrc-connect 0.2.0）
+## 批次 4 增补（2.0.0-alpha.4）：远程工作区（ocrc-remote 0.2.0）
 
 > 前置：上面第 1 节的隧道已通。工作区面板在**同一个「ocrc Connect」扩展里**，
 > 面板顶部新增「连接 / 远程工作区」两个 tab。
@@ -82,7 +82,7 @@ CI 推送到 `BD7PIL/ocrc-ext-connect` 与 `BD7PIL/ocrc-ext-omo` 两仓库（分
 
 ### 8. 本机已验证的部分（无需重测）
 
-`extensions/ocrc-connect/scripts/accept-workspace.sh` 在 EL7 本机 loopback SSH
+`extensions/ocrc-remote/scripts/accept-workspace.sh` 在 EL7 本机 loopback SSH
 活体跑通全链：browse → read → atomic write(.bak) → diff → stage → commit →
 status clean，403/400 守卫生效。你在 Win/Mac 上要验证的只是**同一套端点在
 openchamber 宿主里的 UI 呈现**（iframe + host.storage + service 桥）。

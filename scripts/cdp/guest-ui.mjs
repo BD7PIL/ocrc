@@ -33,7 +33,7 @@ const OUT = process.env.OCRC_GUEST_SHOTS ?? '/tmp/ocrc-guest-ui'
 
 /** The SDK owns the wire contract; read it instead of restating it. */
 const apiVersion = await import(
-  pathToFileURL(join(repoRoot, 'extensions/ocrc-connect/node_modules/@openchamber/sdk/dist/api-version.js')).href
+  pathToFileURL(join(repoRoot, 'extensions/ocrc-remote/node_modules/@openchamber/sdk/dist/api-version.js')).href
 )
 const CHANNEL = apiVersion.OPENCHAMBER_SDK_CHANNEL
 const API_VERSION = apiVersion.OPENCHAMBER_SDK_API_VERSION
@@ -58,8 +58,8 @@ const SESSIONS = [
 /** The frames under test: package root, manifest entry, surface, fixtures. */
 const FRAMES = [
   {
-    name: 'ocrc-connect-panel',
-    root: join(repoRoot, 'extensions/ocrc-connect'),
+    name: 'ocrc-remote-panel',
+    root: join(repoRoot, 'extensions/ocrc-remote'),
     entry: 'panel/index.html',
     surface: 'panel',
     directory: '/srv/ocrc',
@@ -126,8 +126,8 @@ const FRAMES = [
     },
   },
   {
-    name: 'ocrc-connect-status',
-    root: join(repoRoot, 'extensions/ocrc-connect'),
+    name: 'ocrc-remote-status',
+    root: join(repoRoot, 'extensions/ocrc-remote'),
     entry: 'status/index.html',
     surface: 'status',
     directory: '/srv/ocrc',
@@ -441,8 +441,8 @@ async function main() {
   {
     frameErrors.length = 0
     await page.goto(`${base}/harness.html`, { waitUntil: 'load' })
-    await page.evaluate(() => window.__harness.boot('ocrc-connect-panel', 'dark'))
-    const guest = page.frames().find((f) => f.url().includes('/ocrc-connect-panel/'))
+    await page.evaluate(() => window.__harness.boot('ocrc-remote-panel', 'dark'))
+    const guest = page.frames().find((f) => f.url().includes('/ocrc-remote-panel/'))
     await page.waitForTimeout(900)
 
     let chip = null
@@ -481,7 +481,7 @@ async function main() {
       const card = [...document.querySelectorAll('.oc-card')].find((c) => c.textContent.includes('交给模型'))
       card?.scrollIntoView({ block: 'center' })
     })
-    await page.screenshot({ path: join(OUT, 'ocrc-connect-panel.handoff.png') })
+    await page.screenshot({ path: join(OUT, 'ocrc-remote-panel.handoff.png') })
   }
 
   await browser.close()

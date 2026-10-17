@@ -13,12 +13,12 @@
 
 ```
 $ curl -b <登录 cookie> -D - -o /dev/null \
-    http://127.0.0.1:3000/api/guests/ocrc-connect/panel/index.html
+    http://127.0.0.1:3000/api/guests/ocrc-remote/panel/index.html
 Content-Security-Policy: sandbox allow-scripts; default-src 'none';
   script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' 'self' data: blob:;
   style-src ...; img-src ...; font-src ...; media-src ...; worker-src ...;
   frame-src 'self' data: blob:;
-  connect-src 127.0.0.1:3000/api/guests/ocrc-connect/;
+  connect-src 127.0.0.1:3000/api/guests/ocrc-remote/;
   object-src 'none'; form-action 'none'
 ```
 
@@ -60,6 +60,6 @@ opaque `null`；不在 `frame-ancestors` 白名单里，浏览器会在握手阶
 ## 复现
 
 1. 用 web UI 密码登录 `:3000`（密码不落文档）。
-2. `curl -b <cookie> -D - -o /dev/null http://127.0.0.1:3000/api/guests/ocrc-connect/panel/index.html`
+2. `curl -b <cookie> -D - -o /dev/null http://127.0.0.1:3000/api/guests/ocrc-remote/panel/index.html`
    看 guest CSP。
 3. `curl -D - -o /dev/null http://127.0.0.1:4610/` 看对端 `frame-ancestors`。

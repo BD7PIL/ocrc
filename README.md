@@ -1,4 +1,11 @@
-# ocrc — remote control for opencode
+# OCRC — remote control for opencode
+
+> **Current shape (2026-10-17):** the control side is the **openchamber desktop app**
+> (Win/Mac) with the **OCRC Remote** extension (`extensions/ocrc-remote`); the controlled
+> side runs a full openchamber instance provisioned from a CI compat pack. See
+> [AGENTS.md](AGENTS.md) and [docs/PRODUCT.md](docs/PRODUCT.md) for the current
+> architecture; the Telegram/Web sections below describe the earlier surfaces, which
+> remain in the codebase.
 
 > **Drive your opencode from your phone or browser** — a Telegram bot plus a
 > scan-to-pair Web PWA. One install; both surfaces stream the same live

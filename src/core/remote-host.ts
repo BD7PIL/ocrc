@@ -160,16 +160,9 @@ export function buildServeCommand(opencodePath: string, remotePort: number, pass
   return `export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"; ${buildProxyExports(proxy)}${buildExtraEnvExports(env)}OPENCODE_SERVER_PASSWORD=${q(password)} ${q(opencodePath)} serve --hostname 127.0.0.1 --port ${remotePort}`
 }
 
-/** "ldd (GNU libc) 2.17" → "2.17" */
-export function parseGlibcVersion(firstLine: string | undefined): string | undefined {
-  const m = firstLine?.match(/(\d+\.\d+)/)
-  return m?.[1]
-}
+import { nextRetryDelay, parseGlibcVersion } from './remote-common.js'
 
-/** Exponential respawn backoff: 2s → 4s → 8s … capped at 60s. */
-export function nextRetryDelay(attempt: number): number {
-  return Math.min(60_000, 2_000 * 2 ** Math.max(0, attempt - 1))
-}
+export { nextRetryDelay, parseGlibcVersion }
 
 /** Run the official installer remotely, pinned to `version` (empty = latest). */
 export function buildProvisionCommand(version: string): string {

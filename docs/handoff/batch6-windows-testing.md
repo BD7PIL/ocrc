@@ -1,4 +1,4 @@
-# 批次 6 Windows 移交 —— 全项目测试 + ocrc-connect Windows 面首验
+# 批次 6 Windows 移交 —— 全项目测试 + ocrc-remote Windows 面首验
 
 > EL7 侧开发与测试已全部完成（1071 后端测试 + 扩展 56 单测 + 25 步端到端验收全绿）。
 > 本文档是**唯一**需要你在 Windows 日常机上做的部分，也是 2.0 拓扑第一次在真实
@@ -57,16 +57,16 @@ command -v restorecon >/dev/null && restorecon -R ~/.ssh    # EL7 SELinux
 与批次 2 相同：桌面版 exe（https://github.com/openchamber/openchamber/releases）
 或 `npm install -g @openchamber/web`（Node ≥ 24.14）。首次启动设 UI 密码。
 
-## 2. 装扩展（ocrc-connect + ocrc-omo-view）
+## 2. 装扩展（ocrc-remote + ocrc-omo-view）
 
 ```powershell
 git clone https://github.com/BD7PIL/ocrc.git
-# 扩展目录：ocrc\extensions\ocrc-connect 与 ocrc\extensions\ocrc-omo-view
+# 扩展目录：ocrc\extensions\ocrc-remote 与 ocrc\extensions\ocrc-omo-view
 ```
 
 面板 → Settings → Extensions → Add extension → folder：
 
-- `ocrc-connect`：指向 `...\ocrc\extensions\ocrc-connect`。装完出现一次 **service
+- `ocrc-remote`：指向 `...\ocrc\extensions\ocrc-remote`。装完出现一次 **service
   能力审批**——批准（openchamber 代拉本机进程，这是隧道守护的唯一方式）。
 - `ocrc-omo-view`：指向 `...\ocrc\extensions\ocrc-omo-view`，只读。
 

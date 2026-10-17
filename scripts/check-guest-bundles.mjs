@@ -28,7 +28,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 /** Bundle paths relative to the extension root, and the extension's own root. */
 const EXTENSIONS = [
-  { name: 'ocrc-connect', root: join(root, 'extensions', 'ocrc-connect'), bundles: ['panel/main.js', 'status/main.js'] },
+  { name: 'ocrc-remote', root: join(root, 'extensions', 'ocrc-remote'), bundles: ['panel/main.js', 'status/main.js'] },
   { name: 'ocrc-omo-view', root: join(root, 'extensions', 'ocrc-omo-view'), bundles: ['panel/main.js'] },
 ]
 

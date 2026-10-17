@@ -16,7 +16,7 @@
 | §0-② ssh-agent | ✅ 符合预期 | `Stopped / Disabled`（Windows 默认；由 keyPath 对冲） |
 | §0-③ 免密登录被控机 | ✅（需先补一步） | 见 §二-1 |
 | §1 装 openchamber 面板 | ✅ | `@openchamber/web@2.3.3`，守护于 `:3000` |
-| §2 装两个扩展 | ✅ | `POST /api/guests` 201；`ocrc-connect` 0.5.0、`ocrc-omo-view` 0.1.0 |
+| §2 装两个扩展 | ✅ | `POST /api/guests` 201；`ocrc-remote` 0.5.0、`ocrc-omo-view` 0.1.0 |
 | §2 service 能力审批 | ✅ | `PUT /capabilities {"granted":["service"]}` 200 |
 | §2 添加档案（keyPath） | ⚠️ **UI 流程不可用** | 见 §二-3（`window.prompt` 被沙箱忽略）；改经 service API 建档案成功 |
 | §3A 隧道与连接 | ✅ | 面板两枚绿 pill；本机 `:4096` 实测 `{"version":"2.0.27"}` |
@@ -159,10 +159,10 @@
 - **未改动**：ocrc 0.26.5 安装、`~/.ocrc/` 运行时数据、1.18.32 二进制、`opencode.jsonc`。
 
 **仓库（本次提交前的改动）**
-- `extensions/ocrc-connect/src/status/main.tsx` —— 补挂载（+4 行）
-- `extensions/ocrc-connect/vite.config.ts` / `vite.status.config.ts`、`extensions/ocrc-omo-view/vite.config.ts`
+- `extensions/ocrc-remote/src/status/main.tsx` —— 补挂载（+4 行）
+- `extensions/ocrc-remote/vite.config.ts` / `vite.status.config.ts`、`extensions/ocrc-omo-view/vite.config.ts`
   —— 加 `process.env.NODE_ENV` define
-- 上述改动重建后的产物：`extensions/ocrc-connect/{panel,status}/main.js`、`extensions/ocrc-omo-view/panel/main.js`
+- 上述改动重建后的产物：`extensions/ocrc-remote/{panel,status}/main.js`、`extensions/ocrc-omo-view/panel/main.js`
   （用 **vite 7.3.7** 重建；注意本地扩展 `node_modules/.bin` 曾是不完整空壳，会静默回落到仓库根的
   vite 5.4.21，重建前务必先 `npm ci`）
 

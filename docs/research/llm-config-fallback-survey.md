@@ -2,7 +2,7 @@
 
 - 日期：2026-10-15
 - 性质：三向一手源查证（openchamber 源码级、opencode v2 2.0 分支源码+官方 schema、omo-slim 仓库文档级），回答用户六问并立项批次 5「配置与凭据桥」。
-- 落地记录：本批次交付（第五工具 / env 注入 / 白名单修订 / ocrc-connect 配置桥）。
+- 落地记录：本批次交付（第五工具 / env 注入 / 白名单修订 / ocrc-remote 配置桥）。
 
 ## 1. openchamber 有没有 LLM KEY 配置？
 

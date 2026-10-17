@@ -1,7 +1,7 @@
 # omo-slim 配置面：键名、热重载、发现顺序、写路径（批次 5.1 调研归档）
 
 - **日期**：2026-10-15
-- **性质**：批次 5.1（omo-slim 配置的 UI 控制）的调研 + E4 spike 实证归档。所有结论一手源：omo-slim 3.0.4 包内源码/schema（e1-lab npm 缓存）+ e2-lab 隔离栈实测（HOME=/tmp/e2-lab/home，引擎 4398，stub LLM 4310）。配套实现：`extensions/ocrc-connect` 0.4.0 的 `/omo/config` 端点 + 面板「omo 编排」区块。
+- **性质**：批次 5.1（omo-slim 配置的 UI 控制）的调研 + E4 spike 实证归档。所有结论一手源：omo-slim 3.0.4 包内源码/schema（e1-lab npm 缓存）+ e2-lab 隔离栈实测（HOME=/tmp/e2-lab/home，引擎 4398，stub LLM 4310）。配套实现：`extensions/ocrc-remote` 0.4.0 的 `/omo/config` 端点 + 面板「omo 编排」区块。
 
 ## 1. 配置文件机制
 

@@ -20,11 +20,11 @@ import { openSync } from 'node:fs'
 import { join } from 'node:path'
 import { ocrcHome } from '../utils/paths.js'
 import { createLogger } from '../utils/logger.js'
-import { parseGlibcVersion, nextRetryDelay } from './remote-host.js'
+import { parseGlibcVersion, nextRetryDelay } from './remote-common.js'
 import { createInstanceProxy, type InstanceProxy } from './remote-instance-proxy.js'
 import {
   DEFAULT_ENGINE_CANDIDATES, DEFAULT_ENGINE_PIN, NODE_RUNTIME, PROXY_DEFAULTS, buildEngineProbeCommand,
-  buildForwardArgs, buildInstanceServeCommand, buildInstanceStopCommand, buildRemotePortProbeCommand,
+  buildForwardArgs, buildRelayForwardArgs, buildInstanceServeCommand, buildInstanceStopCommand, buildRemotePortProbeCommand,
   buildTerminalProbeCommand, instancePaths, parseTerminalProbe,
   judgeEngineCompat, judgeInstanceVersion, parseEngineProbe, pickV2Engine, type EngineCandidate,
   type EngineCompatPayload, type EnginePick, type InstanceProxyConfig,
@@ -34,6 +34,9 @@ import { buildAppProbeCommand, buildOfflineGuardExports, buildRuntimeProbeComman
 import type { RemoteInstancesStore } from './remote-instances.js'
 
 const log = createLogger('remote-instance')
+
+/** How often external mode re-checks the far side it cannot watch. */
+const EXTERNAL_MONITOR_MS = 20_000
 
 export type InstanceState =
   | 'unknown' | 'checking' | 'provisioning' | 'starting' | 'online'
@@ -46,6 +49,8 @@ export interface InstanceStatus {
   since?: number
   /** `http://127.0.0.1:<localPort>` — the URL the user actually opens. */
   url: string
+  /** Who owns the UI tunnel: this manager (`self`) or the desktop shell (`external`). */
+  tunnelOwner?: 'self' | 'external'
   forwardPid?: number
   forwardAttempts?: number
   engine?: { path: string; version: string }
@@ -187,6 +192,10 @@ interface InstanceRuntime {
   engine?: { path: string; version: string }
   forward?: ChildProcess
   forwardPid?: number
+  /** An `-R` relay adoption check is in flight (see ensureExternalRelayAsync). */
+  relayPending?: boolean
+  /** External-mode re-check timer (no child process to watch in that mode). */
+  monitorTimer?: ReturnType<typeof setInterval>
   forwardAttempts: number
   forwardTimer?: ReturnType<typeof setTimeout>
   stopping: boolean
@@ -213,10 +222,23 @@ export function createRemoteInstanceManager(opts: {
    *     killing it on dispose makes `up` pointless.
    */
   forwards?: 'supervised' | 'detached'
+  /**
+   * Who owns the UI tunnel:
+   *   · `self` (default) — this manager spawns `-L`/`-R` and reconnects;
+   *   · `external` — the openchamber desktop shell owns the UI's `-L`. This
+   *     manager still runs the local relay listener and owns the reverse `-R`
+   *     leg, uses a short-lived verification forward for probes, and never
+   *     spawns or kills the user's UI tunnel.
+   */
+  tunnelOwner?: 'self' | 'external'
+  /** Override the control-side home used for the forward log. */
+  home?: string
+  forwardLogPath?: string
 }): RemoteInstanceManager {
   const runtimes = new Map<string, InstanceRuntime>()
   const detachedForwards = opts.forwards === 'detached'
-  const forwardLogPath = join(ocrcHome(), 'remote-forward.log')
+  const externalTunnel = opts.tunnelOwner === 'external'
+  const forwardLogPath = opts.forwardLogPath ?? join(opts.home ?? ocrcHome(), 'remote-forward.log')
 
   const rt = (id: string): InstanceRuntime => {
     let r = runtimes.get(id)
@@ -381,13 +403,91 @@ export function createRemoteInstanceManager(opts: {
     }
   }
 
+  /** External mode has no child process to watch: nobody can tell us the
+   *  desktop shell's tunnel or the far-side server went away. So we look
+   *  ourselves, on a slow timer — re-start a stopped remote instance and
+   *  re-establish the egress leg when it is gone. */
+  function startExternalMonitor(id: string): void {
+    if (!externalTunnel) return
+    const r = rt(id)
+    if (r.monitorTimer) return
+    const tick = async () => {
+      const here = rt(id)
+      if (here.stopping) return
+      try { opts.store.reload() } catch { /* best effort */ }
+      const fresh = opts.store.get(id)
+      if (!fresh || fresh.enabled === false) return
+      const health = await remoteHealth(fresh)
+      if (health !== '200') {
+        if (fresh.reconnect === false) {
+          setState(id, 'offline', '对端实例未响应（reconnect 关，不自动重启）')
+          return
+        }
+        const pick = await resolveEngine(fresh)
+        if (!pick.ok) {
+          setState(id, 'error', `引擎不满足 v2 门禁：${pick.error}`)
+          return
+        }
+        const relay = await ensureProxy(fresh)
+        if (relay !== 'off') pushLog(id, `egress relay: ${relay}`)
+        await ensureExternalRelayAsync(fresh)
+        const started = await startInstance(fresh, pick.candidate.path)
+        setState(id, started.ok ? 'online' : 'error', started.ok ? `实例已重新拉起（${instanceUrl(fresh.localPort)}）` : started.detail)
+        if (started.ok) pushLog(id, started.detail)
+        return
+      }
+      await ensureExternalRelayAsync(fresh)
+      if (await isListening(fresh.localPort)) {
+        if (here.state !== 'online') setState(id, 'online', '在线（实测）')
+      } else if (here.state === 'online') {
+        setState(id, 'offline', '对端实例在跑，但桌面版隧道未连接')
+      }
+    }
+    const timer = setInterval(() => { void tick().catch(() => { /* next tick */ }) }, EXTERNAL_MONITOR_MS)
+    timer.unref?.()
+    r.monitorTimer = timer
+  }
+
+  function stopExternalMonitor(id: string): void {
+    const r = runtimes.get(id)
+    if (r?.monitorTimer) {
+      clearInterval(r.monitorTimer)
+      r.monitorTimer = undefined
+    }
+  }
+
+  /** Is the remote egress port already served by a tunnel this process did not
+   *  spawn? The CLI's detached `up` and the extension service are separate
+   *  processes; only one of them can hold a given remote listen port, and the
+   *  other must adopt rather than fight (ssh fails the whole forward otherwise). */
+  async function remoteRelayPresent(instance: RemoteInstance): Promise<boolean> {
+    const cfg = proxyConfig(instance)
+    if (!cfg.enabled) return false
+    const probe = await ssh(instance, buildRemotePortProbeCommand(instance.appVersion, cfg.remotePort), 20_000)
+    return probe.stdout.trim().endsWith('open')
+  }
+
   function ensureForward(instance: RemoteInstance): void {
+    void ensureForwardAsync(instance)
+  }
+
+  async function ensureForwardAsync(instance: RemoteInstance): Promise<void> {
+    if (externalTunnel) return
     const r = rt(instance.id)
     if (r.forward && r.forward.exitCode === null) return
+    if (r.relayPending) return
     const cfg = proxyConfig(instance)
+    r.relayPending = true
+    let adopted = false
+    try {
+      adopted = await remoteRelayPresent(instance)
+    } finally {
+      r.relayPending = false
+    }
+    if (adopted) pushLog(instance.id, `远端 ${cfg.remotePort} 已在监听——主隧道不带 -R（复用既有出网中继）`)
     // R9 rides the same ssh process: `-L` gives us the UI, `-R` gives the
     // controlled host its egress. One tunnel, one reconnect loop.
-    const reverse = cfg.enabled ? { remotePort: cfg.remotePort, localPort: cfg.localPort } : undefined
+    const reverse = cfg.enabled && !adopted ? { remotePort: cfg.remotePort, localPort: cfg.localPort } : undefined
     const args = buildForwardArgs({
       host: instance.host,
       port: instance.port,
@@ -451,7 +551,7 @@ export function createRemoteInstanceManager(opts: {
   /** Re-establish a dropped tunnel: the far-side instance is usually still up,
    *  so this is "forward again and re-verify", not "restart everything". */
   async function resumeForward(instance: RemoteInstance): Promise<void> {
-    ensureForward(instance)
+    await ensureForwardAsync(instance)
     await new Promise((r) => setTimeout(r, 800))
     const probe = await probeThroughForward(instance)
     if (probe.ok) {
@@ -473,6 +573,129 @@ export function createRemoteInstanceManager(opts: {
     } catch (err) {
       return { ok: false as const, error: (err as Error).message }
     }
+  }
+
+  /** A free loopback port for a one-shot verification forward. */
+  async function freeLocalPort(): Promise<number> {
+    return await new Promise((resolve, reject) => {
+      const srv = net.createServer()
+      srv.once('error', reject)
+      srv.listen(0, '127.0.0.1', () => {
+        const addr = srv.address()
+        const port = typeof addr === 'object' && addr ? addr.port : 0
+        srv.close(() => (port > 0 ? resolve(port) : reject(new Error('no free loopback port'))))
+      })
+    })
+  }
+
+  /** Run `fn` through a short-lived `-L` forward. External-tunnel mode needs the
+   *  instance's HTTP surface for verification, but must not bind the user's
+   *  configured localPort — the desktop shell owns that one. */
+  async function withTempForward<T>(instance: RemoteInstance, fn: (temp: RemoteInstance) => Promise<T>): Promise<T> {
+    const port = await freeLocalPort()
+    const temp: RemoteInstance = { ...instance, localPort: port }
+    const args = buildForwardArgs({
+      host: instance.host,
+      port: instance.port,
+      user: instance.user,
+      localPort: port,
+      remotePort: instance.instancePort,
+    })
+    const child = spawn('ssh', args, { stdio: ['ignore', 'ignore', 'pipe'] })
+    let stderr = ''
+    child.stderr?.on('data', (d: Buffer) => { stderr += d.toString() })
+    const deadline = Date.now() + 8_000
+    while (Date.now() < deadline) {
+      if (child.exitCode !== null) {
+        throw new Error(`临时转发起不来：${cleanSshNoise(stderr).trim() || `exit ${child.exitCode}`}`)
+      }
+      if (await isListening(port)) break
+      await new Promise((r) => setTimeout(r, 150))
+    }
+    if (!(await isListening(port))) {
+      try { child.kill() } catch { /* already gone */ }
+      throw new Error('临时转发未在 8s 内监听')
+    }
+    try {
+      return await fn(temp)
+    } finally {
+      try { child.kill() } catch { /* already gone */ }
+    }
+  }
+
+  /** External-tunnel mode: the desktop shell owns the UI's `-L`; this manager
+   *  owns the reverse leg that gives the peer engine its egress. Separate ssh
+   *  process, so the two never fight over the local port. */
+  function ensureExternalRelay(instance: RemoteInstance): void {
+    void ensureExternalRelayAsync(instance)
+  }
+
+  async function ensureExternalRelayAsync(instance: RemoteInstance): Promise<void> {
+    const cfg = proxyConfig(instance)
+    if (!cfg.enabled) return
+    const r = rt(instance.id)
+    if (r.forward && r.forward.exitCode === null) return
+    // The check below costs a round trip; two callers in the same `up()` would
+    // otherwise both pass it and spawn two very short-lived ssh processes.
+    if (r.relayPending) return
+    r.relayPending = true
+    try {
+      // A CLI `up` (or the desktop shell) may already carry the reverse leg; a
+      // second `-R` on the same remote port would fail and drop us into a
+      // reconnect loop, so adopt what is there instead.
+      if (await remoteRelayPresent(instance)) {
+        pushLog(instance.id, `远端 ${cfg.remotePort} 已在监听（出网中继由既有隧道提供，复用）`)
+        return
+      }
+    } finally {
+      r.relayPending = false
+    }
+    const args = buildRelayForwardArgs({
+      host: instance.host,
+      port: instance.port,
+      user: instance.user,
+      localPort: cfg.localPort,
+      remotePort: instance.instancePort,
+      reverse: { remotePort: cfg.remotePort, localPort: cfg.localPort },
+    })
+    pushLog(instance.id, `$ ssh -N -R 127.0.0.1:${cfg.remotePort}:127.0.0.1:${cfg.localPort} ${instance.user ? `${instance.user}@` : ''}${instance.host}`)
+    const child = spawn('ssh', args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    r.forward = child
+    r.forwardPid = child.pid
+    child.stdout?.on('data', (d: Buffer) => pushLog(instance.id, d.toString()))
+    child.stderr?.on('data', (d: Buffer) => pushLog(instance.id, d.toString()))
+    child.on('error', (err) => {
+      pushLog(instance.id, `ssh -R: ${err.message}`)
+      setState(instance.id, 'error', `出网中继起不来：${err.message}`)
+    })
+    child.on('exit', (code) => {
+      const current = rt(instance.id)
+      if (current.forward === child) {
+        current.forward = undefined
+        current.forwardPid = undefined
+      }
+      if (current.stopping) return
+      if (code === 0) {
+        setState(instance.id, 'offline', '出网中继已退出')
+        return
+      }
+      try { opts.store.reload() } catch { /* best effort */ }
+      const fresh = opts.store.get(instance.id)
+      if (!fresh?.enabled || fresh.reconnect === false) {
+        setState(instance.id, 'offline', `出网中继退出（reconnect 关）：exit ${code}`)
+        return
+      }
+      current.forwardAttempts += 1
+      const delay = nextRetryDelay(current.forwardAttempts)
+      setState(instance.id, 'offline', `出网中继断开，${Math.round(delay / 1000)}s 后重连（第 ${current.forwardAttempts} 次）`)
+      current.forwardTimer = setTimeout(() => {
+        current.forwardTimer = undefined
+        const again = opts.store.get(instance.id)
+        if (!again || again.enabled === false || again.reconnect === false || current.stopping) return
+        ensureExternalRelay(again)
+      }, delay)
+      current.forwardTimer.unref?.()
+    })
   }
 
   /** Which engine is really behind the panel (R12 assertion point ③). Needs the
@@ -601,6 +824,7 @@ export function createRemoteInstanceManager(opts: {
     async up(id, upOpts = {}) {
       const instance = need(id)
       setState(id, 'starting')
+      if (externalTunnel) startExternalMonitor(id)
       const pick = await resolveEngine(instance)
       if (!pick.ok) {
         setState(id, 'error', '引擎不满足 v2 门禁')
@@ -616,6 +840,7 @@ export function createRemoteInstanceManager(opts: {
         // engine a proxy URL, and a dead port there is a broken engine later.
         const relay = await ensureProxy(instance)
         if (relay !== 'off') pushLog(instance.id, `egress relay: ${relay}`)
+        if (externalTunnel) ensureExternalRelay(instance)
         const started = await startInstance(instance, pick.candidate.path, upOpts.guard)
         if (!started.ok) {
           setState(id, 'error', started.detail)
@@ -628,6 +853,32 @@ export function createRemoteInstanceManager(opts: {
       // The relay is needed either way: a reused instance may have been started
       // without one and its engine would then have no egress.
       if (proxyConfig(instance).enabled) await ensureProxy(instance)
+      if (externalTunnel) {
+        ensureExternalRelay(instance)
+        // The desktop shell owns the user's -L. Verify through a short-lived
+        // forward, then hand off; do not bind the configured localPort here.
+        const verified = await withTempForward(instance, async (temp) => {
+          let probe = await probeThroughForward(temp)
+          const deadline = Date.now() + 20_000
+          while (!probe.ok && Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 1_000))
+            probe = await probeThroughForward(temp)
+          }
+          if (!probe.ok) return { ok: false as const, detail: `实例已起但转发探活失败：${probe.error}` }
+          const compat = await probeEngineCompat(temp)
+          if (!compat.ok) return { ok: false as const, detail: `实例在跑，但引擎门禁未过：${compat.error}` }
+          return { ok: true as const, version: probe.version, compat }
+        }).catch((err: unknown) => ({ ok: false as const, detail: (err as Error).message }))
+        if (!verified.ok) {
+          setState(id, 'error', verified.detail)
+          return { ok: false, detail: verified.detail }
+        }
+        const r = rt(id)
+        r.forwardAttempts = 0
+        r.engine = { path: verified.compat.binary, version: verified.compat.version }
+        setState(id, 'online', `openchamber ${verified.version}（引擎 ${verified.compat.version} @ ${verified.compat.binary}；隧道由桌面版持有）`)
+        return { ok: true, detail: `远端实例在线；隧道由桌面版持有（${instanceUrl(instance.localPort)}；openchamber ${verified.version}，引擎 ${verified.compat.version} @ ${verified.compat.binary}）` }
+      }
       // A tunnel from an earlier CLI run is invisible to this process. Reuse it
       // only when it carries the -R relay too; otherwise say so instead of
       // letting ssh die on a busy port (or silently stealing the port).
@@ -673,6 +924,7 @@ export function createRemoteInstanceManager(opts: {
       const instance = need(id)
       const r = rt(id)
       r.stopping = true
+      stopExternalMonitor(id)
       try {
         stopForward(id)
         const stopped = await stopInstance(instance)
@@ -683,9 +935,36 @@ export function createRemoteInstanceManager(opts: {
       }
     },
 
-    async probe(id) {
+async probe(id) {
       const instance = opts.store.get(id)
       if (!instance) return { online: false, detail: 'no such instance' }
+      if (externalTunnel) {
+        // External mode has no child to watch, so honesty has to come from
+        // probes: the remote instance's own health first (someone may have
+        // stopped it), then the desktop shell's tunnel on the local port.
+        const health = await remoteHealth(instance)
+        if (health !== '200') {
+          const r = rt(id)
+          if (r.state === 'online') setState(id, 'offline', `对端实例未响应（health ${health}）`)
+          return { online: false, detail: `对端实例未响应（health ${health}）` }
+        }
+        if (!(await isListening(instance.localPort))) {
+          const r = rt(id)
+          if (r.state === 'online') setState(id, 'offline', '对端实例在跑，但桌面版隧道未连接')
+          return { online: false, detail: '对端实例在跑，但桌面版隧道未连接（在桌面版 Remote Instances 里连接它）' }
+        }
+        try {
+          const probe = await probeThroughForward(instance)
+          if (probe.ok) {
+            const r = rt(id)
+            if (r.state !== 'online') setState(id, 'online', `openchamber ${probe.version}（实测）`)
+            return { online: true, version: probe.version }
+          }
+          return { online: false, detail: probe.error }
+        } catch (err) {
+          return { online: false, detail: (err as Error).message }
+        }
+      }
       const probe = await probeThroughForward(instance)
       if (probe.ok) {
         // 顺手把本进程的状态也对齐（拥有隧道的进程里 status 立刻变 online）
@@ -708,6 +987,7 @@ export function createRemoteInstanceManager(opts: {
         detail: r?.detail,
         since: r?.since,
         url: instanceUrl(instance.localPort),
+        tunnelOwner: externalTunnel ? 'external' : 'self',
         forwardPid: r?.forwardPid,
         forwardAttempts: r?.forwardAttempts,
         engine: r?.engine ?? (instance.enginePath ? { path: instance.enginePath, version: instance.engineVersion ?? "" } : undefined),
@@ -758,6 +1038,7 @@ export function createRemoteInstanceManager(opts: {
         for (const id of runtimes.keys()) {
           const r = rt(id)
           r.stopping = true
+          stopExternalMonitor(id)
           stopForward(id)
         }
       }

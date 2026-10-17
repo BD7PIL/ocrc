@@ -86,6 +86,9 @@ USAGE:
   ocrc remote connect <id> [--json] [--open] [--desktop-add]
                                    一键 external：桌面版要的三项（地址/密码/端口）+ 可选直接打开
                                    --desktop-add：桌面版退出时写进它的列表（含 -R 出网中继；不写密码）
+  ocrc remote pairlink <id> [--json] [--open]
+                                   向上游要一张配对链接（一次性；换每设备 token，可撤销无过期）
+                                   --open：拉起桌面版确认；确认后机器出现在「其他 OpenChamber 服务器」
   ocrc remote open <id>            打印 URL（并尝试用系统浏览器打开）
   ocrc remote logs <id>            本端隧道/隧道重连日志尾
   ocrc remote remove <id>          删档案（不动对端文件）
@@ -496,6 +499,39 @@ export async function main(argv: string[]): Promise<void> {
     const m = manager()
     for (const l of m.logs(instance.id)) console.log(`  ${l}`)
     m.dispose()
+    return
+  }
+
+  if (sub === 'pairlink') {
+    // 上游的配对路径：对端自己的 CLI 发一张一次性链接，桌面版确认后换成**每设备**
+    // 的 token（可撤销、无过期）——我们不存任何凭据，只保证链接里的 URL 可达
+    // （转发 + 出网腿 + 监护），这正好是面板那个按钮调的东西。
+    const instance = resolveInstance(args.slice(1), flags)
+    const m = manager()
+    const r = await m.pairLink(instance.id)
+    m.dispose()
+    if (!r.ok) {
+      console.error(`FAIL ${r.detail}`)
+      process.exit(1)
+    }
+    if (flags.has('json')) {
+      console.log(JSON.stringify(r, null, 2))
+      return
+    }
+    console.log(r.detail)
+    if (r.link) console.log(r.link)
+    if (r.expiresAt) console.log(`有效期至 ${r.expiresAt}`)
+    console.log('（在 openchamber 桌面版里打开这个链接并确认；这台机器会出现在「其他 OpenChamber 服务器」，不在「远程实例」）')
+    if (flags.has('open') && r.link) {
+      // Windows 上 start 会走注册表里的 openchamber:// 处理器；Linux/macOS 用 xdg-open/open。
+      const cmd = process.platform === 'win32' ? 'cmd' : process.platform === 'darwin' ? 'open' : 'xdg-open'
+      const cmdArgs = process.platform === 'win32' ? ['/c', 'start', '', r.link] : [r.link]
+      try {
+        spawn(cmd, cmdArgs, { detached: true, stdio: 'ignore' }).unref()
+      } catch (err) {
+        console.log(`（打开失败：${(err as Error).message}——手动复制上面那行）`)
+      }
+    }
     return
   }
 

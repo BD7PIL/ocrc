@@ -128,3 +128,53 @@ GLIBCXX/CXXABI 引用 0；`node-pty` 从应用目录内解析到提升路径并 
 
 **顺带修的红灯**：`CI` 在 coverage 那一步偶发失败（`tests/unit/cli-port-owner.test.ts` 押注"刚释放的
 临时端口没被别人抢走"），改成换候选重试；与本次改动无关，属既有 flake。
+
+---
+
+## 追加：工件命名收敛与扩展 URL 安装（2026-10-17）
+
+**问题**：`ocrc-remote` 同时指两样东西——控制端的扩展，和推给对端的 openchamber 应用包
+（`ocrc-remote-pack-<ver>-...`）。同一份词汇表里一个词两个所指，迟早有人读错。另外扩展一直没有分发
+通道：只能 clone 整个仓库再 folder 安装，文档里写的 Release 附件 `ocrc-extensions-*.tar.gz` 停在
+0.4.0（当前扩展是 0.7.0），而且那个 tar 顶层是两个目录，**URL 安装根本装不上**。
+
+**先查清平台认什么**（读对端 openchamber 2.3.3 的真实代码，不是猜文档）：
+`server/lib/guests/install.js` 的 `installGuestFromUrl` 只认两条路——`isHttpsZipUrl`（URL 路径以
+`.zip` 结尾、https、公网主机，可跟最多 5 跳重定向，所以 Release 资产 URL 可用）或
+`parseGitInstallUrl`（`git clone --branch <#ref>`）。**它不读 Release 对象**；git 路拿的是仓库树，
+所以扩展必须在那个 ref 的仓库根上。自更新（`updates.js` 的 `checkGuestUpdate`）只在来源是 git
+（有 `origin.url`）时生效，zip 安装直接返回不可用。解包规则 `unwrapGuestRoot`：只有"恰好一个顶层目录
+且里面有 `package.json`"才 unwrap——这就是两合一 tar 装不上的原因。
+
+**命名规则**（写进 AGENTS.md 与 OPS）：
+
+1. 名字从**机器标识**派生（`panel.id`、包名），不从显示名派生。
+2. 第二段是**件类**（`pack` / 无——件类已由容器类型承载：`.zip` = 扩展，`.tar.gz` = 解包推送的载荷）。
+3. **版本放哪一侧看"怎么被寻址"**：平铺目录寻址的必须带版本（应用包，因为 `OCRC_PACK_DIR` 是平铺
+   镜像目录，tag 不是唯一版本轴）；tag 寻址的靠 tag（扩展，只有一个入口 URL，文件名恒定）。
+4. 不可变性由 tag 保证，不由文件名保证。
+
+**落地**：应用包改名 `ocrc-openchamber-pack-*`（代码 `appPackName`/`appPackManifestUrl`、构建脚本、
+工作流、测试）；扩展出 `ocrc-remote.zip` / `ocrc-omo-view.zip`，tag `ocrc-<ext>-<ver>` 钉、
+`ocrc-<ext>-latest` 通道，发布走新工作流 `ocrc-ext.yml`（**仅手动 dispatch**；钉 tag 只写一次、
+通道 tag 按设计覆盖；发布前断言安装形状，坏包到不了 Release；zip 用固定 mtime + 排序条目可复现）。
+
+**兼容处理**：2.3.3 包按新名**原样重挂**——tar 字节不变（sha512 与旧 tag 下完全相同，只重写了资产名与
+manifest 里的 `asset` 字段）。旧 tag `ocrc-remote-pack-2.3.3` 保留：2026-10-17 之前构建的扩展内嵌的是
+旧包名，删了它们会静默降级成控制端跨装。修剪任务只匹配新前缀，所以旧 tag 不会被自动清掉。
+
+**证据**
+
+- 控制端取件：用构建后的 `ensureAppPack` 对新 tag 取两档，均 `OK`（legacy 57.3MB `6NVDwbTEDq+zzdh5…`、
+  modern 57.2MB `Et/F+TA2kiEhCe89…`，与旧 tag 下逐字节相同）。
+- 工作流闸门：dispatch 2.3.3 → `detect` 认出新 tag 的 7 件资产齐全，pack/publish 全跳过；
+  dispatch 2.4.0（publish=false）→ 两档真构建通过。
+- 扩展发布：`ocrc-ext` 跑通，zip 内容 `ocrc-remote/{package.json,panel,status,service}`（mtime 全为
+  1980-01-01、单一顶层目录、manifest 在根）。
+- **真安装器验收**：用对端 2.3.3 的 `installGuestFromUrl` 对通道 URL 与钉版本 URL 各跑一次，均
+  `ok=true`、识别 `ocrc-remote 0.7.0`、拷贝 `package.json panel service status`、能力请求
+  `sessions`+`service` 待审批；omo-view 同理（只有 panel，请求 `conversation`）。全程写临时 store，
+  没碰任何真实扩展目录。
+
+**遗留**：zip 安装无自更新，升级靠覆盖安装（面板的"覆盖/重装"按钮行为未实测；若无该入口则先卸载再装）。
+扩展版本升级前必须提 `extensions/<name>/package.json` 的 `version`，否则钉 tag 被跳过、通道也不会动。

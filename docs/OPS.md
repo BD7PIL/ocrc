@@ -148,9 +148,21 @@ ocrc remote up demo@192.168.26.101 --open
 
 **CI 兼容包（Linux x64 两档，2026-10-17 真机验证）**
 
-- **产物**：`ocrc-remote-pack-<ver>-linux-x64-modern.tar.gz` 与 `...legacy-glibc217.tar.gz`，各带
+> **命名规则（2026-10-17 收敛）**：名字从**机器标识**派生，不从显示名派生；第二段是件类。
+> 版本放在哪一侧，由"这个件怎么被寻址"决定——**平铺目录寻址的带版本，tag 寻址的靠 tag**。
+
+| 件 | 资产名 | 版本轴 |
+|---|---|---|
+| 对端 openchamber 应用包 | `ocrc-openchamber-pack-<ver>-linux-x64-<tier>.tar.gz` | tag `ocrc-openchamber-pack-<ver>`，同时也在文件名里 |
+| 控制端扩展 | `ocrc-remote.zip` / `ocrc-omo-view.zip` | tag `ocrc-remote-<ver>`（钉）/ `ocrc-remote-latest`（通道） |
+
+应用包文件名**必须**带版本：`OCRC_PACK_DIR` 是平铺目录，离线镜像会把多个版本放在一起，
+tag 不是唯一的版本轴。扩展相反——它只有一个入口 URL，所以文件名恒定、版本全交给 tag。
+`ocrc-remote` 从此只指扩展，不再兼任应用包前缀（`ocrc-openchamber-pack-*` 才是）。
+
+- **产物**：`ocrc-openchamber-pack-<ver>-linux-x64-modern.tar.gz` 与 `...legacy-glibc217.tar.gz`，各带
   `.sha512`（base64）、一份 tier manifest 与一份 `.lock.json`（构建时冻结的依赖图）；
-  发布在 GitHub Release `ocrc-remote-pack-<ver>`。
+  发布在 GitHub Release `ocrc-openchamber-pack-<ver>`。
 - **档位规则**：对端 glibc **< 2.31 → legacy**（node-pty 按 2.17 重建 + glibc-217 Node）；
   **≥ 2.31 → modern**。`ocrc remote apply` 自动探测，不需要手工选。
 - **控制端取件**：默认从 release manifest 下载并按 sha512 校验后缓存；离线/内网用
@@ -160,10 +172,10 @@ ocrc remote up demo@192.168.26.101 --open
   `objdump` 断言 GLIBC ≤ 2.17、GLIBCXX/CXXABI 引用 0）。工作流：
   [`.github/workflows/ocrc-pack.yml`](../.github/workflows/ocrc-pack.yml)（每日 + 手动）。
 - **一个版本只构建一次（2026-10-17 修正，octg 式闸门）**：`detect` 把 Release tag 当构建身份——
-  `ocrc-remote-pack-<ver>` 已带齐 7 件核心资产就**整条链跳过**，所以每日 cron 在上游没发版的日子
+  `ocrc-openchamber-pack-<ver>` 已带齐 7 件核心资产就**整条链跳过**，所以每日 cron 在上游没发版的日子
   只花几秒，且**已发布的包永不被静默替换**。Release 存在但缺资产 = 不完整 → 门放行、补建，
   那是唯一会 `--clobber` 的路径。要强制重建已发布的版本，先
-  `gh release delete ocrc-remote-pack-<ver> -R BD7PIL/ocrc --yes`（或删掉其中一个资产）再 dispatch。
+  `gh release delete ocrc-openchamber-pack-<ver> -R BD7PIL/ocrc --yes`（或删掉其中一个资产）再 dispatch。
   门的判定是"资产名齐不齐"，不校验内容——内容由控制端取件时的 sha512 兜底。
 - **可复现（2026-10-17 修完）**：安装改成 `npm install --package-lock-only` + `npm ci`（不再裸装），
   打包用确定性 tar。三处都是踩过才知道的：① 依赖图必须冻结，否则"同版本"每天解析出不同传递依赖；
@@ -181,6 +193,36 @@ ocrc remote up demo@192.168.26.101 --open
   2026-10-17 追加：同一版本连跑两次 CI，modern（`0PBpyTNFD3Nwdupd…`）与 legacy
   （`YWHHK4OllFJhsilj…`）两次 sha512 各自完全一致；新包在 EL7 上解包 0 警告、
   `cli --version` → 2.4.0、`node-pty` 在 glibc 2.17 上 spawn 成功（`PTY_OK | /dev/pts/0`）。
+- **旧 tag 兼容**：`ocrc-remote-pack-2.3.3` 保留不动，字节与新 tag 下的一致。它是给
+  **2026-10-17 之前构建的扩展**（其内嵌的是旧包名）留的兜底；等所有控制端都换成新构建的扩展后再删。
+  修剪任务只匹配新前缀，所以它不会被自动清掉。
+
+**装扩展（控制端，2026-10-17 起支持粘 URL）**
+
+面板 Settings → Extensions 直接粘 URL 即可，**不要**再 clone 仓库走 folder 安装：
+
+```
+# 常驻入口（永不变，推荐写进文档）
+https://github.com/BD7PIL/ocrc/releases/download/ocrc-remote-latest/ocrc-remote.zip
+
+# 钉版本（不可变，用于复现"这台机器装的是哪一版"）
+https://github.com/BD7PIL/ocrc/releases/download/ocrc-remote-0.7.0/ocrc-remote.zip
+```
+
+- 装完会有**一次 service 能力审批**（扩展要在宿主上跑 `ssh`）——批准。
+- **zip 安装没有自更新**：`checkGuestUpdate` 只在来源是 git（有 `origin.url`）时才比版本。
+  升级 = 用同一个通道 URL 覆盖安装一次（`?replace=true`；不带会返回 `already-installed`）。
+  想看装的是哪一版：面板的扩展卡片，或 Release 资产的 label。
+- 发布走 [`.github/workflows/ocrc-ext.yml`](../.github/workflows/ocrc-ext.yml)（**只有手动
+  dispatch**）：钉 tag 只写一次、通道 tag 按设计覆盖。升级前先提
+  `extensions/<name>/package.json` 的 `version`，否则钉 tag 会被跳过。
+- 一个 zip 只装一个扩展：安装器的 `unwrapGuestRoot` 只在"恰好一个顶层目录且里面有
+  `package.json`"时 unwrap，所以旧的 `ocrc-extensions-*.tar.gz`（顶层两个目录）**装不上**。
+  两个扩展要分别粘两个 URL。
+- 证据：用对端 openchamber 2.3.3 的**真实安装器**（`server/lib/guests/install.js` 的
+  `installGuestFromUrl`）对上面两个 URL 各跑一次，均 `ok=true`，识别出 `ocrc-remote 0.7.0`，
+  拷贝出 `package.json panel service status`，能力请求为 `sessions`+`service`（待审批）。
+  omo-view 同理（只有 panel，能力请求 `conversation`）。
 
 **变更与回滚**
 - 换版本：`ocrc remote apply <id> --app-version 2.4.0 --engine-version 2.1.0`（旧树自动留 `<prefix>.ocrc-bak`）。

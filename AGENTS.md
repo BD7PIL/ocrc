@@ -1,6 +1,7 @@
 # OCRC — 面向 AI 代理的导读
 
 - **命名（2026-10-17）**：品牌写作 **OCRC**；CLI 命令仍是 `ocrc`（可执行文件名），npm 包 `@bd7pil/ocrc` 不变。面板扩展 `ocrc-connect` 改名为 **`ocrc-remote`**（`panel.id` 同步变更，旧安装需卸载重装；`ocrc-connect-profiles.json` 文件名保持不变）。
+- **工件命名（2026-10-17 收敛）**：名字从机器标识派生、第二段是件类；版本放哪一侧看"怎么被寻址"——**平铺目录寻址的带版本**（`ocrc-openchamber-pack-<ver>-linux-x64-<tier>.tar.gz`，因为 `OCRC_PACK_DIR` 是平铺镜像目录），**tag 寻址的靠 tag**（`ocrc-remote.zip`，tag `ocrc-remote-<ver>` 钉 / `ocrc-remote-latest` 通道）。`ocrc-remote` 从此只指扩展，不再兼任应用包前缀。扩展**粘 URL 安装**（Settings → Extensions），发布走 `.github/workflows/ocrc-ext.yml`（仅手动 dispatch；zip 安装无自更新，升级 = 用同一 URL 覆盖安装）。
 
 - **产品定义与边界**：[docs/PRODUCT.md](docs/PRODUCT.md) —— 新需求先过这里（分层归属判据 + 明确不做清单）。
 - **架构**：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)（以代码为准，v0.27 重建蓝图）。**面板 = openchamber**（Win/Mac，external 引擎接入，不 fork）；ocrc 收缩为被控端 agent + IM 通道 + provisioning + 面板侧扩展。**`web-next/`（ZCode 壳）已于 2026-10-17 从 main 删除**——快照在 tag **`web-next-final`**（`git checkout web-next-final -- web-next` 可取回），它在当前架构里没有挂载点。

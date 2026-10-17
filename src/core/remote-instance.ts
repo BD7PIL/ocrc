@@ -291,6 +291,44 @@ export function renderExports(vars: Record<string, string | undefined>): string 
   return out.length ? `export ${out.join(' ')}; ` : ''
 }
 
+/** Controlled host: ask the running instance for a single-use pairing link.
+ *
+ *  Identity is openchamber's job here — the link carries a one-time secret that
+ *  the desktop app redeems for a per-device, revocable client token, so nothing
+ *  of ours stores a password. `--server` is the address the *client* will dial,
+ *  which is why it must be the forward the control side holds (openchamber calls
+ *  that "this computer only"). The caller checks that a server is already
+ *  listening: `connect-url` would otherwise start a second one. */
+export function buildPairLinkCommand(o: {
+  appVersion: string
+  instancePort: number
+  serverUrl: string
+  label: string
+}): string {
+  const p = instancePaths(o.appVersion)
+  return `${p.node} ${p.cli} connect-url --port ${o.instancePort} --server ${q(o.serverUrl)} --name ${q(o.label)}`
+}
+
+/** The `openchamber://connect?v=2&p=<base64url>` link out of `connect-url`'s boxed output. */
+export function parsePairLink(output: string): string | undefined {
+  return output.match(/openchamber:\/\/connect\?v=2&p=[A-Za-z0-9_-]+/)?.[0]
+}
+
+/** What the link says, for display: label, expiry, route count. Never the
+ *  secret — that belongs to the app that redeems it. */
+export function describePairLink(link: string): { label?: string; expiresAt?: string; candidates: number } | undefined {
+  try {
+    const payload = JSON.parse(Buffer.from(new URL(link).searchParams.get('p') ?? '', 'base64url').toString('utf8'))
+    return {
+      ...(typeof payload.label === 'string' ? { label: payload.label } : {}),
+      ...(typeof payload.expiresAt === 'string' ? { expiresAt: payload.expiresAt } : {}),
+      candidates: Array.isArray(payload.candidates) ? payload.candidates.length : 0,
+    }
+  } catch {
+    return undefined
+  }
+}
+
 /** Controlled host: stop by port (openchamber's own CLI owns the daemon lifecycle). */
 export function buildInstanceStopCommand(appVersion: string, port: number): string {
   const p = instancePaths(appVersion)

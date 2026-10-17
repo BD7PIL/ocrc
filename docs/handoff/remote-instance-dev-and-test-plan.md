@@ -413,6 +413,11 @@ fetch/img/font/style/media，**从不放宽 frame-src**。即使绕过这一层�
   （从 RHEL7 已修终端的树产出）；两档 `ensureAppPayload` 均走快路径且未创建 cross-install tree；
   RHEL7 真机 `ocrc remote apply --force` 推送成功，重启后远端 `pty.node` GLIBC 上限 2.14、
   `/api/terminal/create` → `running`、fs 90 / sessions 50 / providers 14。
+- **Ubuntu 26.04 / glibc 2.43 第二靶机（2026-10-17）**：全新主机 `--provision` 走 **modern** 档
+  （日志 `应用包档位：modern（对端 glibc 2.43）` + `应用包已就位`），没有触发控制端跨装；
+  对端既有的 `~/.opencode/bin/opencode` 1.18.31 未被选中/改动，门禁选中我们推的 v2；
+  `ACCEPTANCE OK`，含 terminal `running`、`-R 2713` 出网 200、provider deepseek、fs/sessions 正常。
+  顺带发现并修掉验收脚本的可移植性 bug：Ubuntu 没有 `netstat`，中继端口探测改为有 `ss` 用 `ss`。
 - **未验证**：`ocrc-pack.yml` 的 centos:7 容器步骤尚未在 GitHub Actions 跑过（本地无 Docker）；
   首次 CI 运行前，控制端“无包回退跨装”路径仍然可用。
 

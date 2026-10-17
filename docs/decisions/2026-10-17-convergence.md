@@ -46,7 +46,7 @@
 |---|---|
 | 扩展 service 直接管理实例 | 扩展 326/326；`ocrc-remote` 由桌面壳拉起，远端 `-R` 在听、状态 `online（实测）` |
 | 实例级链路 | `scripts/accept-remote-instance.sh --target demo@192.168.26.101` → ACCEPTANCE OK（含终端 create=running、fs 90、sessions 50） |
-| 兼容包 | `tests/unit/remote-app-pack.test.ts`（8）；modern 53MB / legacy 54MB 本机构建；RHEL7 `apply` 推送后 pty GLIBC 2.14 |
+| 兼容包 | `tests/unit/remote-app-pack.test.ts`（8）；modern 53MB / legacy 54MB 本机构建；RHEL7 `apply` 推送后 pty GLIBC 2.14；Ubuntu 26.04/glibc 2.43 全新主机走 modern 档 `ACCEPTANCE OK` |
 | 桌面入口 | `tests/unit/desktop-settings.test.ts`（9）；`--desktop-add` 实测写入且无明文密码 |
 | 内嵌否决 | [../research/embedding-experiment.md](../research/embedding-experiment.md) |
 | 后端门禁 | `npm run typecheck` 干净；`npx vitest run` 1162 passed / 1 skipped |

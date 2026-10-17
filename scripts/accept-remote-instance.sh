@@ -257,7 +257,8 @@ if ! (netstat -ano 2>/dev/null | grep -qE ":$PROXY_LOCAL\b.*LISTENING"); then
 else
   note "中继已在 :$PROXY_LOCAL 上监听（复用）"
 fi
-ssh_t "export PATH=\$PATH:/usr/sbin:/sbin; netstat -ltn 2>/dev/null | grep -qE ':$PROXY_REMOTE'" \
+# EL7 ships netstat; modern Ubuntu may only ship `ss`. Ask whichever exists.
+ssh_t "export PATH=\$PATH:/usr/sbin:/sbin; if command -v ss >/dev/null 2>&1; then ss -ltn 2>/dev/null | grep -qE ':$PROXY_REMOTE '; else netstat -ltn 2>/dev/null | grep -qE ':$PROXY_REMOTE'; fi" \
   || fail "对端 loopback $PROXY_REMOTE 没在听——隧道少了 -R（up 是否带代理？）"
 note "对端 127.0.0.1:$PROXY_REMOTE 在听（ssh -R 建立的）"
 PCODE=$(ssh_t "HTTPS_PROXY=http://127.0.0.1:$PROXY_REMOTE NO_PROXY=127.0.0.1,localhost curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://registry.npmjs.org/ || true")

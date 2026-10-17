@@ -612,11 +612,11 @@ export async function ensureAppTree(appVersion: string, opts: { force?: boolean;
 
 /** Pack the tree into the payload + its digest. Skipped when the payload is
  *  newer than the tree, so repeated deploys do not re-tar 267 MB. */
-export async function ensureAppPayload(appVersion: string, opts: { force?: boolean; onLog?: (line: string) => void; tier?: AppPackTier } = {}): Promise<PrepareResult> {
+export async function ensureAppPayload(appVersion: string, opts: { force?: boolean; onLog?: (line: string) => void; tier?: AppPackTier; packDir?: string } = {}): Promise<PrepareResult> {
   // Prefer a CI-built pack: no cross-install on the control side, and the
   // legacy tier already carries the node-pty rebuilt for glibc 2.17.
   if (opts.tier) {
-    const pack = await ensureAppPack(appVersion, opts.tier, opts)
+    const pack = await ensureAppPack(appVersion, opts.tier, { force: opts.force, onLog: opts.onLog, packDir: opts.packDir })
     if (pack) return pack
   }
   const { treeDir } = await ensureAppTree(appVersion, opts)

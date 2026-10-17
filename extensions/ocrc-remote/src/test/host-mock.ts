@@ -80,8 +80,17 @@ export function makeHost(
     item: null,
   }
 
-  const answer = (key: string, lang: string): GuestRequestResult => {
-    const route = routes[`${lang} ${key}`] ?? routes[key]
+  /**
+   * Route lookup. `'POST /remote-instance#up'` matches only when the parsed body
+   * carries `op: 'up'`: one endpoint multiplexing several ops (the instance ops
+   * face) needs per-op answers, and a single route per path cannot express "the
+   * list works but 启动 fails".
+   */
+  const answer = (key: string, lang: string, body?: unknown): GuestRequestResult => {
+    const op = body && typeof body === 'object' ? (body as { op?: unknown }).op : undefined
+    const route = (op === undefined ? undefined : routes[`${lang} ${key}#${String(op)}`])
+      ?? routes[`${lang} ${key}`]
+      ?? routes[key]
     if (!route) return { status: 404, body: JSON.stringify({ error: `no route: ${lang} ${key}` }) }
     return { status: route.status ?? 200, body: JSON.stringify(route.body) }
   }
@@ -117,7 +126,7 @@ export function makeHost(
       let body: unknown
       if (request.body !== undefined) body = JSON.parse(request.body)
       requests.push({ method, path: request.path, body })
-      return answer(request.path, method)
+      return answer(request.path, method, body)
     },
     storage: {
       get: async (key: string) => storage.get(key) as never,

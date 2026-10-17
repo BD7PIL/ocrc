@@ -164,6 +164,15 @@ const EGRESS_LABEL: Record<string, string> = {
   direct: 'direct（强制直连）',
 }
 
+/** D3：对端两份日志（我们的 serve 重定向 + 实例自己的）。 */
+interface PeerLogs {
+  ok: boolean
+  error?: string
+  instance: string[]
+  app: string[]
+  paths: { instance: string; app: string }
+}
+
 export function RemoteInstance(props: { request: RequestFn; host: HostClient | null }) {
   const { request, host } = props
   const [rows, setRows] = useState<InstanceRow[]>([])
@@ -174,7 +183,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
   const [planFor, setPlanFor] = useState<{ id: string; reply: PlanDetail } | null>(null)
   const [confirmFor, setConfirmFor] = useState('')
   const [pairFor, setPairFor] = useState<{ id: string; reply: PairLink } | null>(null)
-  const [logFor, setLogFor] = useState<{ id: string; lines: string[] } | null>(null)
+  const [logFor, setLogFor] = useState<{ id: string; lines: string[]; peer?: PeerLogs } | null>(null)
   const [secretFor, setSecretFor] = useState<{ id: string; url: string; uiPassword: string } | null>(null)
   const [configFor, setConfigFor] = useState<{ id: string; diff: ConfigDiff } | null>(null)
   const [syncResult, setSyncResult] = useState('')
@@ -291,8 +300,10 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
   })
 
   const showLogs = (id: string) => run(`logs:${id}`, async () => {
+    // 控制端隧道日志是**本进程**的（同步取）；对端两份要一次 ssh（job 型）。
     const reply = await op<{ lines: string[] }>({ op: 'logs', id, tail: 80 })
-    setLogFor({ id, lines: reply.lines ?? [] })
+    const peer = await op<PeerLogs>({ op: 'peerlog', id, lines: 60 })
+    setLogFor({ id, lines: reply.lines ?? [], peer })
   })
 
   const showSecret = (id: string) => run(`secret:${id}`, async () => {
@@ -675,10 +686,22 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
             {logFor?.id === row.id ? (
               <div className="oc-card">
                 <div className="oc-row oc-row-between">
-                  <strong>控制端隧道日志（尾 80 行）</strong>
+                  <strong>日志（三处：控制端隧道 / 对端实例 / 对端 openchamber）</strong>
                   <KitButton size="xs" variant="ghost" label="收起" onClick={() => setLogFor(null)} />
                 </div>
+                {logFor.peer && !logFor.peer.ok ? (
+                  <KitBanner tone="warning" title="取对端日志失败" body={logFor.peer.error ?? '原因未知'} />
+                ) : null}
+                <div className="oc-xs oc-muted">控制端隧道（本进程，尾 80 行）</div>
                 <pre className="oc-pre">{logFor.lines.length ? logFor.lines.join('\n') : '（空）'}</pre>
+                {logFor.peer ? (
+                  <>
+                    <div className="oc-xs oc-muted">{`对端实例日志（${logFor.peer.paths.instance || '路径未知'}）`}</div>
+                    <pre className="oc-pre">{logFor.peer.instance.length ? logFor.peer.instance.join('\n') : '（空——实例可能没起过）'}</pre>
+                    <div className="oc-xs oc-muted">{`对端 openchamber 日志（${logFor.peer.paths.app || '路径未知'}）`}</div>
+                    <pre className="oc-pre">{logFor.peer.app.length ? logFor.peer.app.join('\n') : '（空）'}</pre>
+                  </>
+                ) : null}
               </div>
             ) : null}
 

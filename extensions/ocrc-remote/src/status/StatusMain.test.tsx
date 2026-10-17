@@ -9,98 +9,93 @@ vi.mock('@openchamber/sdk', async (original) => {
   return { ...actual, connectHost: () => held.host.client }
 })
 
-const STATUS = { status: { profileId: null, tunnel: 'down', engine: 'unknown' }, profiles: [] }
+/**
+ * D2 — the rail reports the **remote instance**, not the batch-2 profile tunnel.
+ *
+ * The old section asked `/status` (the SSH profile topology) and said "已连 · 引擎
+ * 可达" about something that was not the machine the 远程实例 tab manages. The
+ * tests below pin the new contract: instance states, the single-peer controls,
+ * the egress decision, and the multi-peer case that must NOT offer 启动/停机
+ * (there is no way for the rail to know which one the user means).
+ */
+
+const INSTANCE = (over: Record<string, unknown> = {}) => ({
+  id: 'demo@192.168.26.101', name: 'EL7 box', host: '192.168.26.101', user: 'demo', localPort: 4610,
+  status: { state: 'online', url: 'http://127.0.0.1:4610', egress: { relay: true, reason: '探测：对端无出网', cached: true } },
+  ...over,
+})
+
+function instanceRoute(instances: unknown[]) {
+  held.host = makeHost({ 'POST /remote-instance': { body: { instances } } })
+}
 
 beforeEach(() => {
-  held.host = makeHost({ '/status': { body: STATUS } })
+  held.host = makeHost({ 'POST /remote-instance': { body: { instances: [] } } })
   document.documentElement.removeAttribute('style')
 })
 
-function profileRoute(tunnel: 'up' | 'down', engine: 'reachable' | 'unknown') {
-  held.host = makeHost({
-    '/status': { body: { status: { profileId: 'p1', tunnel, engine }, profiles: [{ id: 'p1', name: 'vm', host: 'h', port: 22, user: 'demo', remotePort: 4096, localPort: 4096 }] } },
-    GET: { body: {} },
-  })
-}
-
 describe('StatusMain — work status surface', () => {
-  it('declares host-rendered controls for the profile and connect/disconnect', async () => {
-    profileRoute('down', 'unknown')
+  it('shows the instance, its URL and its egress decision', async () => {
+    instanceRoute([INSTANCE()])
     const { StatusMain } = await import('./main.js')
     render(<StatusMain />)
+    expect(await screen.findByText('在线 1')).toBeTruthy()
+    expect(screen.getByText('EL7 box')).toBeTruthy()
+    expect(screen.getByText('http://127.0.0.1:4610')).toBeTruthy()
+    expect(screen.getByText('出口 经控制端')).toBeTruthy()
+  })
 
-    await waitFor(() => {
-      expect(held.host.controls.at(-1)?.map((c) => c.id)).toContain('profile')
-    })
+  it('a direct peer is not painted as a missing relay', async () => {
+    instanceRoute([INSTANCE({ status: { state: 'online', url: 'http://127.0.0.1:4612', egress: { relay: false, reason: '探测：对端自己可出网', cached: true } } })])
+    const { StatusMain } = await import('./main.js')
+    render(<StatusMain />)
+    expect(await screen.findByText('出口 直连')).toBeTruthy()
+  })
+
+  it('offers 启动/停机 for exactly one peer, and nothing for several', async () => {
+    instanceRoute([INSTANCE()])
+    const { StatusMain } = await import('./main.js')
+    render(<StatusMain />)
+    await waitFor(() => { expect(held.host.controls.at(-1)?.map((c) => c.id)).toEqual(['up', 'down']) })
     const controls = held.host.controls.at(-1) ?? []
-    expect(controls.map((c) => c.id)).toEqual(['profile', 'connect', 'disconnect'])
-    // Nothing to disconnect from yet, and the profile is connectable.
-    expect(controls.find((c) => c.id === 'disconnect')?.disabled).toBe(true)
-    expect(controls.find((c) => c.id === 'connect')?.disabled).toBe(false)
+    expect(controls.find((c) => c.id === 'up')?.disabled).toBe(true)  // already up
+    expect(controls.find((c) => c.id === 'down')?.disabled).toBe(false)
+
+    instanceRoute([INSTANCE(), INSTANCE({ id: 'ubuntu@100.100.69.3', name: 'Ubuntu', status: { state: 'offline', url: 'http://127.0.0.1:4612' } })])
+    const second = await import('./main.js')
+    render(<second.StatusMain />)
+    await waitFor(() => { expect(screen.getAllByText('在线 1/2').length).toBeGreaterThan(0) })
+    expect(held.host.controls.at(-1) ?? []).toEqual([])
   })
 
-  it('reports the height the frame needs', async () => {
-    profileRoute('up', 'reachable')
-    const { StatusMain } = await import('./main.js')
-    render(<StatusMain />)
-    await waitFor(() => { expect(held.host.heights.length).toBeGreaterThan(0) })
-    expect(held.host.heights.at(-1)).toBeGreaterThan(0)
-  })
-
-  it('raises the rail badge while a configured profile is not connected', async () => {
-    profileRoute('down', 'unknown')
+  it('raises the rail badge for a registered peer that is down, and clears it when all are up', async () => {
+    instanceRoute([INSTANCE({ status: { state: 'offline', url: 'http://127.0.0.1:4610' } })])
     const { StatusMain } = await import('./main.js')
     render(<StatusMain />)
     await waitFor(() => { expect(held.host.badges).toContain(1) })
+
+    held.host = makeHost({ 'POST /remote-instance': { body: { instances: [INSTANCE()] } } })
+    const second = await import('./main.js')
+    render(<second.StatusMain />)
+    await waitFor(() => { expect(screen.getAllByText('在线 1').length).toBeGreaterThan(0) })
+  })
+
+  it('says "未登记对端" instead of an empty badge when there is nothing registered', async () => {
+    const { StatusMain } = await import('./main.js')
+    render(<StatusMain />)
+    expect(await screen.findByText('未登记对端')).toBeTruthy()
   })
 
   it('reports a failed activation as a host toast', async () => {
     held.host = makeHost({
-      '/status': { body: { status: { profileId: 'p1', tunnel: 'down', engine: 'unknown' }, profiles: [{ id: 'p1', name: 'vm', host: 'h', port: 22, user: 'demo', remotePort: 4096, localPort: 4096 }] } },
-      'POST /connect': { status: 502, body: { error: 'ssh: handshake failed' } },
+      'POST /remote-instance': { body: { instances: [INSTANCE({ status: { state: 'offline', url: 'http://127.0.0.1:4610' } })] } },
+      'POST /remote-instance#up': { status: 500, body: { error: 'ssh: handshake failed' } },
     })
     const { StatusMain } = await import('./main.js')
     render(<StatusMain />)
-
-    await waitFor(() => {
-      expect(held.host.controls.at(-1)?.map((c) => c.id)).toContain('profile')
-    })
-    act(() => { held.host.emitStatusControl({ id: 'connect' }) })
-
-    await waitFor(() => { expect(held.host.toasts).toEqual(['ssh: handshake failed']) })
-  })
-
-  it('connects the profile the user picks in the host-rendered select', async () => {
-    held.host = makeHost({
-      '/status': { body: { status: { profileId: 'p1', tunnel: 'down', engine: 'unknown' }, profiles: [
-        { id: 'p1', name: 'vm-a', host: 'a', port: 22, user: 'demo', remotePort: 4096, localPort: 4096 },
-        { id: 'p2', name: 'vm-b', host: 'b', port: 22, user: 'demo', remotePort: 4096, localPort: 4097 },
-      ] } },
-      'POST /connect': { body: { status: { profileId: 'p2', tunnel: 'starting', engine: 'unknown' } } },
-    })
-    const { StatusMain } = await import('./main.js')
-    render(<StatusMain />)
-
-    await waitFor(() => { expect(held.host.controls.at(-1)?.length).toBe(3) })
-    act(() => { held.host.emitStatusControl({ id: 'profile', value: 'p2' }) })
-
-    await waitFor(() => {
-      const post = held.host.requests.find((r) => r.path === '/connect')
-      expect(post?.body).toEqual({ profileId: 'p2' })
-    })
-  })
-})
-
-describe('StatusMain — readout', () => {
-  it('shows the connected profile and its branch', async () => {
-    held.host = makeHost({
-      '/status': { body: { status: { profileId: 'p1', tunnel: 'up', engine: 'reachable' }, profiles: [{ id: 'p1', name: 'vm', host: 'h', port: 22, user: 'demo', remotePort: 4096, localPort: 4096 }] } },
-      '/git-branch': { body: { branch: 'main' } },
-    })
-    const { StatusMain } = await import('./main.js')
-    render(<StatusMain />)
-    expect(await screen.findByText('已连 · 引擎可达')).toBeTruthy()
-    expect(await screen.findByText(/main/)).toBeTruthy()
+    await waitFor(() => { expect(held.host.controls.at(-1)?.map((c) => c.id)).toEqual(['up', 'down']) })
+    act(() => { held.host.emitStatusControl({ id: 'up' }) })
+    await waitFor(() => { expect(held.host.toasts.length).toBeGreaterThan(0) })
   })
 
   it('reports a service that is not running without claiming failure', async () => {
@@ -108,5 +103,13 @@ describe('StatusMain — readout', () => {
     const { StatusMain } = await import('./main.js')
     render(<StatusMain />)
     expect(await screen.findByText('服务未运行')).toBeTruthy()
+  })
+
+  it('reports the height the frame needs', async () => {
+    instanceRoute([INSTANCE()])
+    const { StatusMain } = await import('./main.js')
+    render(<StatusMain />)
+    await waitFor(() => { expect(held.host.heights.length).toBeGreaterThan(0) })
+    expect(held.host.heights.at(-1)).toBeGreaterThan(0)
   })
 })

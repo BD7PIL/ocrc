@@ -57,6 +57,7 @@ function makeManager(): RemoteInstanceManager {
     status: (id: string) => ({ id, state: 'online' as const, url: 'http://127.0.0.1:4610', tunnelOwner: 'external' as const, logTail: [] }),
     statusAll: () => [],
     logs: () => ['line 1', 'line 2'],
+    peerLogs: vi.fn(async () => ({ ok: true, instance: ['serve ready'], app: ['http 200'], paths: { instance: '/home/demo/.ocrc/remote/instance.log', app: '/home/demo/.config/openchamber/logs/openchamber-2610.log' } })),
     ensureAll: vi.fn(),
     dispose: vi.fn(),
   } as unknown as RemoteInstanceManager
@@ -231,7 +232,7 @@ describe('remote-instance ops', () => {
   it('every op in the union has a live case', async () => {
     const everyOp: Record<RemoteInstanceOp['op'], true> = {
       list: true, add: true, patch: true, plan: true, apply: true, up: true, down: true, probe: true,
-      status: true, logs: true, url: true, connect: true, defaults: true, uipassword: true,
+      status: true, logs: true, peerlog: true, url: true, connect: true, defaults: true, uipassword: true,
       configdiff: true, syncconfig: true, syncauth: true, pairlink: true,
       delete: true, job: true,
     }

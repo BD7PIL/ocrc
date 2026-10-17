@@ -53,6 +53,9 @@ export type RemoteInstanceOp =
   | { op: 'probe'; id: string }
   | { op: 'status'; id: string }
   | { op: 'logs'; id: string; tail?: number }
+  /** D3: the peer-side logs (our serve redirect + the instance's own). A job: two
+   *  ssh round trips on a slow peer. */
+  | { op: 'peerlog'; id: string; lines?: number }
   | { op: 'url'; id: string }
   | { op: 'connect'; id: string }
   /** Suggest ports for a **new** record: the control-side local port is probed
@@ -264,6 +267,11 @@ export function createRemoteInstanceOps({
           const lines = manager.logs(op.id)
           const tail = Number(op.tail ?? 100)
           return { status: 200, body: { lines: Number.isFinite(tail) && tail > 0 ? lines.slice(-tail) : lines } }
+        }
+
+        case 'peerlog': {
+          if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
+          return start(() => manager.peerLogs(op.id, { lines: op.lines }))
         }
 
         case 'url': {

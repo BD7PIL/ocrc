@@ -3,31 +3,59 @@ import { createRoot } from 'react-dom/client'
 import type { GuestStatusControl, HostClient } from '@openchamber/sdk'
 import { connectThemedHost } from '../shared/host-theme.js'
 import { KitBadge, KitSpinner } from '../shared/kit.js'
-import type { ServiceApiShape, TunnelStatus } from '../shared/protocol.js'
-import { call, type RequestFn } from '../shared/service-client.js'
+import { post, type RequestFn } from '../shared/service-client.js'
 
-/** Work Status section — compact tunnel/engine health via the service bridge.
+/**
+ * Work Status section — **the remote instance**, not the SSH profile tunnel (D2).
  *
- *  The host sizes this frame, renders the controls we declare and owns the rail
- *  badge, so the section is three things: report the height the content needs,
- *  declare the controls (connect / disconnect / profile pick), and answer their
- *  activation. Anything the user must not miss (a connect that failed) goes to
- *  a host toast instead of a line of text that scrolls away. */
+ * The section used to report the batch-2 profile tunnel (`/status`): a different
+ * topology with its own controls, which made the rail say "已连 · 引擎可达" about
+ * something that was not the machine the panel's 远程实例 tab manages — the exact
+ * confusion the user hit ("其它 openchamber 服务器 和 远程实例 是两个东西？").
+ *
+ * What it shows now is the instance topology's own truth: how many peers are
+ * registered, how many are up, and — for the single-peer case — that peer's URL
+ * and its egress decision (D1). The controls are 启动/停机 for that one peer,
+ * which is the "no terminal needed" path the plan asks for; with two or more
+ * peers the rail stays a readout, because "start which one?" has no answer the
+ * rail can guess.
+ *
+ * The profile tunnel's connect/disconnect buttons still exist where their state
+ * is visible: the 连接 tab.
+ */
 
-const EMPTY: ServiceApiShape = { status: { profileId: null, tunnel: 'down', engine: 'unknown' }, profiles: [] }
+interface InstanceStatus {
+  state: string
+  url: string
+  detail?: string
+  egress?: { relay: boolean; reason: string; cached: boolean }
+}
 
-function tunnelBadge(s: TunnelStatus) {
-  if (s.tunnel === 'up') return { label: s.engine === 'reachable' ? '已连 · 引擎可达' : '已连 · 引擎不可达', tone: s.engine === 'reachable' ? 'success' as const : 'error' as const }
-  if (s.tunnel === 'starting') return { label: '建立中', tone: 'info' as const }
-  return { label: '未连', tone: 'neutral' as const }
+interface InstanceRow {
+  id: string
+  name?: string
+  host: string
+  user?: string
+  localPort: number
+  status: InstanceStatus | null
+}
+
+const EMPTY: InstanceRow[] = []
+
+function railBadge(rows: InstanceRow[]): { label: string; tone: 'success' | 'warning' | 'error' | 'info' | 'neutral' } {
+  if (rows.length === 0) return { label: '未登记对端', tone: 'neutral' }
+  const online = rows.filter((r) => r.status?.state === 'online').length
+  if (online === rows.length) return { label: `在线 ${online}`, tone: 'success' }
+  if (online > 0) return { label: `在线 ${online}/${rows.length}`, tone: 'warning' }
+  return { label: `离线 ${rows.length}`, tone: 'error' }
 }
 
 export function StatusMain() {
   const [host, setHost] = useState<HostClient | null>(null)
-  const [state, setState] = useState<ServiceApiShape>(EMPTY)
+  const [rows, setRows] = useState<InstanceRow[]>(EMPTY)
   const [loaded, setLoaded] = useState(false)
-  const [branch, setBranch] = useState('')
   const [offline, setOffline] = useState(false)
+  const [busy, setBusy] = useState('')
   const wrap = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -39,62 +67,52 @@ export function StatusMain() {
     return host.serviceRequest({ method, path, body: body === undefined ? undefined : JSON.stringify(body) })
   }, [host])
 
+  const op = useCallback(async <T,>(body: Record<string, unknown>): Promise<T> => {
+    const first = await post<{ jobId?: string } & T>(request, '/remote-instance', body)
+    if (first && typeof (first as { jobId?: string }).jobId === 'string') {
+      const jobId = (first as { jobId: string }).jobId
+      const deadline = Date.now() + 5 * 60_000
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 1_000))
+        const reply = await post<{ job: { state: string; result?: T; error?: string } }>(request, '/remote-instance', { op: 'job', jobId })
+        if (reply.job.state === 'done') return reply.job.result as T
+        if (reply.job.state === 'error') throw new Error(reply.job.error ?? '操作失败')
+      }
+      throw new Error('操作超时')
+    }
+    return first as T
+  }, [request])
+
   const poll = useCallback(async () => {
     if (!host) return
     try {
-      const next = await call<ServiceApiShape>(request, '/status')
-      setState(next)
+      const reply = await op<{ instances: InstanceRow[] }>({ op: 'list' })
+      setRows(reply.instances ?? [])
       setLoaded(true)
       setOffline(false)
-      // Batch 4: the branch of the active workspace — one best-effort call;
-      // any failure just drops the suffix.
-      if (next.status.tunnel === 'up' && next.status.engine === 'reachable') {
-        try {
-          const gb = await call<{ branch?: string }>(request, '/git-branch')
-          setBranch(gb.branch ?? '')
-        } catch { setBranch('') }
-      } else {
-        setBranch('')
-      }
     } catch {
       setOffline(true)
     }
-  }, [host, request])
+  }, [host, op])
 
   useEffect(() => {
     if (!host) return
     void poll()
-    const t = setInterval(() => void poll(), 10_000)
+    const t = setInterval(() => void poll(), 15_000)
     return () => clearInterval(t)
   }, [host, poll])
 
+  const single = rows.length === 1 ? rows[0]! : undefined
+  const singleUp = single?.status?.state === 'online'
+
   /** Host-rendered controls. Ids are ours; the host only relays activation. */
-  const controls = useCallback((s: ServiceApiShape): GuestStatusControl[] => {
-    const out: GuestStatusControl[] = []
-    if (s.profiles.length > 0) {
-      out.push({
-        kind: 'select',
-        id: 'profile',
-        label: '档案',
-        value: s.status.profileId ?? s.profiles[0].id,
-        options: s.profiles.map((p) => ({ value: p.id, label: p.name })),
-        disabled: s.status.tunnel === 'starting',
-      })
-    }
-    out.push({
-      kind: 'button',
-      id: 'connect',
-      label: '连接',
-      disabled: s.profiles.length === 0 || s.status.tunnel === 'up' || s.status.tunnel === 'starting',
-    })
-    out.push({
-      kind: 'button',
-      id: 'disconnect',
-      label: '断开',
-      disabled: s.status.tunnel === 'down' || s.status.tunnel === 'starting',
-    })
-    return out
-  }, [])
+  const controls = useCallback((): GuestStatusControl[] => {
+    if (!single) return []
+    return [
+      { kind: 'button', id: 'up', label: '启动', disabled: singleUp || busy === 'up' },
+      { kind: 'button', id: 'down', label: '停机', disabled: !singleUp || busy === 'down' },
+    ]
+  }, [single, singleUp, busy])
 
   // Nothing to declare until the first answer arrives — declaring the controls
   // from the empty initial state would flash a row of disabled buttons.
@@ -104,35 +122,29 @@ export function StatusMain() {
       void host.setStatusControls([]).catch(() => { /* older host */ })
       return
     }
-    void host.setStatusControls(controls(state)).catch(() => { /* older host: stay a plain readout */ })
-  }, [host, loaded, state, controls])
+    void host.setStatusControls(controls()).catch(() => { /* older host: stay a plain readout */ })
+  }, [host, loaded, rows, controls])
 
-  // Attention, not decoration: a profile that is configured but not connected.
+  // Attention, not decoration: a registered peer that is not up.
   useEffect(() => {
     if (!host) return
-    const pending = !offline && state.profiles.length > 0 && state.status.tunnel === 'down'
-    void host.setBadge(pending ? 1 : null).catch(() => { /* unsupported */ })
-  }, [host, offline, state])
+    const down = offline ? 0 : rows.filter((r) => r.status?.state !== 'online').length
+    void host.setBadge(down > 0 ? down : null).catch(() => { /* unsupported */ })
+  }, [host, offline, rows])
 
   const act = useCallback(async (event: { id: string; value?: string }) => {
-    if (!host) return
+    if (!host || !single) return
+    if (event.id !== 'up' && event.id !== 'down') return
+    setBusy(event.id)
     try {
-      if (event.id === 'connect') {
-        const id = state.status.profileId ?? state.profiles[0]?.id
-        if (!id) return
-        await call(request, '/connect', 'POST', { profileId: id })
-      } else if (event.id === 'disconnect') {
-        await call(request, '/disconnect', 'POST', {})
-      } else if (event.id === 'profile' && event.value) {
-        await call(request, '/connect', 'POST', { profileId: event.value })
-      } else {
-        return
-      }
+      await op({ op: event.id, id: single.id })
       await poll()
     } catch (e) {
       void host.toast({ kind: 'error', message: e instanceof Error ? e.message : String(e), dismiss: true }).catch(() => {})
+    } finally {
+      setBusy('')
     }
-  }, [host, poll, request, state])
+  }, [host, single, op, poll])
 
   useEffect(() => {
     if (!host) return
@@ -140,7 +152,7 @@ export function StatusMain() {
   }, [host, act])
 
   // The host sizes this frame from the number we report; observing the content
-  // is what keeps it right when the profile name wraps or a badge appears.
+  // is what keeps it right when a name wraps or a badge appears.
   useEffect(() => {
     const node = wrap.current
     if (!host || !node) return
@@ -156,20 +168,30 @@ export function StatusMain() {
     const ro = new ResizeObserver(report)
     ro.observe(node)
     return () => ro.disconnect()
-  }, [host, state, branch, offline])
-
-  const s = state.status
-  const active = state.profiles.find((p) => p.id === s.profileId)
+  }, [host, rows, offline, busy])
 
   return (
     <div ref={wrap} className="oc-row" style={{ padding: '8px 12px' }}>
-      <strong className="oc-truncate">ocrc 隧道</strong>
+      <strong className="oc-truncate">ocrc 对端实例</strong>
       {offline
         ? <KitBadge label="服务未运行" tone="error" />
-        : <KitBadge {...tunnelBadge(s)} />}
-      {!offline && s.tunnel === 'starting' && <KitSpinner size="sm" />}
-      {active && <span className="oc-sdk-muted oc-xs oc-truncate">{active.user}@{active.host}</span>}
-      {branch && <span className="oc-sdk-mono oc-sdk-muted oc-xs oc-truncate" title={branch}>· {branch}</span>}
+        : <KitBadge {...railBadge(rows)} />}
+      {busy ? <KitSpinner size="sm" /> : null}
+      {single ? (
+        <>
+          <span className="oc-sdk-muted oc-xs oc-truncate">{single.name ?? single.id}</span>
+          <span className="oc-sdk-mono oc-sdk-muted oc-xs oc-truncate">{single.status?.url ?? `http://127.0.0.1:${single.localPort}`}</span>
+          {single.status?.egress ? (
+            <KitBadge
+              label={single.status.egress.relay ? '出口 经控制端' : '出口 直连'}
+              tone={single.status.egress.cached ? (single.status.egress.relay ? 'info' : 'success') : 'warning'}
+            />
+          ) : null}
+        </>
+      ) : null}
+      {!offline && rows.length > 1 ? (
+        <span className="oc-sdk-muted oc-xs oc-truncate">{`${rows.map((r) => r.name ?? r.id).slice(0, 3).join('、')}${rows.length > 3 ? ' …' : ''}（多台：起停在「远程实例」页操作）`}</span>
+      ) : null}
     </div>
   )
 }

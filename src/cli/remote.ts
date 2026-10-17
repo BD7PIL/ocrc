@@ -99,6 +99,7 @@ USAGE:
   ocrc remote sync-auth <id>       把本机 auth.json（provider 凭据）写到对端（0600，不回显）
   ocrc remote open <id>            打印 URL（并尝试用系统浏览器打开）
   ocrc remote logs <id>            本端隧道/隧道重连日志尾
+  ocrc remote peerlog <id> [--lines N]  对端日志尾（我们的 instance.log + 对端 openchamber 日志）
   ocrc remote remove <id>          删档案（不动对端文件）
   ocrc remote proxy <id> on|off           开关对端引擎的出网代理（R9，落盘）
   ocrc remote proxy <id> allow <a,b>      目标白名单（点边界后缀匹配；空=只拒回环）
@@ -592,6 +593,22 @@ export async function main(argv: string[]): Promise<void> {
         console.log(`（打开失败：${(err as Error).message}——手动复制上面那行）`)
       }
     }
+    return
+  }
+
+  if (sub === 'peerlog') {
+    const instance = resolveInstance(args.slice(1), flags)
+    const m = manager()
+    const r = await m.peerLogs(instance.id, { lines: flagNum(flags, 'lines', 40) })
+    m.dispose()
+    if (!r.ok) {
+      console.error(`FAIL 取对端日志失败：${r.error ?? '原因未知'}`)
+      process.exit(1)
+    }
+    console.log(`对端实例日志 ${r.paths.instance}`)
+    console.log(r.instance.length ? r.instance.join('\n') : '  （空——实例可能没起过）')
+    console.log(`对端 openchamber 日志 ${r.paths.app}`)
+    console.log(r.app.length ? r.app.join('\n') : '  （空）')
     return
   }
 

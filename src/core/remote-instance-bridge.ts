@@ -26,7 +26,7 @@ import { createInstanceProxy, type InstanceProxy } from './remote-instance-proxy
 import {
   DEFAULT_ENGINE_CANDIDATES, DEFAULT_ENGINE_PIN, PROXY_DEFAULTS, buildEngineProbeCommand,
   buildForwardArgs, buildRelayForwardArgs, buildInstanceServeCommand, buildInstanceStopCommand, buildRemotePortProbeCommand, buildSshExecArgs,
-  buildPeerPortProbeCommand, parsePortProbe, provisionActions,
+  buildPeerPortProbeCommand, parsePortProbe, provisionActions, buildPeerLogCommand, parsePeerLogs, type PeerLogs,
   buildPairLinkCommand, parsePairLink, describePairLink, buildEgressProbeCommand, parseEgressProbe, resolveEgressPolicy,
   EGRESS_DEFAULT, type EgressMode, type EgressProbe, type ProvisionMode,
   buildTerminalProbeCommand, instancePaths, parseTerminalProbe,
@@ -174,6 +174,10 @@ export interface RemoteInstanceManager {
   /** C3: provider credentials (`auth.json`) over ssh stdin, 0600 on the peer. */
   syncAuth(id: string): Promise<InstanceConfigOutcome>
   logs(id: string): string[]
+  /** D3: the **peer-side** logs (our serve redirect + the instance's own), in one
+   *  round trip. `logs` is the control side's tunnel log — different machine,
+   *  different story, and a failure is rarely explained by both at once. */
+  peerLogs(id: string, opts?: { lines?: number }): Promise<PeerLogs & { ok: boolean; error?: string }>
   /** Boot restore (R10 `restoreOnStart`): bring up every enabled record. */
   ensureAll(): void
   dispose(): void
@@ -1457,6 +1461,17 @@ async probe(id) {
 
     logs(id) {
       return rt(id).logs.slice(-LOG_CAP)
+    },
+
+    async peerLogs(id, logOpts = {}) {
+      const instance = need(id)
+      const lines = logOpts.lines && logOpts.lines > 0 ? Math.min(logOpts.lines, 400) : 40
+      const r = await ssh(instance, buildPeerLogCommand(instance.appVersion, instance.instancePort, lines), 30_000)
+      const parsed = parsePeerLogs(r.stdout)
+      if (r.code !== 0) {
+        return { ...parsed, ok: false, error: cleanSshNoise(r.stderr || r.stdout).trim().split('\n').pop() ?? `exit ${r.code}` }
+      }
+      return { ...parsed, ok: true }
     },
 
     ensureAll() {

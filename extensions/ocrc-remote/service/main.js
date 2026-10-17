@@ -617,6 +617,36 @@ function parsePortProbe(stdout) {
   const last = (stdout ?? "").trim().split("\n").pop()?.trim() ?? "";
   return last === "open" || last === "closed" ? last : "unknown";
 }
+function buildPeerLogCommand(appVersion, port, lines = 40) {
+  const p = instancePaths(appVersion);
+  const appLog = `$HOME/.config/openchamber/logs/openchamber-${port}.log`;
+  return [
+    `echo "PATH_INSTANCE=${p.log}"`,
+    `echo "PATH_APP=${appLog}"`,
+    'echo "INSTANCE_BEGIN"',
+    `tail -n ${lines} ${p.log} 2>/dev/null`,
+    'echo "INSTANCE_END"',
+    'echo "APP_BEGIN"',
+    `tail -n ${lines} ${appLog} 2>/dev/null`,
+    'echo "APP_END"',
+    'echo "DONE=1"'
+  ].join("\n");
+}
+function parsePeerLogs(stdout) {
+  const section = (name) => {
+    const m = new RegExp(`${name}_BEGIN\\r?\\n([\\s\\S]*?)\\r?\\n${name}_END`).exec(stdout);
+    if (!m) return [];
+    return m[1].split("\n").map((l) => l.replace(/\r$/, "")).filter((l) => l.trim().length > 0);
+  };
+  return {
+    instance: section("INSTANCE"),
+    app: section("APP"),
+    paths: {
+      instance: /^PATH_INSTANCE=(.*)$/m.exec(stdout)?.[1]?.trim() ?? "",
+      app: /^PATH_APP=(.*)$/m.exec(stdout)?.[1]?.trim() ?? ""
+    }
+  };
+}
 function buildTerminalProbeCommand(appVersion) {
   const p = instancePaths(appVersion);
   const pty = `${p.appPrefix}/lib/node_modules/@openchamber/web/node_modules/node-pty`;
@@ -3402,6 +3432,16 @@ tar: ${err.message}` });
     logs(id) {
       return rt(id).logs.slice(-LOG_CAP);
     },
+    async peerLogs(id, logOpts = {}) {
+      const instance = need(id);
+      const lines = logOpts.lines && logOpts.lines > 0 ? Math.min(logOpts.lines, 400) : 40;
+      const r = await ssh(instance, buildPeerLogCommand(instance.appVersion, instance.instancePort, lines), 3e4);
+      const parsed = parsePeerLogs(r.stdout);
+      if (r.code !== 0) {
+        return { ...parsed, ok: false, error: cleanSshNoise(r.stderr || r.stdout).trim().split("\n").pop() ?? `exit ${r.code}` };
+      }
+      return { ...parsed, ok: true };
+    },
     ensureAll() {
       for (const instance of opts.store.list()) {
         if (!instance.enabled) {
@@ -3594,6 +3634,10 @@ function createRemoteInstanceOps({
           const lines = manager.logs(op.id);
           const tail = Number(op.tail ?? 100);
           return { status: 200, body: { lines: Number.isFinite(tail) && tail > 0 ? lines.slice(-tail) : lines } };
+        }
+        case "peerlog": {
+          if (!store.get(op.id)) return { status: 404, body: { error: "not found" } };
+          return start(() => manager.peerLogs(op.id, { lines: op.lines }));
         }
         case "url": {
           const instance = store.get(op.id);

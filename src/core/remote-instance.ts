@@ -565,6 +565,55 @@ export function parsePortProbe(stdout: string): 'open' | 'closed' | 'unknown' {
   return last === 'open' || last === 'closed' ? last : 'unknown'
 }
 
+/** D3: the two peer-side logs that explain a failure, in one round trip.
+ *
+ *  `instance.log` is **ours** (the `nohup` redirect of the serve line: startup
+ *  errors, the engine's own complaints) and `~/.config/openchamber/logs/
+ *  openchamber-<port>.log` is the instance's own (HTTP layer, guests, the
+ *  desktop-facing bits). Diagnosing "it is running but nothing works" needs both,
+ *  and asking for them separately would double the round trips for no reason.
+ *
+ *  The log name carries the **instance port** because that is how openchamber
+ *  names it (one file per served port), and the glob is deliberately not used:
+ *  a peer running two instances must not hand us the other one's log. */
+export function buildPeerLogCommand(appVersion: string, port: number, lines = 40): string {
+  const p = instancePaths(appVersion)
+  const appLog = `$HOME/.config/openchamber/logs/openchamber-${port}.log`
+  return [
+    `echo "PATH_INSTANCE=${p.log}"`,
+    `echo "PATH_APP=${appLog}"`,
+    'echo "INSTANCE_BEGIN"',
+    `tail -n ${lines} ${p.log} 2>/dev/null`,
+    'echo "INSTANCE_END"',
+    'echo "APP_BEGIN"',
+    `tail -n ${lines} ${appLog} 2>/dev/null`,
+    'echo "APP_END"',
+    'echo "DONE=1"',
+  ].join('\n')
+}
+
+export interface PeerLogs {
+  instance: string[]
+  app: string[]
+  paths: { instance: string; app: string }
+}
+
+export function parsePeerLogs(stdout: string): PeerLogs {
+  const section = (name: string): string[] => {
+    const m = new RegExp(`${name}_BEGIN\\r?\\n([\\s\\S]*?)\\r?\\n${name}_END`).exec(stdout)
+    if (!m) return []
+    return m[1].split('\n').map((l) => l.replace(/\r$/, '')).filter((l) => l.trim().length > 0)
+  }
+  return {
+    instance: section('INSTANCE'),
+    app: section('APP'),
+    paths: {
+      instance: /^PATH_INSTANCE=(.*)$/m.exec(stdout)?.[1]?.trim() ?? '',
+      app: /^PATH_APP=(.*)$/m.exec(stdout)?.[1]?.trim() ?? '',
+    },
+  }
+}
+
 /** Remote: can the instance's terminal actually load? node-pty ships prebuilt
  *  binaries an EL7 host cannot dlopen. Measured on the EL7 target (P6):
  *  `pty.node` needs **GLIBC_2.28** *and* GLIBCXX_3.4.21/22, while the host has

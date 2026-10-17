@@ -1499,7 +1499,7 @@ async function ensureAppTree(appVersion, opts = {}) {
 }
 async function ensureAppPayload(appVersion, opts = {}) {
   if (opts.tier) {
-    const pack = await ensureAppPack(appVersion, opts.tier, opts);
+    const pack = await ensureAppPack(appVersion, opts.tier, { force: opts.force, onLog: opts.onLog, packDir: opts.packDir });
     if (pack) return pack;
   }
   const { treeDir } = await ensureAppTree(appVersion, opts);
@@ -2332,11 +2332,11 @@ function createRemoteInstanceManager(opts) {
       const instance = opts.store.get(id);
       if (!instance) return { online: false, detail: "no such instance" };
       if (externalTunnel) {
-        const health = await remoteHealth(instance);
-        if (health !== "200") {
+        const health2 = await remoteHealth(instance);
+        if (health2 !== "200") {
           const r2 = rt(id);
-          if (r2.state === "online") setState(id, "offline", `\u5BF9\u7AEF\u5B9E\u4F8B\u672A\u54CD\u5E94\uFF08health ${health}\uFF09`);
-          return { online: false, detail: `\u5BF9\u7AEF\u5B9E\u4F8B\u672A\u54CD\u5E94\uFF08health ${health}\uFF09` };
+          if (r2.state === "online") setState(id, "offline", `\u5BF9\u7AEF\u5B9E\u4F8B\u672A\u54CD\u5E94\uFF08health ${health2}\uFF09`);
+          return { online: false, detail: `\u5BF9\u7AEF\u5B9E\u4F8B\u672A\u54CD\u5E94\uFF08health ${health2}\uFF09` };
         }
         await ensureExternalRelayAsync(instance);
         const relayUp = !proxyConfig(instance).enabled || (await ssh(instance, buildRemotePortProbeCommand(instance.appVersion, proxyConfig(instance).remotePort), 2e4)).stdout.trim().endsWith("open");
@@ -2353,6 +2353,14 @@ function createRemoteInstanceManager(opts) {
         const r = rt(id);
         if (r.state !== "online") setState(id, "online", `openchamber ${probe.version}\uFF08\u5B9E\u6D4B\uFF09`);
         return { online: true, version: probe.version };
+      }
+      const health = await remoteHealth(instance);
+      if (health === "200") {
+        return {
+          online: false,
+          remote: true,
+          detail: `\u8FDC\u7AEF\u5B9E\u4F8B\u5728\u7EBF\uFF08health 200\uFF09\uFF1B\u672C\u5730\u8F6C\u53D1 :${instance.localPort} \u672A\u8D77\u2014\u2014\u96A7\u9053\u53EF\u80FD\u7531\u684C\u9762\u7248\u6216\u53E6\u4E00\u4E2A\u8FDB\u7A0B\u6301\u6709`
+        };
       }
       return { online: false, detail: probe.error };
     },

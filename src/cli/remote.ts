@@ -393,11 +393,13 @@ export async function main(argv: string[]): Promise<void> {
     const id = args[1]
     const m = manager()
     // 内存状态只在拥有隧道的进程里；换个进程跑 status 时，用一次实测把话说准。
-    if (id) await m.probe(id)
     if (id) {
+      const live = await m.probe(id)
       const st = m.status(id)
       if (!st) throw new Error(`没有这个实例档案：${id}`)
-      printStatus(st)
+      if (live.online) printStatus({ ...st, state: 'online', detail: live.version ? `openchamber ${live.version}（实测）` : live.detail ?? st.detail })
+      else if (live.remote) printStatus({ ...st, state: 'unknown', detail: live.detail })
+      else printStatus({ ...st, state: st.state === 'online' ? 'offline' : st.state, detail: live.detail ?? st.detail })
     } else {
       const all = m.statusAll()
       if (all.length === 0) console.log('（没有登记的实例）')

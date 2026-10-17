@@ -97,8 +97,10 @@ export interface RemoteInstanceManager {
   /** Stop the instance and tear the tunnel down (records are kept). */
   down(id: string): Promise<InstanceOutcome>
   /** 实测（不是读内存状态）：隧道能不能通 + 实例自己报的版本。
-   *  CLI/路由在**另一个进程**里也能据此说真话——内存状态只在拥有隧道的进程里。 */
-  probe(id: string): Promise<{ online: boolean; version?: string; detail?: string }>
+   *  CLI/路由在**另一个进程**里也能据此说真话——内存状态只在拥有隧道的进程里。
+   *  `remote` 表示"远端实例在跑，但本地转发不在这个进程/这个端口上"（桌面壳自选端口、
+   *  或另一进程持有隧道）——不把它当成 unknown。 */
+  probe(id: string): Promise<{ online: boolean; version?: string; detail?: string; remote?: boolean }>
   status(id: string): InstanceStatus | undefined
   statusAll(): InstanceStatus[]
   logs(id: string): string[]
@@ -976,6 +978,17 @@ async probe(id) {
         const r = rt(id)
         if (r.state !== 'online') setState(id, 'online', `openchamber ${probe.version}（实测）`)
         return { online: true, version: probe.version }
+      }
+      // The local forward is not ours in this process. Say what the far side
+      // actually is instead of "unknown": the desktop shell picks its own local
+      // port, and a CLI `status` must not call that offline.
+      const health = await remoteHealth(instance)
+      if (health === '200') {
+        return {
+          online: false,
+          remote: true,
+          detail: `远端实例在线（health 200）；本地转发 :${instance.localPort} 未起——隧道可能由桌面版或另一个进程持有`,
+        }
       }
       return { online: false, detail: probe.error }
     },

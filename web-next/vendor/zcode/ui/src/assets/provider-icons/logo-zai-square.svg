@@ -1,6 +1,0 @@
-<!-- ocrc fork (PATCHES #12): enso mark replaces the ZAI square logo (same filename). -->
-<svg width="30" height="30" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="64" height="64" rx="14" fill="currentColor" opacity="0.06"/>
-  <path d="M46 15 A24 24 0 1 0 54 32" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round"/>
-  <circle cx="49" cy="20" r="6" fill="#e4580f"/>
-</svg>

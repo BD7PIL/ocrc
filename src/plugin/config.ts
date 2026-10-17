@@ -156,10 +156,12 @@ export function loadPluginConfig(
     serverPort: num(process.env.OCRC_SERVER_PORT ?? process.env.SERVER_PORT, 4096, 'OCRC_SERVER_PORT'),
     serverUrl: (process.env.OCRC_SERVER_URL ?? '').trim(),
     webPublicUrl: envFork('OCRC_WEB_PUBLIC_URL', 'WEB_PUBLIC_URL', options?.webPublicUrl as string) ?? '',
-    // M4-3 retirement: the React shell IS the web surface (the Svelte shell is
-    // gone); /next/ keeps serving the same dist for bookmark compatibility.
-    webStaticRoot: envFork('OCRC_WEB_STATIC_ROOT', 'WEB_STATIC_ROOT', options?.webStaticRoot as string) ?? resolve(PLUGIN_ROOT, 'web-next', 'dist'),
-    webNextStaticRoot: (process.env.OCRC_WEB_NEXT_STATIC_ROOT ?? '').trim() || resolve(PLUGIN_ROOT, 'web-next', 'dist'),
+    // 2026-10-17: the ZCode shell (web-next/) is gone from the tree (tag
+    // `web-next-final`). There is no bundled web UI any more — the panel is
+    // openchamber — so both roots are empty unless a deployment points them at
+    // some build explicitly. The transport degrades to API-only when they are.
+    webStaticRoot: envFork('OCRC_WEB_STATIC_ROOT', 'WEB_STATIC_ROOT', options?.webStaticRoot as string) ?? '',
+    webNextStaticRoot: (process.env.OCRC_WEB_NEXT_STATIC_ROOT ?? '').trim(),
     webCacheSize: num(options?.webCacheSize ?? process.env.OCRC_WEB_SESSION_CACHE_SIZE ?? process.env.WEB_SESSION_CACHE_SIZE, 100, 'OCRC_WEB_SESSION_CACHE_SIZE'),
     webCfAccessTeam: envFork('OCRC_WEB_CF_ACCESS_TEAM', 'WEB_CF_ACCESS_TEAM', options?.webCfAccessTeam as string) ?? '',
     webCfAccessAud: envFork('OCRC_WEB_CF_ACCESS_AUD', 'WEB_CF_ACCESS_AUD', options?.webCfAccessAud as string) ?? '',

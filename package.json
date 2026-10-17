@@ -24,8 +24,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "build:web-next": "npm --prefix web-next install && npm --prefix web-next run build",
-    "build:all": "npm run build && npm run build:dwf && npm run build:web-next",
+    "build:all": "npm run build && npm run build:dwf",
     "prepublishOnly": "npm run build:all",
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json",
@@ -42,7 +41,6 @@
     "bin",
     "ops",
     "patches",
-    "web-next/dist",
     "vendor/zcode-dwf/dist"
   ],
   "dependencies": {

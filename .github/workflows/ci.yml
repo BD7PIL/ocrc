@@ -21,10 +21,9 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
-      - name: Install (plugin + web-next + extensions)
+      - name: Install (plugin + extensions)
         run: |
           npm ci
-          npm --prefix web-next ci
           npm --prefix extensions/ocrc-remote ci
           npm --prefix extensions/ocrc-omo-view ci
 
@@ -48,15 +47,6 @@ jobs:
         run: |
           npx vitest run --coverage --coverage.reporter=text --coverage.reporter=json-summary
           npx vitest run --coverage --coverage.reporter=text-summary 2>/dev/null | tail -20 || true
-
-      - name: Typecheck (web-next shell)
-        run: npm --prefix web-next run typecheck
-
-      - name: Build (web-next shell)
-        run: npm --prefix web-next run build
-
-      - name: Test (web-next shell)
-        run: npm --prefix web-next run test
 
       - name: Typecheck + test + build (extensions)
         run: |

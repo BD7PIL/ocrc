@@ -23,19 +23,14 @@ jobs:
       - name: Upgrade npm (Trusted Publishing requires npm >= 11.5.1)
         run: npm install -g npm@latest
 
-      - name: Install (plugin + web-next)
-        run: |
-          npm ci
-          npm --prefix web-next ci
+      - name: Install (plugin)
+        run: npm ci
 
-      - name: Verify (typecheck + tests + builds)
+      - name: Verify (typecheck + tests + build)
         run: |
           npm run typecheck
           npm test
           npm run build
-          npm --prefix web-next run typecheck
-          npm --prefix web-next run build
-          npm --prefix web-next run test
 
       - name: Publish
         run: npm publish --provenance --access public

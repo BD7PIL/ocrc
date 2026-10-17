@@ -367,6 +367,25 @@ function inspectConfigSource(env = process.env, exists = (p) => existsSync(p), r
 }
 
 // ../../src/core/remote-instance.ts
+function provisionActions(f) {
+  const appOk = !!f.app && f.app === f.targetAppVersion;
+  if (f.provision === "reuse") {
+    const out2 = ["\u590D\u7528\u6863\uFF1A\u4E0D\u63A8\u9001\u4EFB\u4F55\u5B57\u8282\uFF08\u8FD0\u884C\u65F6/\u5E94\u7528/\u5F15\u64CE\u90FD\u4FDD\u6301\u5BF9\u7AEF\u73B0\u72B6\uFF09"];
+    if (!f.runtime) out2.push("FAIL \u8FD0\u884C\u65F6\u7F3A\u5931\u2014\u2014\u590D\u7528\u6863\u4E0B\u65E0\u6CD5\u7EE7\u7EED\uFF0C\u628A\u88C5\u673A\u65B9\u5F0F\u6539\u56DE\u300C\u63A8\u5305\u300D");
+    if (!appOk) out2.push(`FAIL \u5E94\u7528\u7F3A\u5931\u6216\u7248\u672C\u4E0D\u7B26\uFF08\u5BF9\u7AEF ${f.app ?? "\u7F3A\u5931"} \u2260 ${f.targetAppVersion}\uFF09\u2014\u2014\u6539\u56DE\u300C\u63A8\u5305\u300D`);
+    if (!f.engineOk) out2.push(`FAIL \u5F15\u64CE\u4E0D\u6EE1\u8DB3 v2 \u95E8\u7981\uFF1A${f.engineError ?? "\u539F\u56E0\u672A\u77E5"}`);
+    if (f.runtime && appOk && f.engineOk) out2.push("\u68C0\u67E5\u901A\u8FC7\uFF0C\u53EF\u4EE5\u76F4\u63A5\u542F\u52A8");
+    return out2;
+  }
+  const out = [];
+  if (!f.runtime) out.push(`\u63A8\u9001\u8FD0\u884C\u65F6 node v${f.runtime ?? NODE_RUNTIME.version}\uFF08\u63A7\u5236\u7AEF\u5DF2\u5907\u4EF6\uFF0C\u79BB\u7EBF\uFF09`);
+  if (!appOk) out.push(`\u63A8\u9001\u5E94\u7528 ${f.targetAppVersion} \u5230 ~/.ocrc/remote/openchamber/${f.targetAppVersion}\uFF08\u65E7\u6811\u7559 .ocrc-bak\uFF09`);
+  if (f.runtime && appOk) out.push("\u8FD0\u884C\u65F6\u4E0E\u5E94\u7528\u90FD\u5728\u4F4D\uFF0C\u63A8\u9001\u4F1A\u8DF3\u8FC7");
+  if (!f.engineOk) {
+    out.push(`\u90E8\u7F72\u6211\u4EEC pin \u7684\u5F15\u64CE opencode ${f.enginePin ?? DEFAULT_ENGINE_PIN} \u5230 ~/.ocrc/remote/engine/opencode\uFF08\u5BF9\u7AEF\u73B0\u6709 v1 \u4E00\u5F8B\u4E0D\u52A8\uFF09`);
+  }
+  return out;
+}
 var PROXY_DEFAULTS = { enabled: true, localPort: 4711, remotePort: 2711, allow: [] };
 var EGRESS_DEFAULT = "auto";
 function buildEgressProbeCommand(o) {
@@ -583,6 +602,20 @@ function buildRemotePortProbeCommand(appVersion, port) {
   const node = instancePaths(appVersion).node;
   const js = `const n=require('net');const s=n.connect(${port},'127.0.0.1',()=>{console.log('open');s.destroy();process.exit(0)});s.on('error',()=>{console.log('closed');process.exit(0)});setTimeout(()=>{console.log('closed');s.destroy();process.exit(0)},3000)`;
   return `if [ -x ${node} ]; then ${node} -e "${js}"; else echo closed; fi`;
+}
+function buildPeerPortProbeCommand(appVersion, port) {
+  const node = instancePaths(appVersion).node;
+  const js = `const n=require('net');const s=n.connect(${port},'127.0.0.1',()=>{console.log('open');s.destroy();process.exit(0)});s.on('error',()=>{console.log('closed');process.exit(0)});setTimeout(()=>{console.log('closed');s.destroy();process.exit(0)},2000)`;
+  return [
+    `if [ -x ${node} ]; then ${node} -e "${js}";`,
+    `elif command -v ss >/dev/null 2>&1; then ss -ltn 2>/dev/null | grep -q "[:.]${port} " && echo open || echo closed;`,
+    `elif command -v netstat >/dev/null 2>&1; then netstat -ltn 2>/dev/null | grep -q "[:.]${port} " && echo open || echo closed;`,
+    "else echo unknown; fi"
+  ].join(" ");
+}
+function parsePortProbe(stdout) {
+  const last = (stdout ?? "").trim().split("\n").pop()?.trim() ?? "";
+  return last === "open" || last === "closed" ? last : "unknown";
 }
 function buildTerminalProbeCommand(appVersion) {
   const p = instancePaths(appVersion);
@@ -835,6 +868,10 @@ function createRemoteInstancesStore(path, opts = {}) {
       localPort: i.localPort > 0 ? i.localPort : DEFAULT_LOCAL_PORT2,
       appVersion: i.appVersion?.trim() || DEFAULT_APP_VERSION,
       enabled: i.enabled ?? true,
+      provision: i.provision === "reuse" ? "reuse" : void 0,
+      // 出口策略是闭集：认不出来的值等于没设（= auto，由探测决定），
+      // 不能让一个拼错的值悄悄变成"总是经控制端"。
+      egress: i.egress === "relay" || i.egress === "direct" ? i.egress : void 0,
       reconnect: i.reconnect ?? RECONNECT_DEFAULTS.reconnect,
       restoreOnStart: i.restoreOnStart ?? RECONNECT_DEFAULTS.restoreOnStart,
       replayQueued: i.replayQueued ?? RECONNECT_DEFAULTS.replayQueued,
@@ -888,6 +925,8 @@ function createRemoteInstancesStore(path, opts = {}) {
         engineVersion: instance.engineVersion,
         appVersion: instance.appVersion ?? DEFAULT_APP_VERSION,
         enabled: instance.enabled ?? true,
+        provision: instance.provision,
+        egress: instance.egress,
         reconnect: instance.reconnect,
         restoreOnStart: instance.restoreOnStart,
         replayQueued: instance.replayQueued,
@@ -1966,14 +2005,20 @@ function createRemoteInstanceManager(opts) {
     if (r.egress && Date.now() - r.egress.at < EGRESS_TTL_MS) return r.egress;
     const mode = instance.egress;
     let probe;
-    if ((mode ?? EGRESS_DEFAULT) === "auto") {
+    if (mode !== "relay" && mode !== "direct") {
       const out = await ssh(instance, buildEgressProbeCommand({ appVersion: instance.appVersion }), 3e4);
       probe = parseEgressProbe(out.stdout);
     }
     const decision = resolveEgressPolicy({ mode, relayAllowed: proxyConfig(instance).enabled, probe });
-    r.egress = { ...decision, at: Date.now() };
+    r.egress = { ...decision, probe, at: Date.now() };
     pushLog(instance.id, `\u51FA\u53E3\u7B56\u7565\uFF1A${decision.relay ? "\u7ECF\u63A7\u5236\u7AEF" : "\u76F4\u8FDE"}\uFF08${decision.reason}\uFF09`);
-    return decision;
+    return r.egress;
+  }
+  function egressView(instance) {
+    const mode = instance.egress ?? EGRESS_DEFAULT;
+    const cached = rt(instance.id).egress;
+    if (!cached) return { mode, relay: false, reason: "\u5C1A\u672A\u63A2\u6D4B\uFF08\u8DD1\u4E00\u6B21\u9884\u6F14\u6216\u542F\u52A8\u5C31\u4F1A\u51B3\u5B9A\uFF09", cached: false };
+    return { mode, relay: cached.relay, reason: cached.reason, probe: cached.probe, cached: true };
   }
   async function ensureProxy(instance) {
     const cfg = proxyConfig(instance);
@@ -2383,15 +2428,26 @@ function createRemoteInstanceManager(opts) {
       const appRaw = appProbe.stdout.trim().split("\n").pop() ?? "";
       const app = appRaw && appRaw !== "MISSING" ? appRaw : void 0;
       rt(id).appVersion = app;
-      if (!runtime) actions.push(`\u63A8\u9001\u8FD0\u884C\u65F6 node v${NODE_RUNTIME.version}\uFF08\u63A7\u5236\u7AEF\u5DF2\u5907\u4EF6\uFF0C\u79BB\u7EBF\uFF09`);
-      if (app !== instance.appVersion) actions.push(`\u63A8\u9001\u5E94\u7528 ${instance.appVersion} \u5230 ~/.ocrc/remote/openchamber/${instance.appVersion}\uFF08\u65E7\u6811\u7559 .ocrc-bak\uFF09`);
-      if (runtime && app === instance.appVersion) actions.push("\u8FD0\u884C\u65F6\u4E0E\u5E94\u7528\u90FD\u5728\u4F4D\uFF0C\u63A8\u9001\u4F1A\u8DF3\u8FC7");
+      actions.push(...provisionActions({
+        provision: instance.provision,
+        runtime,
+        app,
+        targetAppVersion: instance.appVersion,
+        engineOk: pick.ok,
+        engineError: pick.ok ? void 0 : pick.error
+      }));
       const term = rt(id).terminal;
       if (term && term.ok === false) {
         actions.push(`\u6CE8\u610F\uFF1A\u7EC8\u7AEF\u6682\u4E0D\u53EF\u7528\uFF08${term.reason ?? "\u539F\u56E0\u672A\u77E5"}\uFF09\u2014\u2014\u5B9E\u4F8B\u5176\u4F59\u529F\u80FD\u4E0D\u53D7\u5F71\u54CD`);
       }
-      actions.push(pick.ok ? `\u542F\u52A8\u5B9E\u4F8B\uFF1Aserve --hostname 127.0.0.1 --port ${instance.instancePort}\uFF08\u5F15\u64CE ${pick.candidate.path} \u2192 ${pick.candidate.version}\uFF09` : `\u90E8\u7F72\u6211\u4EEC pin \u7684\u5F15\u64CE opencode ${DEFAULT_ENGINE_PIN} \u5230 ~/.ocrc/remote/engine/opencode\uFF08\u5BF9\u7AEF\u73B0\u6709 v1 \u4E00\u5F8B\u4E0D\u52A8\uFF09`);
+      actions.push(pick.ok ? `\u542F\u52A8\u5B9E\u4F8B\uFF1Aserve --hostname 127.0.0.1 --port ${instance.instancePort}\uFF08\u5F15\u64CE ${pick.candidate.path} \u2192 ${pick.candidate.version}\uFF09` : `\u542F\u52A8\u5B9E\u4F8B\u524D\u5148\u88C5\u5F15\u64CE\uFF1Aopencode ${DEFAULT_ENGINE_PIN} \u2192 ~/.ocrc/remote/engine/opencode\uFF08\u5BF9\u7AEF\u73B0\u6709 v1 \u4E00\u5F8B\u4E0D\u52A8\uFF09`);
       actions.push(`\u5EFA\u8F6C\u53D1\uFF1Assh -N -L 127.0.0.1:${instance.localPort}:127.0.0.1:${instance.instancePort} \u2192 \u6253\u5F00 ${url}`);
+      const egress = await egressFor(instance);
+      actions.push(`\u51FA\u53E3\uFF1A${egress.relay ? "\u7ECF\u63A7\u5236\u7AEF\u4E2D\u7EE7" : "\u5BF9\u7AEF\u76F4\u8FDE"}\uFF08${egress.reason}\uFF09`);
+      const portOut = await ssh(instance, buildPeerPortProbeCommand(instance.appVersion, instance.instancePort), 2e4);
+      const peerPort = parsePortProbe(portOut.stdout);
+      if (peerPort === "open") actions.push(`\u6CE8\u610F\uFF1A\u5B9E\u4F8B\u7AEF\u53E3 ${instance.instancePort} \u5728\u5BF9\u7AEF\u5DF2\u88AB\u5360\u7528\u2014\u2014\u6362\u4E2A\u5B9E\u4F8B\u7AEF\u53E3\uFF0C\u6216\u786E\u8BA4\u90A3\u662F\u4E0A\u4E00\u6B21\u7684\u5B9E\u4F8B\uFF08\u542F\u52A8\u4F1A\u590D\u7528\uFF09`);
+      if (peerPort === "unknown") actions.push(`\u5B9E\u4F8B\u7AEF\u53E3 ${instance.instancePort}\uFF1A\u5BF9\u7AEF\u65E2\u6CA1\u6709\u6211\u4EEC\u7684\u8FD0\u884C\u65F6\u4E5F\u6CA1\u6709 ss/netstat\uFF0C\u5360\u7528\u60C5\u51B5\u65E0\u6CD5\u5224\u5B9A\uFF08\u542F\u52A8\u65F6\u624D\u4F1A\u77E5\u9053\uFF09`);
       setState(id, "unknown");
       return {
         id,
@@ -2404,11 +2460,33 @@ function createRemoteInstanceManager(opts) {
         engineError: pick.ok ? void 0 : pick.error,
         engineCandidates: candidates,
         actions,
-        url
+        url,
+        egress: { mode: instance.egress ?? EGRESS_DEFAULT, relay: egress.relay, reason: egress.reason, probe: egress.probe },
+        provision: instance.provision ?? "push",
+        tier: appPackTierForGlibc(env.glibc),
+        peerPort
       };
     },
     async apply(id, applyOpts = {}) {
       const instance = need(id);
+      if (instance.provision === "reuse" && !applyOpts.force) {
+        setState(id, "provisioning", "\u590D\u7528\u6863\uFF1A\u53EA\u68C0\u67E5\uFF0C\u4E0D\u5199\u5BF9\u7AEF");
+        const runtime = (await ssh(instance, buildRuntimeProbeCommand(), 25e3)).stdout.trim().split("\n").pop() ?? "MISSING";
+        const appRaw = (await ssh(instance, buildAppProbeCommand(instance.appVersion), 45e3)).stdout.trim().split("\n").pop() ?? "";
+        const pick = await resolveEngine(instance);
+        const detail = `\u590D\u7528\u6863\uFF1A\u8FD0\u884C\u65F6 ${runtime === "MISSING" ? "\u7F3A\u5931" : runtime}\uFF1B\u5E94\u7528 ${appRaw === instance.appVersion ? instance.appVersion : `\u4E0D\u7B26\uFF08${appRaw || "\u7F3A\u5931"}\uFF09`}\uFF1B\u5F15\u64CE ${pick.ok ? `${pick.candidate.version} @ ${pick.candidate.path}` : "\u4E0D\u6EE1\u8DB3 v2 \u95E8\u7981"}`;
+        pushLog(id, detail);
+        if (runtime === "MISSING" || appRaw !== instance.appVersion || !pick.ok) {
+          setState(id, "error", "\u590D\u7528\u6863\u68C0\u67E5\u672A\u901A\u8FC7");
+          return { ok: false, detail: `${detail} \u2014\u2014 \u590D\u7528\u6863\u4E0D\u5199\u4EFB\u4F55\u5B57\u8282\uFF1B\u6539\u7528\u300C\u63A8\u5305\u300D\u6216\u5148\u5728\u5BF9\u7AEF\u88C5\u597D ${instance.appVersion}` };
+        }
+        if (pick.ok) {
+          opts.store.update(id, { enginePath: pick.candidate.path, engineVersion: pick.candidate.version });
+          rt(id).engine = { path: pick.candidate.path, version: pick.candidate.version };
+        }
+        setState(id, "offline", "\u590D\u7528\u6863\u68C0\u67E5\u901A\u8FC7\uFF08\u672A\u542F\u52A8\uFF09");
+        return { ok: true, detail };
+      }
       const inspected = await probeEnv(instance);
       const tier = applyOpts.tier ?? appPackTierForGlibc(inspected?.glibc);
       pushLog(id, `\u5E94\u7528\u5305\u6863\u4F4D\uFF1A${tier}${inspected?.glibc ? `\uFF08\u5BF9\u7AEF glibc ${inspected.glibc}\uFF09` : ""}`);
@@ -2612,6 +2690,7 @@ function createRemoteInstanceManager(opts) {
           listening: !!proxy,
           connects: (proxy?.connects ?? []).slice(-20).map((t) => `${t.host}:${t.port}`)
         },
+        egress: egressView(instance),
         logTail: r?.logs.slice(-40) ?? []
       };
     },
@@ -2657,10 +2736,39 @@ function createRemoteInstanceManager(opts) {
 
 // src/service/remote-instance-ops.ts
 import { randomUUID } from "node:crypto";
-function validateSshAuth(payload) {
-  const mode = payload?.sshAuth;
-  if (mode === void 0 || mode === null || mode === "key" || mode === "password") return void 0;
-  return `invalid sshAuth: ${String(mode)}`;
+import net3 from "node:net";
+async function firstFreeLocalPort(from = DEFAULT_LOCAL_PORT2, window = 40) {
+  for (let port = from; port < from + window; port += 1) {
+    if (!await isPortListening(port)) return port;
+  }
+  return from;
+}
+function isPortListening(port) {
+  return new Promise((resolve) => {
+    const socket = net3.connect(port, "127.0.0.1");
+    const done = (listening) => {
+      socket.destroy();
+      resolve(listening);
+    };
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+    socket.setTimeout(700, () => done(false));
+  });
+}
+function validateInstancePayload(payload) {
+  const auth = payload?.sshAuth;
+  if (auth !== void 0 && auth !== null && auth !== "key" && auth !== "password") {
+    return `invalid sshAuth: ${String(auth)}`;
+  }
+  const egress = payload?.egress;
+  if (egress !== void 0 && egress !== null && egress !== "auto" && egress !== "relay" && egress !== "direct") {
+    return `invalid egress: ${String(egress)}`;
+  }
+  const provision = payload?.provision;
+  if (provision !== void 0 && provision !== null && provision !== "push" && provision !== "reuse") {
+    return `invalid provision: ${String(provision)}`;
+  }
+  return void 0;
 }
 var withStatus = (manager) => (i) => ({
   ...redactInstance(i),
@@ -2712,13 +2820,13 @@ function createRemoteInstanceOps({
               return { status: 400, body: { error: `invalid ${key}` } };
             }
           }
-          const authError = validateSshAuth(body);
+          const authError = validateInstancePayload(body);
           if (authError) return { status: 400, body: { error: authError } };
           const saved2 = store.upsert({ ...body, host: body.host });
           return { status: 200, body: { instance: { ...redactInstance(saved2), status: statusFor(saved2.id) ?? null } } };
         }
         case "patch": {
-          const authError = validateSshAuth(op.payload);
+          const authError = validateInstancePayload(op.payload);
           if (authError) return { status: 400, body: { error: authError } };
           const updated = store.update(op.id, op.payload);
           if (!updated) return { status: 404, body: { error: "not found" } };
@@ -2811,6 +2919,29 @@ function createRemoteInstanceOps({
         case "pairlink": {
           if (!store.get(op.id)) return { status: 404, body: { error: "not found" } };
           return start(() => manager.pairLink(op.id));
+        }
+        case "defaults": {
+          const localPort = await firstFreeLocalPort();
+          return {
+            status: 200,
+            body: {
+              localPort,
+              instancePort: DEFAULT_INSTANCE_PORT,
+              appVersion: DEFAULT_APP_VERSION,
+              enginePin: DEFAULT_ENGINE_PIN,
+              nodeRuntime: NODE_RUNTIME.version,
+              bind: "127.0.0.1",
+              // Two records must not share the control-side forward port, so the
+              // suggestion also avoids what the store already claims.
+              taken: store.list().map((i) => i.localPort)
+            }
+          };
+        }
+        case "uipassword": {
+          const instance = store.get(op.id);
+          if (!instance) return { status: 404, body: { error: "not found" } };
+          if (!instance.uiPassword) return { status: 404, body: { error: "\u8FD9\u4E2A\u6863\u6848\u6CA1\u6709 UI \u5BC6\u7801" } };
+          return { status: 200, body: { uiPassword: instance.uiPassword, url: `http://127.0.0.1:${instance.localPort}` } };
         }
         case "job": {
           const job = jobs.get(op.jobId);

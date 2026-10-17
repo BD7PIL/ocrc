@@ -69,9 +69,12 @@ ocrc remote — 远程 openchamber 实例（对端能力）
 USAGE:
   ocrc remote add --host H [--user U] [--port 22] [--name N]
                   [--ssh-auth key|password] [--ssh-password P]
+                  [--egress auto|relay|direct] [--provision push|reuse]
                   [--instance-port ${DEFAULT_INSTANCE_PORT}] [--local-port ${DEFAULT_LOCAL_PORT}]
                   [--engine-path /abs/path] [--app-version ${DEFAULT_APP_VERSION}]
                   --ssh-auth password：不写 --ssh-password 时从终端（不回显）或 stdin 读一行
+                  --egress：auto（默认，探测对端）| relay（强制经控制端）| direct（强制直连）
+                  --provision：push（默认，推备件）| reuse（不推字节，只检查 + pin 引擎）
   ocrc remote list [--json]
   ocrc remote plan <id>            只读预演：ssh/环境/引擎门禁/装机动作，不写对端
   ocrc remote apply <id> [--force] 推运行时 + 引擎(v2 pin) + 应用（控制端备件，对端零联网）
@@ -226,6 +229,14 @@ function printStatus(s: InstanceStatus): void {
   if (s.app) console.log(`    app     ${s.app}`)
   console.log(`    engine  ${engine}`)
   if (s.inspected) console.log(`    host    ${s.inspected.uname ?? '?'} glibc ${s.inspected.glibc ?? '?'}`)
+  // D1: the decision, not just the relay config. "直连" for a peer with its own
+  // internet is a result, not a missing relay, and the reason says which.
+  if (s.egress) {
+    console.log(`    出口    ${s.egress.relay ? '经控制端中继' : '对端直连'}（策略 ${s.egress.mode}${s.egress.probe ? `，探测 ${s.egress.probe}` : ''}：${s.egress.reason}）`)
+  }
+  if (s.egress?.cached === false && s.proxy?.enabled) {
+    console.log('            （本进程还没探测过；`ocrc remote plan <id>` 会把它探出来）')
+  }
 }
 
 /** Is the openchamber desktop shell running? A live Electron holds the same
@@ -306,6 +317,10 @@ export async function main(argv: string[]): Promise<void> {
       throw new Error('--ssh-auth 只认 key / password')
     }
     const sshPassword = authFlag === 'password' ? await readSshPassword(flags) : undefined
+    const egressFlag = flagStr(flags, 'egress')
+    if (egressFlag && !['auto', 'relay', 'direct'].includes(egressFlag)) throw new Error('--egress 只认 auto / relay / direct')
+    const provisionFlag = flagStr(flags, 'provision')
+    if (provisionFlag && !['push', 'reuse'].includes(provisionFlag)) throw new Error('--provision 只认 push / reuse')
     const s = store()
     const saved = s.upsert({
       host,
@@ -314,6 +329,8 @@ export async function main(argv: string[]): Promise<void> {
       name: flagStr(flags, 'name'),
       sshAuth: authFlag === 'password' ? 'password' : undefined,
       sshPassword,
+      egress: egressFlag as 'auto' | 'relay' | 'direct' | undefined,
+      provision: provisionFlag as 'push' | 'reuse' | undefined,
       instancePort: flagNum(flags, 'instance-port', DEFAULT_INSTANCE_PORT),
       localPort: flagNum(flags, 'local-port', DEFAULT_LOCAL_PORT),
       appVersion: flagStr(flags, 'app-version') ?? DEFAULT_APP_VERSION,
@@ -322,6 +339,8 @@ export async function main(argv: string[]): Promise<void> {
     })
     console.log(`已登记：${saved.id} → ${saved.user ? `${saved.user}@` : ''}${saved.host}:${saved.port}（实例端口 ${saved.instancePort}，本地端口 ${saved.localPort}）`)
     console.log(`认证    ：${saved.sshAuth === 'password' ? '密码（askpass 喂 ssh，密码只落 0600 档案，接口不回显）' : '密钥（BatchMode=yes，用本机 ~/.ssh 与 agent）'}`)
+    console.log(`出口    ：${saved.egress ?? 'auto（探测：能直连就直连，不能才经控制端）'}`)
+    console.log(`装机    ：${saved.provision === 'reuse' ? '复用已有（一个字节都不推，只检查 + pin 引擎）' : '推包（控制端备件推过去，对端零联网）'}`)
     console.log(`UI 密码：${saved.uiPassword}（只存在 ~/.ocrc/remote-instances.json，0600；接口不回显）`)
     console.log(`下一步：ocrc remote plan ${saved.id}`)
     return
@@ -454,6 +473,9 @@ export async function main(argv: string[]): Promise<void> {
     const m = manager()
     // 内存状态只在拥有隧道的进程里；换个进程跑 status 时，用一次实测把话说准。
     if (id) {
+      // 出口是"决定"，不是内存里的开关：冷进程里先把它探出来，否则状态页永远
+      // 显示"尚未探测"，用户看不到自己要的那句"直连/经控制端"。
+      await m.egress(id).catch(() => { /* 探测失败不改状态结论，照旧由 status 说 */ })
       const live = await m.probe(id)
       const st = m.status(id)
       if (!st) throw new Error(`没有这个实例档案：${id}`)

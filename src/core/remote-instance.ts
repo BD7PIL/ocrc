@@ -59,6 +59,58 @@ export interface RemoteInstance extends SshAuthSpec {
   /** Where this peer's egress goes; default `auto` (probe the peer, relay only
    *  if it cannot get out itself). */
   egress?: EgressMode
+  /** 装机方式（A3）：
+   *   · `push`（默认）—— 控制端备件推过去：运行时 + 我们 pin 的引擎 + 应用，
+   *     对端零联网。对端只有 v1 引擎时这是唯一能跑的路（R12）。
+   *   · `reuse` —— 一个字节都不推。只做检查（运行时/应用是否在位、引擎是否过
+   *     v2 门禁）并把引擎 pin 下来；缺件就明确失败，让人改回推包。 */
+  provision?: ProvisionMode
+}
+
+export type ProvisionMode = 'push' | 'reuse'
+
+/** What `plan` knows about the peer when it writes the "将要做的" list. */
+export interface ProvisionFacts {
+  provision?: ProvisionMode
+  /** Runtime version found on the peer (`undefined` = missing). */
+  runtime?: string
+  /** App version found on the peer (`undefined` = missing). */
+  app?: string
+  /** The app version we would install. */
+  targetAppVersion: string
+  engineOk: boolean
+  engineError?: string
+  /** Engine pin we deploy when the peer has none. */
+  enginePin?: string
+}
+
+/**
+ * The action list for one provisioning mode. Pure, so the promise the user reads
+ * before pressing anything is testable on its own — and so "推包" and "复用档"
+ * cannot describe the same peer differently.
+ *
+ * The reuse list is deliberately a checklist of what must already be true, with
+ * `FAIL` prefixes: that mode writes **nothing**, so the only useful thing it can
+ * say is which precondition is missing.
+ */
+export function provisionActions(f: ProvisionFacts): string[] {
+  const appOk = !!f.app && f.app === f.targetAppVersion
+  if (f.provision === 'reuse') {
+    const out = ['复用档：不推送任何字节（运行时/应用/引擎都保持对端现状）']
+    if (!f.runtime) out.push('FAIL 运行时缺失——复用档下无法继续，把装机方式改回「推包」')
+    if (!appOk) out.push(`FAIL 应用缺失或版本不符（对端 ${f.app ?? '缺失'} ≠ ${f.targetAppVersion}）——改回「推包」`)
+    if (!f.engineOk) out.push(`FAIL 引擎不满足 v2 门禁：${f.engineError ?? '原因未知'}`)
+    if (f.runtime && appOk && f.engineOk) out.push('检查通过，可以直接启动')
+    return out
+  }
+  const out: string[] = []
+  if (!f.runtime) out.push(`推送运行时 node v${f.runtime ?? NODE_RUNTIME.version}（控制端已备件，离线）`)
+  if (!appOk) out.push(`推送应用 ${f.targetAppVersion} 到 ~/.ocrc/remote/openchamber/${f.targetAppVersion}（旧树留 .ocrc-bak）`)
+  if (f.runtime && appOk) out.push('运行时与应用都在位，推送会跳过')
+  if (!f.engineOk) {
+    out.push(`部署我们 pin 的引擎 opencode ${f.enginePin ?? DEFAULT_ENGINE_PIN} 到 ~/.ocrc/remote/engine/opencode（对端现有 v1 一律不动）`)
+  }
+  return out
 }
 
 export interface InstanceProxyConfig {
@@ -479,6 +531,33 @@ export function buildRemotePortProbeCommand(appVersion: string, port: number): s
   const node = instancePaths(appVersion).node
   const js = `const n=require('net');const s=n.connect(${port},'127.0.0.1',()=>{console.log('open');s.destroy();process.exit(0)});s.on('error',()=>{console.log('closed');process.exit(0)});setTimeout(()=>{console.log('closed');s.destroy();process.exit(0)},3000)`
   return `if [ -x ${node} ]; then ${node} -e "${js}"; else echo closed; fi`
+}
+
+/** Remote: is a port already taken **on the peer**? A3 shows the answer next to
+ *  the instance-port field, because a busy port is the most common start failure
+ *  and the one the user can still fix before anything is written.
+ *
+ *  Three ways to answer, in order of trust: the runtime we push (an exact
+ *  connect), then `ss`/`netstat` (a listening-socket listing), then **unknown**.
+ *  `unknown` is a real answer and is reported as one — a fresh peer has neither
+ *  our runtime nor necessarily `ss`, and "we could not tell" must never be shown
+ *  as "free" (that is the shape of bug where the user is told a port is fine and
+ *  the start then fails). */
+export function buildPeerPortProbeCommand(appVersion: string, port: number): string {
+  const node = instancePaths(appVersion).node
+  const js = `const n=require('net');const s=n.connect(${port},'127.0.0.1',()=>{console.log('open');s.destroy();process.exit(0)});s.on('error',()=>{console.log('closed');process.exit(0)});setTimeout(()=>{console.log('closed');s.destroy();process.exit(0)},2000)`
+  return [
+    `if [ -x ${node} ]; then ${node} -e "${js}";`,
+    `elif command -v ss >/dev/null 2>&1; then ss -ltn 2>/dev/null | grep -q "[:.]${port} " && echo open || echo closed;`,
+    `elif command -v netstat >/dev/null 2>&1; then netstat -ltn 2>/dev/null | grep -q "[:.]${port} " && echo open || echo closed;`,
+    'else echo unknown; fi',
+  ].join(' ')
+}
+
+/** `open` / `closed` / `unknown` — anything else is treated as unknown. */
+export function parsePortProbe(stdout: string): 'open' | 'closed' | 'unknown' {
+  const last = (stdout ?? '').trim().split('\n').pop()?.trim() ?? ''
+  return last === 'open' || last === 'closed' ? last : 'unknown'
 }
 
 /** Remote: can the instance's terminal actually load? node-pty ships prebuilt

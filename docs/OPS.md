@@ -87,7 +87,10 @@ ocrc remote up demo@192.168.26.101 --open
 
 | 操作 | 命令 | 说明 |
 |---|---|---|
-| 状态 | `ocrc remote status [id]` | 对端引擎**路径与版本**、隧道 pid/重连次数、中继端口 |
+| 状态 | `ocrc remote status [id]` | 对端引擎**路径与版本**、隧道 pid/重连次数、中继端口，以及**出口决定**（`对端直连` / `经控制端中继` + 原因）。冷进程里 status 会先探一次——出口是"决定"，不是内存里的开关 |
+| 出口策略 | `ocrc remote add … --egress auto\|relay\|direct` | `auto`（默认）探测对端：能自己出网就直连、不通才经控制端；`relay`/`direct` 强制。**有外网的对端不该被无脑拉进控制端**（2026-10-17 起为默认行为） |
+| 装机方式 | `ocrc remote add … --provision push\|reuse` | `push`（默认）推控制端备件；`reuse` **一个字节都不推**，只检查运行时/应用/引擎并把引擎 pin 下来，缺件就明确失败 |
+| 认证档 | `ocrc remote add … --ssh-auth key\|password` | `key`（默认）用本机 `~/.ssh` 与 agent；`password` 经 askpass 喂密码并**禁用公钥**（否则带口令的私钥会先被试，报的错与密码无关）。密码只落 0600 档案、接口不回显；省略 `--ssh-password` 时从终端（不回显）或 stdin 读 |
 | 日志 | `ocrc remote logs <id>` | 本端隧道/重连日志尾（受监督时同屏） |
 | 开关 | `ocrc remote switches <id> [--reconnect on\|off] [--restore on\|off] [--replay on\|off]` | R10 三级；**改完立刻对运行中的监督生效** |
 | 出网 | `ocrc remote proxy <id> on\|off` / `relay-status <id>` / `proxy-log <file>` | R9；中继日志 `~/.ocrc/remote-relay.log` 记每次 CONNECT |

@@ -8,10 +8,39 @@
  * panel polls `{op:'job', jobId}` and gets the final result.
  */
 import { randomUUID } from 'node:crypto'
+import net from 'node:net'
 import {
+  DEFAULT_APP_VERSION, DEFAULT_ENGINE_PIN, DEFAULT_INSTANCE_PORT, DEFAULT_LOCAL_PORT, NODE_RUNTIME,
   buildDesktopHandoff, redactInstance,
   type InstanceStatus, type RemoteInstance, type RemoteInstanceManager, type RemoteInstancesStore,
 } from '../../../../src/remote-instance/index.js'
+
+/**
+ * The first control-side port nothing is listening on, starting at the default.
+ * A record whose local port is already taken fails at `up` with an
+ * `ExitOnForwardFailure` message; suggesting a free one up front is cheaper than
+ * that error. Bounded to a small window so a machine with many busy ports still
+ * answers instead of scanning 65k.
+ */
+export async function firstFreeLocalPort(from = DEFAULT_LOCAL_PORT, window = 40): Promise<number> {
+  for (let port = from; port < from + window; port += 1) {
+    if (!(await isPortListening(port))) return port
+  }
+  return from
+}
+
+function isPortListening(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.connect(port, '127.0.0.1')
+    const done = (listening: boolean) => {
+      socket.destroy()
+      resolve(listening)
+    }
+    socket.once('connect', () => done(true))
+    socket.once('error', () => done(false))
+    socket.setTimeout(700, () => done(false))
+  })
+}
 
 export type RemoteInstanceOp =
   | { op: 'list' }
@@ -26,6 +55,14 @@ export type RemoteInstanceOp =
   | { op: 'logs'; id: string; tail?: number }
   | { op: 'url'; id: string }
   | { op: 'connect'; id: string }
+  /** Suggest ports for a **new** record: the control-side local port is probed
+   *  for real (we can see it), and the peer's instance port gets a default plus
+   *  whatever the peer itself says about that port (see `plan`). */
+  | { op: 'defaults' }
+  /** D4: the instance's UI password, so the panel can show/copy it for the
+   *  browser-open path. Same trust domain as `ocrc remote connect`, which has
+   *  always printed it. */
+  | { op: 'uipassword'; id: string }
   /** Ask the peer's own openchamber for a pairing link. A job, not a plain
    *  request: it ensures the `-L` for the link's URL, re-establishes the egress
    *  leg and starts monitoring, each of which is an ssh round trip — together
@@ -40,15 +77,26 @@ export interface OpsReply {
 }
 
 /**
- * The auth mode is a closed set. A typo (`"Password"`, `"passwd"`) would
- * otherwise be stored as-is and read back as `undefined` by `sshAuthArgs`, i.e.
- * silently **key** mode — the user would see a "Permission denied" for a
- * password peer and have nothing pointing at the cause.
+ * The closed-set fields are checked here, not in the store. A typo
+ * (`sshAuth: "Password"`, `egress: "directt"`) would otherwise be stored as-is
+ * and read back as `undefined` by the arg builders, i.e. silently **key** mode
+ * or **auto** policy — the user would see a "Permission denied" or an
+ * unexpected detour and have nothing pointing at the cause.
  */
-export function validateSshAuth(payload: Partial<RemoteInstance> | undefined): string | undefined {
-  const mode = payload?.sshAuth
-  if (mode === undefined || mode === null || mode === 'key' || mode === 'password') return undefined
-  return `invalid sshAuth: ${String(mode)}`
+export function validateInstancePayload(payload: Partial<RemoteInstance> | undefined): string | undefined {
+  const auth = payload?.sshAuth
+  if (auth !== undefined && auth !== null && auth !== 'key' && auth !== 'password') {
+    return `invalid sshAuth: ${String(auth)}`
+  }
+  const egress = payload?.egress
+  if (egress !== undefined && egress !== null && egress !== 'auto' && egress !== 'relay' && egress !== 'direct') {
+    return `invalid egress: ${String(egress)}`
+  }
+  const provision = payload?.provision
+  if (provision !== undefined && provision !== null && provision !== 'push' && provision !== 'reuse') {
+    return `invalid provision: ${String(provision)}`
+  }
+  return undefined
 }
 
 interface Job {
@@ -126,14 +174,14 @@ export function createRemoteInstanceOps({
               return { status: 400, body: { error: `invalid ${key}` } }
             }
           }
-          const authError = validateSshAuth(body)
+          const authError = validateInstancePayload(body)
           if (authError) return { status: 400, body: { error: authError } }
           const saved = store.upsert({ ...body, host: body.host })
           return { status: 200, body: { instance: { ...redactInstance(saved), status: statusFor(saved.id) ?? null } } }
         }
 
         case 'patch': {
-          const authError = validateSshAuth(op.payload)
+          const authError = validateInstancePayload(op.payload)
           if (authError) return { status: 400, body: { error: authError } }
           const updated = store.update(op.id, op.payload)
           if (!updated) return { status: 404, body: { error: 'not found' } }
@@ -238,6 +286,31 @@ export function createRemoteInstanceOps({
         case 'pairlink': {
           if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
           return start(() => manager.pairLink(op.id))
+        }
+
+        case 'defaults': {
+          const localPort = await firstFreeLocalPort()
+          return {
+            status: 200,
+            body: {
+              localPort,
+              instancePort: DEFAULT_INSTANCE_PORT,
+              appVersion: DEFAULT_APP_VERSION,
+              enginePin: DEFAULT_ENGINE_PIN,
+              nodeRuntime: NODE_RUNTIME.version,
+              bind: '127.0.0.1',
+              // Two records must not share the control-side forward port, so the
+              // suggestion also avoids what the store already claims.
+              taken: store.list().map((i) => i.localPort),
+            },
+          }
+        }
+
+        case 'uipassword': {
+          const instance = store.get(op.id)
+          if (!instance) return { status: 404, body: { error: 'not found' } }
+          if (!instance.uiPassword) return { status: 404, body: { error: '这个档案没有 UI 密码' } }
+          return { status: 200, body: { uiPassword: instance.uiPassword, url: `http://127.0.0.1:${instance.localPort}` } }
         }
 
         case 'job': {

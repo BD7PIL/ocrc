@@ -114,6 +114,10 @@ export function createRemoteInstancesStore(path: string, opts: { flushOnExit?: b
       localPort: i.localPort > 0 ? i.localPort : DEFAULT_LOCAL_PORT,
       appVersion: i.appVersion?.trim() || DEFAULT_APP_VERSION,
       enabled: i.enabled ?? true,
+      provision: i.provision === 'reuse' ? 'reuse' as const : undefined,
+      // 出口策略是闭集：认不出来的值等于没设（= auto，由探测决定），
+      // 不能让一个拼错的值悄悄变成"总是经控制端"。
+      egress: i.egress === 'relay' || i.egress === 'direct' ? i.egress : undefined,
       reconnect: i.reconnect ?? RECONNECT_DEFAULTS.reconnect,
       restoreOnStart: i.restoreOnStart ?? RECONNECT_DEFAULTS.restoreOnStart,
       replayQueued: i.replayQueued ?? RECONNECT_DEFAULTS.replayQueued,
@@ -172,6 +176,8 @@ export function createRemoteInstancesStore(path: string, opts: { flushOnExit?: b
         engineVersion: instance.engineVersion,
         appVersion: instance.appVersion ?? DEFAULT_APP_VERSION,
         enabled: instance.enabled ?? true,
+        provision: instance.provision,
+        egress: instance.egress,
         reconnect: instance.reconnect,
         restoreOnStart: instance.restoreOnStart,
         replayQueued: instance.replayQueued,

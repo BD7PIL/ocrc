@@ -178,8 +178,7 @@ describe('remote-instance ops', () => {
     expect((await ops.handle({ op: 'job', jobId: 'missing' })).status).toBe(404)
   })
 
-  it('pairlink is a job that hands the link back', async () => {
-    const manager = makeManager()
+  it('pairlink is a job that hands the link back', async () => {    const manager = makeManager()
     const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager })
     expect((await ops.handle({ op: 'pairlink', id: 'missing' })).status).toBe(404)
     const started = await ops.handle({ op: 'pairlink', id: 'demo@h' })
@@ -200,7 +199,8 @@ describe('remote-instance ops', () => {
   it('every op in the union has a live case', async () => {
     const everyOp: Record<RemoteInstanceOp['op'], true> = {
       list: true, add: true, patch: true, plan: true, apply: true, up: true, down: true, probe: true,
-      status: true, logs: true, url: true, connect: true, pairlink: true, delete: true, job: true,
+      status: true, logs: true, url: true, connect: true, defaults: true, uipassword: true, pairlink: true,
+      delete: true, job: true,
     }
     const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager: makeManager() })
     for (const name of Object.keys(everyOp) as Array<RemoteInstanceOp['op']>) {

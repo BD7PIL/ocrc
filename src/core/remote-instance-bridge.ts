@@ -25,8 +25,9 @@ import { createInstanceProxy, type InstanceProxy } from './remote-instance-proxy
 import {
   DEFAULT_ENGINE_CANDIDATES, DEFAULT_ENGINE_PIN, NODE_RUNTIME, PROXY_DEFAULTS, buildEngineProbeCommand,
   buildForwardArgs, buildRelayForwardArgs, buildInstanceServeCommand, buildInstanceStopCommand, buildRemotePortProbeCommand,
+  buildPeerPortProbeCommand, parsePortProbe, provisionActions,
   buildPairLinkCommand, parsePairLink, describePairLink, buildEgressProbeCommand, parseEgressProbe, resolveEgressPolicy,
-  EGRESS_DEFAULT, type EgressProbe,
+  EGRESS_DEFAULT, type EgressMode, type EgressProbe, type ProvisionMode,
   buildTerminalProbeCommand, instancePaths, parseTerminalProbe,
   judgeEngineCompat, judgeInstanceVersion, parseEngineProbe, pickV2Engine, type EngineCandidate,
   type EngineCompatPayload, type EnginePick, type ForwardSpec, type InstanceProxyConfig,
@@ -64,6 +65,9 @@ export interface InstanceStatus {
   terminal?: { ok: boolean; reason?: string }
   /** R9: where the controlled host's egress comes out, and what it has dialled. */
   proxy?: { enabled: boolean; localPort: number; remotePort: number; listening: boolean; connects: string[] }
+  /** D1: the egress **decision** (not just the relay config) with its reason, so
+   *  a peer that is direct by design never looks like a missing relay. */
+  egress?: { mode: EgressMode; relay: boolean; reason: string; probe?: EgressProbe; cached: boolean }
   logTail: string[]
 }
 
@@ -86,6 +90,17 @@ export interface InstancePlan {
   engineCandidates: EngineCandidate[]
   actions: string[]
   url: string
+  /** A3: the effective egress policy, probed while planning when the mode is
+   *  `auto` — "auto" is only a choice, the user still has to see what it picked. */
+  egress?: { mode: EgressMode; relay: boolean; reason: string; probe?: EgressProbe }
+  /** A3: 推包 or 复用已有 — what the 装机 button will do. */
+  provision?: ProvisionMode
+  /** A3: which app pack this peer gets, decided by its glibc (legacy rebuilds
+   *  node-pty). Shown read-only — it is derived, never a user choice. */
+  tier?: AppPackTier
+  /** A3: is the instance port already taken on the peer? `unknown` when neither
+   *  our runtime nor `ss`/`netstat` could answer — never silently "free". */
+  peerPort?: 'open' | 'closed' | 'unknown'
 }
 
 export interface InstanceOutcome { ok: boolean; detail: string }
@@ -110,6 +125,10 @@ export interface RemoteInstanceManager {
   pairLink(id: string): Promise<{ ok: boolean; detail: string; link?: string; expiresAt?: string; url?: string }>
   status(id: string): InstanceStatus | undefined
   statusAll(): InstanceStatus[]
+  /** D1: decide (and cache) where this peer's egress goes. `status` reads the
+   *  cache only — it must not cost an ssh round trip — so a caller that wants a
+   *  real answer on a cold process asks for it explicitly. */
+  egress(id: string): Promise<{ mode: EgressMode; relay: boolean; reason: string; probe?: EgressProbe }>
   logs(id: string): string[]
   /** Boot restore (R10 `restoreOnStart`): bring up every enabled record. */
   ensureAll(): void
@@ -207,7 +226,7 @@ interface InstanceRuntime {
    *  forwarding. Kept apart from `forward` so the relay bookkeeping is untouched. */
   pairForward?: ChildProcess
   /** Cached egress decision for this peer (see egressFor). */
-  egress?: { relay: boolean; reason: string; at: number }
+  egress?: { relay: boolean; reason: string; probe?: EgressProbe; at: number }
   /** An `-R` relay adoption check is in flight (see ensureExternalRelayAsync). */
   relayPending?: boolean
   /** External-mode re-check timer (no child process to watch in that mode). */
@@ -398,20 +417,33 @@ export function createRemoteInstanceManager(opts: {
 
   /** Where this peer's egress goes. Cached briefly: a laptop moving between
    *  networks changes the answer, but not between two calls in the same tick. */
-  async function egressFor(instance: RemoteInstance): Promise<{ relay: boolean; reason: string }> {
+  async function egressFor(instance: RemoteInstance): Promise<{ relay: boolean; reason: string; probe?: EgressProbe }> {
     const r = rt(instance.id)
     if (r.egress && Date.now() - r.egress.at < EGRESS_TTL_MS) return r.egress
     const mode = instance.egress
     let probe: EgressProbe | undefined
-    if ((mode ?? EGRESS_DEFAULT) === 'auto') {
+    // Anything that is not an explicit `relay`/`direct` is decided by the probe,
+    // so an unrecognized mode behaves like `auto` rather than silently relaying.
+    if (mode !== 'relay' && mode !== 'direct') {
       // 30s: the probe budgets 8s itself, the rest is ssh setup on a slow host.
       const out = await ssh(instance, buildEgressProbeCommand({ appVersion: instance.appVersion }), 30_000)
       probe = parseEgressProbe(out.stdout)
     }
     const decision = resolveEgressPolicy({ mode, relayAllowed: proxyConfig(instance).enabled, probe })
-    r.egress = { ...decision, at: Date.now() }
+    r.egress = { ...decision, probe, at: Date.now() }
     pushLog(instance.id, `出口策略：${decision.relay ? '经控制端' : '直连'}（${decision.reason}）`)
-    return decision
+    return r.egress
+  }
+
+  /** D1: the decision as the panel/CLI should show it. From the cache only — a
+   *  status read must not cost an ssh round trip. `cached: false` means "nobody
+   *  has decided yet in this process", which is a different statement from
+   *  "the peer is offline", so it is said out loud instead of guessed. */
+  function egressView(instance: RemoteInstance): InstanceStatus['egress'] {
+    const mode = instance.egress ?? EGRESS_DEFAULT
+    const cached = rt(instance.id).egress
+    if (!cached) return { mode, relay: false, reason: '尚未探测（跑一次预演或启动就会决定）', cached: false }
+    return { mode, relay: cached.relay, reason: cached.reason, probe: cached.probe, cached: true }
   }
 
   async function ensureProxy(instance: RemoteInstance): Promise<'in-process' | 'external' | 'off'> {
@@ -882,17 +914,33 @@ export function createRemoteInstanceManager(opts: {
       const app = appRaw && appRaw !== 'MISSING' ? appRaw : undefined
       rt(id).appVersion = app
 
-      if (!runtime) actions.push(`推送运行时 node v${NODE_RUNTIME.version}（控制端已备件，离线）`)
-      if (app !== instance.appVersion) actions.push(`推送应用 ${instance.appVersion} 到 ~/.ocrc/remote/openchamber/${instance.appVersion}（旧树留 .ocrc-bak）`)
-      if (runtime && app === instance.appVersion) actions.push('运行时与应用都在位，推送会跳过')
+      // The "将要做的" list is a pure function of what the peer already has, so
+      // 推包 and 复用档 can never describe the same peer differently.
+      actions.push(...provisionActions({
+        provision: instance.provision,
+        runtime,
+        app,
+        targetAppVersion: instance.appVersion,
+        engineOk: pick.ok,
+        engineError: pick.ok ? undefined : pick.error,
+      }))
       const term = rt(id).terminal
       if (term && term.ok === false) {
         actions.push(`注意：终端暂不可用（${term.reason ?? '原因未知'}）——实例其余功能不受影响`)
       }
       actions.push(pick.ok
         ? `启动实例：serve --hostname 127.0.0.1 --port ${instance.instancePort}（引擎 ${pick.candidate.path} → ${pick.candidate.version}）`
-        : `部署我们 pin 的引擎 opencode ${DEFAULT_ENGINE_PIN} 到 ~/.ocrc/remote/engine/opencode（对端现有 v1 一律不动）`)
+        : `启动实例前先装引擎：opencode ${DEFAULT_ENGINE_PIN} → ~/.ocrc/remote/engine/opencode（对端现有 v1 一律不动）`)
       actions.push(`建转发：ssh -N -L 127.0.0.1:${instance.localPort}:127.0.0.1:${instance.instancePort} → 打开 ${url}`)
+      // A3: `auto` must show what it picked, and the probe costs an ssh round
+      // trip we can afford here (this is the "look before you leap" step).
+      const egress = await egressFor(instance)
+      actions.push(`出口：${egress.relay ? '经控制端中继' : '对端直连'}（${egress.reason}）`)
+      // A busy instance port is the failure the user can still fix here.
+      const portOut = await ssh(instance, buildPeerPortProbeCommand(instance.appVersion, instance.instancePort), 20_000)
+      const peerPort = parsePortProbe(portOut.stdout)
+      if (peerPort === 'open') actions.push(`注意：实例端口 ${instance.instancePort} 在对端已被占用——换个实例端口，或确认那是上一次的实例（启动会复用）`)
+      if (peerPort === 'unknown') actions.push(`实例端口 ${instance.instancePort}：对端既没有我们的运行时也没有 ss/netstat，占用情况无法判定（启动时才会知道）`)
       setState(id, 'unknown')
       return {
         id, target, reachable: true, inspected: env, runtime, app,
@@ -901,11 +949,35 @@ export function createRemoteInstanceManager(opts: {
         engineCandidates: candidates,
         actions,
         url,
+        egress: { mode: instance.egress ?? EGRESS_DEFAULT, relay: egress.relay, reason: egress.reason, probe: egress.probe },
+        provision: instance.provision ?? 'push',
+        tier: appPackTierForGlibc(env.glibc),
+        peerPort,
       }
     },
 
     async apply(id, applyOpts = {}) {
       const instance = need(id)
+      // 复用档：不推字节，只检查并把引擎 pin 下来。用同一套探测命令，所以
+      // "检查通过" 与 "推包会做什么" 说的是一件事，不是两套判断。
+      if (instance.provision === 'reuse' && !applyOpts.force) {
+        setState(id, 'provisioning', '复用档：只检查，不写对端')
+        const runtime = (await ssh(instance, buildRuntimeProbeCommand(), 25_000)).stdout.trim().split('\n').pop() ?? 'MISSING'
+        const appRaw = (await ssh(instance, buildAppProbeCommand(instance.appVersion), 45_000)).stdout.trim().split('\n').pop() ?? ''
+        const pick = await resolveEngine(instance)
+        const detail = `复用档：运行时 ${runtime === 'MISSING' ? '缺失' : runtime}；应用 ${appRaw === instance.appVersion ? instance.appVersion : `不符（${appRaw || '缺失'}）`}；引擎 ${pick.ok ? `${pick.candidate.version} @ ${pick.candidate.path}` : '不满足 v2 门禁'}`
+        pushLog(id, detail)
+        if (runtime === 'MISSING' || appRaw !== instance.appVersion || !pick.ok) {
+          setState(id, 'error', '复用档检查未通过')
+          return { ok: false, detail: `${detail} —— 复用档不写任何字节；改用「推包」或先在对端装好 ${instance.appVersion}` }
+        }
+        if (pick.ok) {
+          opts.store.update(id, { enginePath: pick.candidate.path, engineVersion: pick.candidate.version })
+          rt(id).engine = { path: pick.candidate.path, version: pick.candidate.version }
+        }
+        setState(id, 'offline', '复用档检查通过（未启动）')
+        return { ok: true, detail }
+      }
       // The pack tier follows the target's glibc, not the control host's:
       // EL7 gets the legacy tier (rebuilt node-pty), modern hosts get the
       // modern tier. An explicit tier wins (tests / forced packs).
@@ -1147,12 +1219,19 @@ async probe(id) {
           listening: !!proxy,
           connects: (proxy?.connects ?? []).slice(-20).map((t) => `${t.host}:${t.port}`),
         },
+        egress: egressView(instance),
         logTail: r?.logs.slice(-40) ?? [],
       }
     },
 
     statusAll() {
       return opts.store.list().map((i) => manager.status(i.id)).filter((s): s is InstanceStatus => !!s)
+    },
+
+    async egress(id) {
+      const instance = need(id)
+      const decision = await egressFor(instance)
+      return { mode: instance.egress ?? EGRESS_DEFAULT, ...decision }
     },
 
     logs(id) {

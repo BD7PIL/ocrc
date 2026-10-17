@@ -61,7 +61,7 @@
 
 - **桌面版**：`electron-updater ^6.8.3`，provider = **GitHub Releases**（`packages/electron/updater-feed.mjs`：`{provider:'github', owner:'openchamber', repo:'openchamber'}`；唯一 override 是 E2E 测试用 loopback generic feed）。通道：默认 `latest.yml`/`latest-mac.yml`/`latest-linux.yml`，Win arm64 走 `latest-arm64` 特殊通道（`updater-channel.mjs`）。Linux 上 AppImage 原地替换；.deb/.rpm 由 `linux-package-install.mjs` 经 pkexec 装系统包。默认用户确认制，「nothing installs without your say-so」（docs/updates.mdx）。
 - **CLI 自更新：有**。`openchamber update`（`bin/lib/commands-update.js` + `server/lib/package-manager.js`）：
-  - 检查源双路：① POST `https://api.openchamber.dev/v1/update/check`（可用 `OPENCHAMBER_UPDATE_API_URL` 覆盖/切断）拿 latestVersion + release notes；② 回退直接查 npm registry `dist-tags.latest`（`server/lib/opencode/npm-registry-config.js`，"Server: version checks use your npm registry"，v2.1.1 changelog）。
+  - 检查源双路：① POST `https://api.openchamber.dev/v1/update/check`（可用 `OPENCHAMBER_UPDATE_API_URL` 改指向自建镜像；**指空不是切断**，空串回落默认值——见 6.4 修正）拿 latestVersion + release notes；② 回退直接查 npm registry `dist-tags.latest`（`server/lib/opencode/npm-registry-config.js`，"Server: version checks use your npm registry"，v2.1.1 changelog）。
   - 执行：探测当初安装所用的包管理器，重跑 `npm install -g @openchamber/web@<精确版>` 等，然后**自动重启正在运行的实例**。
 - **opencode pin 的联动**：
   - 桌面版 pin 在 `packages/electron/package.json` 的 `opencodeCli.version`（当前 2.0.27），`prepare-opencode-cli.mjs` 支持 `OPENCHAMBER_OPENCODE_CLI_VERSION` 环境覆盖。commit 搜索显示 bump 频率≈**每 1-3 天一个**（2.0.16→2.0.27 十一个版本，2026-09-24→10-12），消息格式 `chore(opencode): bump OpenCode to x.y.z`。
@@ -129,7 +129,8 @@
 
 - 桌面版（Win/Mac 面板宿主通常在线，形态 B 约束不到它；若也离线，electron-updater 的 private repo + token 模式可指到自建 GitHub 兼容源）。
 - 被控端只需要 opencode 二进制（无 Node 依赖），工件 = `@opencode/cli-linux-x64-baseline@x.y.z` 的 npm tgz（内含 `package/bin/opencode`，sha512 integrity 在 registry metadata 里）——ocrc 自持 `~/.ocrc/bin-cache` 多平台 pin 工件模式**可以直接套用**，甚至校验算法都对齐（sha512-base64）。
-- openchamber 面板宿主若要自持工件缓存（例如给内网 Mac 用）：`@openchamber/web` 的 npm tgz + `OPENCHAMBER_UPDATE_API_URL` 指向空/自建即可切断它对 api.openchamber.dev 的外呼。
+- openchamber 面板宿主若要自持工件缓存（例如给内网 Mac 用）：`@openchamber/web` 的 npm tgz + `OPENCHAMBER_UPDATE_API_URL` 指向自建即可切断它对 api.openchamber.dev 的外呼。
+  **修正（2026-10-17）**：这个开关**指空不等于关闭**——上游是 `process.env.OPENCHAMBER_UPDATE_API_URL || 'https://api.openchamber.dev/v1/update/check'`（`packages/web/server/lib/package-manager.js:26`），空串回落到默认地址。真要切断得指到一个连不通的本地地址（如 `http://127.0.0.1:1/`）；失败路径是安全的：`checkForUpdatesFromApi` 吞异常返回 `null`（同文件 188-190），调用方接着走 npm registry 那条回退。
 
 ### 6.5 三条版本线在形态 B 下的联动顺序
 
@@ -178,7 +179,7 @@
                     插件 tgz + manifest）→ 控制端经 SSH 会话推送 →
                     EL7 解包校验 sha512 → ~/.ocrc/bin-cache/<pin> → 写 opencode 配置 →
                     重启 opencode serve → 面板侧 external 引擎健康探测
-   （面板侧离线时：bundle 附 @openchamber/web tgz，OPENCHAMBER_UPDATE_API_URL 指空）
+   （面板侧离线时：bundle 附 @openchamber/web tgz，OPENCHAMBER_UPDATE_API_URL 指到连不通的本地地址——指空无效，见 6.4 修正）
 
 ⑤ 固定锚点
    - openchamber 只升不降；每次升级记录 compatibility.js 快照进 ocrc 仓库

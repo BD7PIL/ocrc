@@ -6,6 +6,7 @@
 
 | 日期 | 决定 | 页面 |
 |---|---|---|
+| 2026-06-12 | 跨工作区会话不流式（接受限制） | [2026-06-12-cross-workspace-streaming.md](2026-06-12-cross-workspace-streaming.md) |
 | 2026-10-17 | OCRC 收敛：一个 openchamber 扩展 + 一套 CI 兼容包 | [2026-10-17-convergence.md](2026-10-17-convergence.md) |
 
 ## 写法

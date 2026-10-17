@@ -57,7 +57,8 @@
   常驻控制端进程，本地中继监听（4711）在它进程里；桌面壳的本地端口是自选的、且两条 `-R` 会撞同一
   远端端口。service 会**复用**已存在的 `-R`，两种拓扑不会互杀。
 - **文档归档**：`docs/research/` 与 `docs/handoff/` 没有搬进 `docs/archive/`。两者已按目录分区、
-  交叉引用密集；搬 28 个文件只会制造断链，不减小实际体积。新增 `docs/decisions/` 作为往前写的日志。
+  交叉引用密集；搬 28 个文件只会制造断链，不减小实际体积。沿用已有的 `docs/decisions/`（里面本来就有
+  2026-06-12 那条）作为往前写的日志，补了索引与写法。
 - **听写**：决定走远端 STT，但**没有自动改**实例的 dictation 配置（那是用户偏好，在 openchamber 设置里
   选 `openai-compatible`）；EL7 的本地 sherpa 仍不可用（GLIBC 2.32），不重建。
 - **CI legacy 容器**：`ocrc-pack.yml` 的 centos:7 步骤未实际运行（本地无 Docker）；控制端

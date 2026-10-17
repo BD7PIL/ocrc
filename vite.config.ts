@@ -5,7 +5,7 @@ import { resolve } from 'node:path'
 // Panel bundle: classic-IIFE single file (openchamber guest sandbox = no ESM).
 export default defineConfig({
   plugins: [react()],
-  // See ocrc-connect/vite.config.ts — the guest frame has no Node globals.
+  // See ocrc-remote/vite.config.ts — the guest frame has no Node globals.
   define: { 'process.env.NODE_ENV': JSON.stringify('production') },
   build: {
     target: 'es2022',

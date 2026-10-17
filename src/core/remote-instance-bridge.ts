@@ -25,6 +25,7 @@ import { createInstanceProxy, type InstanceProxy } from './remote-instance-proxy
 import {
   DEFAULT_ENGINE_CANDIDATES, DEFAULT_ENGINE_PIN, NODE_RUNTIME, PROXY_DEFAULTS, buildEngineProbeCommand,
   buildForwardArgs, buildRelayForwardArgs, buildInstanceServeCommand, buildInstanceStopCommand, buildRemotePortProbeCommand,
+  buildPairLinkCommand, parsePairLink, describePairLink,
   buildTerminalProbeCommand, instancePaths, parseTerminalProbe,
   judgeEngineCompat, judgeInstanceVersion, parseEngineProbe, pickV2Engine, type EngineCandidate,
   type EngineCompatPayload, type EnginePick, type InstanceProxyConfig,
@@ -101,6 +102,10 @@ export interface RemoteInstanceManager {
    *  `remote` 表示"远端实例在跑，但本地转发不在这个进程/这个端口上"（桌面壳自选端口、
    *  或另一进程持有隧道）——不把它当成 unknown。 */
   probe(id: string): Promise<{ online: boolean; version?: string; detail?: string; remote?: boolean }>
+  /** Ask the peer's own openchamber for a single-use pairing link (identity stays
+   *  upstream's: the link is redeemed for a per-device, revocable token). We only
+   *  hold the `-L` that makes its URL reachable. */
+  pairLink(id: string): Promise<{ ok: boolean; detail: string; link?: string; expiresAt?: string; url?: string }>
   status(id: string): InstanceStatus | undefined
   statusAll(): InstanceStatus[]
   logs(id: string): string[]
@@ -194,6 +199,9 @@ interface InstanceRuntime {
   engine?: { path: string; version: string }
   forward?: ChildProcess
   forwardPid?: number
+  /** The `-L` we hold for the pairing URL, when the desktop shell is not the one
+   *  forwarding. Kept apart from `forward` so the relay bookkeeping is untouched. */
+  pairForward?: ChildProcess
   /** An `-R` relay adoption check is in flight (see ensureExternalRelayAsync). */
   relayPending?: boolean
   /** External-mode re-check timer (no child process to watch in that mode). */
@@ -400,6 +408,16 @@ export function createRemoteInstanceManager(opts: {
     const child = r.forward
     r.forward = undefined
     r.forwardPid = undefined
+    if (child && child.exitCode === null) {
+      try { child.kill() } catch { /* already gone */ }
+    }
+  }
+
+  /** Only tears down a `-L` this process spawned — if the desktop shell is the
+   *  one forwarding, there is nothing here to kill and the shell's own leg stays. */
+  function stopPairForward(id: string): void {
+    const child = rt(id).pairForward
+    rt(id).pairForward = undefined
     if (child && child.exitCode === null) {
       try { child.kill() } catch { /* already gone */ }
     }
@@ -623,13 +641,78 @@ export function createRemoteInstanceManager(opts: {
     }
   }
 
+  /** Hold a `-L` on the instance's configured localPort so the pairing link's
+   *  URL (`http://127.0.0.1:<localPort>`) resolves. Reused when the desktop
+   *  shell already forwards there; otherwise we own a detached ssh for it, kept
+   *  in `pairForward` so the relay bookkeeping in `forward` stays untouched. */
+  async function ensurePairingForwardAsync(instance: RemoteInstance): Promise<boolean> {
+    if ((await probeThroughForward(instance)).ok) return true
+    const r = rt(instance.id)
+    if (!(r.pairForward && r.pairForward.exitCode === null)) {
+      const args = buildForwardArgs({
+        host: instance.host,
+        port: instance.port,
+        user: instance.user,
+        localPort: instance.localPort,
+        remotePort: instance.instancePort,
+      })
+      pushLog(instance.id, `$ ssh -N -L 127.0.0.1:${instance.localPort}:127.0.0.1:${instance.instancePort} ${instance.user ? `${instance.user}@` : ''}${instance.host}`)
+      const child = spawn('ssh', args, { stdio: ['ignore', 'ignore', openSync(forwardLogPath, 'a')], detached: true })
+      child.unref()
+      r.pairForward = child
+    }
+    const deadline = Date.now() + 10_000
+    while (Date.now() < deadline) {
+      if ((await probeThroughForward(instance)).ok) return true
+      if (r.pairForward && r.pairForward.exitCode !== null) return false
+      await new Promise((res) => setTimeout(res, 250))
+    }
+    return (await probeThroughForward(instance)).ok
+  }
+
+  /** Ask the peer's own CLI for a single-use pairing link and hand it back for
+   *  the app to redeem. openchamber owns identity here: the link's secret is
+   *  exchanged for a per-device, revocable client token, so nothing of ours
+   *  stores a credential. */
+  async function pairLink(id: string): Promise<{ ok: boolean; detail: string; link?: string; expiresAt?: string; url?: string }> {
+    const instance = opts.store.get(id)
+    if (!instance) return { ok: false, detail: `没有这个实例：${id}` }
+    const forwarded = await ensurePairingForwardAsync(instance)
+    if (!forwarded) {
+      return { ok: false, detail: `本地转发 127.0.0.1:${instance.localPort} 起不来或对端不可达——先启动实例（配对链接要求它在跑）` }
+    }
+    // The pairing link replaces the desktop shell's instance entry, and that
+    // entry used to carry the reverse leg. Without it the peer's panel and
+    // engine fail every outbound call — our serve env points HTTP(S)_PROXY at
+    // the peer's own loopback, so whoever holds this leg is the peer's egress.
+    await ensureExternalRelayAsync(instance)
+    // "Running" is not "monitored": without the monitor nothing re-ensures that
+    // leg, so it dies with whatever transient process started it (this is how
+    // the peer ended up with 69 ECONNREFUSED 127.0.0.1:2711 in its log). The
+    // panel reaches an instance through this call first, so start monitoring here.
+    startExternalMonitor(id)
+    const url = instanceUrl(instance.localPort)
+    const r = await ssh(instance, buildPairLinkCommand({
+      appVersion: instance.appVersion,
+      instancePort: instance.instancePort,
+      serverUrl: url,
+      label: instance.name?.trim() || instance.id,
+    }), 45_000)
+    const link = parsePairLink(r.stdout)
+    if (!link) {
+      return { ok: false, detail: `对端没给出配对链接：${(r.stdout + r.stderr).replace(/\s+/g, ' ').slice(-200)}` }
+    }
+    const info = describePairLink(link)
+    pushLog(id, `配对链接已生成（一次性${info?.expiresAt ? `，${info.expiresAt} 过期` : ''}，${info?.candidates ?? 0} 条路由）`)
+    return { ok: true, detail: '配对链接已生成——在桌面版里打开它，或复制到「导入链接」', link, ...(info?.expiresAt ? { expiresAt: info.expiresAt } : {}), url }
+  }
+
   /** External-tunnel mode: the desktop shell owns the UI's `-L`; this manager
    *  owns the reverse leg that gives the peer engine its egress. Separate ssh
    *  process, so the two never fight over the local port. */
   function ensureExternalRelay(instance: RemoteInstance): void {
     void ensureExternalRelayAsync(instance)
   }
-
   async function ensureExternalRelayAsync(instance: RemoteInstance): Promise<void> {
     const cfg = proxyConfig(instance)
     if (!cfg.enabled) return
@@ -935,6 +1018,7 @@ export function createRemoteInstanceManager(opts: {
       stopExternalMonitor(id)
       try {
         stopForward(id)
+        stopPairForward(id)
         const stopped = await stopInstance(instance)
         setState(id, stopped.ok ? 'offline' : 'error', stopped.detail)
         return stopped
@@ -991,6 +1075,10 @@ async probe(id) {
         }
       }
       return { online: false, detail: probe.error }
+    },
+
+    pairLink(id) {
+      return pairLink(id)
     },
 
     status(id) {

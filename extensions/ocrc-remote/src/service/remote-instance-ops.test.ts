@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { RemoteInstance, RemoteInstanceManager, RemoteInstancesStore } from '../../../../src/remote-instance/index.js'
-import { createRemoteInstanceOps } from './remote-instance-ops.js'
+import { createRemoteInstanceOps, type RemoteInstanceOp } from './remote-instance-ops.js'
 
 function makeStore(initial: RemoteInstance[] = []): RemoteInstancesStore {
   let items = initial.map((i) => ({ ...i }))
@@ -44,6 +44,9 @@ function makeManager(): RemoteInstanceManager {
     up: vi.fn(async () => ({ ok: true, detail: 'online' })),
     down: vi.fn(async () => ({ ok: true, detail: '已停' })),
     probe: vi.fn(async () => ({ online: true, version: '2.3.3' })),
+    pairLink: vi.fn(async () => ({
+      ok: true, detail: '配对链接已生成', link: 'openchamber://connect?v=2&p=abc', expiresAt: '2026-10-17T12:00:00Z',
+    })),
     status: (id: string) => ({ id, state: 'online' as const, url: 'http://127.0.0.1:4610', tunnelOwner: 'external' as const, logTail: [] }),
     statusAll: () => [],
     logs: () => ['line 1', 'line 2'],
@@ -173,5 +176,37 @@ describe('remote-instance ops', () => {
     expect((await ops.handle({ op: 'nope' } as never)).status).toBe(400)
     expect((await ops.handle({ op: 'status', id: 'missing' })).status).toBe(404)
     expect((await ops.handle({ op: 'job', jobId: 'missing' })).status).toBe(404)
+  })
+
+  it('pairlink is a job that hands the link back', async () => {
+    const manager = makeManager()
+    const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager })
+    expect((await ops.handle({ op: 'pairlink', id: 'missing' })).status).toBe(404)
+    const started = await ops.handle({ op: 'pairlink', id: 'demo@h' })
+    expect(started.status).toBe(202)
+    const job = await waitJob(ops, (started.body as { jobId: string }).jobId)
+    expect(job.state).toBe('done')
+    expect(job.result).toMatchObject({ ok: true, link: expect.stringContaining('openchamber://connect') })
+    expect(manager.pairLink).toHaveBeenCalledWith('demo@h')
+  })
+
+  /**
+   * The switch used to fall through to a bare 400, so an op added to the union
+   * but never to the switch answered "unknown op" — a feature that looks shipped
+   * and does nothing. The `never` assignment in the handler catches that at
+   * compile time; this catches a case that exists but is unreachable, and keeps
+   * the op list honest for the next person adding one.
+   */
+  it('every op in the union has a live case', async () => {
+    const everyOp: Record<RemoteInstanceOp['op'], true> = {
+      list: true, add: true, patch: true, plan: true, apply: true, up: true, down: true, probe: true,
+      status: true, logs: true, url: true, connect: true, pairlink: true, delete: true, job: true,
+    }
+    const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager: makeManager() })
+    for (const name of Object.keys(everyOp) as Array<RemoteInstanceOp['op']>) {
+      const reply = await ops.handle({ op: name } as never)
+      const body = JSON.stringify(reply.body ?? {})
+      expect(`${name}: ${body}`).not.toContain('unknown op')
+    }
   })
 })

@@ -2808,6 +2808,10 @@ function createRemoteInstanceOps({
             }
           };
         }
+        case "pairlink": {
+          if (!store.get(op.id)) return { status: 404, body: { error: "not found" } };
+          return start(() => manager.pairLink(op.id));
+        }
         case "job": {
           const job = jobs.get(op.jobId);
           if (!job) return { status: 404, body: { error: "not found" } };
@@ -2818,8 +2822,10 @@ function createRemoteInstanceOps({
             }
           };
         }
-        default:
-          return { status: 400, body: { error: "unknown op" } };
+        default: {
+          const exhaustive = op;
+          return { status: 400, body: { error: `unknown op: ${JSON.stringify(exhaustive)}` } };
+        }
       }
     },
     dispose() {

@@ -26,6 +26,11 @@ export type RemoteInstanceOp =
   | { op: 'logs'; id: string; tail?: number }
   | { op: 'url'; id: string }
   | { op: 'connect'; id: string }
+  /** Ask the peer's own openchamber for a pairing link. A job, not a plain
+   *  request: it ensures the `-L` for the link's URL, re-establishes the egress
+   *  leg and starts monitoring, each of which is an ssh round trip — together
+   *  they outlive the host proxy's 20 s budget. */
+  | { op: 'pairlink'; id: string }
   | { op: 'delete'; id: string }
   | { op: 'job'; jobId: string }
 
@@ -230,6 +235,11 @@ export function createRemoteInstanceOps({
           }
         }
 
+        case 'pairlink': {
+          if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
+          return start(() => manager.pairLink(op.id))
+        }
+
         case 'job': {
           const job = jobs.get(op.jobId)
           if (!job) return { status: 404, body: { error: 'not found' } }
@@ -241,8 +251,14 @@ export function createRemoteInstanceOps({
           }
         }
 
-        default:
-          return { status: 400, body: { error: 'unknown op' } }
+        default: {
+          // Compile-time exhaustiveness: every union member above has a case, so
+          // `op` narrows to `never` here. Without this, a new op would silently
+          // answer 400 and the panel would show "unknown op" for a feature that
+          // looks implemented. The runtime test walks the same list.
+          const exhaustive: never = op
+          return { status: 400, body: { error: `unknown op: ${JSON.stringify(exhaustive)}` } }
+        }
       }
     },
 

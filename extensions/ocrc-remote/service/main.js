@@ -494,6 +494,25 @@ function renderExports(vars) {
   const out = Object.keys(vars).sort().filter((k) => vars[k] !== void 0 && vars[k] !== "").map((k) => `${k}=${q(String(vars[k]))}`);
   return out.length ? `export ${out.join(" ")}; ` : "";
 }
+function buildPairLinkCommand(o) {
+  const p = instancePaths(o.appVersion);
+  return `${p.node} ${p.cli} connect-url --port ${o.instancePort} --server ${q(o.serverUrl)} --name ${q(o.label)}`;
+}
+function parsePairLink(output) {
+  return output.match(/openchamber:\/\/connect\?v=2&p=[A-Za-z0-9_-]+/)?.[0];
+}
+function describePairLink(link) {
+  try {
+    const payload = JSON.parse(Buffer.from(new URL(link).searchParams.get("p") ?? "", "base64url").toString("utf8"));
+    return {
+      ...typeof payload.label === "string" ? { label: payload.label } : {},
+      ...typeof payload.expiresAt === "string" ? { expiresAt: payload.expiresAt } : {},
+      candidates: Array.isArray(payload.candidates) ? payload.candidates.length : 0
+    };
+  } catch {
+    return void 0;
+  }
+}
 function buildInstanceStopCommand(appVersion, port) {
   const p = instancePaths(appVersion);
   return `${p.node} ${p.cli} stop --port ${port} || true`;
@@ -1847,6 +1866,16 @@ function createRemoteInstanceManager(opts) {
       }
     }
   }
+  function stopPairForward(id) {
+    const child = rt(id).pairForward;
+    rt(id).pairForward = void 0;
+    if (child && child.exitCode === null) {
+      try {
+        child.kill();
+      } catch {
+      }
+    }
+  }
   function startExternalMonitor(id) {
     if (!externalTunnel) return;
     const r = rt(id);
@@ -2045,6 +2074,54 @@ function createRemoteInstanceManager(opts) {
       } catch {
       }
     }
+  }
+  async function ensurePairingForwardAsync(instance) {
+    if ((await probeThroughForward(instance)).ok) return true;
+    const r = rt(instance.id);
+    if (!(r.pairForward && r.pairForward.exitCode === null)) {
+      const args = buildForwardArgs({
+        host: instance.host,
+        port: instance.port,
+        user: instance.user,
+        localPort: instance.localPort,
+        remotePort: instance.instancePort
+      });
+      pushLog(instance.id, `$ ssh -N -L 127.0.0.1:${instance.localPort}:127.0.0.1:${instance.instancePort} ${instance.user ? `${instance.user}@` : ""}${instance.host}`);
+      const child = spawn5("ssh", args, { stdio: ["ignore", "ignore", openSync(forwardLogPath, "a")], detached: true });
+      child.unref();
+      r.pairForward = child;
+    }
+    const deadline = Date.now() + 1e4;
+    while (Date.now() < deadline) {
+      if ((await probeThroughForward(instance)).ok) return true;
+      if (r.pairForward && r.pairForward.exitCode !== null) return false;
+      await new Promise((res) => setTimeout(res, 250));
+    }
+    return (await probeThroughForward(instance)).ok;
+  }
+  async function pairLink(id) {
+    const instance = opts.store.get(id);
+    if (!instance) return { ok: false, detail: `\u6CA1\u6709\u8FD9\u4E2A\u5B9E\u4F8B\uFF1A${id}` };
+    const forwarded = await ensurePairingForwardAsync(instance);
+    if (!forwarded) {
+      return { ok: false, detail: `\u672C\u5730\u8F6C\u53D1 127.0.0.1:${instance.localPort} \u8D77\u4E0D\u6765\u6216\u5BF9\u7AEF\u4E0D\u53EF\u8FBE\u2014\u2014\u5148\u542F\u52A8\u5B9E\u4F8B\uFF08\u914D\u5BF9\u94FE\u63A5\u8981\u6C42\u5B83\u5728\u8DD1\uFF09` };
+    }
+    await ensureExternalRelayAsync(instance);
+    startExternalMonitor(id);
+    const url = instanceUrl(instance.localPort);
+    const r = await ssh(instance, buildPairLinkCommand({
+      appVersion: instance.appVersion,
+      instancePort: instance.instancePort,
+      serverUrl: url,
+      label: instance.name?.trim() || instance.id
+    }), 45e3);
+    const link = parsePairLink(r.stdout);
+    if (!link) {
+      return { ok: false, detail: `\u5BF9\u7AEF\u6CA1\u7ED9\u51FA\u914D\u5BF9\u94FE\u63A5\uFF1A${(r.stdout + r.stderr).replace(/\s+/g, " ").slice(-200)}` };
+    }
+    const info = describePairLink(link);
+    pushLog(id, `\u914D\u5BF9\u94FE\u63A5\u5DF2\u751F\u6210\uFF08\u4E00\u6B21\u6027${info?.expiresAt ? `\uFF0C${info.expiresAt} \u8FC7\u671F` : ""}\uFF0C${info?.candidates ?? 0} \u6761\u8DEF\u7531\uFF09`);
+    return { ok: true, detail: "\u914D\u5BF9\u94FE\u63A5\u5DF2\u751F\u6210\u2014\u2014\u5728\u684C\u9762\u7248\u91CC\u6253\u5F00\u5B83\uFF0C\u6216\u590D\u5236\u5230\u300C\u5BFC\u5165\u94FE\u63A5\u300D", link, ...info?.expiresAt ? { expiresAt: info.expiresAt } : {}, url };
   }
   function ensureExternalRelay(instance) {
     void ensureExternalRelayAsync(instance);
@@ -2321,6 +2398,7 @@ function createRemoteInstanceManager(opts) {
       stopExternalMonitor(id);
       try {
         stopForward(id);
+        stopPairForward(id);
         const stopped = await stopInstance(instance);
         setState(id, stopped.ok ? "offline" : "error", stopped.detail);
         return stopped;
@@ -2363,6 +2441,9 @@ function createRemoteInstanceManager(opts) {
         };
       }
       return { online: false, detail: probe.error };
+    },
+    pairLink(id) {
+      return pairLink(id);
     },
     status(id) {
       const instance = opts.store.get(id);

@@ -1,0 +1,159 @@
+# ocrc-ext — publish the openchamber extension bundles as Release assets.
+#
+# A fresh openchamber installs these by pasting a URL (Settings → Extensions
+# accepts a public https `.zip`; verified against 2.3.3's
+# server/lib/guests/install.js, which requires the path to end in `.zip`).
+#
+# Naming, and why:
+#   asset  ocrc-remote.zip / ocrc-omo-view.zip   constant — no version, no kind
+#                                                token. The container says what
+#                                                it is (.zip = openchamber
+#                                                extension), the tag carries the
+#                                                version.
+#   tag    ocrc-remote-<version>                 immutable pin, created once
+#   tag    ocrc-remote-latest                    channel pointer, overwritten
+#                                                on purpose so the install URL
+#                                                never has to change
+#
+# The name comes from the machine identifier (panel.id), never the display name
+# ("OCRC Remote"). The zip holds ONE extension with a single top-level directory:
+# the installer's unwrapGuestRoot only unwraps when the archive has exactly one
+# top-level entry containing package.json, so a two-in-one archive cannot be
+# installed by URL at all.
+#
+# Publishing is deliberate — workflow_dispatch only, never on a schedule, and the
+# pin tag is never rewritten (a re-dispatch skips it; bump the extension version
+# in package.json to publish a new one).
+
+name: ocrc-ext
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'upload the bundles to their release tags'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  # ===========================================================================
+  # 1. Build one zip per extension, at the install shape
+  # ===========================================================================
+  bundle:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ext: [ocrc-remote, ocrc-omo-view]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pack the install shape
+        env:
+          EXT: ${{ matrix.ext }}
+        run: |
+          set -euo pipefail
+          rm -rf stage "$EXT.zip"
+          mkdir -p "stage/$EXT"
+          cp "extensions/$EXT/package.json" "stage/$EXT/"
+          # Ship exactly the directories the manifest points into (panel/, and
+          # status//service/ when declared — omo-view has only a panel).
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const ext = process.env.EXT;
+            const c = JSON.parse(readFileSync(`extensions/${ext}/package.json`, "utf8")).openchamber.contributes;
+            const dirs = [...new Set([c.panel?.entry, c.statusSection?.entry, c.service?.entry]
+              .filter(Boolean).map((p) => p.split("/")[0]))];
+            console.log(dirs.join("\n"));
+          ' > dirs.txt
+          while read -r d; do
+            cp -r "extensions/$EXT/$d" "stage/$EXT/"
+          done < dirs.txt
+          echo "payload dirs: $(tr '\n' ' ' < dirs.txt)"
+          # Reproducible archive: fixed mtimes, sorted entries, no extra attrs.
+          find "stage" -exec touch -t 198001010000 {} +
+          ( cd stage && find "$EXT" -type f | LC_ALL=C sort | zip -qX "../$EXT.zip" -@ )
+          echo "--- $EXT.zip ---"
+          unzip -l "$EXT.zip"
+
+      - name: Assert the install shape
+        env:
+          EXT: ${{ matrix.ext }}
+        run: |
+          set -euo pipefail
+          # Same invariants the host enforces on install, checked here so a
+          # broken bundle never reaches a release.
+          node --input-type=module -e '
+            import { readFileSync, existsSync } from "node:fs";
+            const ext = process.env.EXT;
+            const pkg = JSON.parse(readFileSync(`extensions/${ext}/package.json`, "utf8"));
+            const c = pkg.openchamber?.contributes;
+            if (!c?.panel?.entry) throw new Error(`${ext}: no contributes.panel.entry`);
+            if (c.panel.id !== ext) throw new Error(`${ext}: panel.id ${c.panel.id} != directory ${ext}`);
+            if (!/^[a-z][a-z0-9-]*$/.test(c.panel.id)) throw new Error(`${ext}: panel.id fails the SDK pattern`);
+            for (const rel of [c.panel.entry, c.statusSection?.entry, c.service?.entry].filter(Boolean)) {
+              if (!existsSync(`extensions/${ext}/${rel}`)) throw new Error(`${ext}: manifest entry missing: ${rel}`);
+            }
+            console.log(`${ext} ${pkg.version}: manifest ok (panel.id ${c.panel.id})`);
+          '
+          TOPS="$(unzip -Z1 "$EXT.zip" | cut -d/ -f1 | sort -u)"
+          [ "$TOPS" = "$EXT" ] || { echo "::error::$EXT.zip must hold exactly one top-level directory, got: $TOPS"; exit 1; }
+          unzip -Z1 "$EXT.zip" | grep -qx "$EXT/package.json" || { echo "::error::package.json must be at the archive root"; exit 1; }
+          echo "$EXT.zip: single top-level dir $EXT, manifest at root"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.ext }}-zip
+          path: ${{ matrix.ext }}.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  # ===========================================================================
+  # 2. Publish to the pin tag (once) and the channel tag (every time)
+  # ===========================================================================
+  publish:
+    needs: bundle
+    if: inputs.publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: '*-zip'
+          merge-multiple: true
+      - name: Publish bundles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for EXT in ocrc-remote ocrc-omo-view; do
+            VER="$(node -p "require('./extensions/$EXT/package.json').version")"
+            PIN="$EXT-$VER"
+            CHANNEL="$EXT-latest"
+            URL_BASE="https://github.com/$GITHUB_REPOSITORY/releases/download"
+
+            # Pin: immutable. Created once; a re-dispatch skips it, so the bytes
+            # behind a pinned URL can never change.
+            if gh release view "$PIN" -R "$GITHUB_REPOSITORY" --json assets \
+                 --jq '.assets[].name' 2>/dev/null | grep -qx "$EXT.zip"; then
+              echo "$PIN already carries $EXT.zip — pinned, nothing to do"
+            else
+              gh release view "$PIN" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+                gh release create "$PIN" -R "$GITHUB_REPOSITORY" \
+                  --title "$EXT $VER" \
+                  --notes "openchamber extension bundle $EXT $VER. Install: Settings -> Extensions -> paste $URL_BASE/$PIN/$EXT.zip"
+              gh release upload "$PIN" "$EXT.zip#$EXT $VER" -R "$GITHUB_REPOSITORY"
+              echo "published $PIN/$EXT.zip"
+            fi
+
+            # Channel: a pointer, overwritten on purpose so the onboarding URL
+            # never changes. Heals a run that failed between the two uploads.
+            gh release view "$CHANNEL" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+              gh release create "$CHANNEL" -R "$GITHUB_REPOSITORY" \
+                --title "$EXT (latest)" \
+                --notes "Channel pointer: always the newest $EXT bundle. Stable install URL $URL_BASE/$CHANNEL/$EXT.zip ; pin a version with the $EXT-<version> tag."
+            gh release upload "$CHANNEL" "$EXT.zip#$EXT $VER" -R "$GITHUB_REPOSITORY" --clobber
+            echo "channel $CHANNEL now serves $EXT $VER"
+          done

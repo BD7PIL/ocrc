@@ -28,6 +28,7 @@ jobs:
 
       - name: Verify (typecheck + tests + build)
         run: |
+          npm run build:dwf
           npm run typecheck
           npm test
           npm run build

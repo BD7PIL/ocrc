@@ -26,6 +26,8 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # `gh variable set` in bump-pin needs the Actions scope, not contents.
+  actions: write
 
 env:
   # Declarative source of truth: ops/v2-pin-manifest.json (repo file, rewritten
@@ -123,6 +125,8 @@ jobs:
         run: |
           mkdir -p bundle
           node --input-type=module -e '
+            import { createHash } from "node:crypto";
+            import { writeFileSync } from "node:fs";
             const REGISTRY = "https://registry.npmjs.org";
             const pin = process.env.OCRC_V2_PIN;
             const targets = ["linux-x64", "linux-arm64"];
@@ -133,9 +137,9 @@ jobs:
               const buf = Buffer.from(await (await fetch(tarball)).arrayBuffer());
               const actual = createHash("sha512").update(buf).digest("base64");
               if (actual !== integrity.slice(7)) throw new Error(`integrity mismatch for ${target}`);
-              require("node:fs").writeFileSync(`bundle/cli-${target}-${pin}.tgz`, buf);
+              writeFileSync(`bundle/cli-${target}-${pin}.tgz`, buf);
             }
-            import("node:fs").writeFileSync("bundle/manifest.json", JSON.stringify({
+            writeFileSync("bundle/manifest.json", JSON.stringify({
               opencodePin: pin,
               minOpenCodeVersion: "${{ needs.upstream-check.outputs.min_engine }}",
               openchamber: "${{ needs.upstream-check.outputs.openchamber_latest }}",
@@ -150,6 +154,7 @@ jobs:
       - name: Build ocrc plugin tarball
         run: |
           npm ci
+          npm run build:dwf
           npm run build
           npm pack --pack-destination bundle
 

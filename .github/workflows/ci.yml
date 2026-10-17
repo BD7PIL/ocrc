@@ -27,6 +27,12 @@ jobs:
           npm --prefix extensions/ocrc-remote ci
           npm --prefix extensions/ocrc-omo-view ci
 
+      # src/ imports the vendored workflow engine from vendor/zcode-dwf/dist,
+      # which is a build product (gitignored). A fresh clone has no dist, so
+      # every job that typechecks or packs must build it first.
+      - name: Build vendored dwf engine
+        run: npm run build:dwf
+
       - name: Typecheck (plugin)
         run: npm run typecheck
 

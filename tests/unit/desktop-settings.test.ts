@@ -72,6 +72,36 @@ describe('mergeDesktopEntry', () => {
     const merged = mergeDesktopEntry({ desktopSshInstances: [] }, desktopEntryFor(instance()), { setDefault: true })
     expect(merged.desktopDefaultHostId).toBe('demo@192.168.26.101')
   })
+
+  it('carries over the SSH password and other shell-owned fields on upsert', () => {
+    // The shell's own UI writes the SSH password in plaintext when the user asks
+    // it to. An upsert that replaced the entry wholesale would drop it and break
+    // that instance's auth without saying anything.
+    const root = {
+      desktopSshInstances: [{
+        id: 'demo@192.168.26.101',
+        sshParsed: { destination: 'demo@192.168.26.101', args: [] },
+        auth: { sshPassword: { enabled: true, store: 'settings', value: 'pw-secret' } },
+      }],
+    }
+    const merged = mergeDesktopEntry(root, desktopEntryFor(instance()))
+    const list = merged.desktopSshInstances as Array<Record<string, any>>
+    expect(list).toHaveLength(1)
+    const entry = list[0]
+    expect(entry.auth.sshPassword).toEqual({ enabled: true, store: 'settings', value: 'pw-secret' })
+    expect(entry.auth.openchamberPassword).toEqual({ enabled: true, store: 'never' })
+    expect(entry.sshParsed).toEqual({ destination: 'demo@192.168.26.101', args: [] })
+    // We manage these, so ours wins.
+    expect(entry.remoteOpenchamber.mode).toBe('external')
+    expect(entry.sshCommand).toBe('ssh demo@192.168.26.101')
+  })
+
+  it('never invents an SSH password when the entry had none', () => {
+    const merged = mergeDesktopEntry({ desktopSshInstances: [{ id: 'demo@192.168.26.101' }] }, desktopEntryFor(instance()))
+    const entry = (merged.desktopSshInstances as Array<Record<string, any>>)[0]
+    expect(entry.auth.sshPassword).toBeUndefined()
+    expect(JSON.stringify(entry)).not.toContain('pw-secret')
+  })
 })
 
 describe('read/writeDesktopSettings', () => {

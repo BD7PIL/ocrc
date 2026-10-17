@@ -178,3 +178,38 @@ manifest 里的 `asset` 字段）。旧 tag `ocrc-remote-pack-2.3.3` 保留：20
 
 **遗留**：zip 安装无自更新，升级靠覆盖安装（面板的"覆盖/重装"按钮行为未实测；若无该入口则先卸载再装）。
 扩展版本升级前必须提 `extensions/<name>/package.json` 的 `version`，否则钉 tag 被跳过、通道也不会动。
+
+---
+
+## 追加：允许明文 SSH 密码（2026-10-17，用户裁决）
+
+**决定**：接受在桌面壳里明文存 SSH 密码（原生 UI 的 `auth.sshPassword`，`store: "settings"`，
+落在 `~/.config/openchamber/settings.json`）。原先"只走 key"的规则解除——它当初的约束是
+Windows 没有 sshpass 且不想让密钥落盘；现在实测原生壳用 `SSH_ASKPASS` + `OPENCHAMBER_SSH_ASKPASS_VALUE`
+（`SSH_ASKPASS_REQUIRE=force`）实现，不需要 sshpass，Windows 可用，且**免掉了人工把公钥放进
+`authorized_keys` 这一步**（原先被我列为上生产的阻塞项之一）。
+
+**边界（有意收窄，不跟着一起放宽）**
+
+- 我们自己的路径 `plan/apply/up/probe` **仍只走 key**：推送与探测不需要交互式密码，也不引入 askpass helper。
+- 对端 openchamber 的 **UI 密码**（`auth.openchamberPassword`）**保持 `store: "never"`**。它是另一个密钥，
+  与 SSH 无关；混为一谈会把两个都放宽。`--desktop-add` 依旧不写它。
+- `--desktop-add` 依旧**不写** SSH 密码（值从命令行传会进 shell 历史与 `ps`）。
+
+**同时修掉一个真 bug**：`mergeDesktopEntry` 原先按 id **整体替换**条目，而 `desktopEntryFor` 造的形状里
+没有 `auth.sshPassword`——所以在"允许明文密码"之后，跑一次 `--desktop-add` 会**静默删掉**用户刚存的密码，
+让那条实例连不上。改为按 id 合并：保留 `auth`（含 `sshPassword`）与 `sshParsed` 等我们不管的字段，
+我们只管 `remoteOpenchamber.mode/preferredPort`、`sshCommand`、`portForwards`。新增两个单测
+（保留密码；没有就不凭空造）。`tests/unit/desktop-settings.test.ts` 11 项。
+
+**顺带对齐的形状差异**：原生 UI 写 `sshCommand: "demo@192.168.26.101"` + `sshParsed` 缓存，
+我们写 `"ssh demo@192.168.26.101"`。读壳的 `parseSshCommand` 确认两种都收（`tokens[0] === "ssh"` 时 shift），
+所以不必改；`sshParsed` 现在会被保留。另记：壳的连接参数用 `StrictHostKeyChecking=accept-new`，
+首连不需要人工确认 host key。
+
+**红线复述**（本次实测撞上）：原生 **managed** 模式会在对端跑 `bun add -g` / `npm install -g --prefix
+$HOME/.openchamber/npm-global @openchamber/web@<ver>`，前提是对端有 bun/npm 且有公网 registry。
+2026-10-17 在对端刻意断网实测：DNS 三次 `ENOTFOUND` → 重试约 106s → **回落到五个月前的 HTTP 缓存**
+（`~/.npm/_cacache`，May 13）→ `ETARGET No matching version found for @openchamber/web@2.4.0`。
+报错文本误导（像是"版本不存在"，实际是"够不着 registry 用了过期缓存"）。managed 与我们的实例
+**同机不得混用**；OPS 已把 Mode 必须选 `external` 写成硬性步骤。

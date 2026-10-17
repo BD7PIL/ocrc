@@ -110,9 +110,11 @@ ocrc remote up demo@192.168.26.101 --open
 
 1. 装官方桌面版（2.4.0+；Windows 安装包 `OpenChamber-<v>-win-x64.exe`，per-user 安装，不需要管理员）。
 2. 桌面版 → Settings → Remote Instances → 新增：
-   - **SSH command**：`ssh demo@192.168.26.101`（用 key；不要把 SSH 密码写进去）
-   - **Mode**：`external`；**Remote port**：`2610`；**Bind**：`127.0.0.1`
-   - **UI password**：按需填写；**勾“不保存”**（`store: "never"`），或用完删掉
+   - **SSH command**：`ssh demo@192.168.26.101`（key 或密码都行，见下方凭据政策）
+   - **Mode**：**必须选 `external`**。`managed` 会在对端装**第二套** openchamber 并起它自己的服务
+     （走对端的 bun/npm + 公网 registry），与我们推的实例争端口与引擎所有权——同机不得混用。
+   - **Remote port**：`2610`；**Bind**：`127.0.0.1`
+   - **UI password**：按需填写；**勾"不保存"**（`store: "never"`），或用完删掉
 3. 连接后桌面壳自己建 `ssh -L 127.0.0.1:<local>:127.0.0.1:2610`。验证：
    `curl -s http://127.0.0.1:<local>/api/system/info` 返回对端 `openchamberVersion` 与 pid；
    带登录 cookie 请求 `http://127.0.0.1:<local>/api/fs/list?path=%2Fhome%2Fdemo` 列的是对端目录；
@@ -120,11 +122,27 @@ ocrc remote up demo@192.168.26.101 --open
 4. **版本不必相等**：external 模式只要求 major=2 且能力 `api.runtime-url.v1`（2.3.3 有）；版本不等提示
    update-recommended，仍可连。
 5. 若手工合并 `~/.config/openchamber/settings.json`（桌面版必须退出）：先备份 `.ocrc-bak`，只 upsert
-   `desktopSshInstances` 并设 `desktopDefaultHostId`；**不要写明文密码或 clientToken**——本机验收用
-   `store:"never"` + 首开手输，桌面壳不会把值落盘。
+   `desktopSshInstances` 并设 `desktopDefaultHostId`；**不要写 clientToken**。
 6. **`ocrc remote connect <id> --desktop-add` 替你做第 5 步**（2026-10-17 实测）：桌面版**退出时**写、
-   先留 `.ocrc-bak`、按 id 幂等 upsert、其它键一字不动、不写密码/clientToken；桌面版在跑时**拒绝写**
-   并说明原因。写完后桌面版启动即自动连上该主机（`desktopDefaultHostId` 指向它）。
+   先留 `.ocrc-bak`、按 id 幂等 upsert、其它键一字不动；桌面版在跑时**拒绝写**并说明原因。
+   写完后桌面版启动即自动连上该主机（`desktopDefaultHostId` 指向它）。
+   **它不写密码，但也不会删密码**：同 id 覆盖时保留条目里已有的 `auth`（含桌面壳自己存的
+   `sshPassword`）与 `sshParsed`；我们只管 `remoteOpenchamber.mode/preferredPort`、`sshCommand`、
+   `portForwards`。
+
+**SSH 凭据政策（2026-10-17 修订：允许明文密码）**
+
+- **允许**在桌面壳里存 SSH 密码（原生 UI 的 `auth.sshPassword`，`store: "settings"`，**明文落在
+  `~/.config/openchamber/settings.json`**）。原生壳实现方式是生成 `SSH_ASKPASS` helper 并把密码经
+  `OPENCHAMBER_SSH_ASKPASS_VALUE` 传给它（`SSH_ASKPASS_REQUIRE=force`），**不需要 sshpass**，Windows 可用。
+  好处：全新机器不再需要人工把公钥放进 `authorized_keys`。
+- **我们自己的路径（`plan/apply/up/probe`）仍只走 key**：推送与探测不需要交互式密码，也不引入
+  askpass helper；对端的 `authorized_keys` 已就位。
+- **对端 openchamber 的 UI 密码**（`auth.openchamberPassword`）**保持 `store: "never"`**——它是另一个密钥
+  （登录对端 UI 用），代价只是首开手输一次。别把两者混为一谈。
+- **保密纪律**：`settings.json` 及其 `.ocrc-bak` 现在可能含明文密码；`~/.ocrc` 的记录保持 0600。
+  任何备份/截图/贴日志前先确认里面没有 `sshPassword.value`；**永不进仓库**（2026-10-17 曾有一次文档里
+  写入口令字面量、提交前拦下）。
 
 > **出网中继归谁（2026-10-17 实测的最终形态）**：`--desktop-add` 会把 `-R 127.0.0.1:2711:127.0.0.1:4711`
 > **写进桌面版的实例转发**（`portForwards` 的 `type: 'remote'`），并顺手把控制端的**中继监听**起成

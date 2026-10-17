@@ -8,9 +8,12 @@
  *   · refuses to write unless the app is not running (a running Electron holds
  *     the same file and would overwrite us on exit);
  *   · backs the file up as `.ocrc-bak` before the first change;
- *   · upserts exactly one entry by id and never touches other keys;
- *   · never writes the UI password or a client token (the user types the
- *     password once; `store: "never"` keeps it out of the file).
+ *   · upserts exactly one entry by id, preserving everything it does not manage
+ *     — including an `auth.sshPassword` the shell stored there (the shell's own
+ *     UI writes the SSH password in plaintext when the user chooses to, and
+ *     dropping it on upsert would silently break that instance's auth);
+ *   · never writes the *UI* password or a client token (the user types it once;
+ *     `store: "never"` keeps it out of the file).
  *
  * Everything here is pure except `desktopSettingsPath`, so it is unit-testable
  * without touching a real install.
@@ -34,7 +37,13 @@ export interface DesktopSshInstance {
     uploadBundleOverSsh: boolean
   }
   localForward: { bindHost: '127.0.0.1' }
-  auth: { openchamberPassword: { enabled: true; store: 'never' } }
+  auth: {
+    openchamberPassword: { enabled: true; store: 'never' }
+    /** Written by the desktop shell's own UI when the user chooses to keep the
+     *  SSH password in settings.json. We never write it — but an upsert must
+     *  carry it over, or that instance's auth silently breaks. */
+    sshPassword?: { enabled?: boolean; store?: string; value?: string }
+  }
   portForwards: Array<{
     id: string
     enabled: boolean
@@ -111,16 +120,25 @@ export function desktopEntryFor(instance: RemoteInstance, opts: { reverseRelay?:
 }
 
 /** Merge one entry into the settings root (pure). An existing entry with the
- *  same id is replaced; everything else — other instances, hosts, preferences —
- *  is preserved verbatim. `setDefault` also points the default host at it. */
+ *  same id keeps everything this module does not manage — the shell's
+ *  `sshParsed` cache, a nickname the user set, and above all `auth` (the shell
+ *  writes an SSH password there when the user asks it to store one). Everything
+ *  else in the root is preserved verbatim. `setDefault` also points the default
+ *  host at it. */
 export function mergeDesktopEntry(
   root: DesktopSettingsRoot,
   entry: DesktopSshInstance,
   opts: { setDefault?: boolean } = {},
 ): DesktopSettingsRoot {
   const existing = Array.isArray(root.desktopSshInstances) ? root.desktopSshInstances : []
+  const prior = existing.find((x) => x && typeof x === 'object' && (x as { id?: string }).id === entry.id) as
+    | (DesktopSshInstance & Record<string, unknown>)
+    | undefined
   const without = existing.filter((x) => !(x && typeof x === 'object' && (x as { id?: string }).id === entry.id))
-  const next: DesktopSettingsRoot = { ...root, desktopSshInstances: [...without, entry] }
+  const merged: DesktopSshInstance = prior
+    ? { ...prior, ...entry, auth: { ...prior.auth, ...entry.auth } }
+    : entry
+  const next: DesktopSettingsRoot = { ...root, desktopSshInstances: [...without, merged] }
   if (opts.setDefault) next.desktopDefaultHostId = entry.id
   return next
 }

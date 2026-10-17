@@ -97,10 +97,18 @@ export function createRemoteInstancesStore(path: string, opts: { flushOnExit?: b
   /** Fill in the defaults and the three R10 switches in one place — a half-filled
    *  record is what turns "reconnect" into "sometimes reconnect". */
   function normalize(i: RemoteInstance): RemoteInstance {
+    // A1: the password only exists in password mode. Switching back to key mode
+    // must **erase** it, not park it in the file: a credential for someone
+    // else's machine that the UI no longer shows is exactly the kind of thing
+    // that gets forgotten and then leaks out of a backup.
+    const sshAuth = i.sshAuth === 'password' ? 'password' as const : undefined
+    const sshPassword = sshAuth === 'password' && i.sshPassword ? String(i.sshPassword) : undefined
     return {
       ...i,
       name: i.name?.trim() || undefined,
       user: i.user?.trim() || undefined,
+      sshAuth,
+      sshPassword,
       port: i.port > 0 ? i.port : 22,
       instancePort: i.instancePort > 0 ? i.instancePort : DEFAULT_INSTANCE_PORT,
       localPort: i.localPort > 0 ? i.localPort : DEFAULT_LOCAL_PORT,
@@ -154,6 +162,8 @@ export function createRemoteInstancesStore(path: string, opts: { flushOnExit?: b
         host: instance.host,
         port: instance.port ?? 22,
         user: instance.user,
+        sshAuth: instance.sshAuth,
+        sshPassword: instance.sshPassword,
         name: instance.name,
         instancePort: instance.instancePort ?? DEFAULT_INSTANCE_PORT,
         localPort: instance.localPort ?? DEFAULT_LOCAL_PORT,

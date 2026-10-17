@@ -88,6 +88,18 @@ describe('remote-instance ops', () => {
     expect((ok.body as { instance: { hasUiPassword: boolean } }).instance.hasUiPassword).toBe(true)
   })
 
+  it('rejects an auth mode outside the closed set (a typo must not read as key mode)', async () => {
+    const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager: makeManager() })
+    expect((await ops.handle({ op: 'add', payload: { host: 'h', sshAuth: 'Password' as never } })).status).toBe(400)
+    expect((await ops.handle({ op: 'patch', id: 'demo@h', payload: { sshAuth: 'passwd' as never } })).status).toBe(400)
+    // The two real modes go through, and the password never comes back.
+    const ok = await ops.handle({ op: 'add', payload: { host: 'h', sshAuth: 'password', sshPassword: 'peer-secret' } })
+    expect(ok.status).toBe(200)
+    const body = ok.body as { instance: Record<string, unknown> }
+    expect(body.instance.hasSshPassword).toBe(true)
+    expect(JSON.stringify(body)).not.toContain('peer-secret')
+  })
+
   it('long ops return a job and expose the result through polling', async () => {
     const manager = makeManager()
     const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager })

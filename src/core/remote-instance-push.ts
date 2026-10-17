@@ -34,6 +34,7 @@ import {
 import { dirname, join } from 'node:path'
 import { createLogger } from '../utils/logger.js'
 import { binCacheRoot, cacheArtifact, extractBinary, npmTargetFor, resolveV2Pin } from './bin-cache.js'
+import { askpassEnv } from './ssh-askpass.js'
 import {
   APP_CLI_REL, DEFAULT_ENGINE_PIN, NODE_RUNTIME, buildSshExecArgs, instancePaths, type SshTargetRef,
 } from './remote-instance.js'
@@ -504,7 +505,12 @@ export interface SshResult { code: number | null; stdout: string; stderr: string
 
 export function sshRun(target: SshTargetRef, command: string, opts: { timeoutMs?: number } = {}): Promise<SshResult> {
   return new Promise((resolve) => {
-    const child = spawn('ssh', buildSshExecArgs(target, command), { stdio: ['ignore', 'pipe', 'pipe'] })
+    // Password mode needs the askpass helper in the child's env; key mode gets
+    // `undefined` so ssh inherits ours (agent socket, ~/.ssh/config) unchanged.
+    const child = spawn('ssh', buildSshExecArgs(target, command), {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: askpassEnv(target),
+    })
     let stdout = ''
     let stderr = ''
     const timer = opts.timeoutMs ? setTimeout(() => child.kill('SIGKILL'), opts.timeoutMs) : undefined
@@ -533,7 +539,10 @@ export function pushFileOverSsh(
   return new Promise((resolve) => {
     const total = statSync(file).size
     let sent = 0
-    const child = spawn('ssh', buildSshExecArgs(target, script), { stdio: ['pipe', 'pipe', 'pipe'] })
+    const child = spawn('ssh', buildSshExecArgs(target, script), {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: askpassEnv(target),
+    })
     let stdout = ''
     let stderr = ''
     let settled = false

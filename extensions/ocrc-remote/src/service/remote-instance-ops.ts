@@ -34,6 +34,18 @@ export interface OpsReply {
   body: unknown
 }
 
+/**
+ * The auth mode is a closed set. A typo (`"Password"`, `"passwd"`) would
+ * otherwise be stored as-is and read back as `undefined` by `sshAuthArgs`, i.e.
+ * silently **key** mode — the user would see a "Permission denied" for a
+ * password peer and have nothing pointing at the cause.
+ */
+export function validateSshAuth(payload: Partial<RemoteInstance> | undefined): string | undefined {
+  const mode = payload?.sshAuth
+  if (mode === undefined || mode === null || mode === 'key' || mode === 'password') return undefined
+  return `invalid sshAuth: ${String(mode)}`
+}
+
 interface Job {
   state: 'running' | 'done' | 'error'
   result?: unknown
@@ -109,11 +121,15 @@ export function createRemoteInstanceOps({
               return { status: 400, body: { error: `invalid ${key}` } }
             }
           }
+          const authError = validateSshAuth(body)
+          if (authError) return { status: 400, body: { error: authError } }
           const saved = store.upsert({ ...body, host: body.host })
           return { status: 200, body: { instance: { ...redactInstance(saved), status: statusFor(saved.id) ?? null } } }
         }
 
         case 'patch': {
+          const authError = validateSshAuth(op.payload)
+          if (authError) return { status: 400, body: { error: authError } }
           const updated = store.update(op.id, op.payload)
           if (!updated) return { status: 404, body: { error: 'not found' } }
           return { status: 200, body: { instance: { ...redactInstance(updated), status: statusFor(updated.id) ?? null } } }

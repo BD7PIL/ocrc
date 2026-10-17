@@ -68,8 +68,10 @@ ocrc remote — 远程 openchamber 实例（对端能力）
 
 USAGE:
   ocrc remote add --host H [--user U] [--port 22] [--name N]
+                  [--ssh-auth key|password] [--ssh-password P]
                   [--instance-port ${DEFAULT_INSTANCE_PORT}] [--local-port ${DEFAULT_LOCAL_PORT}]
                   [--engine-path /abs/path] [--app-version ${DEFAULT_APP_VERSION}]
+                  --ssh-auth password：不写 --ssh-password 时从终端（不回显）或 stdin 读一行
   ocrc remote list [--json]
   ocrc remote plan <id>            只读预演：ssh/环境/引擎门禁/装机动作，不写对端
   ocrc remote apply <id> [--force] 推运行时 + 引擎(v2 pin) + 应用（控制端备件，对端零联网）
@@ -127,6 +129,56 @@ function flagNum(flags: Map<string, string | true>, name: string, fallback: numb
 function flagStr(flags: Map<string, string | true>, name: string): string | undefined {
   const v = flags.get(name)
   return v === undefined || v === true ? undefined : v
+}
+
+/**
+ * The peer's SSH password, asked for rather than passed on the command line.
+ *
+ * `--ssh-password <p>` still works (a scripted run needs it), but the default is
+ * to prompt: an argv value lands in the shell history and in every `ps` on the
+ * control side, and this is a credential for someone else's machine. With no
+ * TTY (a pipe) one line is read from stdin, so `echo "$PW" | ocrc remote add …`
+ * never puts the secret in argv either.
+ */
+async function readSshPassword(flags: Map<string, string | true>): Promise<string> {
+  const given = flagStr(flags, 'ssh-password')
+  if (given) return given.trim()
+  if (!process.stdin.isTTY) {
+    const piped = readFileSync(0, 'utf-8').split('\n')[0] ?? ''
+    if (!piped.trim()) throw new Error('--ssh-auth password 需要密码：给 --ssh-password，或从 stdin 喂一行')
+    return piped.trim()
+  }
+  process.stdout.write('SSH 密码（不回显）：')
+  const pw = await new Promise<string>((resolve) => {
+    const stdin = process.stdin
+    const wasRaw = stdin.isRaw
+    stdin.setRawMode?.(true)
+    stdin.resume()
+    let buf = ''
+    const onData = (chunk: Buffer) => {
+      const s = chunk.toString('utf-8')
+      for (const ch of s) {
+        if (ch === '\r' || ch === '\n') {
+          stdin.setRawMode?.(wasRaw ?? false)
+          stdin.pause()
+          stdin.off('data', onData)
+          process.stdout.write('\n')
+          resolve(buf)
+          return
+        }
+        if (ch === '\u0003') { // Ctrl-C: raw mode swallows the signal, so honour it here.
+          stdin.setRawMode?.(wasRaw ?? false)
+          process.stdout.write('\n')
+          process.exit(130)
+        }
+        if (ch === '\u007f' || ch === '\b') buf = buf.slice(0, -1)
+        else buf += ch
+      }
+    }
+    stdin.on('data', onData)
+  })
+  if (!pw.trim()) throw new Error('密码为空——密码档需要非空密码')
+  return pw.trim()
 }
 
 function store() {
@@ -249,12 +301,19 @@ export async function main(argv: string[]): Promise<void> {
   if (sub === 'add') {
     const host = flagStr(flags, 'host')
     if (!host) throw new Error('需要 --host')
+    const authFlag = flagStr(flags, 'ssh-auth')
+    if (authFlag && authFlag !== 'key' && authFlag !== 'password') {
+      throw new Error('--ssh-auth 只认 key / password')
+    }
+    const sshPassword = authFlag === 'password' ? await readSshPassword(flags) : undefined
     const s = store()
     const saved = s.upsert({
       host,
       user: flagStr(flags, 'user'),
       port: flagNum(flags, 'port', 22),
       name: flagStr(flags, 'name'),
+      sshAuth: authFlag === 'password' ? 'password' : undefined,
+      sshPassword,
       instancePort: flagNum(flags, 'instance-port', DEFAULT_INSTANCE_PORT),
       localPort: flagNum(flags, 'local-port', DEFAULT_LOCAL_PORT),
       appVersion: flagStr(flags, 'app-version') ?? DEFAULT_APP_VERSION,
@@ -262,6 +321,7 @@ export async function main(argv: string[]): Promise<void> {
       enabled: true,
     })
     console.log(`已登记：${saved.id} → ${saved.user ? `${saved.user}@` : ''}${saved.host}:${saved.port}（实例端口 ${saved.instancePort}，本地端口 ${saved.localPort}）`)
+    console.log(`认证    ：${saved.sshAuth === 'password' ? '密码（askpass 喂 ssh，密码只落 0600 档案，接口不回显）' : '密钥（BatchMode=yes，用本机 ~/.ssh 与 agent）'}`)
     console.log(`UI 密码：${saved.uiPassword}（只存在 ~/.ocrc/remote-instances.json，0600；接口不回显）`)
     console.log(`下一步：ocrc remote plan ${saved.id}`)
     return

@@ -17,8 +17,9 @@
  *     (`Failed to start OpenCode: OpenCode 1.18.31 is installed…`).
  *   · **Paths are pinned absolute** — no PATH resolution anywhere.
  */
+import type { SshAuthMode, SshAuthSpec } from './ssh-askpass.js'
 
-export interface RemoteInstance {
+export interface RemoteInstance extends SshAuthSpec {
   id: string
   /** Display name; defaults to host. */
   name?: string
@@ -26,6 +27,13 @@ export interface RemoteInstance {
   /** SSH port. */
   port: number
   user?: string
+  /** 认证档（A1）：`key` 用本机密钥/agent；`password` 走 askpass 喂密码。
+   *  缺省 = `key`。 */
+  sshAuth?: SshAuthMode
+  /** 密码档的密码。只落在 0600 的 `~/.ocrc/remote-instances.json` 里，
+   *  `redactInstance` 之后任何 HTTP/CLI 输出都不含它；ssh 子进程经
+   *  `OPENCHAMBER_SSH_ASKPASS_VALUE` 拿到它（helper 脚本里没有秘密）。 */
+  sshPassword?: string
   /** Instance port on the controlled host (loopback-bound). */
   instancePort: number
   /** Local forward port on the control side (`http://127.0.0.1:<localPort>`). */
@@ -151,11 +159,17 @@ export function instanceIdFor(target: Pick<SshTargetRef, 'host' | 'user'>): stri
   return raw.replace(/[^A-Za-z0-9._@-]/g, '-')
 }
 
-/** API/log-facing view: the UI password never leaves the store. */
-export type RedactedInstance = Omit<RemoteInstance, 'uiPassword'> & { hasUiPassword: boolean }
+/** API/log-facing view: neither secret leaves the store. `sshPassword` is the
+ *  one the panel must never echo — it is a credential for **someone else's
+ *  machine**, so it is dropped the same way the UI password is, and the caller
+ *  gets a boolean to render "已设置/未设置" from. */
+export type RedactedInstance = Omit<RemoteInstance, 'uiPassword' | 'sshPassword'> & {
+  hasUiPassword: boolean
+  hasSshPassword: boolean
+}
 export function redactInstance(i: RemoteInstance): RedactedInstance {
-  const { uiPassword, ...rest } = i
-  return { ...rest, hasUiPassword: !!uiPassword }
+  const { uiPassword, sshPassword, ...rest } = i
+  return { ...rest, hasUiPassword: !!uiPassword, hasSshPassword: !!sshPassword }
 }
 
 /** openchamber gate: `server/lib/opencode/compatibility.js`. */
@@ -409,18 +423,47 @@ export function buildInstanceStatusCommand(appVersion: string, port: number): st
 }
 
 /** Anything that can be reached over ssh — `RemoteInstance` and `RemoteHost`
- *  both are; the provisioning/forward layers only need this much. */
-export interface SshTargetRef {
+ *  both are; the provisioning/forward layers only need this much.
+ *
+ *  `sshAuth`/`sshPassword` are the two-mode choice from plan A1. Absent
+ *  `sshAuth` = `key`, which is what every existing record and caller means. */
+export interface SshTargetRef extends SshAuthSpec {
   host: string
   port?: number
   user?: string
+}
+
+/**
+ * Auth mode → ssh options (A1). One function so the one-shot path and the
+ * tunnel path cannot drift apart — a tunnel that authenticates differently from
+ * the probe that just succeeded is a bug that only shows up as
+ * "预演通过，启动失败".
+ *
+ *   · **key** (default): `BatchMode=yes`. A prompt nobody can answer is an
+ *     error we want immediately, not a hang.
+ *   · **password**: `BatchMode` must go off or ssh never consults the askpass
+ *     helper. `PubkeyAuthentication=no` is not cosmetic: with a
+ *     passphrase-protected key in `~/.ssh`, ssh would offer that key first, fail,
+ *     and only then ask for a password — turning the user's own key into a
+ *     source of confusing "wrong passphrase" failures for a peer we were told to
+ *     reach with a password. `NumberOfPasswordPrompts=1` keeps one bad password
+ *     from eating the whole 20 s host-proxy budget in retries.
+ */
+export function sshAuthArgs(target: SshTargetRef): string[] {
+  if (target.sshAuth !== 'password') return ['-o', 'BatchMode=yes']
+  return [
+    '-o', 'BatchMode=no',
+    '-o', 'PubkeyAuthentication=no',
+    '-o', 'PreferredAuthentications=password,keyboard-interactive',
+    '-o', 'NumberOfPasswordPrompts=1',
+  ]
 }
 
 /** ssh argv for a **one-shot** remote command (probes, provisioning scripts).
  *  No `-N`, no forward: the remote shell runs `command` and exits. */
 export function buildSshExecArgs(target: SshTargetRef, command: string): string[] {
   return [
-    '-o', 'BatchMode=yes',
+    ...sshAuthArgs(target),
     '-o', 'ConnectTimeout=10',
     '-o', 'StrictHostKeyChecking=no',
     '-p', String(target.port || 22),
@@ -513,7 +556,7 @@ export function buildDesktopHandoff(
     lines,
   }
 }
-export interface ForwardSpec {
+export interface ForwardSpec extends SshAuthSpec {
   host: string
   port: number
   user?: string
@@ -532,7 +575,7 @@ export interface ForwardSpec {
  *  unforwarded session; keepalives so a dead peer is noticed (R10). */
 export function buildForwardArgs(spec: ForwardSpec): string[] {
   return [
-    '-o', 'BatchMode=yes',
+    ...sshAuthArgs(spec),
     '-o', 'ConnectTimeout=10',
     '-o', 'ServerAliveInterval=15',
     '-o', 'ServerAliveCountMax=3',

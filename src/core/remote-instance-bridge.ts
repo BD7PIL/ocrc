@@ -29,10 +29,11 @@ import {
   EGRESS_DEFAULT, type EgressProbe,
   buildTerminalProbeCommand, instancePaths, parseTerminalProbe,
   judgeEngineCompat, judgeInstanceVersion, parseEngineProbe, pickV2Engine, type EngineCandidate,
-  type EngineCompatPayload, type EnginePick, type InstanceProxyConfig,
+  type EngineCompatPayload, type EnginePick, type ForwardSpec, type InstanceProxyConfig,
   type RemoteInstance, type SshTargetRef,
 } from './remote-instance.js'
 import { appPackTierForGlibc, buildAppProbeCommand, buildOfflineGuardExports, buildRuntimeProbeCommand, provisionOffline, sshRun, type AppPackTier } from './remote-instance-push.js'
+import { askpassEnv } from './ssh-askpass.js'
 import type { RemoteInstancesStore } from './remote-instances.js'
 
 const log = createLogger('remote-instance')
@@ -219,6 +220,19 @@ interface InstanceRuntime {
 /** Local port of the tunnel URL. */
 export function instanceUrl(localPort: number): string {
   return `http://127.0.0.1:${localPort}`
+}
+
+/** The ssh fields every forward spec needs, taken from one place so no site can
+ *  forget the auth mode — a tunnel that authenticates differently from the probe
+ *  that just succeeded shows up as "预演通过，启动失败" and nothing else. */
+function sshFields(instance: RemoteInstance): Pick<ForwardSpec, 'host' | 'port' | 'user' | 'sshAuth' | 'sshPassword'> {
+  return {
+    host: instance.host,
+    port: instance.port,
+    user: instance.user,
+    sshAuth: instance.sshAuth,
+    sshPassword: instance.sshPassword,
+  }
 }
 
 export function createRemoteInstanceManager(opts: {
@@ -537,17 +551,15 @@ export function createRemoteInstanceManager(opts: {
     // controlled host its egress. One tunnel, one reconnect loop.
     const reverse = cfg.enabled && !adopted ? { remotePort: cfg.remotePort, localPort: cfg.localPort } : undefined
     const args = buildForwardArgs({
-      host: instance.host,
-      port: instance.port,
-      user: instance.user,
+      ...sshFields(instance),
       localPort: instance.localPort,
       remotePort: instance.instancePort,
       reverse,
     })
     pushLog(instance.id, `$ ssh -N -L 127.0.0.1:${instance.localPort}:127.0.0.1:${instance.instancePort}${reverse ? ` -R 127.0.0.1:${reverse.remotePort}:127.0.0.1:${reverse.localPort}` : ''} ${instance.user ? `${instance.user}@` : ''}${instance.host}`)
     const child = detachedForwards
-      ? spawn('ssh', args, { stdio: ['ignore', 'ignore', openSync(forwardLogPath, 'a')], detached: true })
-      : spawn('ssh', args, { stdio: ['ignore', 'pipe', 'pipe'] })
+      ? spawn('ssh', args, { stdio: ['ignore', 'ignore', openSync(forwardLogPath, 'a')], detached: true, env: askpassEnv(instance) })
+      : spawn('ssh', args, { stdio: ['ignore', 'pipe', 'pipe'], env: askpassEnv(instance) })
     r.forward = child
     r.forwardPid = child.pid
     if (detachedForwards) {
@@ -643,13 +655,11 @@ export function createRemoteInstanceManager(opts: {
     const port = await freeLocalPort()
     const temp: RemoteInstance = { ...instance, localPort: port }
     const args = buildForwardArgs({
-      host: instance.host,
-      port: instance.port,
-      user: instance.user,
+      ...sshFields(instance),
       localPort: port,
       remotePort: instance.instancePort,
     })
-    const child = spawn('ssh', args, { stdio: ['ignore', 'ignore', 'pipe'] })
+    const child = spawn('ssh', args, { stdio: ['ignore', 'ignore', 'pipe'], env: askpassEnv(instance) })
     let stderr = ''
     child.stderr?.on('data', (d: Buffer) => { stderr += d.toString() })
     const deadline = Date.now() + 8_000
@@ -680,14 +690,12 @@ export function createRemoteInstanceManager(opts: {
     const r = rt(instance.id)
     if (!(r.pairForward && r.pairForward.exitCode === null)) {
       const args = buildForwardArgs({
-        host: instance.host,
-        port: instance.port,
-        user: instance.user,
+        ...sshFields(instance),
         localPort: instance.localPort,
         remotePort: instance.instancePort,
       })
       pushLog(instance.id, `$ ssh -N -L 127.0.0.1:${instance.localPort}:127.0.0.1:${instance.instancePort} ${instance.user ? `${instance.user}@` : ''}${instance.host}`)
-      const child = spawn('ssh', args, { stdio: ['ignore', 'ignore', openSync(forwardLogPath, 'a')], detached: true })
+      const child = spawn('ssh', args, { stdio: ['ignore', 'ignore', openSync(forwardLogPath, 'a')], detached: true, env: askpassEnv(instance) })
       child.unref()
       r.pairForward = child
     }
@@ -766,15 +774,13 @@ export function createRemoteInstanceManager(opts: {
       r.relayPending = false
     }
     const args = buildRelayForwardArgs({
-      host: instance.host,
-      port: instance.port,
-      user: instance.user,
+      ...sshFields(instance),
       localPort: cfg.localPort,
       remotePort: instance.instancePort,
       reverse: { remotePort: cfg.remotePort, localPort: cfg.localPort },
     })
     pushLog(instance.id, `$ ssh -N -R 127.0.0.1:${cfg.remotePort}:127.0.0.1:${cfg.localPort} ${instance.user ? `${instance.user}@` : ''}${instance.host}`)
-    const child = spawn('ssh', args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn('ssh', args, { stdio: ['ignore', 'pipe', 'pipe'], env: askpassEnv(instance) })
     r.forward = child
     r.forwardPid = child.pid
     child.stdout?.on('data', (d: Buffer) => pushLog(instance.id, d.toString()))
@@ -851,7 +857,8 @@ export function createRemoteInstanceManager(opts: {
       const env = await probeEnv(instance)
       if (!env) {
         setState(id, 'error', 'ssh 不可达')
-        return { id, target, reachable: false, sshError: `ssh ${target} 连不上（BatchMode）`, engineCandidates: [], actions, url }
+        const how = instance.sshAuth === 'password' ? '密码档（askpass）' : 'BatchMode'
+        return { id, target, reachable: false, sshError: `ssh ${target} 连不上（${how}）`, engineCandidates: [], actions, url }
       }
       rt(id).inspected = env
 

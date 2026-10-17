@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { createRemoteInstancesStore, redactInstance, remoteInstancesPath } from '../core/remote-instances.js'
 import { createRemoteInstanceManager, cleanSshNoise, proxyConfig, type InstanceStatus } from '../core/remote-instance-bridge.js'
 import { DEFAULT_APP_VERSION, DEFAULT_INSTANCE_PORT, DEFAULT_LOCAL_PORT, PROXY_DEFAULTS, RECONNECT_DEFAULTS, buildDesktopHandoff, instanceIdFor, type RemoteInstance } from '../core/remote-instance.js'
-import { appPayloadPath, buildOfflineGuardExports, ensureAppPayload, ensureRuntimePayload, runtimePayloadPath, sha512Base64, sha256Hex, appTreeDir } from '../core/remote-instance-push.js'
+import { appPayloadPath, buildOfflineGuardExports, ensureAppPayload, ensureEngineBinary, ensureRuntimePayload, runtimePayloadPath, sha512Base64, sha256Hex, appTreeDir } from '../core/remote-instance-push.js'
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs'
 import net from 'node:net'
@@ -102,7 +102,8 @@ USAGE:
   ocrc remote proxy <id> allow-clear      清空白名单
   ocrc remote proxy-serve [--port 4711] [--log F]  前台跑出网中继（up 会自动拉起它）
   ocrc remote proxy-log <file>            判读中继日志：对端是否真的走了我们的代理
-  ocrc remote prepare [--app-version V]  只在控制端取件并备好载荷（离线部署前预热）
+  ocrc remote prepare [--app-version V] [--engine-version V] [--force]
+                                   只在控制端取件并备好载荷：运行时 + 应用 + 引擎三件（离线部署前预热）
   ocrc remote offline-proof       结构性断言：所有远程脚本零联网命令
   ocrc remote trace-check <file>  判读 strace 输出：安装期间是否真的零外联
   ocrc remote --help              这段文字
@@ -299,6 +300,12 @@ export async function main(argv: string[]): Promise<void> {
     const app = await ensureAppPayload(appVersion, { force, onLog: say })
     console.log(`  app:     ${appPayloadPath(appVersion)} ${(app.bytes / 1e6).toFixed(1)}MB sha512 ${app.sha.slice(0, 16)}…${app.prepared ? '（新打包）' : '（缓存命中）'}`)
     console.log(`  树：     ${appTreeDir(appVersion)}`)
+    // B1: the engine is the third payload, and the one that used to be missing
+    // here — a warmed cache without it still stops halfway through an offline
+    // `apply`, because the peer cannot fetch it (that is the whole point).
+    const engine = await ensureEngineBinary({ version: flagStr(flags, 'engine-version'), force, onLog: say })
+    console.log(`  engine:  ${engine.file} opencode v${engine.version} ${(engine.bytes / 1e6).toFixed(1)}MB sha256 ${engine.sha.slice(0, 16)}…${engine.prepared ? '（新取件）' : '（缓存命中）'} → ${engine.target}`)
+    console.log('  备件齐了：离线 apply 不会再半路缺件（对端全程零联网）。')
     return
   }
 

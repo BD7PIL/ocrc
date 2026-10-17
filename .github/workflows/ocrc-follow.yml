@@ -130,6 +130,7 @@ jobs:
             const REGISTRY = "https://registry.npmjs.org";
             const pin = process.env.OCRC_V2_PIN;
             const targets = ["linux-x64", "linux-arm64"];
+            const digests = {};
             for (const target of targets) {
               const meta = await (await fetch(`${REGISTRY}/@opencode%2Fcli-${target}`)).json();
               const { integrity, tarball } = meta.versions[pin].dist;
@@ -138,12 +139,21 @@ jobs:
               const actual = createHash("sha512").update(buf).digest("base64");
               if (actual !== integrity.slice(7)) throw new Error(`integrity mismatch for ${target}`);
               writeFileSync(`bundle/cli-${target}-${pin}.tgz`, buf);
+              // The consumer (bin-cache.takeBundleArtifact) refuses a bundle file
+              // it cannot verify, so the digests have to be in the manifest —
+              // without them the bundle is dead weight on the control side.
+              digests[target] = {
+                sha512: `sha512-${actual}`,
+                sha256: createHash("sha256").update(buf).digest("hex"),
+                bytes: buf.length,
+              };
             }
             writeFileSync("bundle/manifest.json", JSON.stringify({
               opencodePin: pin,
               minOpenCodeVersion: "${{ needs.upstream-check.outputs.min_engine }}",
               openchamber: "${{ needs.upstream-check.outputs.openchamber_latest }}",
               integrity: Object.fromEntries(targets.map(t => [t, "registry-verified"])),
+              digests,
               createdAt: new Date().toISOString(),
             }, null, 2));
           '

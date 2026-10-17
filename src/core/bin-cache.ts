@@ -37,6 +37,69 @@ export interface Manifest {
   createdAt: string
 }
 
+/**
+ * B2 — the CI offline bundle, consumed instead of re-downloaded.
+ *
+ * `ocrc-follow.yml`'s `bundle` job has always produced the pinned tgz files plus
+ * a manifest, and **nothing ever read them**: every install path went to the
+ * registry even when the bytes were already on disk. That made the bundle a
+ * promise rather than a supply, and a control side holding the bundle but no
+ * registry still could not install.
+ *
+ * Layout (env `OCRC_BUNDLE_DIR`, default `<bin-cache>/bundle`):
+ *   cli-<target>-<version>.tgz  +  manifest.json { digests: { <target>: { sha512, sha256, bytes } } }
+ *
+ * The bundle is **verified, never trusted**: without a digest for that target we
+ * ignore the file and fall back to the registry, and a digest mismatch is an
+ * error rather than a silent re-download — a tampered bundle has to be loud.
+ */
+export interface BundleManifest {
+  opencodePin?: string
+  /** Per-target digests. Older manifests carry only the pin; their artifacts are
+   *  readable but not usable (we will not install bytes we cannot verify). */
+  digests?: Record<string, { sha512?: string; sha256?: string; bytes?: number }>
+  createdAt?: string
+}
+
+export function bundleDir(): string {
+  return process.env.OCRC_BUNDLE_DIR ?? join(binCacheRoot(), 'bundle')
+}
+
+export function readBundleManifest(dir = bundleDir()): BundleManifest | undefined {
+  const p = join(dir, 'manifest.json')
+  if (!existsSync(p)) return undefined
+  try {
+    return JSON.parse(readFileSync(p, 'utf-8')) as BundleManifest
+  } catch {
+    return undefined
+  }
+}
+
+export function bundleArtifactPath(version: string, target: string, dir = bundleDir()): string {
+  return join(dir, `cli-${target}-${version}.tgz`)
+}
+
+export interface BundleHit { file: string; sha512: string }
+
+/** The bundle's copy of one artifact, when it is present **and** verifiable.
+ *  `undefined` means "not usable from here" (absent, no digest) — the caller
+ *  then goes to the registry. A digest mismatch throws. */
+export function takeBundleArtifact(version: string, target: string, dir = bundleDir()): BundleHit | undefined {
+  const file = bundleArtifactPath(version, target, dir)
+  if (!existsSync(file)) return undefined
+  const digest = readBundleManifest(dir)?.digests?.[target]?.sha512
+  if (!digest) {
+    log.warn(`bundle has ${file} but no digest for ${target} — ignoring it (unverified bytes are not worth using)`)
+    return undefined
+  }
+  const expected = digest.startsWith('sha512-') ? digest.slice(7) : digest
+  const actual = createHash('sha512').update(readFileSync(file)).digest('base64')
+  if (actual !== expected) {
+    throw new Error(`bundle artifact digest mismatch for ${target}@${version}：${file} 不是 CI 产出的那一份（拒绝使用）`)
+  }
+  return { file, sha512: actual }
+}
+
 const REGISTRY = 'https://registry.npmjs.org'
 
 export function binCacheRoot(): string {
@@ -88,6 +151,15 @@ export async function cacheArtifact(version: string, target: string, timeoutMs =
     return dest
   }
   mkdirSync(dir, { recursive: true })
+  // B2: a verified CI bundle wins over the network — same bytes, no egress, and
+  // the reason the bundle exists at all. `takeBundleArtifact` throws on a digest
+  // mismatch, so this can never quietly install something else.
+  const bundled = takeBundleArtifact(version, target)
+  if (bundled) {
+    writeFileSync(dest, readFileSync(bundled.file), { mode: 0o644 })
+    log.info(`bundle hit: ${bundled.file} → ${dest}（sha512 校验通过，未走网络）`)
+    return dest
+  }
   const integrity = await fetchIntegrity(version, target)
   const url = `${REGISTRY}/@opencode/cli-${target}/-/cli-${target}-${version}.tgz`
   log.info(`downloading ${url}`)

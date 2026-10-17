@@ -9,14 +9,15 @@
 # Usage:
 #   scripts/accept-remote-instance.sh --target demo@192.168.26.101
 #   scripts/accept-remote-instance.sh --target demo@192.168.26.101 --provision
-#   scripts/accept-remote-instance.sh --target demo@192.168.26.101 --offline-proof   # 断网复验
+#   scripts/accept-remote-instance.sh --target demo@192.168.26.101 --offline-proof   # 断网复验（对端需先能上外网做对照）
+#   scripts/accept-remote-instance.sh --target demo@192.168.26.101 --assume-offline  # 真离线机：断言基线不可达，跳过 200 对照
 #   scripts/accept-remote-instance.sh --target demo@192.168.26.101 --teardown [--purge]
 #
 # --offline-proof 做三件事（对端无 root，无法 iptables 真断网，如实标注）：
 #   ① 结构性：所有远程脚本零联网命令（ocrc remote offline-proof）
 #   ② 实测：同一次装机用毒代理 env（外网指向死端口）+ strace -f -e trace=connect，
 #      再用 ocrc remote trace-check 断言「安装期间零非回环 connect()」
-#   ③ 有效性对照：同一环境下 curl 外网必须失败（否则 ② 不算数）
+#   ③ 有效性对照：同一环境下 curl 外网必须失败（否则 ② 不算数）；真离线机用 --assume-offline 走断言式基线
 set -euo pipefail
 
 TARGET=""
@@ -33,6 +34,7 @@ UI_PASSWORD=${OCRC_INSTANCE_UI_PASSWORD:-}
 ENGINE_PATH=""
 PROVISION=0
 OFFLINE_PROOF=0
+ASSUME_OFFLINE=0
 TEARDOWN=0
 PURGE=0
 while [ $# -gt 0 ]; do
@@ -46,6 +48,7 @@ while [ $# -gt 0 ]; do
     --ui-password) UI_PASSWORD="${2:-}"; shift 2 ;;
     --provision) PROVISION=1; shift ;;
     --offline-proof) OFFLINE_PROOF=1; PROVISION=1; shift ;;
+    --assume-offline) ASSUME_OFFLINE=1; OFFLINE_PROOF=1; PROVISION=1; shift ;;
     --teardown) TEARDOWN=1; shift ;;
     --purge) PURGE=1; shift ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
@@ -102,15 +105,24 @@ note "用户既有 opencode：$LEGACY_BEFORE（md5 ${LEGACY_MD5_BEFORE:0:12}…�
 if [ "$PROVISION" = "1" ]; then
   echo "[1.5] P2 装机：控制端备件 → ssh stdin 推送 → 对端原子落位（对端零联网）"
   if [ "$OFFLINE_PROOF" = "1" ]; then
-    # 毒代理有效性对照：没有这一步，「毒代理下装成功」可能只是因为代理根本没生效
-    echo "       · 对照：不加 guard 时外网可达"
-    ssh_t 'curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://registry.npmjs.org/' | grep -q '^200$' \
-      || fail "对端本来就上不了外网——本次「毒代理」对照失去意义，请换一台有出网的机器跑 --offline-proof"
+    # 毒代理有效性对照：没有这一步，「毒代理下装成功」可能只是因为代理根本没生效。
+    # 真离线机（B4）走 --assume-offline：对照的前提（"不加 guard 时外网可达"）在它身上
+    # 天然不成立，但**不能靠嘴说**——改为断言基线确实不可达，参数与事实不符就拒跑。
+    if [ "$ASSUME_OFFLINE" = "1" ]; then
+      echo "       · --assume-offline：断言基线确实不可达（而不是假定）"
+      BASE=$(ssh_t 'curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://registry.npmjs.org/ || true')
+      [ "$BASE" = "000" ] || fail "--assume-offline 但对端能上外网（HTTP $BASE）——参数与事实不符，去掉它跑真对照"
+      note "基线不可达（HTTP 000）：毒代理对照的前提成立，跳过 200 那一半"
+    else
+      echo "       · 对照：不加 guard 时外网可达"
+      ssh_t 'curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://registry.npmjs.org/' | grep -q '^200$' \
+        || fail "对端本来就上不了外网——本次「毒代理」对照失去意义；真离线机请加 --assume-offline"
+    fi
     GUARD=$(node "$ROOT/dist/cli/index.js" remote guard-env)
     echo "       · 实验：同一环境加 guard（外网指向死端口）"
     GCODE=$(ssh_t "${GUARD}curl -s -o /dev/null -w '%{http_code}' --max-time 8 https://registry.npmjs.org/ || true")
     [ "$GCODE" = "000" ] || fail "guard 没起作用（外网仍返回 $GCODE）——断网复验不成立"
-    note "guard 生效：外网 200 → 000"
+    note "guard 生效：外网 ${BASE:-200} → 000"
     $CLI remote apply "$TARGET" --offline-guard --trace "$TRACE_PREFIX" --force \
       || fail "毒代理 + strace 下装机失败（对端离线工况过不去）"
   else

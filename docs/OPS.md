@@ -185,8 +185,22 @@ tag 不是唯一的版本轴。扩展相反——它只有一个入口 URL，所
   发布在 GitHub Release `ocrc-openchamber-pack-<ver>`。
 - **档位规则**：对端 glibc **< 2.31 → legacy**（node-pty 按 2.17 重建 + glibc-217 Node）；
   **≥ 2.31 → modern**。`ocrc remote apply` 自动探测，不需要手工选。
+- **两档 vs 单档（如实，别按直觉猜）**：
+  - **node-pty（终端能不能用）= 两档**：modern 用官方 prebuild；legacy 用 CI 里 `centos:7` 重建的那份。
+    对端装好之后还可以用 `scripts/remote-node-pty-glibc217.sh <ssh-target>` 在**对端**按宿主 glibc 重建
+    （换 openchamber 版本后要重跑）。
+  - **Node 运行时 = 单档**：只有 `24.22.0` 的 **glibc-217 非官方构建**一份（24.x 线里没有别的 glibc-217 产物）。
+    所以 modern 档的对端**也**跑这份 glibc-217 Node——"modern/legacy" 只区分 pty 来源，不区分 Node。
+    上游没有 glibc-217 官方产物，这一档只能我们自己供。
 - **控制端取件**：默认从 release manifest 下载并按 sha512 校验后缓存；离线/内网用
   `OCRC_PACK_DIR=<目录>` 指向本地包目录；两处都没有时回退控制端跨装（`npm install --os=linux`）。
+- **引擎（opencode v2）取件（B2）**：默认 npm registry → sha512 校验 → 缓存；离线/内网用
+  **`OCRC_BUNDLE_DIR=<目录>`** 指向 `ocrc-follow.yml` 的 `bundle` 产物（`cli-<target>-<ver>.tgz` +
+  `manifest.json`，内含每个 target 的 sha512/sha256/字节数）。取件顺序是 **缓存 → bundle → registry**：
+  bundle 命中且摘要对得上就不走网络；**manifest 里没有摘要的 bundle 文件会被忽略**（不装没校验过的字节），
+  摘要不符则**报错**而不是悄悄回退下载。
+- **预热三件（B1）**：`ocrc remote prepare` 现在把**运行时 + 应用 + 引擎**都备好（此前漏了引擎，
+  离线 `apply` 会装到一半才缺件）。加 `--engine-version` 可指定引擎版本，`--force` 重新取件。
 - **构建**：`node scripts/build-app-pack.mjs --version <ver> --tier modern --out pack`；
   legacy 在 CI 的 centos:7 容器里跑（`scripts/build-pty-legacy-local.sh` 重建 pty，
   `objdump` 断言 GLIBC ≤ 2.17、GLIBCXX/CXXABI 引用 0）。工作流：

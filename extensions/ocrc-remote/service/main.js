@@ -660,27 +660,6 @@ function parseTerminalProbe(stdout) {
   const reason = line.startsWith("terminal-unavailable:") ? line.slice("terminal-unavailable:".length).trim() : line || "\uFF08\u65E0\u8F93\u51FA\uFF09";
   return { ok: false, reason };
 }
-function buildDesktopHandoff(instance, status) {
-  const url = `http://127.0.0.1:${instance.localPort}`;
-  const running = status?.state === "online";
-  const lines = [
-    `\u5730\u5740 : ${url}`,
-    instance.uiPassword ? `\u5BC6\u7801 : ${instance.uiPassword}` : "\u5BC6\u7801 : \uFF08\u6863\u6848\u91CC\u6CA1\u6709\uFF0C\u5148 ocrc remote add\uFF09",
-    `\u7AEF\u53E3 : ${instance.localPort}\uFF08\u5BF9\u5E94\u5B9E\u4F8B\u7AEF\u53E3 ${instance.instancePort}\uFF09`,
-    running ? "\u72B6\u6001 : \u5728\u7EBF\uFF0C\u53EF\u4EE5\u76F4\u63A5\u6253\u5F00" : `\u72B6\u6001 : ${status?.state ?? "unknown"}\u2014\u2014\u5148 ocrc remote up ${instance.id}`
-  ];
-  return {
-    id: instance.id,
-    url,
-    uiPassword: instance.uiPassword,
-    port: instance.localPort,
-    instancePort: instance.instancePort,
-    appVersion: instance.appVersion,
-    running,
-    engine: status?.engine,
-    lines
-  };
-}
 function buildForwardArgs(spec) {
   return [
     ...sshAuthArgs(spec),
@@ -3645,21 +3624,6 @@ function createRemoteInstanceOps({
           return {
             status: 200,
             body: { url: `http://127.0.0.1:${instance.localPort}`, online: manager.status(op.id)?.state === "online" }
-          };
-        }
-        case "connect": {
-          const instance = store.get(op.id);
-          if (!instance) return { status: 404, body: { error: "not found" } };
-          const { uiPassword, lines, ...handoff } = buildDesktopHandoff(instance, manager.status(instance.id) ?? void 0);
-          return {
-            status: 200,
-            body: {
-              handoff: {
-                ...handoff,
-                hasUiPassword: !!uiPassword,
-                lines: lines.map((l) => l.replace(/^密码 : .*$/, "\u5BC6\u7801 : \uFF08\u89C1\u672C\u673A ocrc remote connect\uFF09"))
-              }
-            }
           };
         }
         case "pairlink": {

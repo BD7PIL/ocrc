@@ -5,9 +5,6 @@ import { createRemoteInstancesStore, redactInstance, remoteInstancesPath } from 
 import { createRemoteInstanceManager, cleanSshNoise, proxyConfig, type InstanceStatus } from '../core/remote-instance-bridge.js'
 import { DEFAULT_APP_VERSION, DEFAULT_INSTANCE_PORT, DEFAULT_LOCAL_PORT, PROXY_DEFAULTS, RECONNECT_DEFAULTS, buildDesktopHandoff, instanceIdFor, type RemoteInstance } from '../core/remote-instance.js'
 import { appPayloadPath, buildOfflineGuardExports, ensureAppPayload, ensureRuntimePayload, runtimePayloadPath, sha512Base64, sha256Hex, appTreeDir } from '../core/remote-instance-push.js'
-import {
-  desktopEntryFor, desktopSettingsPath, mergeDesktopEntry, readDesktopSettings, writeDesktopSettings,
-} from '../core/desktop-settings.js'
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs'
 import net from 'node:net'
@@ -83,9 +80,8 @@ USAGE:
   ocrc remote relay-status <id>    中继端口与日志尾（R9 证据）
   ocrc remote down <id>            停实例 + 撤转发（保留档案）
   ocrc remote status [id]          状态（含对端引擎路径与版本）
-  ocrc remote connect <id> [--json] [--open] [--desktop-add]
-                                   一键 external：桌面版要的三项（地址/密码/端口）+ 可选直接打开
-                                   --desktop-add：桌面版退出时写进它的列表（含 -R 出网中继；不写密码）
+  ocrc remote connect <id> [--json] [--open]
+                                   三项读出（地址/UI 密码/端口）——浏览器/手动路径；装进官方 app 用 pairlink
   ocrc remote pairlink <id> [--json] [--open]
                                    向上游要一张配对链接（一次性；换每设备 token，可撤销无过期）
                                    --open：拉起桌面版确认；确认后机器出现在「其他 OpenChamber 服务器」
@@ -248,21 +244,6 @@ function printStatus(s: InstanceStatus): void {
   }
   if (s.egress?.cached === false && s.proxy?.enabled) {
     console.log('            （本进程还没探测过；`ocrc remote plan <id>` 会把它探出来）')
-  }
-}
-
-/** Is the openchamber desktop shell running? A live Electron holds the same
- *  settings file and rewrites it on exit, so a write now would be lost. */
-function desktopAppRunning(): boolean {
-  try {
-    if (process.platform === 'win32') {
-      const out = execFileSync('tasklist', ['/FI', 'IMAGENAME eq OpenChamber.exe', '/NH'], { encoding: 'utf-8' })
-      return /OpenChamber\.exe/i.test(out)
-    }
-    const out = execFileSync('pgrep', ['-f', 'OpenChamber'], { encoding: 'utf-8' })
-    return out.trim().length > 0
-  } catch {
-    return false
   }
 }
 
@@ -631,32 +612,7 @@ export async function main(argv: string[]): Promise<void> {
     } else {
       console.log(handoff.lines.join('\n'))
       if (handoff.engine) console.log(`引擎 : ${handoff.engine.version} @ ${handoff.engine.path}`)
-      console.log('（openchamber 桌面版 → Remote Instances：把地址与密码填进去，端口填上面那个）')
-      console.log('（或用 --desktop-add：桌面版退出时写进它的列表，含 -R 出网中继；控制端中继监听一并拉起）')
-    }
-    if (flags.has('desktop-add')) {
-      const path = desktopSettingsPath()
-      // The desktop shell can own the whole transport: its `portForwards`
-      // support `type: 'remote'`, so write the -R egress leg too and make sure
-      // the control-side relay listener is up (detached — it outlives this
-      // command). The extension service adopts an existing -R if it starts
-      // later, so the two never fight. Without this the engine has no egress
-      // until someone opens the extension panel.
-      const cfg = proxyConfig(instance)
-      if (cfg.enabled) await ensureRelay(instance)
-      const entry = desktopEntryFor(instance, {
-        reverseRelay: cfg.enabled ? { remotePort: cfg.remotePort, localPort: cfg.localPort } : undefined,
-      })
-      try {
-        const root = readDesktopSettings(path)
-        const merged = mergeDesktopEntry(root, entry, { setDefault: true })
-        const result = writeDesktopSettings(path, merged, { appRunning: desktopAppRunning() })
-        console.log(result.ok ? `OK: ${result.detail}` : `FAIL: ${result.detail}`)
-        if (!result.ok) process.exitCode = 1
-      } catch (err) {
-        console.error(`FAIL: ${(err as Error).message}`)
-        process.exitCode = 1
-      }
+      console.log('（浏览器/手动路径用：把地址与密码填进去。装进官方 app 请用 ocrc remote pairlink——身份在上游，我们不写它的 settings.json）')
     }
     if (flags.has('open')) {
       if (!handoff.running) console.error('注意：实例当前不在线，打开会失败——先 ocrc remote up')

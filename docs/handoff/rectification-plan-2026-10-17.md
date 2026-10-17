@@ -140,3 +140,29 @@
 - **D11 只需文档**（U4），无需另案。
 - **D1 的必要性被 U2 证实**：对端每次取模型目录都依赖中继，中继不在就刷错误。
 - 新增约束：**中继寿命必须绑常驻拥有者**（service），临时进程持有会在其退出后断掉（D7 一并处理）。
+
+---
+
+## v10 执行记录（2026-10-18）
+
+按 v10 顺序推进，每项都带证据等级；**"发一条消息拿到真实回答"已实测通过**（阶段 0 的 U1 遗留项关闭）。
+
+| 项 | 交付 | 证据 |
+|---|---|---|
+| A1 认证两档 | `sshAuth: key\|password` + `core/ssh-askpass.ts`（helper 里没有秘密，密码走 `OPENCHAMBER_SSH_ASKPASS_VALUE`；密码档禁公钥、限一次提示）+ CLI `--ssh-auth` | 单测 15 项；**EL7 实测**：密码档 `plan` 成功、**错密码失败**（负例才是"真的用了密码"的证明，因为该档禁用了公钥） |
+| A2 ops `pairlink` | job 型 op + `switch` 的 `never` 穷尽检查 + "每个 union 成员都有 case" 测试 | 单测 12 项；两处防呆**都验证过会响**（临时加假 op 触发编译错误）；`ocrc remote pairlink` 实测取回链接 |
+| A3 面板表单 | 表单=装机输入（认证档/装机方式/出口策略/端口/两个开关），派生值只读（档位/运行时/pin/绑定/UI 密码）；**生成配对链接**（打开·复制·重新生成）；日志；查看 UI 密码 | 面板单测 8 项；本机 live 的 `plan` 输出「出口：经控制端中继（探测：对端无出网）」/「对端直连」。**app 内那一步仍需你点**（U8） |
+| C1–C6 配置与凭据同步 | `core/config-merge.ts`（一套合并引擎，两个拓扑）+ `core/instance-config.ts`（读两档 base64 / 差异 / 深合并 / 显式删除 / 0600 凭据）+ `ocrc remote config-diff\|sync-config\|sync-auth` + 面板「配置差异」卡 | 单测 23 项；**EL7 实测**：同步后 `/api/provider` 与本地一致（本地 13 个 + 引擎内建 `opencode`）；对端独有的 `acc-provider`/`mcp.servers.acc` 在合并中保留、只在 `--delete-key` 后消失；`opencode.json.ocrc-bak`、`auth.json.ocrc-bak` 都在；`auth.json` 落到 0600（对端原文件是 0777） |
+| D1 出口可见 | 面板徽标 + `ocrc remote status` 打印决定与原因（冷进程先探一次）+ 修掉 OPS/研究文档里"`OPENCHAMBER_UPDATE_API_URL` 指空即关"的错误说法（空串会回落默认值，`package-manager.js:26`） | 两端实测：EL7「经控制端中继（探测：对端无出网）」、Ubuntu「对端直连（探测：对端自己可出网）」 |
+| D2 status 区 | 改读**实例**状态（原读的是批次 2 的 SSH 档案隧道——用户截图里那个混淆点），单实例给 启动/停机，多实例只报计数 | 面板/status 单测 8 项 |
+| D3 对端日志 | `peerlog` op + `ocrc remote peerlog`：一次 ssh 取两份对端日志（我们的 `instance.log` + 实例自己的 `openchamber-<port>.log`），面板日志卡三处并列 | EL7 实测取回两份（含路径） |
+| D4 UI 密码 | 面板「查看 UI 密码」（控制端本地，同一信任域） | 面板单测覆盖 |
+| D6 验收补"能干活" | 验收脚本新增：建会话 → 发标记消息 → 轮询回答；出网那步改成**按策略断言**（relay 查 `-R`+CONNECT 日志 / direct 查"没绕我们"） | **两类对端各跑一遍全过**：EL7（经中继）与 Ubuntu（直连）都在 ~3s 内拿到标记回答 |
+| A4 删旧路径 | 删 `src/core/desktop-settings.ts` + 其单测 + `--desktop-add` + `--desktopRunning` + service 的 `connect` op（面板「桌面版三项」卡在 A3 重写时已消失） | 全量测试 1216 项通过；CLI `connect` 保留为**读出**（浏览器/手动路径），装进 app 走 `pairlink` |
+| A5 文档 | OPS：配置同步三层边界表、`--egress/--provision/--ssh-auth`、peerlog、配对链接为推荐路径、D7 已知缺口；本文件为交付记录 | — |
+
+**仍未完成 / 需要你**：
+
+1. **A3 的 app 内点击**（U8）：面板生成链接后，需要你在桌面版里点确认。
+2. **B1–B4 provisioning 诚实性**：`prepare` 预热引擎、`ocrc-follow` 离线 bundle 接进 `ensureEngineBinary`、文档写清"pty 两档 / runtime 单档"、`--offline-proof` 加 `--assume-offline`。
+3. **D7–D12**：转发所有权（已知缺口：桌面壳持有 `-L` 时 CLI 无法重建中继）、凭据纪律文档、omo 边界、上游跟踪、旧拓扑冻结标注。

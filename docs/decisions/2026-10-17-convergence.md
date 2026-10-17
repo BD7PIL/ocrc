@@ -1,5 +1,16 @@
 # 2026-10-17 — OCRC 收敛：一个 openchamber 扩展 + 一套 CI 兼容包
 
+> **后续修订（2026-10-18）——本文件有两处已被取代，读的时候以这段为准**：
+> · 决定 3 里"入口是桌面版原生 Remote Instances，`ocrc remote connect --desktop-add` 替用户写记录"
+>   **作废**：写桌面壳自己的 `settings.json` 属于「不做」清单，`--desktop-add` 与
+>   `src/core/desktop-settings.ts` 已删除；入口改为**上游配对链接**（`ocrc remote pairlink` /
+>   面板「生成配对链接」），身份由上游发。
+> · 决定 4 里"桌面壳持有 `-R`"**作废**：现在**谁起实例谁带腿**——面板 service 在 `up` 时起控制端监听
+>   与自己的 `-R`，CLI `up` 的隧道自带 `-L`+`-R`，已有一条 `-R` 时复用而不是抢。
+>
+> 其余决定（实例级唯一形态、两档 CI 包、不做页面内嵌、品牌写法）仍然有效。
+> 交付与证据见 `docs/handoff/rectification-plan-2026-10-17.md` 的「v10 执行记录（2026-10-18）」。
+
 ## 决定
 
 1. **产品面 = 一个 openchamber 扩展**：`ocrc-remote`（显示名 `OCRC Remote`），它的 **service 进程**内

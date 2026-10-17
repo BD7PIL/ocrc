@@ -124,14 +124,11 @@ ocrc remote up demo@192.168.26.101 --open
    Add project 的目录浏览器就是它，会话跑在对端引擎。
 4. **版本不必相等**：external 模式只要求 major=2 且能力 `api.runtime-url.v1`（2.3.3 有）；版本不等提示
    update-recommended，仍可连。
-5. 若手工合并 `~/.config/openchamber/settings.json`（桌面版必须退出）：先备份 `.ocrc-bak`，只 upsert
-   `desktopSshInstances` 并设 `desktopDefaultHostId`；**不要写 clientToken**。
-6. **`ocrc remote connect <id> --desktop-add` 替你做第 5 步**（2026-10-17 实测）：桌面版**退出时**写、
-   先留 `.ocrc-bak`、按 id 幂等 upsert、其它键一字不动；桌面版在跑时**拒绝写**并说明原因。
-   写完后桌面版启动即自动连上该主机（`desktopDefaultHostId` 指向它）。
-   **它不写密码，但也不会删密码**：同 id 覆盖时保留条目里已有的 `auth`（含桌面壳自己存的
-   `sshPassword`）与 `sshParsed`；我们只管 `remoteOpenchamber.mode/preferredPort`、`sshCommand`、
-   `portForwards`。
+5. **推荐路径：`ocrc remote pairlink <id>`（面板上是「生成配对链接」）**——把链接交给官方 app 确认，
+   身份由上游发（一次性链接 → 每设备、可撤销、无过期的 token），机器出现在「其他 OpenChamber 服务器」。
+   **我们不写桌面版的 `settings.json`**（2026-10-17 收敛：那是桌面壳自己拥有的面，写它属于「不做」清单；
+   `--desktop-add` 与 `src/core/desktop-settings.ts` 已删除）。手工往 `desktopSshInstances` 里合并请自己
+   备份 `.ocrc-bak`、只 upsert 并设 `desktopDefaultHostId`、**不要写 clientToken**。
 
 **SSH 凭据政策（2026-10-17 修订：允许明文密码）**
 
@@ -147,15 +144,17 @@ ocrc remote up demo@192.168.26.101 --open
   任何备份/截图/贴日志前先确认里面没有 `sshPassword.value`；**永不进仓库**（2026-10-17 曾有一次文档里
   写入口令字面量、提交前拦下）。
 
-> **出网中继归谁（2026-10-17 实测的最终形态）**：`--desktop-add` 会把 `-R 127.0.0.1:2711:127.0.0.1:4711`
-> **写进桌面版的实例转发**（`portForwards` 的 `type: 'remote'`），并顺手把控制端的**中继监听**起成
-> detached 进程（`ocrc remote proxy-serve`，端口 4711）。桌面壳因此同时持有 `-L`（本地端口自选）与
-> `-R`，**不需要扩展 service 先被打开**（实测：桌面重启后 service 未运行，`-R 2711` 已在听、中继出网 200）。
-> 若用户改用 CLI 的 `ocrc remote up`，那条隧道自带 `-L`+`-R`；扩展 service 起来时发现 2711 已在听会
-> **复用而不是抢**。因此 service 的 `status` 在 external 模式下**不拿配置里的 localPort 当"连上了"的判据**，
+> **出网中继归谁（2026-10-17 实测）**：控制端的**中继监听**（`ocrc remote proxy-serve`，端口 4711）与
+> 对端的 `-R 127.0.0.1:2711` 两条腿合起来才是出网通道。历史形态是桌面壳的 `portForwards` 里带 `-R`
+> （那条路随 `--desktop-add` 一起删了）；现在是**谁起实例谁带腿**：面板 service 在 `up` 时起
+> 控制端监听 + 自己的 `-R`，CLI `up` 的隧道自带 `-L`+`-R`。已有一条 `-R` 在听时**复用而不是抢**。
+> 因此 service 的 `status` 在 external 模式下**不拿配置里的 localPort 当"连上了"的判据**，
 > 而是实测远端实例健康 + `-R` 是否在听；CLI 的 `status` 同样会在本地转发不属于自己时如实说明。
 > service 本身由 openchamber **懒启动**（第一次打开「OCRC Remote」面板/触发 service 请求），此后每 20s
 > 自检远端、实例掉了会自动重拉——它管的是"对端实例还在不在"，不是"隧道在不在"。
+> **已知缺口（D7）**：桌面壳持有 `-L` 时，CLI 的 `up` 会因本地端口被占而失败（`ExitOnForwardFailure`），
+> 所以"重建出网中继"目前只有面板 service 能做；`ocrc remote proxy-serve` 可以单独把控制端监听起成
+> detached 进程补上这一半。
 
 > **内嵌结论（2026-10-17）**：扩展页面不能 iframe 对端——guest CSP `frame-src 'self' data: blob:` 与对端
 > `frame-ancestors` 双重阻断；guest sandbox 也没有 `allow-popups`，`window.open` 同样被拦。扩展页面的

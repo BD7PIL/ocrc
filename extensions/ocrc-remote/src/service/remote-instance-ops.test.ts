@@ -156,16 +156,6 @@ describe('remote-instance ops', () => {
     expect(manager.down).toHaveBeenCalledWith('demo@h')
   })
 
-  it('connect hands out the desktop fields but never the password', async () => {
-    const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager: makeManager() })
-    const reply = await ops.handle({ op: 'connect', id: 'demo@h' })
-    expect(reply.status).toBe(200)
-    const handoff = (reply.body as { handoff: Record<string, unknown> }).handoff
-    expect(handoff.hasUiPassword).toBe(true)
-    expect(JSON.stringify(handoff)).not.toMatch(/pw-secret|"uiPassword"/)
-    expect((handoff.lines as string[]).join('\n')).not.toContain('pw-secret')
-  })
-
   it('status merges a live probe so a stale in-memory "online" never lies', async () => {
     const manager = makeManager()
     const store = makeStore([instance()])
@@ -232,7 +222,7 @@ describe('remote-instance ops', () => {
   it('every op in the union has a live case', async () => {
     const everyOp: Record<RemoteInstanceOp['op'], true> = {
       list: true, add: true, patch: true, plan: true, apply: true, up: true, down: true, probe: true,
-      status: true, logs: true, peerlog: true, url: true, connect: true, defaults: true, uipassword: true,
+      status: true, logs: true, peerlog: true, url: true, defaults: true, uipassword: true,
       configdiff: true, syncconfig: true, syncauth: true, pairlink: true,
       delete: true, job: true,
     }

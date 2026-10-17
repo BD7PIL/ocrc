@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto'
 import net from 'node:net'
 import {
   DEFAULT_APP_VERSION, DEFAULT_ENGINE_PIN, DEFAULT_INSTANCE_PORT, DEFAULT_LOCAL_PORT, NODE_RUNTIME,
-  buildDesktopHandoff, redactInstance,
+  redactInstance,
   type InstanceStatus, type RemoteInstance, type RemoteInstanceManager, type RemoteInstancesStore,
 } from '../../../../src/remote-instance/index.js'
 
@@ -57,7 +57,6 @@ export type RemoteInstanceOp =
    *  ssh round trips on a slow peer. */
   | { op: 'peerlog'; id: string; lines?: number }
   | { op: 'url'; id: string }
-  | { op: 'connect'; id: string }
   /** Suggest ports for a **new** record: the control-side local port is probed
    *  for real (we can see it), and the peer's instance port gets a default plus
    *  whatever the peer itself says about that port (see `plan`). */
@@ -280,22 +279,6 @@ export function createRemoteInstanceOps({
           return {
             status: 200,
             body: { url: `http://127.0.0.1:${instance.localPort}`, online: manager.status(op.id)?.state === 'online' },
-          }
-        }
-
-        case 'connect': {
-          const instance = store.get(op.id)
-          if (!instance) return { status: 404, body: { error: 'not found' } }
-          const { uiPassword, lines, ...handoff } = buildDesktopHandoff(instance, manager.status(instance.id) ?? undefined)
-          return {
-            status: 200,
-            body: {
-              handoff: {
-                ...handoff,
-                hasUiPassword: !!uiPassword,
-                lines: lines.map((l) => l.replace(/^密码 : .*$/, '密码 : （见本机 ocrc remote connect）')),
-              },
-            },
           }
         }
 

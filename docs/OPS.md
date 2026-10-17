@@ -165,13 +165,22 @@ ocrc remote up demo@192.168.26.101 --open
   那是唯一会 `--clobber` 的路径。要强制重建已发布的版本，先
   `gh release delete ocrc-remote-pack-<ver> -R BD7PIL/ocrc --yes`（或删掉其中一个资产）再 dispatch。
   门的判定是"资产名齐不齐"，不校验内容——内容由控制端取件时的 sha512 兜底。
-- **可复现**：安装改成 `npm install --package-lock-only` + `npm ci`（不再裸装），打包用确定性 tar
-  （排序后的文件表 + `--mtime=@0 --owner=0 --group=0 --numeric-owner`；centos:7 的 tar 1.26 没有
-  `--sort`，所以显式排序文件表）。`.lock.json` 随包发布：同版本同字节可审计，被清理的版本也能原样重建。
+- **可复现（2026-10-17 修完）**：安装改成 `npm install --package-lock-only` + `npm ci`（不再裸装），
+  打包用确定性 tar。三处都是踩过才知道的：① 依赖图必须冻结，否则"同版本"每天解析出不同传递依赖；
+  ② 不能用 tar 的 `-z`——centos:7 的 tar 1.26 会把当前时间写进 gzip 头，于是内容完全相同的包每次
+  字节都不同，改用 `gzip -n`；③ mtime 用 **1980-01-01**（`--mtime=@315532800`）而不是 epoch 0——
+  tar < 1.28 对 1980 以前的时间戳每个文件都警告一次，epoch 0 会在 EL7 部署日志里刷出两万行。
+  排序后的文件表代替 `--sort`（tar 1.26 没有这个选项）。`.lock.json` 随包发布：同版本同字节可审计，
+  被清理的版本也能原样重建。**注意 npm ci 的树是提升布局**（`lib/node_modules/node-pty`），
+  与旧的 `-g` 嵌套布局不同；`build-pty-legacy-local.sh` 与 `remote-node-pty-glibc217.sh` 两种都探测。
 - **保留策略**：中间 artifact 3 天（够重跑一次失败的 publish）；本工作流的 run 只留最近 30 次；
-  pack Release 超过 90 天清理，但**永不清理 `DEFAULT_APP_VERSION` 钉住的版本**。
+  pack Release 超过 90 天清理，但**永不清理 `DEFAULT_APP_VERSION` 钉住的版本**（清掉也能 dispatch 重建，
+  且字节一致）。
 - **证据**：`tests/unit/remote-app-pack.test.ts`；RHEL7 真机 `apply` 后远端 `pty.node`
   GLIBC 上限 2.14、终端 `/api/terminal/create` → `running`，fs/sessions/providers 均正常。
+  2026-10-17 追加：同一版本连跑两次 CI，modern（`0PBpyTNFD3Nwdupd…`）与 legacy
+  （`YWHHK4OllFJhsilj…`）两次 sha512 各自完全一致；新包在 EL7 上解包 0 警告、
+  `cli --version` → 2.4.0、`node-pty` 在 glibc 2.17 上 spawn 成功（`PTY_OK | /dev/pts/0`）。
 
 **变更与回滚**
 - 换版本：`ocrc remote apply <id> --app-version 2.4.0 --engine-version 2.1.0`（旧树自动留 `<prefix>.ocrc-bak`）。

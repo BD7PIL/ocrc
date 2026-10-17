@@ -98,3 +98,33 @@
 
 **遗留**：2026-10-17 之前发布的包（含当前钉住的 2.3.3）没有 `.lock.json`，不可复现；门刻意不要求 lock
 资产，正是为了避免把已验收的 2.3.3 判成"不完整"而被重建覆盖。
+
+### 后续：可复现性修到底（同日，含两次真因定位）
+
+改完闸门和 lock 之后，跑了两轮"同版本各构建两次"，结果是 modern 两次一致、**legacy 两次不同**。
+两轮追因都是靠测量而不是猜：
+
+1. **临时探针**（已撤）在 legacy job 里打印未压缩 tar 的 sha256、`pty.node` 的 sha256 与文件数。
+   结果：未压缩 tar 两次完全相同（`217aa79b…`），`pty.node` 也完全相同（`0d9f9fe9…`），
+   但 tar.gz 的 sha512 不同 → **差异在 gzip 层**。原因是 centos:7 的 tar 1.26 用 `-z` 时把当前时间
+   写进 gzip 头；换成显式 `gzip -n` 后消除（modern 侧字节不变，说明 tar 1.35 本来就是零头）。
+2. **编译产物本身**：更早一版还差在 `build-pty-legacy-local.sh` 用 `mktemp -d` 做编译目录，
+   编译器会把构建路径写进二进制，于是每次构建的 `pty.node` 都不同。加了 `--work <dir>`，
+   由打包脚本传固定的 `<work>/pty-build`。
+
+**改 `npm ci` 的连带代价（同一个 commit 修掉）**：`-g` 全局安装的树是**嵌套**的
+（`@openchamber/web/node_modules/node-pty`），`npm ci` 是**提升**的（`lib/node_modules/node-pty`）。
+Node 两种都能解析（实测在真机上 `require.resolve` 命中提升路径），但冒烟检查和 pty 替换写死了嵌套路径，
+于是 legacy/modern 两个 job 都在 Linux 上失败——本地 Windows 跑不出来，因为 win32 会跳过 pty 加载。
+三个脚本（`build-app-pack.mjs`、`build-pty-legacy-local.sh`、`remote-node-pty-glibc217.sh`）改成两处都探测。
+
+**真机验证**（EL7 / glibc 2.17，`demo@192.168.26.101`）：把 legacy 包传到目标机 `/tmp` 解包，
+用目标机自带的 glibc-217 运行时跑：`cli.js --version` → 2.4.0；`pty.node` 的 GLIBC 上限 2.14、
+GLIBCXX/CXXABI 引用 0；`node-pty` 从应用目录内解析到提升路径并 spawn 成功（`PTY_OK | /dev/pts/0`）；
+解包 0 警告。**没有动被管实例**（`~/.ocrc/remote` 仍是 2.3.3，`/api/version` 200），探针目录事后清理。
+
+**终态证据**：同一版本连跑两次 CI —— modern `0PBpyTNFD3Nwdupd…` 两次相同，legacy
+`YWHHK4OllFJhsilj…` 两次相同。因此"清理旧 release 后再 dispatch 重建"得到的是同一份字节。
+
+**顺带修的红灯**：`CI` 在 coverage 那一步偶发失败（`tests/unit/cli-port-owner.test.ts` 押注"刚释放的
+临时端口没被别人抢走"），改成换候选重试；与本次改动无关，属既有 flake。

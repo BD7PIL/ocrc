@@ -195,7 +195,11 @@ describe('HostView — 运行时三类状态与一次确认', () => {
 
   it('安装走一次确认：确认前不发请求，确认后按计划里那一项执行', async () => {
     await mountWithCaps()
-    act(() => { screen.getByText('安装这一项').click() })
+    // The capability rows land a render after the "运行时" section header, so
+    // wait for the button instead of assuming it is already mounted (a slower
+    // runner — Node 20 on CI — otherwise fails here).
+    const install = await screen.findByText('安装这一项')
+    act(() => { install.click() })
 
     expect(await screen.findByText('将要执行')).toBeTruthy()
     expect(screen.getByText(/npm install mcp-searxng@latest --prefix \/home\/demo\/\.ocrc\/runtime\/mcp-searxng\/latest/)).toBeTruthy()
@@ -212,7 +216,8 @@ describe('HostView — 运行时三类状态与一次确认', () => {
 
   it('取消就什么都不做', async () => {
     await mountWithCaps()
-    act(() => { screen.getByText('安装这一项').click() })
+    const install = await screen.findByText('安装这一项')
+    act(() => { install.click() })
     await screen.findByText('将要执行')
     act(() => { screen.getByText('取消安装').click() })
     await waitFor(() => expect(screen.queryByText('将要执行')).toBeNull())

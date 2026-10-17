@@ -149,14 +149,16 @@ if (!noSmoke) {
 }
 
 // 5. Pack. Deterministic on purpose: sorted entries with zeroed mtimes and
-//    ownership, so the same lock rebuilds to the same bytes. GNU tar only grew
+//    ownership, and `gzip -n` instead of tar's `-z` (tar 1.26 on centos:7 writes
+//    the current time into the gzip header, which made the legacy pack differ on
+//    every build even when the archive content was identical). GNU tar only grew
 //    `--sort` in 1.28 and centos:7 ships 1.26, hence the explicit sorted list.
 //    The output is named `../<asset>` (relative, no drive colon) because GNU
 //    tar reads a `X:` prefix as an rsh host.
 run('bash', [
   '-c',
   'set -euo pipefail; find . -print0 | sort -z | tar --null -T - '
-    + '--mtime=@0 --owner=0 --group=0 --numeric-owner -czf "$1"',
+    + '--mtime=@0 --owner=0 --group=0 --numeric-owner -cf - | gzip -n > "$1"',
   'ocrc-pack', `../${asset}`,
 ], { cwd: tree })
 const finalAsset = join(out, asset)

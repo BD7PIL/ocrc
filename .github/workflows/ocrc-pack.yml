@@ -71,40 +71,42 @@ jobs:
 
   pack-legacy:
     needs: resolve
+    # NOT `container: centos:7`: GitHub now runs JS actions with its own Node 24,
+    # which needs glibc >= 2.27, so actions/checkout itself dies inside a
+    # glibc-2.17 image. Check out on the host and drive a centos:7 build with
+    # `docker run`, so the only thing inside the old glibc is our own script.
     runs-on: ubuntu-latest
-    container: centos:7
     steps:
-      # git is needed by actions/checkout; the centos:7 image is minimal and
-      # its EOL mirrorlist is dead, so point yum at the vault before installing.
-      - name: Base tools (before checkout)
-        run: |
-          sed -i 's|^mirrorlist=|#mirrorlist=|g; s|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*.repo
-          yum install -y git tar xz curl ca-certificates
       - uses: actions/checkout@v4
-      - name: Toolchain (vault repos + devtoolset-11 + python38)
-        run: |
-          printf '%s\n' \
-            '[centos-sclo-rh]' \
-            'name=CentOS-7 - SCLo rh' \
-            'baseurl=http://vault.centos.org/7.9.2009/sclo/x86_64/rh/' \
-            'gpgcheck=0' \
-            'enabled=1' > /etc/yum.repos.d/CentOS-SCLo.repo
-          yum install -y devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make rh-python38-python rh-python38-python-devel binutils
-      - name: Install the glibc-217 Node runtime
-        run: |
-          curl -fsSLO "https://unofficial-builds.nodejs.org/download/release/v${NODE_VERSION}/${NODE_GLIBC217_TARBALL}"
-          tar xf "$NODE_GLIBC217_TARBALL"
-          mv "node-v${NODE_VERSION}-linux-x64-glibc-217" /opt/node
-          /opt/node/bin/node -v
-          /opt/node/bin/node /opt/node/lib/node_modules/npm/bin/npm-cli.js -v
-      - name: Build the legacy pack (node-pty rebuilt for glibc 2.17)
+      - name: Build the legacy pack inside centos:7
         env:
-          PATH: /opt/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-        run: >-
-          node scripts/build-app-pack.mjs
-          --version "${{ needs.resolve.outputs.version }}"
-          --tier legacy-glibc217 --out pack
-          --node /opt/node/bin/node --node-dir /opt/node
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w \
+            -e VERSION -e NODE_VERSION -e NODE_GLIBC217_TARBALL \
+            centos:7 bash -lc '
+              set -euo pipefail
+              # CentOS 7 is EOL: vault for the base repos, SCLo written by hand.
+              sed -i "s|^mirrorlist=|#mirrorlist=|g; s|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-*.repo
+              printf "%s\n" \
+                "[centos-sclo-rh]" \
+                "name=CentOS-7 - SCLo rh" \
+                "baseurl=http://vault.centos.org/7.9.2009/sclo/x86_64/rh/" \
+                "gpgcheck=0" \
+                "enabled=1" > /etc/yum.repos.d/CentOS-SCLo.repo
+              yum install -y tar xz curl ca-certificates binutils \
+                devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make \
+                rh-python38-python rh-python38-python-devel
+              curl -fsSLO "https://unofficial-builds.nodejs.org/download/release/v${NODE_VERSION}/${NODE_GLIBC217_TARBALL}"
+              tar xf "$NODE_GLIBC217_TARBALL"
+              mv "node-v${NODE_VERSION}-linux-x64-glibc-217" /opt/node
+              export PATH=/opt/node/bin:$PATH
+              /opt/node/bin/node -v
+              /opt/node/bin/node /opt/node/lib/node_modules/npm/bin/npm-cli.js -v
+              node scripts/build-app-pack.mjs \
+                --version "$VERSION" --tier legacy-glibc217 --out pack \
+                --node /opt/node/bin/node --node-dir /opt/node
+            '
       - uses: actions/upload-artifact@v4
         with:
           name: ocrc-remote-pack-legacy

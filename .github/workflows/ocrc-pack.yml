@@ -74,13 +74,15 @@ jobs:
     runs-on: ubuntu-latest
     container: centos:7
     steps:
-      # git is needed by actions/checkout; the centos:7 image is minimal.
+      # git is needed by actions/checkout; the centos:7 image is minimal and
+      # its EOL mirrorlist is dead, so point yum at the vault before installing.
       - name: Base tools (before checkout)
-        run: yum install -y git tar xz curl ca-certificates
+        run: |
+          sed -i 's|^mirrorlist=|#mirrorlist=|g; s|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*.repo
+          yum install -y git tar xz curl ca-certificates
       - uses: actions/checkout@v4
       - name: Toolchain (vault repos + devtoolset-11 + python38)
         run: |
-          sed -i 's|^mirrorlist=|#mirrorlist=|g; s|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*.repo
           printf '%s\n' \
             '[centos-sclo-rh]' \
             'name=CentOS-7 - SCLo rh' \

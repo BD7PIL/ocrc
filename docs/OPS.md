@@ -172,6 +172,8 @@ ocrc remote up demo@192.168.26.101 --open
   在对端用 devtoolset 按宿主 glibc 重建 node-pty（`-static-libstdc++`），替换 prebuild 并留
   `.official-glibc228.bak`；`--verify` 断言符号上限并 spawn 真 PTY，`--rollback` 还原。
   思路与现成工具见 `BD7PIL/zcode-legacy-glibc`（ZCode 桌面版 remote 的同款问题）。**换 openchamber 版本后需重跑。**
+- **听写**：EL7 的本地 sherpa 不可用（GLIBC 2.32，不重建）。在实例的 openchamber 设置里把 dictation
+  provider 设为 `openai-compatible`（指向一个 OpenAI 兼容 STT 接口）；选了它就不会加载 sherpa。
 - 对端引擎没出网：`relay-status <id>` 看端口与日志。`-R` 与 `-L` 是**同一条 ssh**，所以隧道掉 = 中继一起掉，
   受监督时（面板/`supervise`）会自动重连；CLI 的 `up` 起的是 detached 隧道，机器重启后不会自己回来（要 `up` 或跑 `supervise`）。
 - 手机看不到：控制端要监听手机可达的地址（见「公网访问」段），注意手机上的 `127.0.0.1` 是手机自己。

@@ -40,7 +40,7 @@ for v in 12 11 10 9; do
 done
 [ -n "$DEVTOOLSET" ] || { echo "no devtoolset found (need C++17)" >&2; exit 1; }
 PYTHON=""
-for p in /opt/rh/rh-python38/root/usr/bin/python3 /opt/python/cp38-cp38/bin/python3; do
+for p in /opt/rh/rh-python38/root/usr/bin/python3 /opt/rh/rh-python38/root/usr/bin/python3.8 /opt/python/cp38-cp38/bin/python3; do
   [ -x "$p" ] && { PYTHON="$p"; break; }
 done
 [ -n "$PYTHON" ] || PYTHON="$(command -v python3 || true)"

@@ -1144,6 +1144,36 @@ import { spawn as spawn3 } from "node:child_process";
 import { homedir as homedir3 } from "node:os";
 import { join as join5 } from "node:path";
 var log4 = createLogger("bin-cache");
+function bundleDir() {
+  return process.env.OCRC_BUNDLE_DIR ?? join5(binCacheRoot(), "bundle");
+}
+function readBundleManifest(dir = bundleDir()) {
+  const p = join5(dir, "manifest.json");
+  if (!existsSync3(p)) return void 0;
+  try {
+    return JSON.parse(readFileSync3(p, "utf-8"));
+  } catch {
+    return void 0;
+  }
+}
+function bundleArtifactPath(version, target, dir = bundleDir()) {
+  return join5(dir, `cli-${target}-${version}.tgz`);
+}
+function takeBundleArtifact(version, target, dir = bundleDir()) {
+  const file = bundleArtifactPath(version, target, dir);
+  if (!existsSync3(file)) return void 0;
+  const digest = readBundleManifest(dir)?.digests?.[target]?.sha512;
+  if (!digest) {
+    log4.warn(`bundle has ${file} but no digest for ${target} \u2014 ignoring it (unverified bytes are not worth using)`);
+    return void 0;
+  }
+  const expected = digest.startsWith("sha512-") ? digest.slice(7) : digest;
+  const actual = createHash("sha512").update(readFileSync3(file)).digest("base64");
+  if (actual !== expected) {
+    throw new Error(`bundle artifact digest mismatch for ${target}@${version}\uFF1A${file} \u4E0D\u662F CI \u4EA7\u51FA\u7684\u90A3\u4E00\u4EFD\uFF08\u62D2\u7EDD\u4F7F\u7528\uFF09`);
+  }
+  return { file, sha512: actual };
+}
 var REGISTRY = "https://registry.npmjs.org";
 function binCacheRoot() {
   const ocrcHome2 = process.env.OCRC_HOME ?? join5(homedir3(), ".ocrc");
@@ -1181,6 +1211,12 @@ async function cacheArtifact(version, target, timeoutMs = 3e5) {
     return dest;
   }
   mkdirSync3(dir, { recursive: true });
+  const bundled = takeBundleArtifact(version, target);
+  if (bundled) {
+    writeFileSync2(dest, readFileSync3(bundled.file), { mode: 420 });
+    log4.info(`bundle hit: ${bundled.file} \u2192 ${dest}\uFF08sha512 \u6821\u9A8C\u901A\u8FC7\uFF0C\u672A\u8D70\u7F51\u7EDC\uFF09`);
+    return dest;
+  }
   const integrity = await fetchIntegrity(version, target);
   const url = `${REGISTRY}/@opencode/cli-${target}/-/cli-${target}-${version}.tgz`;
   log4.info(`downloading ${url}`);

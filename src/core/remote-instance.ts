@@ -45,9 +45,12 @@ export interface RemoteInstance {
   replayQueued?: boolean
   /** R9 egress relay: the engine's `HTTPS_PROXY` points at the controlled host's
    *  loopback (`127.0.0.1:<remotePort>`), which an `ssh -R` brings back to the
-   *  control side's proxy on `<localPort>`. Defaults on — the whole premise is a
-   *  controlled host without public egress. */
+   *  control side's proxy on `<localPort>`. This is the path for a controlled
+   *  host without public egress; `egress` decides whether it is used. */
   proxy?: InstanceProxyConfig
+  /** Where this peer's egress goes; default `auto` (probe the peer, relay only
+   *  if it cannot get out itself). */
+  egress?: EgressMode
 }
 
 export interface InstanceProxyConfig {
@@ -63,6 +66,70 @@ export interface InstanceProxyConfig {
 /** R9 defaults; 4711/2711 keep clear of the instance (2610) and the panel's own
  *  tunnels (4096/4199). */
 export const PROXY_DEFAULTS: InstanceProxyConfig = { enabled: true, localPort: 4711, remotePort: 2711, allow: [] }
+
+/** Where the peer's egress goes. `auto` asks the peer and relays **only** when it
+ *  cannot get out itself: a peer with its own internet must not be routed through
+ *  the control side (it would pay a detour, and it would lose egress whenever the
+ *  control machine is off). `proxy.enabled === false` still forces direct. */
+export type EgressMode = 'auto' | 'relay' | 'direct'
+
+export const EGRESS_DEFAULT: EgressMode = 'auto'
+
+/** What the probe found. DNS and TCP are separated because they fail differently
+ *  and the operator's fix differs — and because a host with a resolver but no
+ *  route still cannot reach a model provider. */
+export type EgressProbe = 'direct' | 'dns-only' | 'none' | 'unknown'
+
+/** Controlled host: can it reach the internet on its own? Runs on the pushed
+ *  Node, so a host without curl/wget still answers.
+ *
+ *  Everything is bounded by one deadline: a host with no egress makes the
+ *  resolver retry and the TCP connect hang, and the first version of this probe
+ *  took 15s on EL7 — close enough to the ssh timeout to come back empty and be
+ *  read as "unknown". `deadline` is the whole budget. */
+export function buildEgressProbeCommand(o: { appVersion: string; host?: string; timeoutMs?: number; deadlineMs?: number }): string {
+  const p = instancePaths(o.appVersion)
+  const host = o.host ?? 'registry.npmjs.org'
+  const timeout = o.timeoutMs ?? 3_000
+  const deadline = o.deadlineMs ?? 6_000
+  const probe = [
+    "const dns=require('dns'),net=require('net')",
+    `const H=${JSON.stringify(host)},T=${timeout}`,
+    'const done=(v)=>{console.log(v);process.exit(0)}',
+    `setTimeout(()=>done('none'),${deadline})`,
+    'const tcp=(h,viaDns)=>net.connect({host:h,port:443,timeout:T},()=>done("direct"))'
+      + '.on("error",()=>done(viaDns?"dns-only":"none"))'
+      + '.on("timeout",()=>done(viaDns?"dns-only":"none"))',
+    `dns.lookup(H,(e,a)=>{e?tcp('1.1.1.1',false):tcp(a,true)})`,
+  ].join(';')
+  return `${p.node} -e ${q(probe)}`
+}
+
+export function parseEgressProbe(stdout: string): EgressProbe {
+  const last = stdout.trim().split(/\r?\n/).pop()?.trim()
+  return last === 'direct' || last === 'dns-only' || last === 'none' ? last : 'unknown'
+}
+
+/** The policy, as a pure function so it is testable without a host: **only a
+ *  probe that positively succeeded keeps us out of the peer's path**. Everything
+ *  else — including a probe that could not run — relays, because silently losing
+ *  egress is worse than an unnecessary detour. */
+export function resolveEgressPolicy(o: {
+  mode?: EgressMode
+  relayAllowed: boolean
+  probe?: EgressProbe
+}): { relay: boolean; reason: string } {
+  const mode = o.mode ?? EGRESS_DEFAULT
+  if (!o.relayAllowed) return { relay: false, reason: 'relay 已关闭' }
+  if (mode === 'direct') return { relay: false, reason: '按配置直连' }
+  if (mode === 'relay') return { relay: true, reason: '按配置经控制端' }
+  switch (o.probe) {
+    case 'direct': return { relay: false, reason: '探测：对端自己可出网' }
+    case 'dns-only': return { relay: true, reason: '探测：对端有路由但 DNS 不通' }
+    case 'none': return { relay: true, reason: '探测：对端无出网' }
+    default: return { relay: true, reason: '探测未成功——保守经控制端' }
+  }
+}
 
 /** Default reconnect policy (plan §4 P4 / Q15: all three toggleable). */
 export const RECONNECT_DEFAULTS = { reconnect: true, restoreOnStart: true, replayQueued: false } as const

@@ -25,7 +25,8 @@ import { createInstanceProxy, type InstanceProxy } from './remote-instance-proxy
 import {
   DEFAULT_ENGINE_CANDIDATES, DEFAULT_ENGINE_PIN, NODE_RUNTIME, PROXY_DEFAULTS, buildEngineProbeCommand,
   buildForwardArgs, buildRelayForwardArgs, buildInstanceServeCommand, buildInstanceStopCommand, buildRemotePortProbeCommand,
-  buildPairLinkCommand, parsePairLink, describePairLink,
+  buildPairLinkCommand, parsePairLink, describePairLink, buildEgressProbeCommand, parseEgressProbe, resolveEgressPolicy,
+  EGRESS_DEFAULT, type EgressProbe,
   buildTerminalProbeCommand, instancePaths, parseTerminalProbe,
   judgeEngineCompat, judgeInstanceVersion, parseEngineProbe, pickV2Engine, type EngineCandidate,
   type EngineCompatPayload, type EnginePick, type InstanceProxyConfig,
@@ -115,6 +116,8 @@ export interface RemoteInstanceManager {
 }
 
 const LOG_CAP = 200
+/** How long a probe result is trusted before asking the peer again. */
+const EGRESS_TTL_MS = 5 * 60_000
 
 /** Effective R9 config for one instance (defaults filled in). */
 export function proxyConfig(instance: RemoteInstance): InstanceProxyConfig {
@@ -202,6 +205,8 @@ interface InstanceRuntime {
   /** The `-L` we hold for the pairing URL, when the desktop shell is not the one
    *  forwarding. Kept apart from `forward` so the relay bookkeeping is untouched. */
   pairForward?: ChildProcess
+  /** Cached egress decision for this peer (see egressFor). */
+  egress?: { relay: boolean; reason: string; at: number }
   /** An `-R` relay adoption check is in flight (see ensureExternalRelayAsync). */
   relayPending?: boolean
   /** External-mode re-check timer (no child process to watch in that mode). */
@@ -330,8 +335,11 @@ export function createRemoteInstanceManager(opts: {
     const prefix = guard ? buildOfflineGuardExports() : opts.serveEnvPrefix?.(instance) ?? ''
     // R9: the engine's egress goes to its own loopback, which the reverse
     // forward brings back to the control side's relay. Loopback stays out of it
-    // (NO_PROXY) so the instance can still talk to its engine locally.
-    const relay = instance.proxy?.enabled !== false ? `http://127.0.0.1:${proxyConfig(instance).remotePort}` : undefined
+    // (NO_PROXY) so the instance can still talk to its engine locally. Only when
+    // this peer actually needs us — see egressFor().
+    const relay = (await egressFor(instance)).relay
+      ? `http://127.0.0.1:${proxyConfig(instance).remotePort}`
+      : undefined
     const script = `${prefix}${buildInstanceServeCommand({
       appVersion: instance.appVersion,
       port: instance.instancePort,
@@ -374,9 +382,31 @@ export function createRemoteInstanceManager(opts: {
    *  bind the same port twice. */
   const proxies = new Map<number, InstanceProxy>()
 
+  /** Where this peer's egress goes. Cached briefly: a laptop moving between
+   *  networks changes the answer, but not between two calls in the same tick. */
+  async function egressFor(instance: RemoteInstance): Promise<{ relay: boolean; reason: string }> {
+    const r = rt(instance.id)
+    if (r.egress && Date.now() - r.egress.at < EGRESS_TTL_MS) return r.egress
+    const mode = instance.egress
+    let probe: EgressProbe | undefined
+    if ((mode ?? EGRESS_DEFAULT) === 'auto') {
+      // 30s: the probe budgets 8s itself, the rest is ssh setup on a slow host.
+      const out = await ssh(instance, buildEgressProbeCommand({ appVersion: instance.appVersion }), 30_000)
+      probe = parseEgressProbe(out.stdout)
+    }
+    const decision = resolveEgressPolicy({ mode, relayAllowed: proxyConfig(instance).enabled, probe })
+    r.egress = { ...decision, at: Date.now() }
+    pushLog(instance.id, `出口策略：${decision.relay ? '经控制端' : '直连'}（${decision.reason}）`)
+    return decision
+  }
+
   async function ensureProxy(instance: RemoteInstance): Promise<'in-process' | 'external' | 'off'> {
     const cfg = proxyConfig(instance)
     if (!cfg.enabled) return 'off'
+    // A peer that can reach the internet itself must not be routed through us:
+    // the detour costs latency and makes the control machine a single point of
+    // failure for a peer that was never offline to begin with.
+    if (!(await egressFor(instance)).relay) return 'off'
     if (proxies.has(cfg.localPort)) return 'in-process'
     if (await isListening(cfg.localPort)) {
       pushLog(instance.id, `egress relay 已在 :${cfg.localPort} 上监听（外部进程，复用）`)
@@ -716,6 +746,8 @@ export function createRemoteInstanceManager(opts: {
   async function ensureExternalRelayAsync(instance: RemoteInstance): Promise<void> {
     const cfg = proxyConfig(instance)
     if (!cfg.enabled) return
+    // Same rule as the proxy env: no relay leg for a peer that gets out itself.
+    if (!(await egressFor(instance)).relay) return
     const r = rt(instance.id)
     if (r.forward && r.forward.exitCode === null) return
     // The check below costs a round trip; two callers in the same `up()` would
@@ -1042,7 +1074,9 @@ async probe(id) {
           return { online: false, detail: `对端实例未响应（health ${health}）` }
         }
         await ensureExternalRelayAsync(instance)
-        const relayUp = !proxyConfig(instance).enabled
+        // Only a peer that needs us is required to have the leg up: for one with
+        // its own egress a missing relay is the correct state, not a fault.
+        const relayUp = !(await egressFor(instance)).relay
           || (await ssh(instance, buildRemotePortProbeCommand(instance.appVersion, proxyConfig(instance).remotePort), 20_000)).stdout.trim().endsWith('open')
         if (!relayUp) return { online: false, detail: `对端实例在跑，但出网中继 :${proxyConfig(instance).remotePort} 未建立` }
         const r = rt(id)

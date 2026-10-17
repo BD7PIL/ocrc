@@ -368,6 +368,42 @@ function inspectConfigSource(env = process.env, exists = (p) => existsSync(p), r
 
 // ../../src/core/remote-instance.ts
 var PROXY_DEFAULTS = { enabled: true, localPort: 4711, remotePort: 2711, allow: [] };
+var EGRESS_DEFAULT = "auto";
+function buildEgressProbeCommand(o) {
+  const p = instancePaths(o.appVersion);
+  const host = o.host ?? "registry.npmjs.org";
+  const timeout = o.timeoutMs ?? 3e3;
+  const deadline = o.deadlineMs ?? 6e3;
+  const probe = [
+    "const dns=require('dns'),net=require('net')",
+    `const H=${JSON.stringify(host)},T=${timeout}`,
+    "const done=(v)=>{console.log(v);process.exit(0)}",
+    `setTimeout(()=>done('none'),${deadline})`,
+    'const tcp=(h,viaDns)=>net.connect({host:h,port:443,timeout:T},()=>done("direct")).on("error",()=>done(viaDns?"dns-only":"none")).on("timeout",()=>done(viaDns?"dns-only":"none"))',
+    `dns.lookup(H,(e,a)=>{e?tcp('1.1.1.1',false):tcp(a,true)})`
+  ].join(";");
+  return `${p.node} -e ${q(probe)}`;
+}
+function parseEgressProbe(stdout) {
+  const last = stdout.trim().split(/\r?\n/).pop()?.trim();
+  return last === "direct" || last === "dns-only" || last === "none" ? last : "unknown";
+}
+function resolveEgressPolicy(o) {
+  const mode = o.mode ?? EGRESS_DEFAULT;
+  if (!o.relayAllowed) return { relay: false, reason: "relay \u5DF2\u5173\u95ED" };
+  if (mode === "direct") return { relay: false, reason: "\u6309\u914D\u7F6E\u76F4\u8FDE" };
+  if (mode === "relay") return { relay: true, reason: "\u6309\u914D\u7F6E\u7ECF\u63A7\u5236\u7AEF" };
+  switch (o.probe) {
+    case "direct":
+      return { relay: false, reason: "\u63A2\u6D4B\uFF1A\u5BF9\u7AEF\u81EA\u5DF1\u53EF\u51FA\u7F51" };
+    case "dns-only":
+      return { relay: true, reason: "\u63A2\u6D4B\uFF1A\u5BF9\u7AEF\u6709\u8DEF\u7531\u4F46 DNS \u4E0D\u901A" };
+    case "none":
+      return { relay: true, reason: "\u63A2\u6D4B\uFF1A\u5BF9\u7AEF\u65E0\u51FA\u7F51" };
+    default:
+      return { relay: true, reason: "\u63A2\u6D4B\u672A\u6210\u529F\u2014\u2014\u4FDD\u5B88\u7ECF\u63A7\u5236\u7AEF" };
+  }
+}
 var RECONNECT_DEFAULTS = { reconnect: true, restoreOnStart: true, replayQueued: false };
 var DEFAULT_APP_VERSION = "2.3.3";
 var DEFAULT_INSTANCE_PORT = 2610;
@@ -1681,6 +1717,7 @@ async function provisionOffline(target, appVersion, opts = {}) {
 var log6 = createLogger("remote-instance");
 var EXTERNAL_MONITOR_MS = 2e4;
 var LOG_CAP = 200;
+var EGRESS_TTL_MS = 5 * 6e4;
 function proxyConfig(instance) {
   return {
     enabled: instance.proxy?.enabled ?? PROXY_DEFAULTS.enabled,
@@ -1797,7 +1834,7 @@ function createRemoteInstanceManager(opts) {
   }
   async function startInstance(instance, enginePath, guard = false) {
     const prefix = guard ? buildOfflineGuardExports() : opts.serveEnvPrefix?.(instance) ?? "";
-    const relay = instance.proxy?.enabled !== false ? `http://127.0.0.1:${proxyConfig(instance).remotePort}` : void 0;
+    const relay = (await egressFor(instance)).relay ? `http://127.0.0.1:${proxyConfig(instance).remotePort}` : void 0;
     const script = `${prefix}${buildInstanceServeCommand({
       appVersion: instance.appVersion,
       port: instance.instancePort,
@@ -1828,9 +1865,24 @@ function createRemoteInstanceManager(opts) {
     return { ok: true, detail: r.stdout.trim().split("\n").pop() || "\u5DF2\u505C" };
   }
   const proxies = /* @__PURE__ */ new Map();
+  async function egressFor(instance) {
+    const r = rt(instance.id);
+    if (r.egress && Date.now() - r.egress.at < EGRESS_TTL_MS) return r.egress;
+    const mode = instance.egress;
+    let probe;
+    if ((mode ?? EGRESS_DEFAULT) === "auto") {
+      const out = await ssh(instance, buildEgressProbeCommand({ appVersion: instance.appVersion }), 3e4);
+      probe = parseEgressProbe(out.stdout);
+    }
+    const decision = resolveEgressPolicy({ mode, relayAllowed: proxyConfig(instance).enabled, probe });
+    r.egress = { ...decision, at: Date.now() };
+    pushLog(instance.id, `\u51FA\u53E3\u7B56\u7565\uFF1A${decision.relay ? "\u7ECF\u63A7\u5236\u7AEF" : "\u76F4\u8FDE"}\uFF08${decision.reason}\uFF09`);
+    return decision;
+  }
   async function ensureProxy(instance) {
     const cfg = proxyConfig(instance);
     if (!cfg.enabled) return "off";
+    if (!(await egressFor(instance)).relay) return "off";
     if (proxies.has(cfg.localPort)) return "in-process";
     if (await isListening(cfg.localPort)) {
       pushLog(instance.id, `egress relay \u5DF2\u5728 :${cfg.localPort} \u4E0A\u76D1\u542C\uFF08\u5916\u90E8\u8FDB\u7A0B\uFF0C\u590D\u7528\uFF09`);
@@ -2129,6 +2181,7 @@ function createRemoteInstanceManager(opts) {
   async function ensureExternalRelayAsync(instance) {
     const cfg = proxyConfig(instance);
     if (!cfg.enabled) return;
+    if (!(await egressFor(instance)).relay) return;
     const r = rt(instance.id);
     if (r.forward && r.forward.exitCode === null) return;
     if (r.relayPending) return;
@@ -2417,7 +2470,7 @@ function createRemoteInstanceManager(opts) {
           return { online: false, detail: `\u5BF9\u7AEF\u5B9E\u4F8B\u672A\u54CD\u5E94\uFF08health ${health2}\uFF09` };
         }
         await ensureExternalRelayAsync(instance);
-        const relayUp = !proxyConfig(instance).enabled || (await ssh(instance, buildRemotePortProbeCommand(instance.appVersion, proxyConfig(instance).remotePort), 2e4)).stdout.trim().endsWith("open");
+        const relayUp = !(await egressFor(instance)).relay || (await ssh(instance, buildRemotePortProbeCommand(instance.appVersion, proxyConfig(instance).remotePort), 2e4)).stdout.trim().endsWith("open");
         if (!relayUp) return { online: false, detail: `\u5BF9\u7AEF\u5B9E\u4F8B\u5728\u8DD1\uFF0C\u4F46\u51FA\u7F51\u4E2D\u7EE7 :${proxyConfig(instance).remotePort} \u672A\u5EFA\u7ACB` };
         const r = rt(id);
         const probe2 = await withTempForward(instance, (temp) => probeThroughForward(temp)).catch(() => ({ ok: false, error: "\u4E34\u65F6\u8F6C\u53D1\u5931\u8D25" }));

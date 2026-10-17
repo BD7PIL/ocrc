@@ -7,9 +7,8 @@ afterEach(() => {
 })
 
 describe('portOwner (C1 cross-platform probe)', () => {
-  it('returns null for a FREE port (we can bind it)', async () => {
-    // grab a free port by binding, then release — it may race but is
-    // overwhelmingly free in CI
+  /** Bind port 0 to learn a free port, then release it. */
+  const freePort = async (): Promise<number> => {
     const srv = net.createServer()
     const port = await new Promise<number>((resolve) => {
       srv.listen(0, '127.0.0.1', () => {
@@ -19,7 +18,19 @@ describe('portOwner (C1 cross-platform probe)', () => {
       })
     })
     await new Promise((r) => srv.close(r))
-    const owner = await portOwner(String(port))
+    return port
+  }
+
+  it('returns null for a FREE port (we can bind it)', async () => {
+    // A released ephemeral port can be claimed by anything else in the
+    // meantime — vitest's own workers included — so retry with fresh
+    // candidates instead of betting the assertion on a single one. Asserting on
+    // one flaked on the coverage pass, where everything runs slower.
+    let owner: Awaited<ReturnType<typeof portOwner>> = null
+    for (let attempt = 0; attempt < 5; attempt++) {
+      owner = await portOwner(String(await freePort()))
+      if (owner === null) break
+    }
     expect(owner).toBeNull()
   })
 

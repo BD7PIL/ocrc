@@ -126,7 +126,10 @@ if (tier === 'legacy-glibc217') {
     console.log(`[pack] pty from ${ptyFile}`)
   } else if (process.platform !== 'win32') {
     const built = join(work, 'pty.node')
-    run('bash', [join(repoRoot, 'scripts', 'build-pty-legacy-local.sh'), '--tree', tree, '--node-dir', nodeDir, '--out', built])
+    // A fixed scratch dir, not mktemp: the compiler bakes the build path into
+    // pty.node, so a random path would make the legacy pack differ per build.
+    run('bash', [join(repoRoot, 'scripts', 'build-pty-legacy-local.sh'),
+      '--tree', tree, '--node-dir', nodeDir, '--out', built, '--work', join(work, 'pty-build')])
     copyFileSync(built, ptyTarget)
   } else {
     throw new Error('legacy pack on Windows needs --pty <prebuilt pty.node> (or run in the CI container)')

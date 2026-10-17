@@ -11,17 +11,23 @@
 # <node-prefix> a Node install with include/node + npm's bundled node-gyp
 #              (e.g. the glibc-217 runtime we ship)
 #
+# --work <dir>  build scratch dir (default: mktemp -d). Pass a fixed path when
+#               the result must be byte-reproducible: the compiler bakes the
+#               build path into the binary, so a random temp dir yields a
+#               different pty.node for the same source.
+#
 # Requires: devtoolset-9/10/11/12 (or a C++17 compiler), python3 >= 3.8,
 # make, binutils. Does not touch system libraries; the output links
 # libstdc++/libgcc statically and stays within glibc 2.17 symbols.
 set -euo pipefail
 
-TREE=""; NODE_DIR=""; OUT=""
+TREE=""; NODE_DIR=""; OUT=""; WORK_ARG=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --tree) TREE="${2:-}"; shift 2 ;;
     --node-dir) NODE_DIR="${2:-}"; shift 2 ;;
     --out) OUT="${2:-}"; shift 2 ;;
+    --work) WORK_ARG="${2:-}"; shift 2 ;;
     *) echo "unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -51,8 +57,16 @@ done
 [ -n "$PYTHON" ] || PYTHON="$(command -v python3 || true)"
 [ -n "$PYTHON" ] || { echo "no python3" >&2; exit 1; }
 
-WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+WORK=""
+if [ -n "$WORK_ARG" ]; then
+  WORK="$WORK_ARG"
+  rm -rf "$WORK"
+  mkdir -p "$WORK"
+  trap 'rm -rf "$WORK"' EXIT
+else
+  WORK="$(mktemp -d)"
+  trap 'rm -rf "$WORK"' EXIT
+fi
 mkdir -p "$WORK/node_modules"
 cp -r "$PKG" "$WORK/node-pty"
 rm -rf "$WORK/node-pty/build" "$WORK/node-pty/prebuilds"

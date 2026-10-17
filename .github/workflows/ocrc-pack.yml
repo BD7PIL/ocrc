@@ -183,6 +183,15 @@ jobs:
                 --version "$VERSION" --tier legacy-glibc217 --out pack \
                 --node /opt/node/bin/node --node-dir /opt/node
             '
+      - name: Reproducibility probe (temporary)
+        run: |
+          set -x
+          gzip -dc pack/ocrc-remote-pack-*-legacy-glibc217.tar.gz | sha256sum
+          mkdir -p /tmp/x && tar xzf pack/ocrc-remote-pack-*-legacy-glibc217.tar.gz -C /tmp/x
+          sha256sum /tmp/x/lib/node_modules/node-pty/prebuilds/linux-x64/pty.node
+          ls -l /tmp/x/lib/node_modules/node-pty/prebuilds/linux-x64/pty.node
+          find /tmp/x -type f | wc -l
+          grep -v createdAt pack/ocrc-remote-pack-*-legacy-glibc217.json
       - uses: actions/upload-artifact@v4
         with:
           name: ocrc-remote-pack-legacy

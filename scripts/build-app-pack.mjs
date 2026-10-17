@@ -148,17 +148,19 @@ if (!noSmoke) {
   console.log(`[pack] smoke ok (cli ${got}${process.platform === 'win32' ? ', pty load skipped on win32' : ', pty loads'})`)
 }
 
-// 5. Pack. Deterministic on purpose: sorted entries with zeroed mtimes and
-//    ownership, and `gzip -n` instead of tar's `-z` (tar 1.26 on centos:7 writes
-//    the current time into the gzip header, which made the legacy pack differ on
-//    every build even when the archive content was identical). GNU tar only grew
-//    `--sort` in 1.28 and centos:7 ships 1.26, hence the explicit sorted list.
-//    The output is named `../<asset>` (relative, no drive colon) because GNU
-//    tar reads a `X:` prefix as an rsh host.
+// 5. Pack. Deterministic on purpose: sorted entries with zeroed ownership and a
+//    fixed mtime, and `gzip -n` instead of tar's `-z` (tar 1.26 on centos:7
+//    writes the current time into the gzip header, which made the legacy pack
+//    differ on every build even when the archive content was identical). The
+//    mtime is 1980-01-01, not the epoch: tar older than 1.28 warns "implausibly
+//    old time stamp" for anything earlier, which flooded the EL7 deploy log.
+//    GNU tar only grew `--sort` in 1.28 and centos:7 ships 1.26, hence the
+//    explicit sorted list. The output is named `../<asset>` (relative, no drive
+//    colon) because GNU tar reads a `X:` prefix as an rsh host.
 run('bash', [
   '-c',
   'set -euo pipefail; find . -print0 | sort -z | tar --null -T - '
-    + '--mtime=@0 --owner=0 --group=0 --numeric-owner -cf - | gzip -n > "$1"',
+    + '--mtime=@315532800 --owner=0 --group=0 --numeric-owner -cf - | gzip -n > "$1"',
   'ocrc-pack', `../${asset}`,
 ], { cwd: tree })
 const finalAsset = join(out, asset)

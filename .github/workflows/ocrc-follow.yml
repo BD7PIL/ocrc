@@ -202,12 +202,14 @@ jobs:
           # must exist in the built bundle (the v2 host reads them via
           # context.tool.transform; namespace gating is pinned by
           # tests/unit/plugin-remote-tools.test.ts).
-          # The tools are registered in dist/plugin/remote-tools.js (imported by
-          # the plugin entry), not in the package's index re-export; search the
-          # whole built tree so the assertion tracks the registration face.
-          for T in ocrc_remote_list ocrc_remote_sync_workspace ocrc_remote_provision ocrc_remote_create_session; do
-            grep -rq "$T" "$SMOKE_HOME/ocrc-pkg/dist" || { echo "::error::registration face: $T missing from dist"; exit 1; }
+          # The E2 contract: tools register with their BARE name plus
+          # `options: { namespace: 'ocrc' }` — the engine composes the
+          # model-facing `ocrc_remote_*` name, so the literal never appears in
+          # dist. Assert both halves of that contract.
+          for T in remote_list remote_sync_workspace remote_provision remote_create_session; do
+            grep -rqE "name: *['\"]$T['\"]" "$SMOKE_HOME/ocrc-pkg/dist" || { echo "::error::registration face: $T missing from dist"; exit 1; }
           done
+          grep -rqE "namespace: *['\"]ocrc['\"]" "$SMOKE_HOME/ocrc-pkg/dist" || { echo "::error::registration face: namespace 'ocrc' missing (tools would not reach the model)"; exit 1; }
           echo "smoke 3/3: ocrc consumption face OK (dist loads, four remote tools present)"
 
       - name: Upload bundle artifact

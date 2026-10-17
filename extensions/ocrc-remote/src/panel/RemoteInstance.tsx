@@ -96,6 +96,32 @@ interface PairLink {
   url?: string
 }
 
+/** C5：本地 vs 对端配置差异 + 一次同步会做什么（同一个 plan 就是 apply 用的那份）。 */
+interface ConfigDiff {
+  localDir: string
+  add: string[]
+  change: string[]
+  same: string[]
+  peerOnly: string[]
+  unknown: string[]
+  auth: { local: boolean; peer: boolean }
+  plan: {
+    basename: string
+    configChanged: boolean
+    files: string[]
+    deletes: string[]
+    keyDeletes: { requested: string[]; removed: string[] }
+    keyDeleteCandidates: Array<{ collection: string; key: string }>
+    droppedManagedKeys: string[]
+    secretsReplaced: Array<{ path: string; env: string }>
+    baseUrlRewrites: Array<{ provider: string; from?: string; to: string }>
+    commentsWillBeLost?: boolean
+    shadowed: string[]
+    notes: string[]
+  }
+  peerError?: string
+}
+
 /** 表单就是装机输入；其余值都是派生的，不进这里。 */
 interface FormState {
   id?: string
@@ -150,6 +176,11 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
   const [pairFor, setPairFor] = useState<{ id: string; reply: PairLink } | null>(null)
   const [logFor, setLogFor] = useState<{ id: string; lines: string[] } | null>(null)
   const [secretFor, setSecretFor] = useState<{ id: string; url: string; uiPassword: string } | null>(null)
+  const [configFor, setConfigFor] = useState<{ id: string; diff: ConfigDiff } | null>(null)
+  const [syncResult, setSyncResult] = useState('')
+  /** Deletions are opt-in per item: a peer-only file or key is never removed by
+   *  the diff itself (that would be a wipe wearing a sync's clothes). */
+  const [checkedDeletes, setCheckedDeletes] = useState<Record<string, boolean>>({})
 
   const op = useCallback(
     async <T,>(body: Record<string, unknown>): Promise<T> => {
@@ -267,6 +298,27 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
   const showSecret = (id: string) => run(`secret:${id}`, async () => {
     const reply = await op<{ uiPassword: string; url: string }>({ op: 'uipassword', id })
     setSecretFor({ id, ...reply })
+  })
+
+  const showConfigDiff = (id: string) => run(`configdiff:${id}`, async () => {
+    const diff = await op<ConfigDiff>({ op: 'configdiff', id })
+    setConfigFor({ id, diff })
+    setCheckedDeletes({})
+    setSyncResult('')
+  })
+
+  const syncConfigNow = (id: string, dryRun: boolean) => run(`${dryRun ? 'dryrun' : 'syncconfig'}:${id}`, async () => {
+    const deletes = Object.entries(checkedDeletes).filter(([k, v]) => v && k.startsWith('file:')).map(([k]) => k.slice(5))
+    const keyDeletes = Object.entries(checkedDeletes).filter(([k, v]) => v && k.startsWith('key:')).map(([k]) => k.slice(4))
+    const r = await op<{ ok: boolean; detail: string }>({ op: 'syncconfig', id, payload: { deletes, keyDeletes, dryRun } })
+    setSyncResult(`${r.ok ? 'OK' : 'FAIL'} ${r.detail}`)
+    const diff = await op<ConfigDiff>({ op: 'configdiff', id })
+    setConfigFor({ id, diff })
+  })
+
+  const syncAuthNow = (id: string) => run(`syncauth:${id}`, async () => {
+    const r = await op<{ ok: boolean; detail: string }>({ op: 'syncauth', id })
+    setSyncResult(`${r.ok ? 'OK' : 'FAIL'} ${r.detail}`)
   })
 
   const copy = async (label: string, text: string) => {
@@ -444,6 +496,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                 })}
               />
               <KitButton size="sm" variant="ghost" label="日志" loading={busy === `logs:${row.id}`} onClick={() => void showLogs(row.id)} />
+              <KitButton size="sm" variant="ghost" label="配置差异" loading={busy === `configdiff:${row.id}`} onClick={() => void showConfigDiff(row.id)} />
               <KitButton size="sm" variant="ghost" label="查看 UI 密码" loading={busy === `secret:${row.id}`} onClick={() => void showSecret(row.id)} />
               <KitButton
                 size="sm"
@@ -532,6 +585,89 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                     label="复制"
                     onClick={() => void copy(`copysecret:${row.id}`, `${secretFor.url}\n${secretFor.uiPassword}`)}
                   />
+                </div>
+              </div>
+            ) : null}
+
+            {configFor?.id === row.id ? (
+              <div className="oc-card">
+                <div className="oc-row oc-row-between">
+                  <strong>配置差异（本地 ↔ 对端引擎的 ~/.config/opencode）</strong>
+                  <KitButton size="xs" variant="ghost" label="收起" onClick={() => setConfigFor(null)} />
+                </div>
+                <div className="oc-xs oc-muted">{`本地配置目录：${configFor.diff.localDir}`}</div>
+                {configFor.diff.peerError ? <KitBanner tone="error" title="读对端失败" body={configFor.diff.peerError} /> : null}
+                <div className="oc-xs oc-muted">
+                  {`只在本地（会推过去）${configFor.diff.add.length}　·　两边不同（覆盖，旧件留 .ocrc-bak）${configFor.diff.change.length}　·　两边相同${configFor.diff.same.length}　·　只在对端${configFor.diff.peerOnly.length}　·　算不出哈希${configFor.diff.unknown.length}`}
+                </div>
+                {configFor.diff.add.length + configFor.diff.change.length > 0 ? (
+                  <pre className="oc-pre">{[...configFor.diff.add.map((f) => `+ ${f}`), ...configFor.diff.change.map((f) => `~ ${f}`)].join('\n')}</pre>
+                ) : <div className="oc-muted">文件层面没有差异。</div>}
+                <div className="oc-xs oc-muted">
+                  {`配置文档：${configFor.diff.plan.configChanged ? `会改（写对端 ${configFor.diff.plan.basename}）` : '无变化'}　·　凭据 auth.json：本地 ${configFor.diff.auth.local ? '有' : '无'}，对端 ${configFor.diff.auth.peer ? '有' : '无'}`}
+                </div>
+                {configFor.diff.plan.shadowed.length > 0 ? (
+                  <KitBanner
+                    tone="warning"
+                    title="会被对端覆盖层压住的键"
+                    body={`${configFor.diff.plan.shadowed.join('、')}——对端的 jsonc 是更高优先层，同步后这些键仍按它的值生效。`}
+                  />
+                ) : null}
+
+                {/* 删除必须显式勾选：diff 只负责提出候选。 */}
+                {configFor.diff.peerOnly.length > 0 || configFor.diff.plan.keyDeleteCandidates.length > 0 ? (
+                  <div className="oc-col">
+                    <div className="oc-xs oc-muted">对端独有（勾选才会删；旧件留 .ocrc-bak）：</div>
+                    {configFor.diff.peerOnly.map((rel) => (
+                      <KitSwitch
+                        key={`file:${rel}`}
+                        label={`文件 ${rel}`}
+                        checked={checkedDeletes[`file:${rel}`] === true}
+                        onChange={(v) => setCheckedDeletes((prev) => ({ ...prev, [`file:${rel}`]: v }))}
+                      />
+                    ))}
+                    {configFor.diff.plan.keyDeleteCandidates.map((c) => (
+                      <KitSwitch
+                        key={`key:${c.collection}:${c.key}`}
+                        label={`配置项 ${c.collection}:${c.key}`}
+                        checked={checkedDeletes[`key:${c.collection}:${c.key}`] === true}
+                        onChange={(v) => setCheckedDeletes((prev) => ({ ...prev, [`key:${c.collection}:${c.key}`]: v }))}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+
+                {configFor.diff.plan.notes.length > 0 ? (
+                  <KitList
+                    items={configFor.diff.plan.notes.map((n, i) => ({ id: String(i), title: n, leading: '·' }))}
+                    onSelect={() => { /* 只读展示 */ }}
+                  />
+                ) : null}
+                {syncResult ? <div className="oc-xs oc-sdk-mono">{syncResult}</div> : null}
+                <div className="oc-row">
+                  <KitButton
+                    size="sm"
+                    variant="outline"
+                    label="预演（不写对端）"
+                    loading={busy === `dryrun:${row.id}`}
+                    onClick={() => void syncConfigNow(row.id, true)}
+                  />
+                  <KitButton
+                    size="sm"
+                    label="同步配置"
+                    loading={busy === `syncconfig:${row.id}`}
+                    onClick={() => void syncConfigNow(row.id, false)}
+                  />
+                  <KitButton
+                    size="sm"
+                    variant="outline"
+                    label="同步凭据（auth.json）"
+                    loading={busy === `syncauth:${row.id}`}
+                    onClick={() => void syncAuthNow(row.id)}
+                  />
+                </div>
+                <div className="oc-xs oc-muted">
+                  凭据走 ssh stdin 写到对端 0600，不回显；配置只推差异、opencode.json 深合并（对端独有键保留）、plugin 键交给对端自己的 openchamber。
                 </div>
               </div>
             ) : null}

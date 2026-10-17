@@ -527,6 +527,44 @@ export function sshRun(target: SshTargetRef, command: string, opts: { timeoutMs?
   })
 }
 
+/** Run a remote script with a **small** payload on its stdin (credentials, a
+ *  config document). `pushFileOverSsh` streams a file with progress; this is for
+ *  the cases where the bytes are already in memory and the remote side reads
+ *  them once (`cat > …`, `base64 -d > …`). */
+export function sshRunWithStdin(
+  target: SshTargetRef,
+  command: string,
+  input: Buffer | string,
+  opts: { timeoutMs?: number } = {},
+): Promise<SshResult> {
+  return new Promise((resolve) => {
+    const child = spawn('ssh', buildSshExecArgs(target, command), {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: askpassEnv(target),
+    })
+    let stdout = ''
+    let stderr = ''
+    let settled = false
+    const done = (r: SshResult) => {
+      if (settled) return
+      settled = true
+      if (timer) clearTimeout(timer)
+      resolve(r)
+    }
+    const timer = opts.timeoutMs
+      ? setTimeout(() => { child.kill('SIGKILL'); done({ code: null, stdout, stderr: `${stderr}\ntimeout after ${opts.timeoutMs}ms` }) }, opts.timeoutMs)
+      : undefined
+    child.stdout?.on('data', (d: Buffer) => { stdout += d.toString() })
+    child.stderr?.on('data', (d: Buffer) => { stderr += d.toString() })
+    child.on('error', (err) => done({ code: null, stdout, stderr: `${stderr}\n${err.message}` }))
+    child.on('close', (code) => done({ code, stdout, stderr }))
+    // EPIPE means the remote script exited early (bad path, no permission); its
+    // stderr is the real story, so the write error must not mask it.
+    child.stdin?.on('error', () => { /* reported through stderr/exit code */ })
+    child.stdin?.end(input)
+  })
+}
+
 /** Stream a file into the remote script's stdin (`cat > …` reads exactly this).
  *  Progress is byte-counted on the control side — the payload is tens of MB, so
  *  a silent multi-minute push would look like a hang. */

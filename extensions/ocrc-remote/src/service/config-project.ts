@@ -10,8 +10,19 @@
  *   · 只写差异；`*.ocrc-bak` 兜底；坏 JSON 拒绝且不落盘。
  *
  * 纯字符串/结构进出，ssh 由调用方注入——与 remote-fs/omo-config 同一套路。
+ * 合并引擎（mergeSticky / hasChanges / stripLiteralSecrets / 读写脚本）已移到
+ * `src/core/config-merge.ts`：实例拓扑（C1，被控端 `~/.config/opencode`）用的是
+ * 同一份实现，两套合并规则不能各说各话。
  */
 import { stripJsonc } from './omo-config.js'
+import {
+  buildConfigWriteScript, hasChanges, mergeSticky, stripLiteralSecrets,
+} from '../../../../src/core/config-merge.js'
+
+/** The atomic writer lives in the shared engine now; the project-level callers
+ *  keep their name so the two topologies cannot diverge on backup semantics. */
+export const buildProjectConfigWriteScript = buildConfigWriteScript
+export { hasChanges, mergeSticky, stripLiteralSecrets }
 
 export const PROJECT_CONFIG_BASENAMES = ['opencode.jsonc', 'opencode.json'] as const
 
@@ -88,56 +99,12 @@ export function parseProjectConfigRead(stdout: string, projectPath: string): Pro
   return result
 }
 
-/** 深合并：面板段逐叶覆盖，被控端独有的键保留。
- *  `undefined` 面板值 = 不修改（这是「粘性」的实现点：缺字段不会打掉远端原值）。
- *  数组与标量整体替换（opencode 自己的合并语义）。 */
-export function mergeSticky(remote: Record<string, unknown>, panel: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...remote }
-  for (const [key, value] of Object.entries(panel)) {
-    if (value === undefined) continue
-    const current = out[key]
-    if (isPlainObject(value) && isPlainObject(current)) {
-      out[key] = mergeSticky(current, value as Record<string, unknown>)
-    } else {
-      out[key] = value
-    }
-  }
-  return out
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
-/** 只写差异：没有变化时调用方不该落盘（也就不会产生无意义的 `.ocrc-bak`）。 */
-export function hasChanges(remote: Record<string, unknown>, merged: Record<string, unknown>): boolean {
-  return JSON.stringify(sortKeys(remote)) !== JSON.stringify(sortKeys(merged))
-}
-
-function sortKeys(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortKeys)
-  if (!isPlainObject(value)) return value
-  const out: Record<string, unknown> = {}
-  for (const key of Object.keys(value).sort()) out[key] = sortKeys(value[key])
-  return out
-}
+/** 深合并：面板段逐叶覆盖，被控端独有的键保留（实现见 src/core/config-merge.ts）。
+ *  `undefined` 面板值 = 不修改（这是「粘性」的实现点：缺字段不会打掉远端原值）。 */
 
 /** 原子写：临时文件 → `.ocrc-bak` 备份旧件 → `mv` 就位。内容走 stdin 的
- *  base64（与 fs/write、omo/config 同款，避免引号与换行撕碎脚本）。 */
-export function buildProjectConfigWriteScript(targetPath: string, base64: string): { script: string; stdin: string } {
-  const script = [
-    'set -e',
-    `P=${q(targetPath)}`,
-    'D=$(dirname "$P")',
-    'mkdir -p "$D"',
-    'T=$(mktemp "$D/.ocrc-cfg.XXXXXX")',
-    'base64 -d > "$T"',
-    'if [ -f "$P" ]; then cp -p "$P" "$P.ocrc-bak" && echo "OCRC_BAK=$P.ocrc-bak"; fi',
-    'mv "$T" "$P"',
-    'echo "OCRC_WRITTEN=$P"',
-  ].join('\n')
-  return { script, stdin: base64 }
-}
+ *  base64（与 fs/write、omo/config 同款，避免引号与换行撕碎脚本）。
+ *  实现与实例拓扑共用（`src/core/config-merge.ts` 的 `buildConfigWriteScript`）。 */
 
 /** 面板产物 → 项目级配置。只取白名单段：其余面板字段（含凭据）不落被控端文件。 */
 export const PROJECT_WRITE_SECTIONS = ['agent', 'mcp', 'provider', 'agents', 'model', 'small_model', 'permission', 'instructions'] as const
@@ -151,25 +118,3 @@ export function extractProjectSections(panelConfig: Record<string, unknown>): Re
   return out
 }
 
-/** 密钥绝不落文件：把字面量密钥换成 `{env:…}` 引用（D11 的下半条）。
- *  只处理 MCP 的 environment——那是实测里唯一放字面量密钥的地方。 */
-export function stripLiteralSecrets(config: Record<string, unknown>): {
-  config: Record<string, unknown>
-  replaced: Array<{ path: string; env: string }>
-} {
-  const next = structuredClone(config) as Record<string, unknown>
-  const replaced: Array<{ path: string; env: string }> = []
-  const servers = (next.mcp as { servers?: Record<string, unknown> } | undefined)?.servers
-  if (!servers) return { config: next, replaced }
-  for (const [name, raw] of Object.entries(servers)) {
-    if (!raw || typeof raw !== 'object') continue
-    const declaration = raw as { environment?: Record<string, unknown> }
-    for (const [key, value] of Object.entries(declaration.environment ?? {})) {
-      if (typeof value !== 'string' || /^\{.*\}$/.test(value)) continue
-      if (!/(key|token|secret|password|passwd|credential|apikey)/i.test(key)) continue
-      declaration.environment![key] = `{env:${key}}`
-      replaced.push({ path: `mcp.servers.${name}.environment.${key}`, env: key })
-    }
-  }
-  return { config: next, replaced }
-}

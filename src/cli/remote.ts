@@ -89,6 +89,14 @@ USAGE:
   ocrc remote pairlink <id> [--json] [--open]
                                    向上游要一张配对链接（一次性；换每设备 token，可撤销无过期）
                                    --open：拉起桌面版确认；确认后机器出现在「其他 OpenChamber 服务器」
+  ocrc remote config-diff <id>     本地 vs 对端配置差异（两个方向）+ 一次同步会做什么（只读）
+  ocrc remote sync-config <id> [--delete a,b] [--delete-key provider:x,mcp.servers:y] [--dry-run]
+                  [--prefer-commented-target]
+                                   推白名单配置（opencode.json 深合并、只推差异、旧件留 .ocrc-bak）
+                                   --delete：对端独有的文件显式删掉（也留 .ocrc-bak）
+                                   --delete-key：删对端独有的配置项（provider:x / mcp.servers:y）
+                                   --prefer-commented-target：允许重写带注释的对端配置（注释会丢；默认写 opencode.json）
+  ocrc remote sync-auth <id>       把本机 auth.json（provider 凭据）写到对端（0600，不回显）
   ocrc remote open <id>            打印 URL（并尝试用系统浏览器打开）
   ocrc remote logs <id>            本端隧道/隧道重连日志尾
   ocrc remote remove <id>          删档案（不动对端文件）
@@ -499,6 +507,58 @@ export async function main(argv: string[]): Promise<void> {
     const m = manager()
     for (const l of m.logs(instance.id)) console.log(`  ${l}`)
     m.dispose()
+    return
+  }
+
+  if (sub === 'config-diff') {
+    // C5 的终端形态：先把差异摆出来（两个方向），再决定推不推。
+    const instance = resolveInstance(args.slice(1), flags)
+    const m = manager()
+    const d = await m.configDiff(instance.id)
+    m.dispose()
+    console.log(`本地配置 ${d.localDir}`)
+    if (d.peerError) console.error(`  FAIL 读对端失败：${d.peerError}`)
+    const show = (label: string, list: string[]) => console.log(`  ${label} ${list.length}${list.length ? `：${list.slice(0, 8).join(', ')}${list.length > 8 ? ' …' : ''}` : ''}`)
+    show('只在本地（会推过去）', d.add)
+    show('两边不同（会覆盖，旧件留 .ocrc-bak）', d.change)
+    show('两边相同（不动）', d.same)
+    show('只在对端（不动；要删得显式 --delete）', d.peerOnly)
+    show('对端算不出哈希（不当作相同）', d.unknown)
+    console.log(`  凭据 auth.json：本地 ${d.auth.local ? '有' : '无'}，对端 ${d.auth.peer ? '有' : '无'}`)
+    console.log(`  一次同步会：写 ${d.plan.files.length} 个文件${d.plan.deletes.length ? `、删 ${d.plan.deletes.length} 个` : ''}；配置 ${d.plan.configChanged ? `会改（写 ${d.plan.basename}）` : '无变化'}`)
+    if (d.plan.keyDeleteCandidates.length > 0) {
+      console.log(`  对端独有的配置项（要删用 --delete-key）：${d.plan.keyDeleteCandidates.map((c) => c.collection + ':' + c.key).join(', ')}`)
+    }
+    if (d.plan.shadowed.length > 0) console.log(`  会被对端覆盖层压住的键：${d.plan.shadowed.join('、')}`)
+    for (const n of d.plan.notes) console.log(`  · ${n}`)
+    return
+  }
+
+  if (sub === 'sync-config') {
+    const instance = resolveInstance(args.slice(1), flags)
+    const deletes = (flagStr(flags, 'delete') ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+    const keyDeletes = (flagStr(flags, 'delete-key') ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+    const m = manager()
+    const r = await m.syncConfig(instance.id, {
+      deletes,
+      keyDeletes,
+      dryRun: flags.has('dry-run'),
+      // 显式允许重写带注释的对端配置（注释会丢）——默认不碰用户的文档。
+      preferCommentedTarget: flags.has('prefer-commented-target'),
+    })
+    m.dispose()
+    console.log(`${r.ok ? 'OK  ' : 'FAIL'} ${r.detail}`)
+    if (!r.ok) process.exit(1)
+    return
+  }
+
+  if (sub === 'sync-auth') {
+    const instance = resolveInstance(args.slice(1), flags)
+    const m = manager()
+    const r = await m.syncAuth(instance.id)
+    m.dispose()
+    console.log(`${r.ok ? 'OK  ' : 'FAIL'} ${r.detail}`)
+    if (!r.ok) process.exit(1)
     return
   }
 

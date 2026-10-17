@@ -118,6 +118,19 @@ export function createRemoteInstancesStore(path: string, opts: { flushOnExit?: b
       // 出口策略是闭集：认不出来的值等于没设（= auto，由探测决定），
       // 不能让一个拼错的值悄悄变成"总是经控制端"。
       egress: i.egress === 'relay' || i.egress === 'direct' ? i.egress : undefined,
+      // C2b: per-peer provider URL rewrites — only non-empty strings survive, so
+      // a half-filled form cannot write `baseURL: undefined` into the peer.
+      providerBaseUrl: (() => {
+        const src = i.providerBaseUrl
+        if (!src || typeof src !== 'object') return undefined
+        const out: Record<string, string> = {}
+        for (const [provider, url] of Object.entries(src)) {
+          const key = provider.trim()
+          const value = typeof url === 'string' ? url.trim() : ''
+          if (key && value) out[key] = value
+        }
+        return Object.keys(out).length > 0 ? out : undefined
+      })(),
       reconnect: i.reconnect ?? RECONNECT_DEFAULTS.reconnect,
       restoreOnStart: i.restoreOnStart ?? RECONNECT_DEFAULTS.restoreOnStart,
       replayQueued: i.replayQueued ?? RECONNECT_DEFAULTS.replayQueued,
@@ -178,6 +191,7 @@ export function createRemoteInstancesStore(path: string, opts: { flushOnExit?: b
         enabled: instance.enabled ?? true,
         provision: instance.provision,
         egress: instance.egress,
+        providerBaseUrl: instance.providerBaseUrl,
         reconnect: instance.reconnect,
         restoreOnStart: instance.restoreOnStart,
         replayQueued: instance.replayQueued,

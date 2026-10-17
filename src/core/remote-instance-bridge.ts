@@ -16,15 +16,16 @@
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import net from 'node:net'
-import { openSync } from 'node:fs'
+import { mkdtempSync, openSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ocrcHome } from '../utils/paths.js'
 import { createLogger } from '../utils/logger.js'
 import { parseGlibcVersion, nextRetryDelay } from './remote-common.js'
 import { createInstanceProxy, type InstanceProxy } from './remote-instance-proxy.js'
 import {
-  DEFAULT_ENGINE_CANDIDATES, DEFAULT_ENGINE_PIN, NODE_RUNTIME, PROXY_DEFAULTS, buildEngineProbeCommand,
-  buildForwardArgs, buildRelayForwardArgs, buildInstanceServeCommand, buildInstanceStopCommand, buildRemotePortProbeCommand,
+  DEFAULT_ENGINE_CANDIDATES, DEFAULT_ENGINE_PIN, PROXY_DEFAULTS, buildEngineProbeCommand,
+  buildForwardArgs, buildRelayForwardArgs, buildInstanceServeCommand, buildInstanceStopCommand, buildRemotePortProbeCommand, buildSshExecArgs,
   buildPeerPortProbeCommand, parsePortProbe, provisionActions,
   buildPairLinkCommand, parsePairLink, describePairLink, buildEgressProbeCommand, parseEgressProbe, resolveEgressPolicy,
   EGRESS_DEFAULT, type EgressMode, type EgressProbe, type ProvisionMode,
@@ -33,7 +34,12 @@ import {
   type EngineCompatPayload, type EnginePick, type ForwardSpec, type InstanceProxyConfig,
   type RemoteInstance, type SshTargetRef,
 } from './remote-instance.js'
-import { appPackTierForGlibc, buildAppProbeCommand, buildOfflineGuardExports, buildRuntimeProbeCommand, provisionOffline, sshRun, type AppPackTier } from './remote-instance-push.js'
+import { appPackTierForGlibc, buildAppProbeCommand, buildOfflineGuardExports, buildRuntimeProbeCommand, provisionOffline, sshRun, sshRunWithStdin, type AppPackTier, type SshResult } from './remote-instance-push.js'
+import {
+  buildAuthPushScript, buildConfigApplyScript, buildPeerConfigReadScript, diffConfig, discardStaging,
+  parsePeerConfigRead, planConfigSync, readLocalConfig, stageConfigTree,
+} from './instance-config.js'
+import { renderConfig } from './config-merge.js'
 import { askpassEnv } from './ssh-askpass.js'
 import type { RemoteInstancesStore } from './remote-instances.js'
 
@@ -105,6 +111,37 @@ export interface InstancePlan {
 
 export interface InstanceOutcome { ok: boolean; detail: string }
 
+/** C1: what a sync would change, as the panel shows it before anything moves. */
+export interface InstanceConfigDiff {
+  localDir: string
+  add: string[]
+  change: string[]
+  same: string[]
+  peerOnly: string[]
+  unknown: string[]
+  auth: { local: boolean; peer: boolean }
+  /** What one sync would do right now (the same plan the apply step uses). */
+  plan: {
+    basename: string
+    configChanged: boolean
+    files: string[]
+    deletes: string[]
+    keyDeletes: { requested: string[]; removed: string[] }
+    keyDeleteCandidates: Array<{ collection: string; key: string }>
+    droppedManagedKeys: string[]
+    secretsReplaced: Array<{ path: string; env: string }>
+    baseUrlRewrites: Array<{ provider: string; from?: string; to: string }>
+    commentsWillBeLost?: boolean
+    /** Keys the peer's own commented layer will keep overriding (see
+     *  `findShadowedKeys`): the reason a sync can look like it did nothing. */
+    shadowed: string[]
+    notes: string[]
+  }
+  peerError?: string
+}
+
+export interface InstanceConfigOutcome { ok: boolean; detail: string }
+
 export interface RemoteInstanceManager {
   plan(id: string): Promise<InstancePlan>
   /** P2: push runtime + engine + app (offline path) — the engine gate runs first. */
@@ -129,6 +166,13 @@ export interface RemoteInstanceManager {
    *  cache only — it must not cost an ssh round trip — so a caller that wants a
    *  real answer on a cold process asks for it explicitly. */
   egress(id: string): Promise<{ mode: EgressMode; relay: boolean; reason: string; probe?: EgressProbe }>
+  /** C1: local-vs-peer config diff, both directions. Read-only. */
+  configDiff(id: string): Promise<InstanceConfigDiff>
+  /** C1–C4: one explicit push of the whitelisted config (+ explicit deletions).
+   *  `dryRun` computes everything and writes nothing. */
+  syncConfig(id: string, opts?: { deletes?: string[]; keyDeletes?: string[]; dryRun?: boolean; preferCommentedTarget?: boolean }): Promise<InstanceConfigOutcome>
+  /** C3: provider credentials (`auth.json`) over ssh stdin, 0600 on the peer. */
+  syncAuth(id: string): Promise<InstanceConfigOutcome>
   logs(id: string): string[]
   /** Boot restore (R10 `restoreOnStart`): bring up every enabled record. */
   ensureAll(): void
@@ -282,6 +326,13 @@ export function createRemoteInstanceManager(opts: {
   /** Override the control-side home used for the forward log. */
   home?: string
   forwardLogPath?: string
+  /** C1: where the control side's opencode config lives (defaults to
+   *  `~/.config/opencode`; the CLI/panel pass nothing). Injectable so the config
+   *  sync can be exercised without touching the developer's own config. */
+  localConfigDir?: string
+  /** C3: the control side's `auth.json` (defaults to
+   *  `~/.local/share/opencode/auth.json`). */
+  localAuthPath?: string
 }): RemoteInstanceManager {
   const runtimes = new Map<string, InstanceRuntime>()
   const detachedForwards = opts.forwards === 'detached'
@@ -320,6 +371,50 @@ export function createRemoteInstanceManager(opts: {
   }
 
   const ssh = (instance: SshTargetRef, command: string, timeoutMs = 60_000) => sshRun(instance, command, { timeoutMs })
+
+  /**
+   * Pipe a staged directory into one remote script on stdin (`tar -xzf -`).
+   *
+   * System `tar` on purpose, same posture as system `ssh`: the payload is our
+   * own staged tree, the far side is POSIX sh + coreutils, and a hand-rolled
+   * archive writer would be a second thing to get wrong. The tar process's
+   * failure has to reach the caller too — an empty archive still extracts
+   * "successfully", so a tar error would otherwise look like a clean sync.
+   */
+  function pipeTarToSsh(instance: SshTargetRef, dir: string, script: string, timeoutMs = 120_000): Promise<SshResult> {
+    return new Promise((resolve) => {
+      const tar = spawn('tar', ['-czf', '-', '-C', dir, '.'], { stdio: ['ignore', 'pipe', 'pipe'] })
+      const remote = spawn('ssh', buildSshExecArgs(instance, script), {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: askpassEnv(instance),
+      })
+      let stdout = ''
+      let stderr = ''
+      let settled = false
+      const done = (r: SshResult) => {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        resolve(r)
+      }
+      const timer = setTimeout(() => {
+        try { remote.kill('SIGKILL') } catch { /* gone */ }
+        try { tar.kill('SIGKILL') } catch { /* gone */ }
+        done({ code: null, stdout, stderr: `${stderr}\ntimeout after ${timeoutMs}ms` })
+      }, timeoutMs)
+      remote.stdout?.on('data', (d: Buffer) => { stdout += d.toString() })
+      remote.stderr?.on('data', (d: Buffer) => { stderr += d.toString() })
+      remote.on('error', (err) => done({ code: null, stdout, stderr: `${stderr}\n${err.message}` }))
+      remote.on('close', (code) => done({ code, stdout, stderr }))
+      remote.stdin?.on('error', () => { /* the remote side's stderr is the story */ })
+      tar.on('error', (err) => {
+        try { remote.kill() } catch { /* gone */ }
+        done({ code: null, stdout, stderr: `${stderr}\ntar: ${err.message}` })
+      })
+      tar.stderr?.on('data', (d: Buffer) => { stderr += d.toString() })
+      tar.stdout?.pipe(remote.stdin!)
+    })
+  }
 
   // ── probes ──────────────────────────────────────────────────────────────────
 
@@ -1232,6 +1327,132 @@ async probe(id) {
       const instance = need(id)
       const decision = await egressFor(instance)
       return { mode: instance.egress ?? EGRESS_DEFAULT, ...decision }
+    },
+
+    // ── C1–C4: config and credentials for the peer's engine ────────────────────
+
+    async configDiff(id) {
+      const instance = need(id)
+      const local = readLocalConfig({ dir: opts.localConfigDir, authPath: opts.localAuthPath })
+      const read = await ssh(instance, buildPeerConfigReadScript(), 45_000)
+      const peer = parsePeerConfigRead(read.stdout)
+      const peerError = read.code === 0 ? undefined : cleanSshNoise(read.stderr || read.stdout).trim().split('\n').pop()
+      const diff = diffConfig(local, peer)
+      const plan = planConfigSync(local, peer, { diff, providerBaseUrl: instance.providerBaseUrl })
+      // The config files are merged, not copied: leaving them in the file lists
+      // would show "opencode.jsonc 会推过去" for a file we never send.
+      const notConfig = (rel: string) => rel !== 'opencode.json' && rel !== 'opencode.jsonc'
+      return {
+        localDir: local.dir,
+        add: diff.add.filter(notConfig),
+        change: diff.change.filter(notConfig),
+        same: diff.same.filter(notConfig),
+        peerOnly: diff.peerOnly.filter(notConfig),
+        unknown: diff.unknown.filter(notConfig),
+        auth: diff.auth,
+        plan: {
+          basename: plan.basename,
+          configChanged: plan.configChanged,
+          files: plan.files,
+          deletes: plan.deletes,
+          keyDeletes: plan.keyDeletes,
+          keyDeleteCandidates: plan.keyDeleteCandidates,
+          droppedManagedKeys: plan.droppedManagedKeys,
+          secretsReplaced: plan.secretsReplaced,
+          baseUrlRewrites: plan.baseUrlRewrites,
+          commentsWillBeLost: plan.commentsWillBeLost,
+          shadowed: plan.shadowed,
+          notes: plan.notes,
+        },
+        peerError,
+      }
+    },
+
+    async syncConfig(id, syncOpts = {}) {
+      const instance = need(id)
+      const local = readLocalConfig({ dir: opts.localConfigDir, authPath: opts.localAuthPath })
+      const read = await ssh(instance, buildPeerConfigReadScript(), 45_000)
+      if (read.code !== 0) {
+        const detail = `读对端配置失败：${cleanSshNoise(read.stderr || read.stdout).trim().split('\n').pop() ?? `exit ${read.code}`}`
+        pushLog(id, detail)
+        return { ok: false, detail }
+      }
+      const peer = parsePeerConfigRead(read.stdout)
+      const diff = diffConfig(local, peer)
+      const plan = planConfigSync(local, peer, {
+        diff,
+        deletes: syncOpts.deletes,
+        keyDeletes: syncOpts.keyDeletes,
+        providerBaseUrl: instance.providerBaseUrl,
+        preferCommentedTarget: syncOpts.preferCommentedTarget,
+      })
+      const nothing = plan.files.length === 0 && plan.deletes.length === 0
+      if (nothing) {
+        pushLog(id, 'sync-config: 无差异，未写对端')
+        return { ok: true, detail: '无差异：对端已经和本地一致（未写任何文件）' }
+      }
+      if (syncOpts.dryRun) {
+        return {
+          ok: true,
+          detail: `预演：将写 ${plan.files.length} 个文件${plan.deletes.length ? `、删 ${plan.deletes.length} 个` : ''}；${plan.notes.join('；')}`,
+        }
+      }
+      // Staging, not a copy of the local dir: the peer's config file must receive
+      // the MERGED document (peer-only keys preserved), not our bytes. Only the
+      // entries that actually differ are staged — a directory travels as a unit,
+      // because tar-ing a subset of one buys nothing and risks a half-tree.
+      const staging = mkdtempSync(join(tmpdir(), 'ocrc-cfgsync-'))
+      try {
+        const content = plan.merged && plan.configChanged ? renderConfig(plan.merged) : undefined
+        const topLevel = [...new Set(plan.files.map((rel) => rel.split('/')[0]!).filter((e) => e !== plan.basename))]
+        const staged = stageConfigTree({
+          sourceDir: local.dir,
+          destDir: staging,
+          entries: topLevel,
+          mergedConfig: content ? { basename: plan.basename, content } : undefined,
+        })
+        if (staged.length === 0 && plan.deletes.length === 0) {
+          pushLog(id, 'sync-config: 无差异，未写对端')
+          return { ok: true, detail: '无差异：对端已经和本地一致（未写任何文件）' }
+        }
+        pushLog(id, `$ sync-config ${staged.join(' ')}${plan.deletes.length ? ` (delete ${plan.deletes.join(' ')})` : ''}`)
+        const result = await pipeTarToSsh(instance, staging, buildConfigApplyScript(plan.deletes), 120_000)
+        for (const line of result.stdout.split('\n')) if (line.trim()) pushLog(id, line.trim())
+        if (result.code !== 0) {
+          const detail = `sync-config 失败（exit ${result.code}）：${cleanSshNoise(result.stderr || result.stdout).trim().split('\n').pop() ?? ''}`
+          pushLog(id, detail)
+          return { ok: false, detail }
+        }
+        const written = result.stdout.split('\n').filter((l) => l.startsWith('new:') || l.startsWith('backup:')).length
+        const backedUp = result.stdout.split('\n').filter((l) => l.startsWith('backup:')).length
+        const deleted = result.stdout.split('\n').filter((l) => l.startsWith('deleted:')).length
+        const detail = `同步 ${written} 个文件${backedUp ? `（${backedUp} 个旧件留 .ocrc-bak）` : ''}${deleted ? `，删 ${deleted} 个（也留 .ocrc-bak）` : ''}`
+          + (plan.droppedManagedKeys.length ? `；跳过 ${plan.droppedManagedKeys.join('/')}（对端自己的插件层）` : '')
+        pushLog(id, detail)
+        if (plan.secretsReplaced.length > 0) pushLog(id, `密钥改写为 {env:…}：${plan.secretsReplaced.map((s) => s.env).join(', ')}（值不落对端文件）`)
+        return { ok: true, detail }
+      } finally {
+        discardStaging(staging)
+      }
+    },
+
+    async syncAuth(id) {
+      const instance = need(id)
+      const local = readLocalConfig({ dir: opts.localConfigDir, authPath: opts.localAuthPath })
+      if (!local.authPresent) {
+        return { ok: false, detail: `本机没有 ${local.authPath}——先在本机登录 provider（opencode auth login）` }
+      }
+      const content = readFileSync(local.authPath)
+      const result = await sshRunWithStdin(instance, buildAuthPushScript(), content, { timeoutMs: 45_000 })
+      if (result.code !== 0) {
+        const detail = `凭据同步失败（exit ${result.code}）：${cleanSshNoise(result.stderr || result.stdout).trim().split('\n').pop() ?? ''}`
+        pushLog(id, detail)
+        return { ok: false, detail }
+      }
+      // Never log the content, and never echo it: the log says what happened,
+      // not what was copied.
+      pushLog(id, 'sync-auth: 凭据已写到对端（0600，旧件留 .ocrc-bak）')
+      return { ok: true, detail: `凭据已同步（${content.length} 字节 → 对端 0600）` }
     },
 
     logs(id) {

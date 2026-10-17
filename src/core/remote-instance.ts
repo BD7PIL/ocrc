@@ -65,6 +65,11 @@ export interface RemoteInstance extends SshAuthSpec {
    *   · `reuse` —— 一个字节都不推。只做检查（运行时/应用是否在位、引擎是否过
    *     v2 门禁）并把引擎 pin 下来；缺件就明确失败，让人改回推包。 */
   provision?: ProvisionMode
+  /** C2b: per-peer provider `baseURL` rewrites, applied during a config sync.
+   *  A peer without its own egress may only reach a provider through our relay or
+   *  an internal gateway, so the URL the control side uses is not always the one
+   *  the peer must use. Opt-in and explicit — we never guess a URL. */
+  providerBaseUrl?: Record<string, string>
 }
 
 export type ProvisionMode = 'push' | 'reuse'

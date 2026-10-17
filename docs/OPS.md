@@ -245,6 +245,34 @@ https://github.com/BD7PIL/ocrc/releases/download/ocrc-remote-0.7.0/ocrc-remote.z
   拷贝出 `package.json panel service status`，能力请求为 `sessions`+`service`（待审批）。
   omo-view 同理（只有 panel，能力请求 `conversation`）。
 
+**配置与凭据从本地同步（C1–C6，2.0.0-alpha.8）**
+
+对端的引擎读的是**对端自己**的 `~/.config/opencode`——面板宿主的配置不会自己飞过去，而且上游的 provider UI
+**没有删除入口**（只有新增/编辑/停用），所以同步是唯一能表达"对端该和我一样"的路径。
+
+| 层 | 谁拥有 | 我们的同步碰不碰 |
+|---|---|---|
+| `~/.config/openchamber/opencode.managed.json` | 对端自己的 openchamber（源码：`server/lib/opencode/managed-config-file.js`，**只装 `plugins`**） | **不碰**；`plugin`/`plugins` 键在合并结果里被丢弃并写明原因 |
+| `~/.config/opencode/opencode.json` / `.jsonc` | 用户（`.jsonc` 里常带注释当文档） | 深合并：只覆盖我们提供的叶子，**对端独有的键一律保留**；旧件留 `.ocrc-bak` |
+| `~/.local/share/opencode/auth.json` | 用户凭据（provider 的 key） | C3：整份经 ssh stdin 写到对端 **0600**，不回显、不进日志 |
+
+```bash
+ocrc remote config-diff <id>        # 只读：两个方向的差异 + 一次同步会做什么（含将被压住的键）
+ocrc remote sync-config <id>        # 推差异（opencode.json 深合并；只写差异文件）
+ocrc remote sync-config <id> --delete-key provider:acc,mcp.servers:acc   # 显式删对端独有的配置项
+ocrc remote sync-config <id> --delete agent/old.md                       # 显式删对端独有的文件
+ocrc remote sync-auth <id>          # provider 凭据 → 对端 0600
+```
+
+三条必须知道的语义（都实测过，别按直觉猜）：
+
+- **`.jsonc` 比 `.json` 优先**（源码：`shared.js` 的 `userPaths=[opencode.json, opencode.jsonc]` + `readConfigLayers` 让 jsonc 覆盖 json）。
+  所以合并目标是**对端赢的那一层**；若那层带注释，我们**不重写它**（注释是用户的文档），改写到 `opencode.json`
+  并列出"会被压住的键"。要让值真正生效：更新/删掉对端那个 jsonc，或加 `--prefer-commented-target` 明确接受丢注释。
+- **删除永远是显式的**：对端独有的文件与配置项只在 `config-diff` 里**列出**，勾选/`--delete-key` 才删，且都留 `.ocrc-bak`。
+- **密钥不落配置文件**：MCP `environment` 里的字面量密钥会写成 `{env:VAR}`（值本身不写）；provider 的 key 走 `auth.json`。
+  `{env:VAR}` 的值由**对端自己的环境**提供——我们不替你发明它。
+
 **变更与回滚**
 - 换版本：`ocrc remote apply <id> --app-version 2.4.0 --engine-version 2.1.0`（旧树自动留 `<prefix>.ocrc-bak`）。
 - 只换引擎：同上带 `--engine-version`；或先在对端放好再 `--engine-path <绝对路径>`（pin 会被断言，不满足 v2 门禁直接拒）。

@@ -63,6 +63,14 @@ export type RemoteInstanceOp =
    *  browser-open path. Same trust domain as `ocrc remote connect`, which has
    *  always printed it. */
   | { op: 'uipassword'; id: string }
+  /** C1/C5: local-vs-peer config diff (both directions) + what one sync would do. */
+  | { op: 'configdiff'; id: string }
+  /** C1–C4: push the whitelisted config. A job: two ssh round trips plus a tar
+   *  stream, and the peer may be slow. `deletes` are peer-only files the user
+   *  explicitly chose — never implied by the diff. */
+  | { op: 'syncconfig'; id: string; payload?: { deletes?: string[]; keyDeletes?: string[]; dryRun?: boolean } }
+  /** C3: copy provider credentials (`auth.json`) — stdin, 0600, never echoed. */
+  | { op: 'syncauth'; id: string }
   /** Ask the peer's own openchamber for a pairing link. A job, not a plain
    *  request: it ensures the `-L` for the link's URL, re-establishes the egress
    *  leg and starts monitoring, each of which is an ssh round trip — together
@@ -311,6 +319,31 @@ export function createRemoteInstanceOps({
           if (!instance) return { status: 404, body: { error: 'not found' } }
           if (!instance.uiPassword) return { status: 404, body: { error: '这个档案没有 UI 密码' } }
           return { status: 200, body: { uiPassword: instance.uiPassword, url: `http://127.0.0.1:${instance.localPort}` } }
+        }
+
+        case 'configdiff': {
+          if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
+          return start(() => manager.configDiff(op.id))
+        }
+
+        case 'syncconfig': {
+          if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
+          for (const field of ['deletes', 'keyDeletes'] as const) {
+            const value = op.payload?.[field]
+            if (value !== undefined && (!Array.isArray(value) || value.some((v) => typeof v !== 'string'))) {
+              return { status: 400, body: { error: `${field} must be a string[]` } }
+            }
+          }
+          return start(() => manager.syncConfig(op.id, {
+            deletes: op.payload?.deletes,
+            keyDeletes: op.payload?.keyDeletes,
+            dryRun: op.payload?.dryRun === true,
+          }))
+        }
+
+        case 'syncauth': {
+          if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
+          return start(() => manager.syncAuth(op.id))
         }
 
         case 'job': {

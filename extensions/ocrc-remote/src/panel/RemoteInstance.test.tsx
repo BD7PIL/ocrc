@@ -158,6 +158,49 @@ describe('远程实例页', () => {
     await waitFor(() => expect(calls.filter((c) => (c.body as { op?: string })?.op === 'pairlink')).toHaveLength(2))
   })
 
+  it('配置差异：先看差异，删除要勾选，同步前可预演', async () => {
+    const DIFF = {
+      localDir: '/home/u/.config/opencode',
+      add: ['skill/new.md'], change: ['opencode.json'], same: [], peerOnly: ['agent/old.md'], unknown: [],
+      auth: { local: true, peer: false },
+      plan: {
+        basename: 'opencode.json', configChanged: true, files: ['opencode.json', 'skill/new.md'], deletes: [],
+        keyDeletes: { requested: [], removed: [] },
+        keyDeleteCandidates: [{ collection: 'provider', key: 'acc-provider' }],
+        droppedManagedKeys: ['plugin'], secretsReplaced: [], baseUrlRewrites: [], shadowed: [],
+        notes: ['对端独有的 1 个文件不会被动（要删得显式勾选）'],
+      },
+    }
+    const { request, calls } = fakeRequest((call) => {
+      const body = call.body as { op?: string } | undefined
+      if (body?.op === 'list') return { status: 200, body: { instances: [ROW] } }
+      if (body?.op === 'configdiff') return { status: 200, body: DIFF }
+      if (body?.op === 'syncconfig') return { status: 200, body: { ok: true, detail: '同步 2 个文件' } }
+      return { status: 200, body: {} }
+    })
+    await act(async () => { render(<RemoteInstance request={request} host={null} />) })
+    await act(async () => { screen.getByText('配置差异').click() })
+    await waitFor(() => expect(screen.getByText(/配置差异（本地 ↔ 对端引擎/)).toBeTruthy())
+    expect(screen.getByText(/\+ skill\/new\.md/)).toBeTruthy()
+    expect(screen.getByText('文件 agent/old.md')).toBeTruthy()
+    expect(screen.getByText('配置项 provider:acc-provider')).toBeTruthy()
+
+    // 预演先走：dryRun=true，且没勾选任何删除 → 不删东西
+    await act(async () => { screen.getByText('预演（不写对端）').click() })
+    await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'syncconfig')).toBe(true))
+    let last = calls.filter((c) => (c.body as { op?: string })?.op === 'syncconfig').pop()
+    expect((last?.body as { payload: { dryRun: boolean; deletes: string[]; keyDeletes: string[] } }).payload)
+      .toEqual({ dryRun: true, deletes: [], keyDeletes: [] })
+
+    // 勾一个对端独有的 provider → 同步时带上 keyDeletes
+    await act(async () => { screen.getByText('配置项 provider:acc-provider').click() })
+    await act(async () => { screen.getByText('同步配置').click() })
+    await waitFor(() => expect(calls.filter((c) => (c.body as { op?: string })?.op === 'syncconfig')).toHaveLength(2))
+    last = calls.filter((c) => (c.body as { op?: string })?.op === 'syncconfig').pop()
+    expect((last?.body as { payload: { dryRun: boolean; keyDeletes: string[] } }).payload)
+      .toMatchObject({ dryRun: false, keyDeletes: ['provider:acc-provider'] })
+  })
+
   it('表单是装机输入：认证档、装机方式、出口策略都在，且派生值只显示不给控件', async () => {
     const { request, calls } = fakeRequest((call) => {
       const body = call.body as { op?: string } | undefined

@@ -47,6 +47,13 @@ function makeManager(): RemoteInstanceManager {
     pairLink: vi.fn(async () => ({
       ok: true, detail: '配对链接已生成', link: 'openchamber://connect?v=2&p=abc', expiresAt: '2026-10-17T12:00:00Z',
     })),
+    configDiff: vi.fn(async () => ({
+      localDir: '/home/u/.config/opencode', add: ['skill/a.md'], change: [], same: [], peerOnly: ['agent/old.md'],
+      unknown: [], auth: { local: true, peer: false },
+      plan: { basename: 'opencode.json', configChanged: true, files: ['opencode.json', 'skill/a.md'], deletes: [], droppedManagedKeys: [], secretsReplaced: [], baseUrlRewrites: [], notes: [] },
+    })),
+    syncConfig: vi.fn(async () => ({ ok: true, detail: '同步 2 个文件' })),
+    syncAuth: vi.fn(async () => ({ ok: true, detail: '凭据已同步（512 字节 → 对端 0600）' })),
     status: (id: string) => ({ id, state: 'online' as const, url: 'http://127.0.0.1:4610', tunnelOwner: 'external' as const, logTail: [] }),
     statusAll: () => [],
     logs: () => ['line 1', 'line 2'],
@@ -171,6 +178,31 @@ describe('remote-instance ops', () => {
     expect(status.detail).toContain('桌面版隧道未连接')
   })
 
+  it('config sync ops are jobs and never imply deletions', async () => {
+    const manager = makeManager()
+    const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager })
+
+    const diff = await ops.handle({ op: 'configdiff', id: 'demo@h' })
+    expect(diff.status).toBe(202)
+    const diffJob = await waitJob(ops, (diff.body as { jobId: string }).jobId)
+    expect(diffJob.state).toBe('done')
+    expect((diffJob.result as { plan: { files: string[] } }).plan.files).toContain('skill/a.md')
+
+    // No `deletes` in the payload must reach the manager as "delete nothing",
+    // not as "delete everything the diff found".
+    const started = await ops.handle({ op: 'syncconfig', id: 'demo@h' })
+    expect(started.status).toBe(202)
+    await waitJob(ops, (started.body as { jobId: string }).jobId)
+    expect(manager.syncConfig).toHaveBeenCalledWith('demo@h', { deletes: undefined, keyDeletes: undefined, dryRun: false })
+
+    const explicit = await ops.handle({ op: 'syncconfig', id: 'demo@h', payload: { deletes: ['agent/old.md'], dryRun: true } })
+    await waitJob(ops, (explicit.body as { jobId: string }).jobId)
+    expect(manager.syncConfig).toHaveBeenLastCalledWith('demo@h', { deletes: ['agent/old.md'], keyDeletes: undefined, dryRun: true })
+
+    expect((await ops.handle({ op: 'syncconfig', id: 'demo@h', payload: { deletes: [1] as never } })).status).toBe(400)
+    expect((await ops.handle({ op: 'syncauth', id: 'missing' })).status).toBe(404)
+  })
+
   it('unknown op and unknown ids are explicit', async () => {
     const ops = createRemoteInstanceOps({ store: makeStore(), manager: makeManager() })
     expect((await ops.handle({ op: 'nope' } as never)).status).toBe(400)
@@ -199,7 +231,8 @@ describe('remote-instance ops', () => {
   it('every op in the union has a live case', async () => {
     const everyOp: Record<RemoteInstanceOp['op'], true> = {
       list: true, add: true, patch: true, plan: true, apply: true, up: true, down: true, probe: true,
-      status: true, logs: true, url: true, connect: true, defaults: true, uipassword: true, pairlink: true,
+      status: true, logs: true, url: true, connect: true, defaults: true, uipassword: true,
+      configdiff: true, syncconfig: true, syncauth: true, pairlink: true,
       delete: true, job: true,
     }
     const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager: makeManager() })

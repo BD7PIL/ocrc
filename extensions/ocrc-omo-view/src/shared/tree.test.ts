@@ -41,13 +41,17 @@ describe('buildTree (E1 session-tree contract)', () => {
 })
 
 describe('countSubagents', () => {
-  it('counts parented non-build sessions only', () => {
+  // parentId is the only signal the host sends — see the note on
+  // countSubagents. An earlier version also demanded an `agent` name, which
+  // `GuestSessionRecord` never carries, so the count was always 0 and the panel
+  // always claimed there was nothing to show.
+  it('counts every parented session', () => {
     expect(countSubagents([
       s({ id: 'r1' }),
-      s({ id: 'r2', agent: 'build' }),
-      s({ id: 'c1', parentId: 'r1', agent: 'explorer' }),
-      s({ id: 'c2', parentId: 'r1' }), // parented but no agent → not counted
-    ])).toBe(1)
+      s({ id: 'r2' }),
+      s({ id: 'c1', parentId: 'r1' }),
+      s({ id: 'c2', parentId: 'r1' }),
+    ])).toBe(2)
   })
 })
 

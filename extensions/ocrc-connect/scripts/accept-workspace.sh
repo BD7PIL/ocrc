@@ -5,9 +5,17 @@
 #   browse → read → edit-save(.bak) → diff → stage → commit → status clean
 #   plus the guards: 403 outside allowedRoots, 400 on `..` escapes.
 #
-# Usage: extensions/ocrc-connect/scripts/accept-workspace.sh
+# Usage: extensions/ocrc-connect/scripts/accept-workspace.sh [--allow-home-writes]
 # Requires: local sshd reachable as $(id -un)@127.0.0.1 with BatchMode keys.
+#
+# --allow-home-writes：omo 那几步（[16]-[20]）会写**目标机 $HOME/.config/opencode/**
+# 下的用户级文件（oh-my-opencode-slim.json + .ocrc-bak）。那是 omo 端点本来的语义
+# （omo-slim 读用户层），但在一台正在用的机器上跑就会动到真实配置——所以默认跳过，
+# 要跑必须显式打开。
 set -euo pipefail
+
+ALLOW_HOME_WRITES=0
+[ "${1:-}" = "--allow-home-writes" ] && ALLOW_HOME_WRITES=1
 
 PORT=${PORT:-4532}
 TOK=${TOK:-accept-tok}
@@ -88,6 +96,10 @@ echo "[15] error path: 401 without token"
 echo "[16] error path: 409 fs without... (active profile present — use a fresh service for 409)"
 # 409 needs a service with NO active profile: the second service instance below.
 echo "[16] omo/config GET (no remote config → format missing)"
+if [ "$ALLOW_HOME_WRITES" != "1" ]; then
+  echo "      [16]-[20] 跳过 omo 那几步：它们会写目标机 \$HOME/.config/opencode/ 下的用户级文件。"
+  echo "                要跑就显式加 --allow-home-writes（且别对着正在用的机器跑）。"
+else
 req "http://127.0.0.1:$PORT/omo/config" | grep -q '"format"' || fail "omo/config GET"
 echo "[17] omo/config POST structured with a raw content doc present (preset set + .ocrc-bak)"
 # Seed the remote with a base config carrying a presets map, then structured-edit it.
@@ -100,30 +112,34 @@ echo "[19] omo/config 422 on invalid JSON"
 [ "$(code -X POST "http://127.0.0.1:$PORT/omo/config" -d '{"content":"{not json"}')" = "422" ] || fail "omo 422"
 echo "[20] omo/config 400 on mixed body"
 [ "$(code -X POST "http://127.0.0.1:$PORT/omo/config" -d '{"content":"{}","preset":"x"}')" = "400" ] || fail "omo mixed-body 400"
+fi
+
 echo "[21] config/source (panel-host inventory)"
 req -X POST "http://127.0.0.1:$PORT/config/source" -d '{}' | grep -q '"configPath"' || fail "config/source"
-echo "[22] config/preview → 404 when panel-host config missing"
-[ "$(code -X POST "http://127.0.0.1:$PORT/config/preview" -d '{}' )" = "404" ] || true # panel host may have a real config; 404 OR 200 both fine, just log
-echo "      (config/preview status: $(code -X POST "http://127.0.0.1:$PORT/config/preview" -d '{}'))"
-echo "[23] config/apply round-trip (panel config → remote \$HOME/.config/opencode/opencode.json)"
-# Seed the remote's opencode.json so the apply's .ocrc-bak path is exercised
-# (bak is only created when the remote file pre-exists — syncConfig family).
-ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$(id -un)@127.0.0.1" 'mkdir -p ~/.config/opencode && printf "{\"model\":\"keep-me\"}" > ~/.config/opencode/opencode.json'
-# Seed a panel-host config the service will find (service resolves via env).
-mkdir -p "$WS/panel-cfg"
-OPENCODE_CONFIG_DIR="$WS/panel-cfg" true # env for THIS shell only; service reads its own env at spawn — restart service with the env
+echo "[22] config/preview|apply 已退役（写全局配置是设计错误，2026-10-16 改判）"
+for path in /config/preview /config/apply; do
+  [ "$(code -X POST "http://127.0.0.1:$PORT$path" -d '{}')" = "410" ] || fail "$path should be 410 (改用 /project-config)"
+done
+echo "[23] 项目级配置 round-trip（面板产物 → 被控端项目目录，全局层只读）"
+# 面板宿主目录换成 fixture（服务在 spawn 时读自己的 env，所以重启一次）。
 kill "$SRV_PID" 2>/dev/null || true
+mkdir -p "$WS/panel-cfg"
 echo '{"mcp":{"servers":{"acc":{"type":"local"}}},"agents":{"acc-agent":"md"}}' > "$WS/panel-cfg/opencode.json"
 OPENCHAMBER_SERVICE_PORT=$PORT OPENCHAMBER_SERVICE_TOKEN=$TOK \
   OCRC_CONNECT_PROFILES="$WS/profiles.json" OPENCODE_CONFIG_DIR="$WS/panel-cfg" node service/main.js >> "$LOG" 2>&1 &
 SRV_PID=$!
 for _ in $(seq 1 20); do curl -s -o /dev/null -H "Authorization: Bearer $TOK" "http://127.0.0.1:$PORT/health" && break; sleep 0.5; done
-# reconnect after restart (active profile is in-memory)
 req -X POST "http://127.0.0.1:$PORT/connect" -d '{"profileId":"acc"}' > /dev/null
-req -X POST "http://127.0.0.1:$PORT/config/preview" -d '{}' | grep -q '"sectionsBridged"' || fail "config/preview"
-req -X POST "http://127.0.0.1:$PORT/config/apply" -d '{}' | grep -q '"applied":true' || fail "config/apply"
-ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$(id -un)@127.0.0.1" "grep -q acc-agent \"\$HOME/.config/opencode/opencode.json\"" || fail "config/apply landed on remote"
-ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$(id -un)@127.0.0.1" "[ -f \"\$HOME/.config/opencode/opencode.json.ocrc-bak\" ]" || fail "apply .ocrc-bak"
+# 目标机的全局配置先记下指纹：项目级写入绝不能碰它。
+GLOBAL_BEFORE=$(ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$(id -un)@127.0.0.1" 'cat ~/.config/opencode/opencode.json 2>/dev/null | md5sum' || true)
+PREVIEW=$(req -X POST "http://127.0.0.1:$PORT/project-config" -d "{\"projectPath\":\"$ROOT\",\"fromPanel\":true}")
+echo "$PREVIEW" | grep -q '"changed":true' || fail "project-config preview"
+echo "$PREVIEW" | grep -q 'acc-agent' || fail "panel sections not carried into the preview"
+[ ! -f "$ROOT/opencode.jsonc" ] || fail "preview must not write"
+req -X POST "http://127.0.0.1:$PORT/project-config" -d "{\"projectPath\":\"$ROOT\",\"fromPanel\":true,\"apply\":true}" | grep -q '"applied":true' || fail "project-config apply"
+grep -q 'acc-agent' "$ROOT/opencode.jsonc" || fail "project config not written to the project dir"
+GLOBAL_AFTER=$(ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$(id -un)@127.0.0.1" 'cat ~/.config/opencode/opencode.json 2>/dev/null | md5sum' || true)
+[ "$GLOBAL_BEFORE" = "$GLOBAL_AFTER" ] || fail "global user config was touched (must stay read-only)"
 echo "[24] disconnect + 409 on fs face without active profile"
 req -X POST "http://127.0.0.1:$PORT/disconnect" -d '{}' | grep -q '"status"' || fail "disconnect"
 [ "$(code -X POST "http://127.0.0.1:$PORT/fs/list" -d "{\"path\":\"$ROOT\"}")" = "409" ] || fail "409 no-active-profile"

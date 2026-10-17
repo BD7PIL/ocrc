@@ -19,7 +19,7 @@ const html = (title) => `<!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${title}</title>
-<link rel="stylesheet" href="./theme.css" />
+<link rel="stylesheet" href="./guest.css" />
 </head>
 <body>
 <div id="root"></div>
@@ -38,8 +38,8 @@ cpSync(join(out, 'panel-assets', 'main.js'), join(root, 'panel', 'main.js'))
 cpSync(join(out, 'status-assets', 'main.js'), join(root, 'status', 'main.js'))
 writeFileSync(join(root, 'panel', 'index.html'), html('ocrc connect'))
 writeFileSync(join(root, 'status', 'index.html'), html('ocrc tunnel'))
-cpSync(join(root, 'src', 'panel', 'theme.css'), join(root, 'panel', 'theme.css'))
-cpSync(join(root, 'src', 'panel', 'theme.css'), join(root, 'status', 'theme.css'))
+cpSync(join(root, 'src', 'shared', 'guest.css'), join(root, 'panel', 'guest.css'))
+cpSync(join(root, 'src', 'shared', 'guest.css'), join(root, 'status', 'guest.css'))
 
 // service: manifest entry is <root>/service/main.js; its '../shared/protocol.js'
 // import resolves to <root>/shared/ — stage both at package root.

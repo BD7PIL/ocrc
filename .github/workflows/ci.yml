@@ -76,6 +76,13 @@ jobs:
           git diff --exit-code -- extensions/ocrc-omo-view/panel extensions/ocrc-omo-view/service extensions/ocrc-omo-view/shared
           echo "extension artifacts in sync with src"
 
+      # What a unit test cannot see: these bundles run inside a sandboxed frame
+      # with no Node globals and no modals, and one shared guest layer copied
+      # into two extensions. Pins the two defects that shipped from batch 2 and
+      # the five-copies-of-theme.css drift.
+      - name: Guest bundle invariants (no process.env, theme bridge, no prompts)
+        run: node scripts/check-guest-bundles.mjs
+
       # Windows-handoff artifact: both extensions at their install shape,
       # packed for the panel's folder install (batch6 handoff §2).
       - name: Pack ocrc-extensions tarball

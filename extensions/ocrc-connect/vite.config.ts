@@ -7,6 +7,10 @@ import { resolve } from 'node:path'
 // Vite lib mode matches web-next's toolchain (vite 7 + react plugin).
 export default defineConfig({
   plugins: [react()],
+  // Lib mode leaves process.env.NODE_ENV in the output, and the guest frame has
+  // no Node globals — React's dev/prod branch would throw ReferenceError on
+  // load and the panel would never mount.
+  define: { 'process.env.NODE_ENV': JSON.stringify('production') },
   build: {
     target: 'es2022',
     sourcemap: false,

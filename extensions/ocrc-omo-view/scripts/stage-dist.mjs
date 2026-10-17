@@ -16,7 +16,7 @@ const html = (title) => `<!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${title}</title>
-<link rel="stylesheet" href="./theme.css" />
+<link rel="stylesheet" href="./guest.css" />
 </head>
 <body>
 <div id="root"></div>
@@ -30,6 +30,6 @@ mkdirSync(join(root, 'panel'), { recursive: true })
 
 cpSync(join(out, 'panel-assets', 'main.js'), join(root, 'panel', 'main.js'))
 writeFileSync(join(root, 'panel', 'index.html'), html('omo 编排'))
-cpSync(join(root, 'src', 'panel', 'theme.css'), join(root, 'panel', 'theme.css'))
+cpSync(join(root, 'src', 'shared', 'guest.css'), join(root, 'panel', 'guest.css'))
 
 console.log('[stage-dist] panel/ staged at package root')

@@ -24,6 +24,8 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 
 /** The sections the bridge carries from the panel-host opencode.json. */
+/** 面板配置里可以桥接到被控端的段。**写的目标永远是项目级**（D10）——
+ *  历史遗留的「写被控端全局配置」路径已在 2026-10-16 移除，别把它加回来。 */
 export const BRIDGE_SECTIONS = ['agent', 'agents', 'mcp', 'providers', 'provider'] as const
 export type BridgeSection = (typeof BRIDGE_SECTIONS)[number]
 
@@ -91,50 +93,6 @@ export function inspectConfigSource(env: Record<string, string | undefined> = pr
     } catch { /* unreadable dir — empty list */ }
   }
   return report
-}
-
-/** Deep merge: panel wins per leaf; remote-only branches survive untouched. */
-export function deepMerge(remote: unknown, panel: unknown): unknown {
-  if (panel === undefined) return remote
-  if (remote === undefined || remote === null) return panel
-  if (typeof panel !== 'object' || Array.isArray(panel) || typeof remote !== 'object' || Array.isArray(remote)) {
-    return panel // scalar/array: panel replaces
-  }
-  const out: Record<string, unknown> = { ...(remote as Record<string, unknown>) }
-  for (const [k, v] of Object.entries(panel as Record<string, unknown>)) {
-    out[k] = deepMerge(out[k], v)
-  }
-  return out
-}
-
-/** Extract the bridge payload from a parsed panel config (sections only). */
-export function extractBridgeSections(panelConfig: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const section of BRIDGE_SECTIONS) {
-    if (panelConfig[section] !== undefined) out[section] = panelConfig[section]
-  }
-  return out
-}
-
-/** The remote-side apply script: read the current remote file, merge the
- *  bridge JSON (stdin, base64) over it, back up, atomic-write. The merge runs
- *  IN the remote shell via node? No — the remote may have no node. Instead the
- *  SERVICE does the merge: it fetches the remote file first (preview), merges
- *  locally, and this script just does backup + atomic write of the merged
- *  document. Simpler, and no remote-side runtime assumptions. */
-export function buildConfigApplyScript(vpath: string): string {
-  const q = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
-  return [
-    'set -e',
-    `P=${q(vpath)}`,
-    'D=$(dirname "$P")',
-    'mkdir -p "$D"',
-    'T=$(mktemp "$D/.ocrc-cfg.XXXXXX")',
-    'base64 -d > "$T"',
-    'if [ -f "$P" ]; then cp -p "$P" "$P.ocrc-bak"; echo "bak: $P.ocrc-bak"; fi',
-    'mv "$T" "$P"',
-    'echo "written: $P"',
-  ].join('\n')
 }
 
 export interface RemoteFileReader {

@@ -1,6 +1,6 @@
 {
   "name": "ocrc-connect",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "description": "ocrc connect — SSH tunnel profiles + remote workspace (fs/git-over-ssh) for openchamber (external opencode engine on a controlled host)",
@@ -27,7 +27,20 @@
             "ssh"
           ]
         }
-      }
+      },
+      "capabilities": [
+        "sessions"
+      ],
+      "commands": [
+        {
+          "name": "ocrc-host",
+          "description": "把 ocrc 远端主机的现状交给模型（就绪度、引擎、能力缺口）"
+        },
+        {
+          "name": "ocrc-plan",
+          "description": "把「连上这台主机还需要装什么」交给模型去安排"
+        }
+      ]
     }
   },
   "scripts": {
@@ -39,9 +52,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@openchamber/sdk": "^2.3.2"
+    "@openchamber/sdk": "^2.3.2",
+    "@remixicon/react": "^4.9.0"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.0",
     "@types/node": "^22.10.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.8",
@@ -49,7 +64,6 @@
     "jsdom": "^26.1.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "@testing-library/react": "^16.3.0",
     "typescript": "~5.8.3",
     "vite": "^7.0.0",
     "vitest": "^3.2.4"

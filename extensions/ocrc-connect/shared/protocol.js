@@ -1,4 +1,3 @@
-/** Shared types between the panel and the service (imported by both). */
 export const DEFAULT_REMOTE_PORT = 4096;
 export const DEFAULT_LOCAL_PORT = 4096;
 export function normalizeProfile(raw) {
@@ -14,12 +13,22 @@ export function normalizeProfile(raw) {
         allowedRoots: Array.isArray(raw.allowedRoots)
             ? raw.allowedRoots.map((r) => String(r).trim()).filter((r) => r.startsWith('/'))
             : undefined,
+        projects: Array.isArray(raw.projects)
+            ? raw.projects
+                .map((p) => ({ path: String(p.path ?? '').trim(), label: p.label?.trim() || undefined }))
+                .filter((p) => p.path.startsWith('/'))
+            : undefined,
+        forwards: Array.isArray(raw.forwards) ? raw.forwards : undefined,
+        engineVersion: raw.engineVersion?.trim() || undefined,
     };
 }
-/** argv for the tunnel spawn. One ssh process = forward + keepalive:
+/** argv for the tunnel spawn. One ssh process = every forward + keepalive:
  *  ServerAliveInterval detects a dead peer, ExitOnForwardFailure makes a
  *  busy local port fatal (so the supervisor can report it) instead of
- *  silently sitting on an unforwarded session. */
+ *  silently sitting on an unforwarded session.
+ *
+ *  能力补充的转发与主隧道**同一个进程**（D15）：生命周期完全一致，隧道断则
+ *  它们一起断，不会留下半条活的侧路。 */
 export function buildSshArgs(p) {
     const args = [
         '-N',
@@ -36,6 +45,12 @@ export function buildSshArgs(p) {
     if (p.keyPath)
         args.push('-i', p.keyPath);
     args.push('-L', `127.0.0.1:${p.localPort}:127.0.0.1:${p.remotePort}`);
+    for (const forward of p.forwards ?? []) {
+        // 端口 0 = 还没分配：分配之前不进 argv，避免 ssh 起在随机端口上而我们不知道。
+        if (!forward.port)
+            continue;
+        args.push(forward.direction === 'local' ? '-L' : '-R', `127.0.0.1:${forward.port}:${forward.peerHost}:${forward.peerPort}`);
+    }
     args.push(`${p.user}@${p.host}`);
     return args;
 }

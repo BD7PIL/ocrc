@@ -1,4 +1,5 @@
 /** Shared types between the panel and the service (imported by both). */
+import type { ForwardRuntime, ProjectEntry } from './provision.js'
 
 export interface SshProfile {
   id: string
@@ -16,6 +17,13 @@ export interface SshProfile {
   /** Absolute directories ON THE REMOTE the workspace browser may touch
    *  (batch 4 fs/git endpoints). Empty = the whole face stays 403. */
   allowedRoots?: string[]
+  /** 主机档案的**子项**：工作目录（D16）。隧道、引擎、运行时都绑主机，
+   *  项目只是它下面的一个目录，所以这里是一张表而不是一个字段。 */
+  projects?: ProjectEntry[]
+  /** 额外转发，与主隧道共生（D15）。端口由服务在连接时分配并回写。 */
+  forwards?: ForwardRuntime[]
+  /** 面板宿主要镜像的引擎版本（D6）——探测时用来算出漂移。 */
+  engineVersion?: string
 }
 
 export interface TunnelStatus {
@@ -47,13 +55,23 @@ export function normalizeProfile(raw: Partial<SshProfile> & { host: string }): S
     allowedRoots: Array.isArray(raw.allowedRoots)
       ? raw.allowedRoots.map((r) => String(r).trim()).filter((r) => r.startsWith('/'))
       : undefined,
+    projects: Array.isArray(raw.projects)
+      ? raw.projects
+        .map((p) => ({ path: String((p as ProjectEntry).path ?? '').trim(), label: (p as ProjectEntry).label?.trim() || undefined }))
+        .filter((p) => p.path.startsWith('/'))
+      : undefined,
+    forwards: Array.isArray(raw.forwards) ? raw.forwards : undefined,
+    engineVersion: raw.engineVersion?.trim() || undefined,
   }
 }
 
-/** argv for the tunnel spawn. One ssh process = forward + keepalive:
+/** argv for the tunnel spawn. One ssh process = every forward + keepalive:
  *  ServerAliveInterval detects a dead peer, ExitOnForwardFailure makes a
  *  busy local port fatal (so the supervisor can report it) instead of
- *  silently sitting on an unforwarded session. */
+ *  silently sitting on an unforwarded session.
+ *
+ *  能力补充的转发与主隧道**同一个进程**（D15）：生命周期完全一致，隧道断则
+ *  它们一起断，不会留下半条活的侧路。 */
 export function buildSshArgs(p: SshProfile): string[] {
   const args = [
     '-N',
@@ -69,6 +87,14 @@ export function buildSshArgs(p: SshProfile): string[] {
   ]
   if (p.keyPath) args.push('-i', p.keyPath)
   args.push('-L', `127.0.0.1:${p.localPort}:127.0.0.1:${p.remotePort}`)
+  for (const forward of p.forwards ?? []) {
+    // 端口 0 = 还没分配：分配之前不进 argv，避免 ssh 起在随机端口上而我们不知道。
+    if (!forward.port) continue
+    args.push(
+      forward.direction === 'local' ? '-L' : '-R',
+      `127.0.0.1:${forward.port}:${forward.peerHost}:${forward.peerPort}`,
+    )
+  }
   args.push(`${p.user}@${p.host}`)
   return args
 }

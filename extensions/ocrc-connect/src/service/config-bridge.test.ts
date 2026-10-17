@@ -1,19 +1,22 @@
 import { describe, it, expect } from 'vitest'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import {
   resolvePanelConfigPath, resolvePanelAgentsDir,
-  inspectConfigSource, extractBridgeSections, deepMerge, buildConfigApplyScript,
+  inspectConfigSource,
   BRIDGE_SECTIONS,
 } from './config-bridge.js'
 
 describe('panel path resolution (mirrors openchamber shared.js)', () => {
+  // Expected paths go through `join`: these are paths on the PANEL HOST, so the
+  // separator follows whatever platform the service runs on. A literal
+  // '/x/y/opencode.json' only ever passed on POSIX.
   it('OPENCODE_CONFIG_DIR wins; then XDG; then ~/.config/opencode', () => {
-    expect(resolvePanelConfigPath({ OPENCODE_CONFIG_DIR: '/x/y' })).toBe('/x/y/opencode.json')
-    expect(resolvePanelConfigPath({ XDG_CONFIG_HOME: '/xdg' })).toBe('/xdg/opencode/opencode.json')
+    expect(resolvePanelConfigPath({ OPENCODE_CONFIG_DIR: '/x/y' })).toBe(join('/x/y', 'opencode.json'))
+    expect(resolvePanelConfigPath({ XDG_CONFIG_HOME: '/xdg' })).toBe(join('/xdg', 'opencode', 'opencode.json'))
     const p = resolvePanelConfigPath({})
     expect(p.endsWith('opencode.json')).toBe(true)
-    expect(resolvePanelAgentsDir({ OPENCODE_CONFIG_DIR: '/x/y' })).toBe('/x/y/agents')
+    expect(resolvePanelAgentsDir({ OPENCODE_CONFIG_DIR: '/x/y' })).toBe(join('/x/y', 'agents'))
   })
 
   it('win32: %APPDATA%\\opencode is the fallback when no explicit env is set', () => {
@@ -22,7 +25,7 @@ describe('panel path resolution (mirrors openchamber shared.js)', () => {
     const p = resolvePanelConfigPath({ APPDATA: 'C:\\Users\\u\\AppData\\Roaming' }, 'win32')
     expect(p).toBe(join('C:\\Users\\u\\AppData\\Roaming', 'opencode', 'opencode.json'))
     // XDG still wins over APPDATA (explicit override wins).
-    expect(resolvePanelConfigPath({ XDG_CONFIG_HOME: '/xdg', APPDATA: 'C:\\r' }, 'win32')).toBe('/xdg/opencode/opencode.json')
+    expect(resolvePanelConfigPath({ XDG_CONFIG_HOME: '/xdg', APPDATA: 'C:\\r' }, 'win32')).toBe(join('/xdg', 'opencode', 'opencode.json'))
     // The %APPDATA% branch never fires on POSIX.
     expect(resolvePanelConfigPath({ APPDATA: 'C:\\r' }, 'linux')).toBe(join(homedir(), '.config', 'opencode', 'opencode.json'))
     expect(resolvePanelAgentsDir({ APPDATA: 'C:\\Users\\u\\AppData\\Roaming' }, 'win32')).toBe(join('C:\\Users\\u\\AppData\\Roaming', 'opencode', 'agents'))
@@ -35,14 +38,14 @@ describe('inspectConfigSource', () => {
     read: (p: string) => { const c = files[p]; if (c === undefined) throw new Error('enoent'); return c },
     listDir: (p: string) => {
       if (!dirs.includes(p)) throw new Error('enoent')
-      return Object.keys(files).filter((f) => f.startsWith(p + '/')).map((f) => f.slice(p.length + 1))
+      return Object.keys(files).filter((f) => dirname(f) === p).map((f) => basename(f))
     },
     stat: (p: string) => ({ size: (files[p] ?? '').length }),
   })
 
   it('lists bridge sections and agent md files; skips non-objects', () => {
-    const cfgPath = '/panel/opencode.json'
-    const agentsDir = '/panel/agents'
+    const cfgPath = join('/panel', 'opencode.json')
+    const agentsDir = join('/panel', 'agents')
     const fs = fakeFs(
       {
         [cfgPath]: JSON.stringify({
@@ -52,8 +55,8 @@ describe('inspectConfigSource', () => {
           model: 'x/y', // not a section — ignored
           plugin: ['a'], // array — ignored
         }),
-        [agentsDir + '/reviewer.md']: '---\nmode: subagent\n---\nreview',
-        [agentsDir + '/notes.txt']: 'ignored',
+        [join(agentsDir, 'reviewer.md')]: '---\nmode: subagent\n---\nreview',
+        [join(agentsDir, 'notes.txt')]: 'ignored',
       },
       [agentsDir],
     )
@@ -62,11 +65,11 @@ describe('inspectConfigSource', () => {
     expect(r.sections.agent).toEqual(['build'])
     expect(r.sections.mcp).toEqual(['servers'])
     expect(r.sections.providers).toEqual(['provA', 'provB'])
-    expect(r.agentFiles).toEqual([{ name: 'reviewer', path: agentsDir + '/reviewer.md', size: 29 }])
+    expect(r.agentFiles).toEqual([{ name: 'reviewer', path: join(agentsDir, 'reviewer.md'), size: 29 }])
   })
 
   it('reports parseError on unparseable json without throwing', () => {
-    const fs = fakeFs({ '/panel/opencode.json': '{not json' })
+    const fs = fakeFs({ [join('/panel', 'opencode.json')]: '{not json' })
     const r = inspectConfigSource({ OPENCODE_CONFIG_DIR: '/panel' }, fs.exists, fs.read, fs.listDir, fs.stat)
     expect(r.parseError).toBeTruthy()
   })
@@ -79,37 +82,12 @@ describe('inspectConfigSource', () => {
   })
 })
 
-describe('merge policy (panel wins per leaf, remote-only survives)', () => {
-  it('deepMerge preserves remote-only branches and adds panel additions', () => {
-    const remote = { provider: { a: { k: 1 } }, agent: { build: { model: 'old' } }, plugins: ['ocrc'] }
-    const panel = { agent: { build: { model: 'new' }, reviewer: { mode: 'subagent' } }, mcp: { servers: { s: {} } } }
-    const merged = deepMerge(remote, panel) as Record<string, any>
-    expect(merged.provider.a.k).toBe(1) // remote-only survives
-    expect(merged.agent.build.model).toBe('new') // panel wins
-    expect(merged.agent.reviewer.mode).toBe('subagent') // panel addition
-    expect(merged.mcp.servers.s).toEqual({}) // panel addition
-    expect(merged.plugins).toEqual(['ocrc']) // ocrc-owned rides along
-  })
-
-  it('arrays and scalars replace (panel semantics), undefined panel = keep remote', () => {
-    expect(deepMerge({ a: [1, 2] }, { a: [3] })).toEqual({ a: [3] })
-    expect(deepMerge({ a: 'x' }, { a: 'y' })).toEqual({ a: 'y' })
-    expect(deepMerge({ a: 'x' }, {})).toEqual({ a: 'x' })
-  })
-
-  it('extractBridgeSections picks exactly the bridge sections', () => {
-    const cfg = { agent: { a: 1 }, agents: { b: 2 }, mcp: { servers: {} }, providers: { p: {} }, provider: { q: {} }, model: 'x', plugins: [] }
-    const out = extractBridgeSections(cfg)
-    expect(Object.keys(out).sort()).toEqual([...BRIDGE_SECTIONS].sort())
-    expect(out.model).toBeUndefined()
+describe('bridge sections', () => {
+  // 段白名单还在（读面板宿主的清单要用）；写入路径已改到项目级（D10），
+  // 合并与落盘由 config-project.ts 负责并有自己的测试。
+  it('covers the sections the panel can offer', () => {
+    expect(BRIDGE_SECTIONS).toContain('mcp')
+    expect(BRIDGE_SECTIONS).toContain('agents')
   })
 })
 
-describe('buildConfigApplyScript', () => {
-  it('quotes path, backs up to .ocrc-bak, atomic mv', () => {
-    const s = buildConfigApplyScript("/home/u/.config/opencode/opencode.json")
-    expect(s).toContain(`P='/home/u/.config/opencode/opencode.json'`)
-    expect(s).toContain('cp -p "$P" "$P.ocrc-bak"')
-    expect(s).toContain('mv "$T" "$P"')
-  })
-})

@@ -28,20 +28,43 @@ function waitHealth(p: number, tries = 40): Promise<boolean> {
   })
 }
 
+/** 起服务并拿到**内核分配的真实端口**。
+ *
+ *  以前这里是 `4600 + random(80)`：80 个端口的随机池 + 每个用例一个子进程，
+ *  并行跑文件时既可能撞上别人占的端口，也可能撞上**上一个用例还没退干净**的服务——
+ *  于是失败会随机落在某个用例上（表现为断言不符，而不是启动失败），非常难查。
+ *  现在请求端口 0，由内核保证唯一；端口从服务的启动行里读回来。 */
 async function startService(extraEnv: Record<string, string> = {}): Promise<void> {
-  port = 4600 + Math.floor(Math.random() * 80)
-  child = spawn(process.execPath, [join('service', 'main.js')], {
+  const proc = spawn(process.execPath, [join('service', 'main.js')], {
     cwd: join(__dirname, '..', '..'),
     env: {
       ...process.env,
-      OPENCHAMBER_SERVICE_PORT: String(port),
+      OPENCHAMBER_SERVICE_PORT: '0',
       OPENCHAMBER_SERVICE_TOKEN: TOK,
       OCRC_CONNECT_PROFILES: join(ws, 'profiles.json'),
       ...extraEnv,
     },
-    stdio: ['ignore', 'ignore', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'],
   })
-  if (!(await waitHealth(port))) throw new Error('service did not become healthy')
+  child = proc
+  const bound = await new Promise<number>((resolve, reject) => {
+    let buf = ''
+    const timer = setTimeout(() => reject(new Error(`service did not report its port (stdout: ${buf.slice(-300)})`)), 15_000)
+    proc.stdout?.on('data', (d: Buffer) => {
+      buf += d.toString()
+      const m = /service listening on 127\.0\.0\.1:(\d+)/.exec(buf)
+      if (m) {
+        clearTimeout(timer)
+        resolve(Number(m[1]))
+      }
+    })
+    proc.on('exit', (code) => {
+      clearTimeout(timer)
+      reject(new Error(`service exited before listening (code ${code}): ${buf.slice(-300)}`))
+    })
+  })
+  port = bound
+  if (!(await waitHealth(port))) throw new Error(`service did not become healthy on ${port}`)
 }
 
 function req(method: string, path: string, body?: unknown, auth = `Bearer ${TOK}`): Promise<{ status: number; json: any }> {
@@ -55,9 +78,24 @@ function req(method: string, path: string, body?: unknown, auth = `Bearer ${TOK}
 beforeEach(() => {
   ws = mkdtempSync(join(tmpdir(), 'ocrc-svc-'))
 })
-afterEach(() => {
-  child?.kill('SIGTERM')
+afterEach(async () => {
+  const proc = child
   child = null
+  if (proc && proc.exitCode === null) {
+    // 等它**真的**退出再删目录：不等的话下一个用例可能撞上还在服务的旧进程，
+    // 读到一个已被删除的 profiles 文件——那正是之前间歇性失败的来源。
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        try { proc.kill('SIGKILL') } catch { /* gone */ }
+        resolve()
+      }, 3_000)
+      proc.once('exit', () => {
+        clearTimeout(timer)
+        resolve()
+      })
+      try { proc.kill('SIGTERM') } catch { clearTimeout(timer); resolve() }
+    })
+  }
   try { rmSync(ws, { recursive: true, force: true }) } catch { /* gone */ }
 })
 
@@ -130,5 +168,209 @@ describe('service main — auth + routing contract', () => {
     await startService()
     const s = await req('GET', '/status')
     expect(s.json.profiles.map((p: { id: string }) => p.id)).toContain('keep')
+  })
+})
+
+describe('provisioning 路由契约（第零点九条）', () => {
+  it('每个新端点都在 bearer token 后面', async () => {
+    await startService()
+    for (const path of ['/detect', '/inspect', '/provision/plan', '/provision/apply', '/provision/prefetch', '/provision/rollback', '/provision/uninstall', '/capabilities', '/project-config', '/forwards', '/runtime/plan', '/runtime/apply', '/runtime/remove']) {
+      const r = await fetch(`http://127.0.0.1:${port}${path}`, { method: 'POST' })
+      expect(`${path} ${r.status}`).toBe(`${path} 401`)
+    }
+  })
+
+  it('探测与规划要求先连上档案（409，而不是拿一台随机机器动手）', async () => {
+    await startService()
+    for (const path of ['/detect', '/inspect', '/provision/plan', '/capabilities']) {
+      const r = await req('POST', path, {})
+      expect(`${path} ${r.status}`).toBe(`${path} 409`)
+    }
+  })
+
+  it('安装与卸载必须显式确认（D3）——没有 confirm 就 400', async () => {
+    await startService()
+    await req('POST', '/profiles', { profile: { id: 'u1', host: '127.0.0.1', projects: [{ path: '/tmp' }] } })
+    await req('POST', '/connect', { profileId: 'u1' })
+
+    const apply = await req('POST', '/provision/apply', { plan: {}, artifact: {} })
+    expect(apply.status).toBe(400)
+    expect(apply.json.error).toContain('显式确认')
+
+    const uninstall = await req('POST', '/provision/uninstall', { home: '/tmp' })
+    expect(uninstall.status).toBe(400)
+    expect(uninstall.json.error).toContain('显式确认')
+
+    // 确认了但没带计划 → 400，而不是 500。
+    const missing = await req('POST', '/provision/apply', { confirm: true })
+    expect(missing.status).toBe(400)
+  })
+
+  it('回滚/卸载的 home 必须是被控机的 $HOME（不是项目号，更不是 /）', async () => {
+    await startService()
+    await req('POST', '/profiles', { profile: { id: 'u1', host: '127.0.0.1', projects: [{ path: '/tmp' }] } })
+    await req('POST', '/connect', { profileId: 'u1' })
+
+    for (const home of ['', '/', 'relative/dir', '/home/../etc']) {
+      const r = await req('POST', '/provision/uninstall', { home, confirm: true })
+      expect(`${home} ${r.status}`).toBe(`${home} 400`)
+      expect(r.json.error).toContain('$HOME')
+    }
+  })
+
+  it('项目级配置写入要求被控机上的绝对路径；读取给出引擎会读的那一份', async () => {
+    await startService()
+    await req('POST', '/profiles', { profile: { id: 'u1', host: '127.0.0.1' } })
+    await req('POST', '/connect', { profileId: 'u1' })
+
+    const relative = await req('GET', '/project-config?projectPath=relative/x')
+    expect(relative.status).toBe(400)
+    expect(relative.json.error).toContain('绝对路径')
+  })
+
+  it('项目级配置写入要先过段白名单（不接受空产物）', async () => {
+    await startService()
+    await req('POST', '/profiles', { profile: { id: 'u1', host: '127.0.0.1' } })
+    await req('POST', '/connect', { profileId: 'u1' })
+    const r = await req('POST', '/project-config', { projectPath: '/tmp', config: { apiKey: 'sk-panel' } })
+    expect(r.status).toBe(400)
+    expect(r.json.error).toContain('没有可写入的段')
+  })
+
+  it('旧的全局写入入口被拒绝（410），并指向项目级端点', async () => {
+    await startService()
+    await req('POST', '/profiles', { profile: { id: 'u1', host: '127.0.0.1' } })
+    await req('POST', '/connect', { profileId: 'u1' })
+    for (const path of ['/config/preview', '/config/apply']) {
+      const r = await req('POST', path, {})
+      expect(`${path} ${r.status}`).toBe(`${path} 410`)
+      expect(r.json.error).toContain('/project-config')
+    }
+  })
+
+  it('/config/source 仍然只读面板宿主的清单（它的活儿没变）', async () => {
+    await startService()
+    await req('POST', '/profiles', { profile: { id: 'u1', host: '127.0.0.1' } })
+    await req('POST', '/connect', { profileId: 'u1' })
+    const r = await req('POST', '/config/source', {})
+    expect(r.status).toBe(200)
+    expect(r.json).toHaveProperty('configPath')
+  })
+
+  it('凭据通道：搬运要显式确认，且回面板的只有 provider 名字（D11）', async () => {
+    await startService()
+    await req('POST', '/profiles', { profile: { id: 'u1', host: '127.0.0.1' } })
+    await req('POST', '/connect', { profileId: 'u1' })
+
+    const noHome = await req('GET', '/auth-sync')
+    expect(noHome.status).toBe(400)
+
+    const unconfirmed = await req('POST', '/auth-sync', { home: '/tmp' })
+    expect(unconfirmed.status).toBe(400)
+    expect(unconfirmed.json.error).toContain('显式确认')
+
+    // 面板宿主上真实存在的那份凭据文件：这里只断言「账里没有值」。
+    const inventory = await req('GET', '/auth-sync?home=/tmp')
+    if (inventory.status === 200) {
+      expect(Array.isArray(inventory.json.panelProviders)).toBe(true)
+      expect(JSON.stringify(inventory.json)).not.toMatch(/sk-[A-Za-z0-9]/)
+    }
+  })
+
+  it('/forwards 落到档案并持久化（与主隧道共生，D15），且不要求先连上', async () => {
+    await startService()
+    await req('POST', '/profiles', { profile: { id: 'u1', host: '127.0.0.1' } })
+
+    // 连接之前就能配：转发的用途就是「连之前先配好」（spike 抓到的缺陷）。
+    const before = await req('POST', '/forwards', {
+      profileId: 'u1',
+      forwards: [{ direction: 'local', peerHost: '192.168.96.11', peerPort: 8080, port: 41001, activePort: 41001, reason: 'searxng' }],
+    })
+    expect(before.status).toBe(200)
+    expect(before.json.restarted).toBe(false)
+
+    // 连上之后再改同一份档案：这次要重启隧道让新转发生效。
+    await req('POST', '/connect', { profileId: 'u1' })
+    const after = await req('POST', '/forwards', {
+      profileId: 'u1',
+      forwards: [{ direction: 'local', peerHost: '192.168.96.11', peerPort: 8080, port: 41002, activePort: 41002, reason: 'searxng' }],
+    })
+    expect(after.json.restarted).toBe(true)
+
+    const status = await req('GET', '/status')
+    expect(status.json.profiles[0].forwards[0].port).toBe(41002)
+  })
+
+  it('/forwards 没给档案也不在连接态 → 400，指名道姓', async () => {
+    await startService()
+    const r = await req('POST', '/forwards', { forwards: [] })
+    expect(r.status).toBe(400)
+    expect(r.json.error).toContain('profileId')
+    await req('POST', '/profiles', { profile: { id: 'u1', host: '127.0.0.1' } })
+    expect((await req('POST', '/forwards', { profileId: 'nope', forwards: [] })).json.error).toContain('不存在')
+  })
+})
+
+describe('运行时路由契约（D12/D13）', () => {
+  const NEED_ITEM = {
+    need: { raw: 'mcp-searxng', kind: 'npm', name: 'mcp-searxng' },
+    action: 'install',
+    package: 'mcp-searxng',
+    dir: '/home/demo/.ocrc/runtime/mcp-searxng/latest',
+    neededBy: ['mcp:searxng'],
+  }
+
+  it('新端点都在 bearer token 后面', async () => {
+    await startService()
+    for (const path of ['/runtime/plan', '/runtime/apply', '/runtime/remove']) {
+      const r = await fetch(`http://127.0.0.1:${port}${path}`, { method: 'POST' })
+      expect(`${path} ${r.status}`).toBe(`${path} 401`)
+    }
+  })
+
+  it('计划与安装都要求先连上档案（409）', async () => {
+    await startService()
+    for (const path of ['/runtime/plan', '/runtime/apply', '/runtime/remove']) {
+      const r = await req('POST', path, {})
+      expect(`${path} ${r.status}`).toBe(`${path} 409`)
+    }
+  })
+
+  it('安装要显式确认，且必须带计划里那一项（D3）', async () => {
+    await startService()
+    await req('POST', '/profiles', { profile: { id: 'u1', host: '127.0.0.1', projects: [{ path: '/tmp' }] } })
+    await req('POST', '/connect', { profileId: 'u1' })
+
+    const unconfirmed = await req('POST', '/runtime/apply', { item: NEED_ITEM })
+    expect(unconfirmed.status).toBe(400)
+    expect(unconfirmed.json.error).toContain('显式确认')
+
+    const missing = await req('POST', '/runtime/apply', { confirm: true })
+    expect(missing.status).toBe(400)
+    expect(missing.json.error).toContain('/runtime/plan')
+  })
+
+  it('计划要项目路径：没有被控机上的工作目录就 400', async () => {
+    await startService()
+    await req('POST', '/profiles', { profile: { id: 'u1', host: '127.0.0.1' } })
+    await req('POST', '/connect', { profileId: 'u1' })
+    const r = await req('POST', '/runtime/plan', {})
+    expect(r.status).toBe(400)
+    expect(r.json.error).toContain('工作目录')
+  })
+
+  it('移除也只认自己的运行时根目录', async () => {
+    await startService()
+    await req('POST', '/profiles', { profile: { id: 'u1', host: '127.0.0.1' } })
+    await req('POST', '/connect', { profileId: 'u1' })
+
+    const unconfirmed = await req('POST', '/runtime/remove', { dir: '/home/demo/.ocrc/runtime/x/latest' })
+    expect(unconfirmed.status).toBe(400)
+    expect(unconfirmed.json.error).toContain('显式确认')
+
+    // 落点必须落在**这台目标机**的 ~/.ocrc/runtime 里——探测失败时也绝不放过。
+    const outside = await req('POST', '/runtime/remove', { dir: '/etc', confirm: true })
+    expect(outside.status).toBe(400)
+    expect(outside.json.error).toContain('.ocrc/runtime')
   })
 })

@@ -191,14 +191,14 @@ ocrc 的已保存 workflow 是一个机器级 store，没有可搬的文件。am
 [handoff/remote-instance-dev-and-test-plan.md](handoff/remote-instance-dev-and-test-plan.md) §2/§4；
 机制裁决见 [research/remote-instance-verdict.md](research/remote-instance-verdict.md)。
 
-- **两档入口**：① 浏览器/PWA 打开 `http://127.0.0.1:<localPort>`（手机也走这条，控制端在 127.0.0.1 上）；
-  ② openchamber 桌面版的 **external 模式**（多机聚合、主机切换靠它）。第二档的「一键」= `ocrc remote connect <id>`：
-  把桌面版对话框要的**地址 / 密码 / 端口**一次算好、验好并可直接 `--open` 打开；`--json` 给脚本与面板。
-  **2026-10-17 实测**：官方桌面版 **2.4.0** 的 external 模式**接受我们自装的 2.3.3 实例**——桌面壳自己建
-  `ssh -L 127.0.0.1:<local>:127.0.0.1:2610`，`/api/system/info` 返回对端 pid，Add project 的目录浏览器
-  列出 `/home/demo`，会话来自对端引擎。**web 版（`:3000`）没有 Electron 的 `desktop_ssh_*` 桥，做不了这件事**；
-  列表仍是 desktop 独占面，`ocrc remote connect` **不自动写**（验收时人工合并 `~/.config/openchamber/settings.json`，
-  已留 `.ocrc-bak`；密码/客户端令牌都不落盘，页面首开手输一次）。
+- **入口（2026-10-17 收敛）**：控制端固定为 Win/Mac openchamber 桌面版。装好实例后，用户在桌面版原生
+  **Remote Instances** 里填一次地址/密码/端口（`ocrc remote connect <id>` 把三项算好）；之后多机切换都用原生能力。
+  浏览器直接开 `http://127.0.0.1:<localPort>` 只作为调试/无桌面时的次入口。
+  **内嵌试验（同日）**：扩展 guest 的 CSP `frame-src 'self' data: blob:` 与对端 `frame-ancestors` 双重阻断，
+  扩展页面无法 iframe 对端 UI；证据见 [research/embedding-experiment.md](research/embedding-experiment.md)。
+  **桌面版实测**：2.4.0 external 模式接受自装 2.3.3——桌面壳自建 `ssh -L`，`/api/system/info` 返回对端 pid，
+  Add project 列出 `/home/demo`。`ocrc remote connect` 不自动写列表；手工合并 settings.json 时先 `.ocrc-bak`，
+  不写明文密码/clientToken。
 - **R12 引擎门禁（硬）**：实例的引擎**必须** opencode **major=2 且 ≥ 2.0.20**（上游
   `compatibility.js` 同判据），二进制路径**钉死绝对路径、绝不靠 PATH、绝不回落 v1**。
   三个断言点：`plan`（预演）/ `up` 前（pin 断言）/ 实例自报

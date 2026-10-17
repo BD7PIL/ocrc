@@ -388,6 +388,18 @@ PRODUCT 第零点十条、OPS 运维段、handoff 验收脚本说明；跑 §5 �
 （桌面壳独占 settings），但人工合并已被证明可用；**web 版仍不能做**（SSH 是 Electron IPC，浏览器没有这个桥）。
 凭据纪律：`auth.openchamberPassword.store="never"`、不写 `clientToken`，页面首开手输一次。
 
+## 4.8 内嵌试验（2026-10-17，Phase 1 决策门）
+
+问题：扩展 page/panel 能否直接 iframe 对端 UI？**结论：不能。** 运行中的 openchamber 2.3.3 返回的
+guest CSP 是 `frame-src 'self' data: blob:`，不允许 `127.0.0.1:4610`；SDK 的 `origins` 能力只放宽
+fetch/img/font/style/media，**从不放宽 frame-src**。即使绕过这一层，对端
+`frame-ancestors 'self' openchamber-ui://app …` 也与 guest 的 opaque origin（`sandbox allow-scripts`）不匹配。
+同一 sandbox 没有 `allow-popups`，`window.open` 也被拦（现在面板的「打开界面」用的就是它，Phase 4 改用
+`host.openUrl`）。`service.surface` 是宿主 canvas 像素流，不是 DOM 内嵌，承载完整 UI 等于自造 VNC，v1 不做。
+
+决定：回退桌面版原生 **Remote Instances**；扩展页面展示三项 + 复制 + `host.openUrl` 次入口。证据与复现命令见
+[embedding-experiment.md](../research/embedding-experiment.md)。
+
 ---
 
 ## 5. 测试方案（分层）

@@ -123,6 +123,11 @@ ocrc remote up demo@192.168.26.101 --open
    `desktopSshInstances` 并设 `desktopDefaultHostId`；**不要写明文密码或 clientToken**——本机验收用
    `store:"never"` + 首开手输，桌面壳不会把值落盘。
 
+> **内嵌结论（2026-10-17）**：扩展页面不能 iframe 对端——guest CSP `frame-src 'self' data: blob:` 与对端
+> `frame-ancestors` 双重阻断；guest sandbox 也没有 `allow-popups`，`window.open` 同样被拦。扩展页面的
+> 「打开」必须用 SDK 的 `host.openUrl`（系统浏览器）。证据见
+> [research/embedding-experiment.md](../research/embedding-experiment.md)。
+
 > **web 版不能做这件事**：`openchamber --port 3000` 的 Settings 里也有 Remote Instances 页，但 SSH 隧道由
 > Electron 主进程的 `desktop_ssh_*` IPC 提供，浏览器里没有这个桥。`desktopSshInstances` 在 settings registry 里
 > 标注 `scope=instance, owner=desktop-shell, surfaces=[desktop]`，这是“必须走桌面壳”，不是“不能用”——

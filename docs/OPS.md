@@ -149,7 +149,8 @@ ocrc remote up demo@192.168.26.101 --open
 **CI 兼容包（Linux x64 两档，2026-10-17 真机验证）**
 
 - **产物**：`ocrc-remote-pack-<ver>-linux-x64-modern.tar.gz` 与 `...legacy-glibc217.tar.gz`，各带
-  `.sha512`（base64）与一份 tier manifest；发布在 GitHub Release `ocrc-remote-pack-<ver>`。
+  `.sha512`（base64）、一份 tier manifest 与一份 `.lock.json`（构建时冻结的依赖图）；
+  发布在 GitHub Release `ocrc-remote-pack-<ver>`。
 - **档位规则**：对端 glibc **< 2.31 → legacy**（node-pty 按 2.17 重建 + glibc-217 Node）；
   **≥ 2.31 → modern**。`ocrc remote apply` 自动探测，不需要手工选。
 - **控制端取件**：默认从 release manifest 下载并按 sha512 校验后缓存；离线/内网用
@@ -158,6 +159,17 @@ ocrc remote up demo@192.168.26.101 --open
   legacy 在 CI 的 centos:7 容器里跑（`scripts/build-pty-legacy-local.sh` 重建 pty，
   `objdump` 断言 GLIBC ≤ 2.17、GLIBCXX/CXXABI 引用 0）。工作流：
   [`.github/workflows/ocrc-pack.yml`](../.github/workflows/ocrc-pack.yml)（每日 + 手动）。
+- **一个版本只构建一次（2026-10-17 修正，octg 式闸门）**：`detect` 把 Release tag 当构建身份——
+  `ocrc-remote-pack-<ver>` 已带齐 7 件核心资产就**整条链跳过**，所以每日 cron 在上游没发版的日子
+  只花几秒，且**已发布的包永不被静默替换**。Release 存在但缺资产 = 不完整 → 门放行、补建，
+  那是唯一会 `--clobber` 的路径。要强制重建已发布的版本，先
+  `gh release delete ocrc-remote-pack-<ver> -R BD7PIL/ocrc --yes`（或删掉其中一个资产）再 dispatch。
+  门的判定是"资产名齐不齐"，不校验内容——内容由控制端取件时的 sha512 兜底。
+- **可复现**：安装改成 `npm install --package-lock-only` + `npm ci`（不再裸装），打包用确定性 tar
+  （排序后的文件表 + `--mtime=@0 --owner=0 --group=0 --numeric-owner`；centos:7 的 tar 1.26 没有
+  `--sort`，所以显式排序文件表）。`.lock.json` 随包发布：同版本同字节可审计，被清理的版本也能原样重建。
+- **保留策略**：中间 artifact 3 天（够重跑一次失败的 publish）；本工作流的 run 只留最近 30 次；
+  pack Release 超过 90 天清理，但**永不清理 `DEFAULT_APP_VERSION` 钉住的版本**。
 - **证据**：`tests/unit/remote-app-pack.test.ts`；RHEL7 真机 `apply` 后远端 `pty.node`
   GLIBC 上限 2.14、终端 `/api/terminal/create` → `running`，fs/sessions/providers 均正常。
 

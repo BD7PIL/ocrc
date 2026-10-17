@@ -7,6 +7,22 @@
 #
 # The control side prefers a verified pack (ensureAppPack) and only falls back
 # to the Windows cross-install when no pack is available.
+#
+# Build identity = the release tag `ocrc-remote-pack-<version>`. `detect` stops
+# the whole chain as soon as that release already carries its assets, so a
+# version is built exactly once and a published pack is never silently replaced
+# (no unconditional `--clobber` on a complete release). The daily cron is
+# therefore a cheap existence check on days upstream did not release anything.
+# To rebuild a published version on purpose, delete its release first — the gate
+# then sees it as missing and rebuilds it.
+#
+# Retention (see the `cleanup` job):
+#   - intermediate pack artifacts: 3 days (long enough to re-run a failed publish)
+#   - runs of this workflow: newest 30, the rest deleted (daily cron adds up)
+#   - pack releases: pruned past 90 days, EXCEPT the version pinned by
+#     DEFAULT_APP_VERSION in src/core/remote-instance.ts. A pruned version is
+#     rebuildable on demand, and the frozen lock file shipped next to each pack
+#     makes that rebuild byte-identical.
 
 name: ocrc-pack
 
@@ -26,19 +42,28 @@ on:
 
 permissions:
   contents: write
+  # the cleanup job prunes this workflow's own old runs
+  actions: write
 
 env:
   NODE_VERSION: '24.22.0'
   NODE_GLIBC217_TARBALL: 'node-v24.22.0-linux-x64-glibc-217.tar.xz'
+  RELEASE_RETENTION_DAYS: '90'
+  KEEP_RUNS: '30'
 
 jobs:
-  resolve:
+  # ===========================================================================
+  # 1. Resolve the version, then stop everything if it is already published
+  # ===========================================================================
+  detect:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      skip: ${{ steps.gate.outputs.skip }}
     steps:
-      - uses: actions/checkout@v4
       - id: version
+        name: Resolve the openchamber version
         env:
           GH_TOKEN: ${{ github.token }}
           INPUT_VERSION: ${{ inputs.openchamber_version }}
@@ -49,10 +74,56 @@ jobs:
           fi
           test -n "$V"
           echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "tag=ocrc-remote-pack-$V" >> "$GITHUB_OUTPUT"
           echo "packing openchamber $V"
 
+      - id: gate
+        name: Skip when this version has already been built
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          V: ${{ steps.version.outputs.version }}
+        run: |
+          # The 7 core assets a complete release carries. The per-tier
+          # `.lock.json` files introduced on 2026-10-17 are deliberately NOT
+          # required: a release published before them must not be judged
+          # incomplete, or the first scheduled run would rebuild and replace a
+          # pack that has already passed acceptance on both targets.
+          expected() {
+            for tier in modern legacy-glibc217; do
+              echo "ocrc-remote-pack-${V}-linux-x64-${tier}.tar.gz"
+              echo "ocrc-remote-pack-${V}-linux-x64-${tier}.tar.gz.sha512"
+              echo "ocrc-remote-pack-${V}-linux-x64-${tier}.json"
+            done
+            echo "ocrc-remote-pack-manifest.json"
+          }
+
+          if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets \
+               --jq '.assets[].name' > assets.txt 2>/dev/null; then
+            echo "$TAG is not published yet — building"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          missing=""
+          while read -r name; do
+            grep -qxF "$name" assets.txt || missing="$missing $name"
+          done < <(expected)
+
+          if [ -n "$missing" ]; then
+            echo "$TAG exists but is incomplete, missing:$missing — rebuilding"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "$TAG already carries all 7 core assets — nothing to build"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ===========================================================================
+  # 2. Build openchamber pack (official node-pty prebuild)
+  # ===========================================================================
   pack-modern:
-    needs: resolve
+    needs: detect
+    if: needs.detect.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -61,16 +132,21 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - run: >-
           node scripts/build-app-pack.mjs
-          --version "${{ needs.resolve.outputs.version }}"
+          --version "${{ needs.detect.outputs.version }}"
           --tier modern --out pack
       - uses: actions/upload-artifact@v4
         with:
           name: ocrc-remote-pack-modern
           path: pack/*
           if-no-files-found: error
+          retention-days: 3
 
+  # ===========================================================================
+  # 3. Build legacy pack (node-pty rebuilt for glibc 2.17)
+  # ===========================================================================
   pack-legacy:
-    needs: resolve
+    needs: detect
+    if: needs.detect.outputs.skip != 'true'
     # NOT `container: centos:7`: GitHub now runs JS actions with its own Node 24,
     # which needs glibc >= 2.27, so actions/checkout itself dies inside a
     # glibc-2.17 image. Check out on the host and drive a centos:7 build with
@@ -80,7 +156,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build the legacy pack inside centos:7
         env:
-          VERSION: ${{ needs.resolve.outputs.version }}
+          VERSION: ${{ needs.detect.outputs.version }}
         run: |
           docker run --rm -v "$PWD:/w" -w /w \
             -e VERSION -e NODE_VERSION -e NODE_GLIBC217_TARBALL \
@@ -112,10 +188,17 @@ jobs:
           name: ocrc-remote-pack-legacy
           path: pack/*
           if-no-files-found: error
+          retention-days: 3
 
+  # ===========================================================================
+  # 4. Publish the release assets
+  # ===========================================================================
   publish:
-    needs: [resolve, pack-modern, pack-legacy]
-    if: ${{ github.event_name == 'schedule' || inputs.publish }}
+    needs: [detect, pack-modern, pack-legacy]
+    # Reached only for a missing or incomplete release: `detect` blocks a
+    # version whose release is already complete, so `--clobber` below can only
+    # ever repair, never replace a pack that passed acceptance.
+    if: needs.detect.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.publish)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -125,36 +208,98 @@ jobs:
           merge-multiple: true
       - name: Merge tier manifests
         env:
-          VERSION: ${{ needs.resolve.outputs.version }}
+          VERSION: ${{ needs.detect.outputs.version }}
         run: |
           node - <<'NODE'
           const fs = require('node:fs')
-          const files = fs.readdirSync('pack').filter((f) => /-linux-x64-.+\.json$/.test(f) && !f.endsWith('.sha512'))
+          const TIERS = ['modern', 'legacy-glibc217']
           const tiers = {}
           let version = process.env.VERSION
-          for (const f of files) {
+          for (const f of fs.readdirSync('pack').filter((f) => f.endsWith('.json'))) {
             const j = JSON.parse(fs.readFileSync(`pack/${f}`, 'utf8'))
+            // Skip the per-tier `.lock.json` files: they are lock files, not
+            // manifests, and their lack of a `tier` is what tells them apart.
+            if (!TIERS.includes(j.tier)) continue
             version = j.openchamberVersion || version
             tiers[j.tier] = {
               asset: j.asset,
               sha512Base64: j.sha512Base64,
               sha512Hex: j.sha512Hex,
               glibcFloor: j.glibcFloor,
+              ...(j.lockAsset ? { lockAsset: j.lockAsset, lockSha512Hex: j.lockSha512Hex } : {}),
             }
           }
+          for (const t of TIERS) if (!tiers[t]) throw new Error(`tier manifest missing: ${t}`)
           fs.writeFileSync('pack/ocrc-remote-pack-manifest.json', JSON.stringify({ openchamberVersion: version, tiers }, null, 2) + '\n')
           console.log('manifest', version, Object.keys(tiers))
           NODE
       - name: Publish release assets
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.resolve.outputs.version }}
+          TAG: ${{ needs.detect.outputs.tag }}
         run: |
-          TAG="ocrc-remote-pack-${VERSION}"
           # This job has no checkout, so `gh` cannot infer the repo from git.
-          if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "repairing the incomplete release $TAG"
+          else
             gh release create "$TAG" -R "$GITHUB_REPOSITORY" \
-              --title "OCRC Remote pack ${VERSION}" \
-              --notes "App packs for openchamber ${VERSION} (Linux x64; modern + legacy glibc 2.17)."
+              --title "OCRC Remote pack ${TAG#ocrc-remote-pack-}" \
+              --notes "App packs for openchamber ${TAG#ocrc-remote-pack-} (Linux x64; modern + legacy glibc 2.17)."
           fi
           gh release upload "$TAG" pack/* -R "$GITHUB_REPOSITORY" --clobber
+
+  # ===========================================================================
+  # 5. Retention: prune old runs, then old pack releases
+  # ===========================================================================
+  cleanup:
+    needs: [detect]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prune old runs of this workflow
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          script: |
+            const keep = Number(process.env.KEEP_RUNS || 30)
+            const res = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'ocrc-pack.yml',
+              status: 'completed',
+              per_page: 100,
+            })
+            const stale = res.data.workflow_runs.slice(keep)
+            for (const run of stale) {
+              await github.rest.actions.deleteWorkflowRun({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: run.id,
+              })
+            }
+            console.log(`deleted ${stale.length} old runs, kept the newest ${keep}`)
+
+      - uses: actions/checkout@v4
+        if: github.event_name == 'schedule'
+      - name: Prune pack releases past retention (never the pinned version)
+        if: github.event_name == 'schedule'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PIN="$(grep -oP "DEFAULT_APP_VERSION = '\K[^']+" src/core/remote-instance.ts)"
+          test -n "$PIN"
+          echo "retention ${RELEASE_RETENTION_DAYS}d; ocrc-remote-pack-${PIN} is exempt (DEFAULT_APP_VERSION)"
+          cutoff="$(date -u -d "${RELEASE_RETENTION_DAYS} days ago" +%s)"
+          gh release list -R "$GITHUB_REPOSITORY" -L 200 \
+            --json tagName,createdAt --jq '.[] | "\(.createdAt) \(.tagName)"' > releases.txt
+          while read -r created tag; do
+            case "$tag" in ocrc-remote-pack-*) ;; *) continue ;; esac
+            if [ "$tag" = "ocrc-remote-pack-${PIN}" ]; then
+              echo "keep $tag (pinned)"
+              continue
+            fi
+            [ "$(date -u -d "$created" +%s)" -lt "$cutoff" ] || continue
+            echo "prune $tag (created $created)"
+            gh release delete "$tag" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          done < releases.txt

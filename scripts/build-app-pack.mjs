@@ -15,8 +15,11 @@
  *   ocrc-remote-pack-<version>-linux-x64-<tier>.tar.gz
  *   ocrc-remote-pack-<version>-linux-x64-<tier>.tar.gz.sha512   (base64)
  *   ocrc-remote-pack-<version>-linux-x64-<tier>.json            (tier manifest)
+ *   ocrc-remote-pack-<version>-linux-x64-<tier>.lock.json       (frozen graph)
  *
  * The publish job merges the tier manifests into ocrc-remote-pack-manifest.json.
+ * The tree is installed with `npm ci` from a lock resolved at build time, so the
+ * pack for a given openchamber version is byte-stable across rebuilds.
  */
 import { createHash } from 'node:crypto'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -69,27 +72,41 @@ rmSync(work, { recursive: true, force: true })
 mkdirSync(tree, { recursive: true })
 mkdirSync(out, { recursive: true })
 
-// 1. Cross-install the app tree (no lifecycle scripts; the tree is pure JS +
-//    node-pty's prebuilt binary, which we replace for the legacy tier).
+// 1. Cross-install the app tree from a frozen dependency graph. The lock is
+//    resolved once per openchamber version, installed with `npm ci`, and
+//    shipped next to the pack, so the same version always yields the same
+//    bytes (and a pruned release can be rebuilt identically on demand).
+//    No lifecycle scripts: the tree is pure JS + node-pty's prebuilt binary,
+//    which we replace for the legacy tier.
 const npmCli = resolveNpmCli()
-console.log(`[pack] npm install -g --prefix <tree> --os=linux --cpu=x64 --libc=glibc @openchamber/web@${version}`)
+const platform = ['--os=linux', '--cpu=x64', '--libc=glibc']
+const lockDir = join(work, 'lock')
+mkdirSync(lockDir, { recursive: true })
+writeFileSync(join(lockDir, 'package.json'), `${JSON.stringify({
+  name: 'ocrc-remote-pack', version: '0.0.0', private: true,
+  dependencies: { '@openchamber/web': version },
+}, null, 2)}\n`)
+
+console.log(`[pack] npm install --package-lock-only @openchamber/web@${version} (freeze the graph)`)
 run(process.execPath, [
-  npmCli, 'install', '-g', '--prefix', tree,
-  '--os=linux', '--cpu=x64', '--libc=glibc',
-  `@openchamber/web@${version}`,
+  npmCli, 'install', '--package-lock-only', '--prefix', lockDir, ...platform,
+  '--ignore-scripts', '--no-audit', '--no-fund',
+])
+const lockFile = join(lockDir, 'package-lock.json')
+if (!existsSync(lockFile)) throw new Error('layout check failed: package-lock.json was not generated')
+
+console.log('[pack] npm ci (install exactly that graph)')
+run(process.execPath, [
+  npmCli, 'ci', '--prefix', lockDir, ...platform,
   '--ignore-scripts', '--no-audit', '--no-fund',
 ])
 
-// 2. Normalize the prefix layout: lib/node_modules is what the remote push
-//    script asserts; drop the Windows shim files.
-const rootModules = join(tree, 'node_modules')
-if (existsSync(rootModules) && !existsSync(join(tree, 'lib', 'node_modules'))) {
-  mkdirSync(join(tree, 'lib'), { recursive: true })
-  renameSync(rootModules, join(tree, 'lib', 'node_modules'))
-}
-for (const shim of ['openchamber', 'openchamber.cmd', 'openchamber.ps1']) {
-  rmSync(join(tree, shim), { force: true })
-}
+// 2. Normalize the layout the remote push script asserts: lib/node_modules.
+//    `npm ci` into a project dir writes node_modules directly (no -g shims).
+const installed = join(lockDir, 'node_modules')
+if (!existsSync(installed)) throw new Error(`layout check failed: ${installed} missing`)
+mkdirSync(join(tree, 'lib'), { recursive: true })
+renameSync(installed, join(tree, 'lib', 'node_modules'))
 const appDir = join(tree, 'lib', 'node_modules', '@openchamber', 'web')
 const cli = join(appDir, 'bin', 'cli.js')
 if (!existsSync(cli)) throw new Error(`layout check failed: ${cli} missing`)
@@ -122,14 +139,29 @@ if (!noSmoke) {
   console.log(`[pack] smoke ok (cli ${got}${process.platform === 'win32' ? ', pty load skipped on win32' : ', pty loads'})`)
 }
 
-// 5. Pack (relative names + cwd: GNU tar on Windows reads C:\ as host:file).
-run('tar', ['czf', asset, '-C', 'tree', '.'], { cwd: work })
+// 5. Pack. Deterministic on purpose: sorted entries with zeroed mtimes and
+//    ownership, so the same lock rebuilds to the same bytes. GNU tar only grew
+//    `--sort` in 1.28 and centos:7 ships 1.26, hence the explicit sorted list.
+//    The output is named `../<asset>` (relative, no drive colon) because GNU
+//    tar reads a `X:` prefix as an rsh host.
+run('bash', [
+  '-c',
+  'set -euo pipefail; find . -print0 | sort -z | tar --null -T - '
+    + '--mtime=@0 --owner=0 --group=0 --numeric-owner -czf "$1"',
+  'ocrc-pack', `../${asset}`,
+], { cwd: tree })
 const finalAsset = join(out, asset)
 copyFileSync(join(work, asset), finalAsset)
 const bytes = readFileSync(finalAsset)
 const sha512Base64 = createHash('sha512').update(bytes).digest('base64')
 const sha512Hex = createHash('sha512').update(bytes).digest('hex')
 writeFileSync(`${finalAsset}.sha512`, `${sha512Base64}\n`)
+
+// The frozen graph travels with the pack: it makes "same version ⇒ same bytes"
+// auditable and lets a pruned release be rebuilt identically on demand.
+const lockAsset = `ocrc-remote-pack-${version}-linux-x64-${tier}.lock.json`
+copyFileSync(lockFile, join(out, lockAsset))
+const lockSha512Hex = createHash('sha512').update(readFileSync(lockFile)).digest('hex')
 
 // 6. Tier manifest; the publish job merges these into the release manifest.
 const pinManifest = join(repoRoot, 'ops', 'v2-pin-manifest.json')
@@ -143,6 +175,8 @@ const manifest = {
   asset,
   sha512Base64,
   sha512Hex,
+  lockAsset,
+  lockSha512Hex,
   createdAt: new Date().toISOString(),
 }
 writeFileSync(join(out, `ocrc-remote-pack-${version}-linux-x64-${tier}.json`), `${JSON.stringify(manifest, null, 2)}\n`)

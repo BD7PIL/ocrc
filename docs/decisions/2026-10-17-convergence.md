@@ -62,3 +62,39 @@
   `docs/decisions/`（里面本来就有 2026-06-12 那条）作为往前写的日志，补了索引与写法。
 - **听写**：不自动改实例配置。实测 **Ubuntu/glibc 2.43 上本地 sherpa 正常加载**（本地听写可用）；
   EL7/glibc 2.17 不可用（GLIBC 2.32），要在实例设置里选 `openai-compatible`（远端 STT）。
+
+---
+
+## 追加：pack 发布闸门（2026-10-17，octg 式）
+
+**问题**：`ocrc-pack.yml` 的 `publish` 条件写的是 `github.event_name == 'schedule' || inputs.publish`，
+定时触发恒真；发布段又无条件 `gh release upload ... --clobber`。而 `resolve` 取的是上游 latest，
+不是我们钉的版本。两个后果：① 上游一发新版，第二天凌晨就自动对外发一份没人验收过的包；
+② 上游 latest 停在我们正用的版本（2.3.3）时，每天凌晨重建并覆盖同一个 tag 的资产。
+
+**为什么这是错的**：参照 `BD7PIL/octg-legacy-glibc` 的 `build.yml`——它同样是"定时发现上游 + 自动发布"，
+但 tag 是上游两个版本的组合，`detect` 阶段先 `gh release view`，命中就 `skip=true` **门掉整条链**
+（构建、打包、发布全部挂 `if: skip != 'true'`）。于是每小时 cron 里有 23 次只跑几秒，发布幂等、只发生一次。
+我把这个形抄了过来，却把闸门装在了错位置（只管"建不建 release 对象"，不管"要不要重建资产"），
+又用裸 `npm install` 让"同 tag"不再等于"同字节"。
+
+**改法**
+
+1. **门提到链首**：`ocrc-remote-pack-<ver>` 已带齐 7 件核心资产 → `skip=true`，两个 pack job 与 publish
+   全部跳过；Release 存在但缺资产 → 放行并补建，那是唯一会 `--clobber` 的路径。
+2. **冻结依赖图**：`npm install --package-lock-only` + `npm ci`；`.lock.json` 随包发布，tier manifest 记
+   `lockSha512Hex`。
+3. **确定性打包**：排序后的文件表 + `--mtime=@0 --owner=0 --group=0 --numeric-owner`
+   （centos:7 的 tar 1.26 没有 `--sort`，所以显式排序文件表）。
+4. **三层保留策略**：中间 artifact 3 天；本工作流的 run 留最近 30；pack Release 超 90 天清理，
+   但**永不清理 `DEFAULT_APP_VERSION` 钉住的版本**（清掉也能 dispatch 重建，且字节一致）。
+
+**证据**
+
+- 同版本不同字节（修改前）：已发布 2.3.3 modern 包的 sha512 前缀 `Et/F+TA2kiEhCe89…`，今天同一版本重建得到
+  `CxKonm2uU7HNzBO9…`（本机是 Windows 构建，平台差异也计入其中；关键是依赖图当时完全没固定）。
+- 修改后可复现：本机连续两次全量重建，modern 包 sha512 完全一致（`HgO/5gP1eH3yqdrj…`）。
+- 清理逻辑 dry-run：pinned 版本保留、非 pack tag 跳过、超 90 天的 pack release 命中（dry-run 未真删）。
+
+**遗留**：2026-10-17 之前发布的包（含当前钉住的 2.3.3）没有 `.lock.json`，不可复现；门刻意不要求 lock
+资产，正是为了避免把已验收的 2.3.3 判成"不完整"而被重建覆盖。

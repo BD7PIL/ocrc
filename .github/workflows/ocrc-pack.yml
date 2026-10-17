@@ -1,0 +1,154 @@
+# ocrc-pack — build and publish the two Linux x64 app packs.
+#
+# A pack is the whole `@openchamber/web` prefix, built once per openchamber
+# release. `modern` keeps the official node-pty prebuild; `legacy-glibc217`
+# replaces it with a rebuild against glibc 2.17 and pairs with the glibc-217
+# Node runtime the control side already pushes.
+#
+# The control side prefers a verified pack (ensureAppPack) and only falls back
+# to the Windows cross-install when no pack is available.
+
+name: ocrc-pack
+
+on:
+  workflow_dispatch:
+    inputs:
+      openchamber_version:
+        description: 'openchamber version to pack (without leading v; empty = latest release)'
+        required: false
+        default: ''
+      publish:
+        description: 'publish the packs as a GitHub release'
+        type: boolean
+        default: true
+  schedule:
+    - cron: '23 4 * * *' # daily, off the top of the hour
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: '24.22.0'
+  NODE_GLIBC217_TARBALL: 'node-v24.22.0-linux-x64-glibc-217.tar.xz'
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.openchamber_version }}
+        run: |
+          V="${INPUT_VERSION}"
+          if [ -z "$V" ]; then
+            V="$(gh api repos/openchamber/openchamber/releases/latest --jq .tag_name | sed 's/^v//')"
+          fi
+          test -n "$V"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "packing openchamber $V"
+
+  pack-modern:
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: >-
+          node scripts/build-app-pack.mjs
+          --version "${{ needs.resolve.outputs.version }}"
+          --tier modern --out pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ocrc-remote-pack-modern
+          path: pack/*
+          if-no-files-found: error
+
+  pack-legacy:
+    needs: resolve
+    runs-on: ubuntu-latest
+    container: centos:7
+    steps:
+      # git is needed by actions/checkout; the centos:7 image is minimal.
+      - name: Base tools (before checkout)
+        run: yum install -y git tar xz curl ca-certificates
+      - uses: actions/checkout@v4
+      - name: Toolchain (vault repos + devtoolset-11 + python38)
+        run: |
+          sed -i 's|^mirrorlist=|#mirrorlist=|g; s|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*.repo
+          printf '%s\n' \
+            '[centos-sclo-rh]' \
+            'name=CentOS-7 - SCLo rh' \
+            'baseurl=http://vault.centos.org/7.9.2009/sclo/x86_64/rh/' \
+            'gpgcheck=0' \
+            'enabled=1' > /etc/yum.repos.d/CentOS-SCLo.repo
+          yum install -y devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make rh-python38-python rh-python38-python-devel binutils
+      - name: Install the glibc-217 Node runtime
+        run: |
+          curl -fsSLO "https://unofficial-builds.nodejs.org/download/release/v${NODE_VERSION}/${NODE_GLIBC217_TARBALL}"
+          tar xf "$NODE_GLIBC217_TARBALL"
+          mv "node-v${NODE_VERSION}-linux-x64-glibc-217" /opt/node
+          /opt/node/bin/node -v
+          /opt/node/bin/node /opt/node/lib/node_modules/npm/bin/npm-cli.js -v
+      - name: Build the legacy pack (node-pty rebuilt for glibc 2.17)
+        env:
+          PATH: /opt/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        run: >-
+          node scripts/build-app-pack.mjs
+          --version "${{ needs.resolve.outputs.version }}"
+          --tier legacy-glibc217 --out pack
+          --node /opt/node/bin/node --node-dir /opt/node
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ocrc-remote-pack-legacy
+          path: pack/*
+          if-no-files-found: error
+
+  publish:
+    needs: [resolve, pack-modern, pack-legacy]
+    if: ${{ github.event_name == 'schedule' || inputs.publish }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ocrc-remote-pack-*
+          path: pack
+          merge-multiple: true
+      - name: Merge tier manifests
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs')
+          const files = fs.readdirSync('pack').filter((f) => /-linux-x64-.+\.json$/.test(f) && !f.endsWith('.sha512'))
+          const tiers = {}
+          let version = process.env.VERSION
+          for (const f of files) {
+            const j = JSON.parse(fs.readFileSync(`pack/${f}`, 'utf8'))
+            version = j.openchamberVersion || version
+            tiers[j.tier] = {
+              asset: j.asset,
+              sha512Base64: j.sha512Base64,
+              sha512Hex: j.sha512Hex,
+              glibcFloor: j.glibcFloor,
+            }
+          }
+          fs.writeFileSync('pack/ocrc-remote-pack-manifest.json', JSON.stringify({ openchamberVersion: version, tiers }, null, 2) + '\n')
+          console.log('manifest', version, Object.keys(tiers))
+          NODE
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          TAG="ocrc-remote-pack-${VERSION}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "OCRC Remote pack ${VERSION}" \
+              --notes "App packs for openchamber ${VERSION} (Linux x64; modern + legacy glibc 2.17)."
+          fi
+          gh release upload "$TAG" pack/* --clobber

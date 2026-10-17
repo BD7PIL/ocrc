@@ -400,6 +400,22 @@ fetch/img/font/style/media，**从不放宽 frame-src**。即使绕过这一层�
 决定：回退桌面版原生 **Remote Instances**；扩展页面展示三项 + 复制 + `host.openUrl` 次入口。证据与复现命令见
 [embedding-experiment.md](../research/embedding-experiment.md)。
 
+## 4.9 CI 兼容包（Phase 3，2026-10-17 实测）
+
+- **构建**：`scripts/build-app-pack.mjs` 产出两档（modern / legacy-glibc217）；legacy 调
+  `scripts/build-pty-legacy-local.sh` 按宿主 glibc 重建 node-pty 并做 `objdump` 断言。CI 工作流
+  `.github/workflows/ocrc-pack.yml`：modern 在 ubuntu + Node 24；legacy 在 centos:7 + devtoolset-11 +
+  rh-python38 + glibc-217 Node；发布 GitHub Release `ocrc-remote-pack-<ver>`。
+- **控制端**：`ensureAppPack` 依次查缓存 → `OCRC_PACK_DIR` → release manifest（sha512 校验）；
+  `ensureAppPayload` 命中即返回，不再 `ensureAppTree`。tier 由 `apply` 的 `probeEnv`（对端 glibc）决定，
+  `< 2.31` 走 legacy。
+- **证据**：modern 包 53MB（Windows 本机构建，`cli --version` + pty smoke）；legacy 包 54MB
+  （从 RHEL7 已修终端的树产出）；两档 `ensureAppPayload` 均走快路径且未创建 cross-install tree；
+  RHEL7 真机 `ocrc remote apply --force` 推送成功，重启后远端 `pty.node` GLIBC 上限 2.14、
+  `/api/terminal/create` → `running`、fs 90 / sessions 50 / providers 14。
+- **未验证**：`ocrc-pack.yml` 的 centos:7 容器步骤尚未在 GitHub Actions 跑过（本地无 Docker）；
+  首次 CI 运行前，控制端“无包回退跨装”路径仍然可用。
+
 ---
 
 ## 5. 测试方案（分层）

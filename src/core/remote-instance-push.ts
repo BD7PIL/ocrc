@@ -29,7 +29,7 @@
 import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import {
-  createReadStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync,
+  copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { createLogger } from '../utils/logger.js'
@@ -53,6 +53,109 @@ export function appTreeDir(appVersion: string): string {
 }
 export function appPayloadPath(appVersion: string): string {
   return join(appCacheDir(appVersion), `app-${appVersion}.tar.gz`)
+}
+
+// ── CI compat packs ──────────────────────────────────────────────────────────
+// A pack is the whole app tree built once, per openchamber release, by CI:
+// the legacy tier also carries node-pty rebuilt against glibc 2.17. The
+// control side prefers a verified pack and never runs `npm install --os=linux`
+// when one is available.
+
+export type AppPackTier = 'modern' | 'legacy-glibc217'
+
+/** Official node-pty prebuilds need glibc 2.28; hosts below that need the
+ *  legacy pack (rebuilt pty + the glibc-217 Node runtime). 2.31 is the cutoff
+ *  for the modern runtime; 2.28–2.30 hosts can safely use the legacy pack. */
+export function appPackTierForGlibc(glibc?: string): AppPackTier {
+  const m = glibc?.match(/(\d+)\.(\d+)/)
+  if (!m) return 'modern'
+  const major = Number(m[1])
+  const minor = Number(m[2])
+  return major < 2 || (major === 2 && minor < 31) ? 'legacy-glibc217' : 'modern'
+}
+
+export function appPackName(appVersion: string, tier: AppPackTier): string {
+  return `ocrc-remote-pack-${appVersion}-linux-x64-${tier}.tar.gz`
+}
+
+export function appPackPath(appVersion: string, tier: AppPackTier): string {
+  return join(appCacheDir(appVersion), appPackName(appVersion, tier))
+}
+
+export function appPackManifestUrl(appVersion: string): string {
+  const base = (process.env.OCRC_PACK_BASE
+    ?? `https://github.com/BD7PIL/ocrc/releases/download/ocrc-remote-pack-${appVersion}`).replace(/\/+$/, '')
+  return `${base}/ocrc-remote-pack-manifest.json`
+}
+
+export interface AppPackManifest {
+  openchamberVersion?: string
+  tiers?: Record<string, { asset?: string; sha512Base64?: string; sha512Hex?: string; glibcFloor?: string }>
+}
+
+export function parseAppPackManifest(raw: unknown, tier: AppPackTier): { asset: string; sha512Base64: string } | undefined {
+  const manifest = raw as AppPackManifest | undefined
+  const entry = manifest?.tiers?.[tier]
+  if (!entry?.asset || !entry.sha512Base64) return undefined
+  return { asset: entry.asset, sha512Base64: entry.sha512Base64 }
+}
+
+function verifiedPack(file: string, marker: string): { sha: string; shaHex: string } | undefined {
+  if (!existsSync(file) || !existsSync(marker)) return undefined
+  const sha = readFileSync(marker, 'utf-8').trim()
+  if (!sha || sha512Base64(file) !== sha) return undefined
+  return { sha, shaHex: sha512Hex(file) }
+}
+
+/** Find a verified CI pack for `appVersion` + `tier`, locally or by downloading
+ *  the release asset. Returns `undefined` when no pack is available so the
+ *  caller can fall back to the control-side cross-install. */
+export async function ensureAppPack(
+  appVersion: string,
+  tier: AppPackTier,
+  opts: { force?: boolean; onLog?: (line: string) => void; fetchImpl?: typeof fetch; packDir?: string } = {},
+): Promise<(PrepareResult & { tier: AppPackTier }) | undefined> {
+  const file = appPackPath(appVersion, tier)
+  const marker = `${file}.sha512`
+  if (!opts.force) {
+    const cached = verifiedPack(file, marker)
+    if (cached) return { file, bytes: statSync(file).size, sha: cached.sha, shaHex: cached.shaHex, prepared: false, tier }
+  }
+  // A directory of packs: offline testing, a mirrored release, or a manually
+  // downloaded asset. The file is copied into the normal cache so later runs
+  // take the fast path without the directory.
+  for (const dir of [opts.packDir, process.env.OCRC_PACK_DIR].filter((d): d is string => !!d?.trim())) {
+    const candidate = join(dir, appPackName(appVersion, tier))
+    if (!existsSync(candidate)) continue
+    const sha = sha512Base64(candidate)
+    mkdirSync(dirname(file), { recursive: true })
+    copyFileSync(candidate, file)
+    writeFileSync(marker, `${sha}\n`)
+    opts.onLog?.(`应用包已就位：${appPackName(appVersion, tier)}（本地目录）`)
+    return { file, bytes: statSync(file).size, sha, shaHex: sha512Hex(file), prepared: false, tier }
+  }
+  try {
+    const doFetch = opts.fetchImpl ?? fetch
+    const manifestUrl = appPackManifestUrl(appVersion)
+    const res = await doFetch(manifestUrl, { signal: AbortSignal.timeout(20_000) })
+    if (!res.ok) throw new Error(`manifest HTTP ${res.status}`)
+    const entry = parseAppPackManifest(await res.json(), tier)
+    if (!entry) throw new Error(`manifest 里没有 ${tier} 档`)
+    const url = new URL(entry.asset, manifestUrl).toString()
+    const dl = await doFetch(url, { signal: AbortSignal.timeout(600_000) })
+    if (!dl.ok) throw new Error(`pack HTTP ${dl.status}`)
+    const bytes = Buffer.from(await dl.arrayBuffer())
+    const sha = createHash('sha512').update(bytes).digest('base64')
+    if (sha !== entry.sha512Base64) throw new Error('pack sha512 mismatch')
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, bytes)
+    writeFileSync(marker, `${sha}\n`)
+    opts.onLog?.(`应用包已取件：${appPackName(appVersion, tier)}（${(bytes.length / 1e6).toFixed(1)}MB）`)
+    return { file, bytes: bytes.length, sha, shaHex: sha512Hex(file), prepared: false, tier }
+  } catch (err) {
+    opts.onLog?.(`应用包不可用（${(err as Error).message}）——回退控制端跨装`)
+    return undefined
+  }
 }
 /** `<OCRC_HOME>/bin-cache/remote-runtime/<version>/` — the Node runtime bits. */
 export function runtimeCacheDir(): string {
@@ -470,6 +573,8 @@ export interface PrepareResult {
    *  (Feeding it base64 is how a perfectly transferred payload fails its check.) */
   shaHex: string
   prepared: boolean
+  /** Which CI pack tier this came from (absent for a locally cross-built tree). */
+  tier?: AppPackTier
 }
 
 async function runInvocation(inv: { cmd: string; args: string[]; needsShell?: boolean }, cwd: string): Promise<void> {
@@ -507,7 +612,13 @@ export async function ensureAppTree(appVersion: string, opts: { force?: boolean;
 
 /** Pack the tree into the payload + its digest. Skipped when the payload is
  *  newer than the tree, so repeated deploys do not re-tar 267 MB. */
-export async function ensureAppPayload(appVersion: string, opts: { force?: boolean; onLog?: (line: string) => void } = {}): Promise<PrepareResult> {
+export async function ensureAppPayload(appVersion: string, opts: { force?: boolean; onLog?: (line: string) => void; tier?: AppPackTier } = {}): Promise<PrepareResult> {
+  // Prefer a CI-built pack: no cross-install on the control side, and the
+  // legacy tier already carries the node-pty rebuilt for glibc 2.17.
+  if (opts.tier) {
+    const pack = await ensureAppPack(appVersion, opts.tier, opts)
+    if (pack) return pack
+  }
   const { treeDir } = await ensureAppTree(appVersion, opts)
   const payload = appPayloadPath(appVersion)
   const marker = `${payload}.sha512`
@@ -622,7 +733,7 @@ export async function deployRuntimeToRemote(
 export async function deployAppToRemote(
   target: SshTargetRef,
   appVersion: string,
-  opts: DeployDiagOptions & { onLog?: (line: string) => void; onProgress?: (sent: number, total: number) => void; force?: boolean } = {},
+  opts: DeployDiagOptions & { onLog?: (line: string) => void; onProgress?: (sent: number, total: number) => void; force?: boolean; tier?: AppPackTier } = {},
 ): Promise<DeployOutcome> {
   const existing = await probeRemoteApp(target, appVersion)
   if (existing === appVersion && !opts.force) {
@@ -699,7 +810,7 @@ export async function deployEngineToRemote(
 export async function provisionOffline(
   target: SshTargetRef,
   appVersion: string,
-  opts: DeployDiagOptions & { onLog?: (line: string) => void; onProgress?: (sent: number, total: number) => void; force?: boolean; engineVersion?: string; skipEngine?: boolean } = {},
+  opts: DeployDiagOptions & { onLog?: (line: string) => void; onProgress?: (sent: number, total: number) => void; force?: boolean; engineVersion?: string; skipEngine?: boolean; tier?: AppPackTier } = {},
 ): Promise<{ ok: boolean; runtime: DeployOutcome; engine: EngineDeployOutcome; app: DeployOutcome }> {
   const runtime = await deployRuntimeToRemote(target, opts)
   if (!runtime.ok) {

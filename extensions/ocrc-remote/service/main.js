@@ -990,6 +990,7 @@ function createInstanceProxy(opts = {}) {
 import { createHash as createHash2 } from "node:crypto";
 import { spawn as spawn4 } from "node:child_process";
 import {
+  copyFileSync,
   createReadStream,
   existsSync as existsSync4,
   mkdirSync as mkdirSync4,
@@ -1107,6 +1108,77 @@ function appTreeDir(appVersion) {
 }
 function appPayloadPath(appVersion) {
   return join6(appCacheDir(appVersion), `app-${appVersion}.tar.gz`);
+}
+function appPackTierForGlibc(glibc) {
+  const m = glibc?.match(/(\d+)\.(\d+)/);
+  if (!m) return "modern";
+  const major = Number(m[1]);
+  const minor = Number(m[2]);
+  return major < 2 || major === 2 && minor < 31 ? "legacy-glibc217" : "modern";
+}
+function appPackName(appVersion, tier) {
+  return `ocrc-remote-pack-${appVersion}-linux-x64-${tier}.tar.gz`;
+}
+function appPackPath(appVersion, tier) {
+  return join6(appCacheDir(appVersion), appPackName(appVersion, tier));
+}
+function appPackManifestUrl(appVersion) {
+  const base = (process.env.OCRC_PACK_BASE ?? `https://github.com/BD7PIL/ocrc/releases/download/ocrc-remote-pack-${appVersion}`).replace(/\/+$/, "");
+  return `${base}/ocrc-remote-pack-manifest.json`;
+}
+function parseAppPackManifest(raw, tier) {
+  const manifest = raw;
+  const entry = manifest?.tiers?.[tier];
+  if (!entry?.asset || !entry.sha512Base64) return void 0;
+  return { asset: entry.asset, sha512Base64: entry.sha512Base64 };
+}
+function verifiedPack(file, marker) {
+  if (!existsSync4(file) || !existsSync4(marker)) return void 0;
+  const sha = readFileSync4(marker, "utf-8").trim();
+  if (!sha || sha512Base64(file) !== sha) return void 0;
+  return { sha, shaHex: sha512Hex(file) };
+}
+async function ensureAppPack(appVersion, tier, opts = {}) {
+  const file = appPackPath(appVersion, tier);
+  const marker = `${file}.sha512`;
+  if (!opts.force) {
+    const cached = verifiedPack(file, marker);
+    if (cached) return { file, bytes: statSync3(file).size, sha: cached.sha, shaHex: cached.shaHex, prepared: false, tier };
+  }
+  for (const dir of [opts.packDir, process.env.OCRC_PACK_DIR].filter((d) => !!d?.trim())) {
+    const candidate = join6(dir, appPackName(appVersion, tier));
+    if (!existsSync4(candidate)) continue;
+    const sha = sha512Base64(candidate);
+    mkdirSync4(dirname2(file), { recursive: true });
+    copyFileSync(candidate, file);
+    writeFileSync3(marker, `${sha}
+`);
+    opts.onLog?.(`\u5E94\u7528\u5305\u5DF2\u5C31\u4F4D\uFF1A${appPackName(appVersion, tier)}\uFF08\u672C\u5730\u76EE\u5F55\uFF09`);
+    return { file, bytes: statSync3(file).size, sha, shaHex: sha512Hex(file), prepared: false, tier };
+  }
+  try {
+    const doFetch = opts.fetchImpl ?? fetch;
+    const manifestUrl = appPackManifestUrl(appVersion);
+    const res = await doFetch(manifestUrl, { signal: AbortSignal.timeout(2e4) });
+    if (!res.ok) throw new Error(`manifest HTTP ${res.status}`);
+    const entry = parseAppPackManifest(await res.json(), tier);
+    if (!entry) throw new Error(`manifest \u91CC\u6CA1\u6709 ${tier} \u6863`);
+    const url = new URL(entry.asset, manifestUrl).toString();
+    const dl = await doFetch(url, { signal: AbortSignal.timeout(6e5) });
+    if (!dl.ok) throw new Error(`pack HTTP ${dl.status}`);
+    const bytes = Buffer.from(await dl.arrayBuffer());
+    const sha = createHash2("sha512").update(bytes).digest("base64");
+    if (sha !== entry.sha512Base64) throw new Error("pack sha512 mismatch");
+    mkdirSync4(dirname2(file), { recursive: true });
+    writeFileSync3(file, bytes);
+    writeFileSync3(marker, `${sha}
+`);
+    opts.onLog?.(`\u5E94\u7528\u5305\u5DF2\u53D6\u4EF6\uFF1A${appPackName(appVersion, tier)}\uFF08${(bytes.length / 1e6).toFixed(1)}MB\uFF09`);
+    return { file, bytes: bytes.length, sha, shaHex: sha512Hex(file), prepared: false, tier };
+  } catch (err) {
+    opts.onLog?.(`\u5E94\u7528\u5305\u4E0D\u53EF\u7528\uFF08${err.message}\uFF09\u2014\u2014\u56DE\u9000\u63A7\u5236\u7AEF\u8DE8\u88C5`);
+    return void 0;
+  }
 }
 function runtimeCacheDir() {
   return join6(binCacheRoot(), "remote-runtime", NODE_RUNTIME.version);
@@ -1426,6 +1498,10 @@ async function ensureAppTree(appVersion, opts = {}) {
   return { treeDir, installed: true };
 }
 async function ensureAppPayload(appVersion, opts = {}) {
+  if (opts.tier) {
+    const pack = await ensureAppPack(appVersion, opts.tier, opts);
+    if (pack) return pack;
+  }
   const { treeDir } = await ensureAppTree(appVersion, opts);
   const payload = appPayloadPath(appVersion);
   const marker = `${payload}.sha512`;
@@ -2118,6 +2194,10 @@ function createRemoteInstanceManager(opts) {
     },
     async apply(id, applyOpts = {}) {
       const instance = need(id);
+      const inspected = await probeEnv(instance);
+      const tier = applyOpts.tier ?? appPackTierForGlibc(inspected?.glibc);
+      pushLog(id, `\u5E94\u7528\u5305\u6863\u4F4D\uFF1A${tier}${inspected?.glibc ? `\uFF08\u5BF9\u7AEF glibc ${inspected.glibc}\uFF09` : ""}`);
+      applyOpts.onLog?.(`\u5E94\u7528\u5305\u6863\u4F4D\uFF1A${tier}${inspected?.glibc ? `\uFF08\u5BF9\u7AEF glibc ${inspected.glibc}\uFF09` : ""}`);
       const ourEngine = `${instancePaths("x").engineDir}/opencode`;
       const foreignPin = instance.enginePath && instance.enginePath !== ourEngine ? instance.enginePath : void 0;
       if (foreignPin) {
@@ -2137,6 +2217,7 @@ function createRemoteInstanceManager(opts) {
         engineVersion: applyOpts.engineVersion,
         guard: applyOpts.guard,
         trace: applyOpts.trace,
+        tier,
         onLog: (line) => {
           pushLog(id, line);
           applyOpts.onLog?.(line);

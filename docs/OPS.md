@@ -133,6 +133,21 @@ ocrc remote up demo@192.168.26.101 --open
 > 标注 `scope=instance, owner=desktop-shell, surfaces=[desktop]`，这是“必须走桌面壳”，不是“不能用”——
 > 桌面版 external 模式接受我们自装的实例，不需要它来安装。
 
+**CI 兼容包（Linux x64 两档，2026-10-17 真机验证）**
+
+- **产物**：`ocrc-remote-pack-<ver>-linux-x64-modern.tar.gz` 与 `...legacy-glibc217.tar.gz`，各带
+  `.sha512`（base64）与一份 tier manifest；发布在 GitHub Release `ocrc-remote-pack-<ver>`。
+- **档位规则**：对端 glibc **< 2.31 → legacy**（node-pty 按 2.17 重建 + glibc-217 Node）；
+  **≥ 2.31 → modern**。`ocrc remote apply` 自动探测，不需要手工选。
+- **控制端取件**：默认从 release manifest 下载并按 sha512 校验后缓存；离线/内网用
+  `OCRC_PACK_DIR=<目录>` 指向本地包目录；两处都没有时回退控制端跨装（`npm install --os=linux`）。
+- **构建**：`node scripts/build-app-pack.mjs --version <ver> --tier modern --out pack`；
+  legacy 在 CI 的 centos:7 容器里跑（`scripts/build-pty-legacy-local.sh` 重建 pty，
+  `objdump` 断言 GLIBC ≤ 2.17、GLIBCXX/CXXABI 引用 0）。工作流：
+  [`.github/workflows/ocrc-pack.yml`](../.github/workflows/ocrc-pack.yml)（每日 + 手动）。
+- **证据**：`tests/unit/remote-app-pack.test.ts`；RHEL7 真机 `apply` 后远端 `pty.node`
+  GLIBC 上限 2.14、终端 `/api/terminal/create` → `running`，fs/sessions/providers 均正常。
+
 **变更与回滚**
 - 换版本：`ocrc remote apply <id> --app-version 2.4.0 --engine-version 2.1.0`（旧树自动留 `<prefix>.ocrc-bak`）。
 - 只换引擎：同上带 `--engine-version`；或先在对端放好再 `--engine-path <绝对路径>`（pin 会被断言，不满足 v2 门禁直接拒）。

@@ -30,5 +30,7 @@ export { createInstanceProxy } from '../core/remote-instance-proxy.js'
 export type { InstanceProxy } from '../core/remote-instance-proxy.js'
 
 export {
-  ensureAppPayload, ensureAppTree, provisionOffline, sshRun,
+  appPackManifestUrl, appPackName, appPackPath, appPackTierForGlibc,
+  ensureAppPack, ensureAppPayload, ensureAppTree, parseAppPackManifest, provisionOffline, sshRun,
 } from '../core/remote-instance-push.js'
+export type { AppPackManifest, AppPackTier } from '../core/remote-instance-push.js'

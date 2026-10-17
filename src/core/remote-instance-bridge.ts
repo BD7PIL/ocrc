@@ -30,7 +30,7 @@ import {
   type EngineCompatPayload, type EnginePick, type InstanceProxyConfig,
   type RemoteInstance, type SshTargetRef,
 } from './remote-instance.js'
-import { buildAppProbeCommand, buildOfflineGuardExports, buildRuntimeProbeCommand, provisionOffline, sshRun } from './remote-instance-push.js'
+import { appPackTierForGlibc, buildAppProbeCommand, buildOfflineGuardExports, buildRuntimeProbeCommand, provisionOffline, sshRun, type AppPackTier } from './remote-instance-push.js'
 import type { RemoteInstancesStore } from './remote-instances.js'
 
 const log = createLogger('remote-instance')
@@ -90,7 +90,7 @@ export interface InstanceOutcome { ok: boolean; detail: string }
 export interface RemoteInstanceManager {
   plan(id: string): Promise<InstancePlan>
   /** P2: push runtime + engine + app (offline path) — the engine gate runs first. */
-  apply(id: string, opts?: { force?: boolean; engineVersion?: string; guard?: boolean; trace?: string; onLog?: (line: string) => void }): Promise<InstanceOutcome>
+  apply(id: string, opts?: { force?: boolean; engineVersion?: string; guard?: boolean; trace?: string; onLog?: (line: string) => void; tier?: AppPackTier }): Promise<InstanceOutcome>
   /** Ensure the instance is serving on the far side and the tunnel is up.
    *  `guard` starts it under the poisoned-egress env (§5.3 offline proof). */
   up(id: string, opts?: { guard?: boolean }): Promise<InstanceOutcome>
@@ -784,6 +784,13 @@ export function createRemoteInstanceManager(opts: {
 
     async apply(id, applyOpts = {}) {
       const instance = need(id)
+      // The pack tier follows the target's glibc, not the control host's:
+      // EL7 gets the legacy tier (rebuilt node-pty), modern hosts get the
+      // modern tier. An explicit tier wins (tests / forced packs).
+      const inspected = await probeEnv(instance)
+      const tier: AppPackTier = applyOpts.tier ?? appPackTierForGlibc(inspected?.glibc)
+      pushLog(id, `应用包档位：${tier}${inspected?.glibc ? `（对端 glibc ${inspected.glibc}）` : ''}`)
+      applyOpts.onLog?.(`应用包档位：${tier}${inspected?.glibc ? `（对端 glibc ${inspected.glibc}）` : ''}`)
       const ourEngine = `${instancePaths('x').engineDir}/opencode`
       // A foreign pin (explicit --engine-path) is asserted, never replaced; the
       // default path deploys **our own** pinned v2 into our namespace, which is
@@ -806,6 +813,7 @@ export function createRemoteInstanceManager(opts: {
         engineVersion: applyOpts.engineVersion,
         guard: applyOpts.guard,
         trace: applyOpts.trace,
+        tier,
         onLog: (line) => { pushLog(id, line); applyOpts.onLog?.(line) },
       })
       const enginePath = (result.engine as { path?: string }).path ?? ourEngine

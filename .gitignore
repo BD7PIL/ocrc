@@ -44,3 +44,8 @@ tsconfig.tsbuildinfo
 !extensions/*/service/
 !extensions/*/shared/
 coverage/
+
+# control-side artifact caches are runtime state under OCRC_HOME, never in-repo
+# (a missing OCRC_HOME used to drop them here as ./bin-cache or ./undefined)
+/bin-cache/
+/undefined/

@@ -220,6 +220,9 @@ ocrc 的已保存 workflow 是一个机器级 store，没有可搬的文件。am
 - **落点与纪律**：一切新增都在 `~/.ocrc/remote/`（运行时/引擎/应用/暂存）与 `~/.ocrc/remote-instances.json`
   （0600，`uiPassword` 不回显）；换下来的旧树留 `.ocrc-bak`；**被控端既有资产（用户自己的 opencode、
   用户自己的 4096 引擎）一个字节都不动**——验收脚本每轮都断言这一条。
+- **兼容包（2026-10-17，CI 化）**：被控端只支持 Linux x64；CI 按 openchamber 版本产出
+  **modern / legacy-glibc217** 两档包（legacy 含按 glibc 2.17 重建的 node-pty），控制端取件推送，
+  对端**不装 devtoolset、不联网**；没有包时回退控制端跨装。工作流 `.github/workflows/ocrc-pack.yml`。
 - **明确不做（v1）**：不 fork openchamber、不改它的源码；不做 WSL/Docker 实际支持（结构留位）；
   不做云端 relay（只保 LAN 直连，中继/托管式隧道的禁令延续）；**不自动写 openchamber 桌面版的 Remote Instances 列表**
   （`desktopSshInstances` 由桌面外壳独占；`ocrc remote connect` 把三项算好交出去，写入留给人；2026-10-17 已实测

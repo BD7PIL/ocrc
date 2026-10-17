@@ -297,6 +297,7 @@ export async function main(argv: string[]): Promise<void> {
       engineVersion: flagStr(flags, 'engine-version'),
       guard: flags.has('offline-guard'),
       trace: flagStr(flags, 'trace'),
+      onLog: (line) => console.log(`  ${line}`),
     })
     console.log(`${r.ok ? 'OK' : 'FAIL'}: ${r.detail}`)
     m.dispose()

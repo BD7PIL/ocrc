@@ -241,43 +241,71 @@ else
   fi
 fi
 
- echo "[11] P3 R9 出网中继：对端经控制端出网（不是它自己出网）"
+ echo "[11] P3 出网：按策略走（relay=经控制端 / direct=对端自己出网）"
 PROXY_LOCAL=${PROXY_LOCAL:-4711}
 PROXY_REMOTE=${PROXY_REMOTE:-2711}
 RELAY_LOG="$WS/relay.log"
 RELAY_PID=""
 cleanup_relay() { [ -n "$RELAY_PID" ] && kill "$RELAY_PID" 2>/dev/null || true; }
 trap 'cleanup_relay; cleanup' EXIT
-# 中继通常由 `ocrc remote up` 拉起；脚本自己起一个也是同一条路径（同一份代码）。
-if ! (netstat -ano 2>/dev/null | grep -qE ":$PROXY_LOCAL\b.*LISTENING"); then
-  node "$ROOT/dist/cli/index.js" remote proxy-serve --port "$PROXY_LOCAL" --log "$RELAY_LOG" > "$WS/relay-stdout.log" 2>&1 &
-  RELAY_PID=$!
-  for _ in $(seq 1 20); do (netstat -ano 2>/dev/null | grep -qE ":$PROXY_LOCAL\b.*LISTENING") && break; sleep 0.25; done
-  note "脚本起了中继（pid $RELAY_PID，端口 $PROXY_LOCAL）"
-else
-  note "中继已在 :$PROXY_LOCAL 上监听（复用）"
-fi
-# EL7 ships netstat; modern Ubuntu may only ship `ss`. Ask whichever exists.
+# 出口是**决定**，不是配置开关：auto 会探测对端。这里读同一份决定的文本输出
+# （`ocrc remote status`），据此断言该有的形态——有外网的对端**不该**被拉进控制端，
+# 把它的直连当成"少了 -R"是错的（2026-10-17 实测：Ubuntu 直连、EL7 经中继）。
+EGRESS_LINE=$(node "$ROOT/dist/cli/index.js" remote status "$TARGET" 2>/dev/null | grep -oE '出口 +[^（]*（[^）]*）' | head -1 || true)
+[ -n "$EGRESS_LINE" ] || fail "读不到出口决定（ocrc remote status 没打印「出口」行）"
+note "出口决定：$EGRESS_LINE"
+PEER_PORT_OPEN=0
 ssh_t "export PATH=\$PATH:/usr/sbin:/sbin; if command -v ss >/dev/null 2>&1; then ss -ltn 2>/dev/null | grep -qE ':$PROXY_REMOTE '; else netstat -ltn 2>/dev/null | grep -qE ':$PROXY_REMOTE'; fi" \
-  || fail "对端 loopback $PROXY_REMOTE 没在听——隧道少了 -R（up 是否带代理？）"
-note "对端 127.0.0.1:$PROXY_REMOTE 在听（ssh -R 建立的）"
-PCODE=$(ssh_t "HTTPS_PROXY=http://127.0.0.1:$PROXY_REMOTE NO_PROXY=127.0.0.1,localhost curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://registry.npmjs.org/ || true")
-[ "$PCODE" = "200" ] || fail "经中继出网失败（HTTP $PCODE）——中继或 -R 没接上"
-note "经中继出网：HTTP 200"
-if [ -s "$RELAY_LOG" ]; then
-  grep -q 'CONNECT registry.npmjs.org:443' "$RELAY_LOG" || fail "中继日志里没有这次 CONNECT——出网没走我们（对端自己出的网？）"
-  note "中继日志记到了这次 CONNECT（= 字节确实从控制端出去）"
+  && PEER_PORT_OPEN=1 || true
+
+if printf '%s' "$EGRESS_LINE" | grep -q '经控制端'; then
+  # 中继通常由 `ocrc remote up` 拉起；脚本自己起一个也是同一条路径（同一份代码）。
+  if ! (netstat -ano 2>/dev/null | grep -qE ":$PROXY_LOCAL\b.*LISTENING"); then
+    node "$ROOT/dist/cli/index.js" remote proxy-serve --port "$PROXY_LOCAL" --log "$RELAY_LOG" > "$WS/relay-stdout.log" 2>&1 &
+    RELAY_PID=$!
+    for _ in $(seq 1 20); do (netstat -ano 2>/dev/null | grep -qE ":$PROXY_LOCAL\b.*LISTENING") && break; sleep 0.25; done
+    note "脚本起了中继（pid $RELAY_PID，端口 $PROXY_LOCAL）"
+  else
+    note "中继已在 :$PROXY_LOCAL 上监听（复用）"
+  fi
+  [ "$PEER_PORT_OPEN" = "1" ] || fail "策略是经控制端，但对端 loopback $PROXY_REMOTE 没在听——隧道少了 -R（up 是否带代理？）"
+  note "对端 127.0.0.1:$PROXY_REMOTE 在听（ssh -R 建立的）"
+  PCODE=$(ssh_t "HTTPS_PROXY=http://127.0.0.1:$PROXY_REMOTE NO_PROXY=127.0.0.1,localhost curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://registry.npmjs.org/ || true")
+  [ "$PCODE" = "200" ] || fail "经中继出网失败（HTTP $PCODE）——中继或 -R 没接上"
+  note "经中继出网：HTTP 200"
+  if [ -s "$RELAY_LOG" ]; then
+    grep -q 'CONNECT registry.npmjs.org:443' "$RELAY_LOG" || fail "中继日志里没有这次 CONNECT——出网没走我们（对端自己出的网？）"
+    note "中继日志记到了这次 CONNECT（= 字节确实从控制端出去）"
+  else
+    note "（复用既有中继，日志在 ~/.ocrc/remote-relay.log；本次未单独记录）"
+  fi
 else
-  note "（复用既有中继，日志在 ~/.ocrc/remote-relay.log；本次未单独记录）"
+  # 直连档：断言"确实没经我们"——端口不该在听，对端自己得能出去。
+  [ "$PEER_PORT_OPEN" = "0" ] || fail "策略是对端直连，但对端 $PROXY_REMOTE 还在听——中继腿没撤（会白绕一圈）"
+  note "对端 $PROXY_REMOTE 没有监听（直连档不该有中继腿）"
+  DCODE=$(ssh_t "curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://registry.npmjs.org/ || true")
+  [ "$DCODE" = "200" ] || fail "直连档但对端自己出不去（HTTP $DCODE）——策略选错了"
+  note "对端自己出网：HTTP 200（没有经过控制端）"
 fi
-# 引擎进程自己的 env：R9 注入到没到引擎身上。
+# 引擎进程的 env 要与策略一致：relay 注入 HTTPS_PROXY，direct 一个代理变量都不该有。
 # 用 `pgrep -x opencode`（按进程名）而不是 `-f` 模式匹配：`-f` 会把跑探测的这层 shell
 # 自己也匹配进去，一 break 就抓到错 pid —— 结果是空值而不是报错（真踩过）。
-ENGINE_PID=$(ssh_t "for p in \$(pgrep -x opencode); do if tr '\\0' '\\n' < /proc/\$p/environ 2>/dev/null | grep -q '^HTTPS_PROXY='; then echo \$p; break; fi; done" | tr -d '\r')
-[ -n "$ENGINE_PID" ] || fail "没找到带 HTTPS_PROXY 的 opencode 引擎进程（实例是否用带代理的 up 起的？）"
+ENGINE_PID=$(ssh_t "for p in \$(pgrep -x opencode); do if tr '\\0' '\\n' < /proc/\$p/environ 2>/dev/null | grep -q '^OPENCODE_SERVER_PASSWORD='; then echo \$p; break; fi; done" | tr -d '\r')
+[ -n "$ENGINE_PID" ] || fail "没找到实例的 opencode 引擎进程"
 ENGINE_PROXY=$(ssh_t "tr '\\0' '\\n' < /proc/$ENGINE_PID/environ 2>/dev/null | sed -n 's/^HTTPS_PROXY=//p' | head -1" | tr -d '\r')
-[ "$ENGINE_PROXY" = "http://127.0.0.1:$PROXY_REMOTE" ] || fail "引擎进程的 HTTPS_PROXY=$ENGINE_PROXY（期望 http://127.0.0.1:$PROXY_REMOTE）"
-note "引擎进程（pid $ENGINE_PID）env：HTTPS_PROXY=$ENGINE_PROXY（注入到位）"
+if printf '%s' "$EGRESS_LINE" | grep -q '经控制端'; then
+  [ "$ENGINE_PROXY" = "http://127.0.0.1:$PROXY_REMOTE" ] || fail "引擎进程的 HTTPS_PROXY=$ENGINE_PROXY（期望 http://127.0.0.1:$PROXY_REMOTE）"
+  note "引擎进程（pid $ENGINE_PID）env：HTTPS_PROXY=$ENGINE_PROXY（注入到位）"
+else
+  # 直连档断言的是"**不是我们**"，不是"一个代理变量都没有"：对端自己的 shell 里
+  # 可能就有一个本地代理（实测 Ubuntu 上是用户自己的 127.0.0.1:7897），那是它的环境，
+  # 我们不替它清掉。要证明的只有一件事——它没在绕我们。
+  case "$ENGINE_PROXY" in
+    *":$PROXY_REMOTE"*) fail "直连档但引擎进程指向我们的中继腿：HTTPS_PROXY=$ENGINE_PROXY" ;;
+    "") note "引擎进程（pid $ENGINE_PID）env：零代理变量（直连档正确）" ;;
+    *) note "引擎进程（pid $ENGINE_PID）env：HTTPS_PROXY=$ENGINE_PROXY（对端自己的代理，不是我们的中继腿 :$PROXY_REMOTE）" ;;
+  esac
+fi
 # 真正的模型回答需要一个已配置的 provider。三种结果分开说，不拿空响应当"能跑"。
 ENGINE_PORT=$(ssh_t "tr '\\0' ' ' < /proc/$ENGINE_PID/cmdline | sed -n 's/.*--port \\([0-9]*\\).*/\\1/p'" | tr -d '\r')
 ENGINE_PW=$(ssh_t "tr '\\0' '\\n' < /proc/$ENGINE_PID/environ 2>/dev/null | sed -n 's/^OPENCODE_SERVER_PASSWORD=//p' | head -1" | tr -d '\r')
@@ -300,6 +328,43 @@ elif printf '%s' "$PROV" | grep -q '"data":\[\]'; then
   skip "P3 模型回答：本机引擎没有已配置的 provider（/api/provider → []，已等 60s）——出网通道已验；模型调用需先在面板登一次 provider"
 else
   note "引擎 provider 非空：$(printf '%s' "$PROV" | head -c 120)"
+  # D6「能干活」的最后一步：真的发一条消息，等一个真的回答。之前的验收只走到
+  # 「provider 非空」——那证明的是**能出网**，不是**能干活**。标记串固定
+  # （pong-ocrc-<随机>），所以判定不依赖模型的发挥；等不到就 skip 并带上引擎
+  # 原话，绝不把超时当通过。
+  MARK="pong-ocrc-$RANDOM"
+  # `|| true` on every probe substitution: a curl timeout must surface as a SKIP
+  # with its reason, not as a silent script exit under `set -e` (hit exactly that
+  # on the Ubuntu peer, where creating a session can outlast a 20 s budget).
+  SID=$(ssh_t "curl -s -m 40 -u 'opencode:$ENGINE_PW' -H 'content-type: application/json' \
+      -X POST -d '{\"directory\":\"$REMOTE_HOME\",\"title\":\"ocrc accept\"}' \
+      'http://127.0.0.1:$ENGINE_PORT/api/session'" 2>/dev/null \
+    | sed -n 's/.*"id":"\(ses_[^"]*\)".*/\1/p' | head -1 | tr -d '\r' || true)
+  if [ -z "$SID" ]; then
+    skip "P3 模型回答：引擎没有建出会话（POST /api/session 无 id / 超时）——不当作通过"
+  else
+    # The prompt POST is the whole turn on this engine build: give it a real
+    # budget. Its HTTP code is reported for information — the **gate** is the
+    # marker showing up in the message list, because that is the answer itself.
+    CODE=$(ssh_t "curl -s -m 120 -u 'opencode:$ENGINE_PW' -H 'content-type: application/json' \
+        -X POST -d '{\"text\":\"Reply with exactly: $MARK\"}' \
+        'http://127.0.0.1:$ENGINE_PORT/api/session/$SID/prompt?directory=$REMOTE_HOME' \
+        -o /dev/null -w '%{http_code}'" 2>/dev/null | tr -d '\r' || true)
+    ANSWER=""
+    WAITED=0
+    for _i in $(seq 1 30); do
+      sleep 3
+      WAITED=$((_i * 3))
+      MSGS=$(ssh_t "curl -s -m 20 -u 'opencode:$ENGINE_PW' 'http://127.0.0.1:$ENGINE_PORT/api/session/$SID/message?directory=$REMOTE_HOME'" 2>/dev/null | tr -d '\r' || true)
+      ANSWER=$(printf '%s' "$MSGS" | grep -o "$MARK" | head -1 || true)
+      [ -n "$ANSWER" ] && break
+    done
+    if [ -n "$ANSWER" ]; then
+      note "P3 模型回答（实测）：会话 $SID，prompt HTTP $CODE，回答里出现标记 $ANSWER（约 ${WAITED}s）"
+    else
+      skip "P3 模型回答：会话 $SID 建了、prompt HTTP $CODE，但 90s 内没等到标记 $MARK——不当作通过"
+    fi
+  fi
 fi
 
 echo "[12] R10 三级开关：本脚本不动（它自己管隧道），实测记录见 handoff §4.4"

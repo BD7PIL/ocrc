@@ -8,7 +8,7 @@
 # The control side prefers a verified pack (ensureAppPack) and only falls back
 # to the Windows cross-install when no pack is available.
 #
-# Build identity = the release tag `ocrc-remote-pack-<version>`. `detect` stops
+# Build identity = the release tag `ocrc-openchamber-pack-<version>`. `detect` stops
 # the whole chain as soon as that release already carries its assets, so a
 # version is built exactly once and a published pack is never silently replaced
 # (no unconditional `--clobber` on a complete release). The daily cron is
@@ -74,7 +74,7 @@ jobs:
           fi
           test -n "$V"
           echo "version=$V" >> "$GITHUB_OUTPUT"
-          echo "tag=ocrc-remote-pack-$V" >> "$GITHUB_OUTPUT"
+          echo "tag=ocrc-openchamber-pack-$V" >> "$GITHUB_OUTPUT"
           echo "packing openchamber $V"
 
       - id: gate
@@ -91,11 +91,11 @@ jobs:
           # pack that has already passed acceptance on both targets.
           expected() {
             for tier in modern legacy-glibc217; do
-              echo "ocrc-remote-pack-${V}-linux-x64-${tier}.tar.gz"
-              echo "ocrc-remote-pack-${V}-linux-x64-${tier}.tar.gz.sha512"
-              echo "ocrc-remote-pack-${V}-linux-x64-${tier}.json"
+              echo "ocrc-openchamber-pack-${V}-linux-x64-${tier}.tar.gz"
+              echo "ocrc-openchamber-pack-${V}-linux-x64-${tier}.tar.gz.sha512"
+              echo "ocrc-openchamber-pack-${V}-linux-x64-${tier}.json"
             done
-            echo "ocrc-remote-pack-manifest.json"
+            echo "ocrc-openchamber-pack-manifest.json"
           }
 
           if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets \
@@ -136,7 +136,7 @@ jobs:
           --tier modern --out pack
       - uses: actions/upload-artifact@v4
         with:
-          name: ocrc-remote-pack-modern
+          name: ocrc-openchamber-pack-modern
           path: pack/*
           if-no-files-found: error
           retention-days: 3
@@ -185,7 +185,7 @@ jobs:
             '
       - uses: actions/upload-artifact@v4
         with:
-          name: ocrc-remote-pack-legacy
+          name: ocrc-openchamber-pack-legacy
           path: pack/*
           if-no-files-found: error
           retention-days: 3
@@ -203,7 +203,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: ocrc-remote-pack-*
+          pattern: ocrc-openchamber-pack-*
           path: pack
           merge-multiple: true
       - name: Merge tier manifests
@@ -230,7 +230,7 @@ jobs:
             }
           }
           for (const t of TIERS) if (!tiers[t]) throw new Error(`tier manifest missing: ${t}`)
-          fs.writeFileSync('pack/ocrc-remote-pack-manifest.json', JSON.stringify({ openchamberVersion: version, tiers }, null, 2) + '\n')
+          fs.writeFileSync('pack/ocrc-openchamber-pack-manifest.json', JSON.stringify({ openchamberVersion: version, tiers }, null, 2) + '\n')
           console.log('manifest', version, Object.keys(tiers))
           NODE
       - name: Publish release assets
@@ -243,8 +243,8 @@ jobs:
             echo "repairing the incomplete release $TAG"
           else
             gh release create "$TAG" -R "$GITHUB_REPOSITORY" \
-              --title "OCRC Remote pack ${TAG#ocrc-remote-pack-}" \
-              --notes "App packs for openchamber ${TAG#ocrc-remote-pack-} (Linux x64; modern + legacy glibc 2.17)."
+              --title "OCRC openchamber pack ${TAG#ocrc-openchamber-pack-}" \
+              --notes "App packs for openchamber ${TAG#ocrc-openchamber-pack-} (Linux x64; modern + legacy glibc 2.17)."
           fi
           gh release upload "$TAG" pack/* -R "$GITHUB_REPOSITORY" --clobber
 
@@ -289,13 +289,13 @@ jobs:
         run: |
           PIN="$(grep -oP "DEFAULT_APP_VERSION = '\K[^']+" src/core/remote-instance.ts)"
           test -n "$PIN"
-          echo "retention ${RELEASE_RETENTION_DAYS}d; ocrc-remote-pack-${PIN} is exempt (DEFAULT_APP_VERSION)"
+          echo "retention ${RELEASE_RETENTION_DAYS}d; ocrc-openchamber-pack-${PIN} is exempt (DEFAULT_APP_VERSION)"
           cutoff="$(date -u -d "${RELEASE_RETENTION_DAYS} days ago" +%s)"
           gh release list -R "$GITHUB_REPOSITORY" -L 200 \
             --json tagName,createdAt --jq '.[] | "\(.createdAt) \(.tagName)"' > releases.txt
           while read -r created tag; do
-            case "$tag" in ocrc-remote-pack-*) ;; *) continue ;; esac
-            if [ "$tag" = "ocrc-remote-pack-${PIN}" ]; then
+            case "$tag" in ocrc-openchamber-pack-*) ;; *) continue ;; esac
+            if [ "$tag" = "ocrc-openchamber-pack-${PIN}" ]; then
               echo "keep $tag (pinned)"
               continue
             fi

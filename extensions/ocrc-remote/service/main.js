@@ -1117,14 +1117,14 @@ function appPackTierForGlibc(glibc) {
   return major < 2 || major === 2 && minor < 31 ? "legacy-glibc217" : "modern";
 }
 function appPackName(appVersion, tier) {
-  return `ocrc-remote-pack-${appVersion}-linux-x64-${tier}.tar.gz`;
+  return `ocrc-openchamber-pack-${appVersion}-linux-x64-${tier}.tar.gz`;
 }
 function appPackPath(appVersion, tier) {
   return join6(appCacheDir(appVersion), appPackName(appVersion, tier));
 }
 function appPackManifestUrl(appVersion) {
-  const base = (process.env.OCRC_PACK_BASE ?? `https://github.com/BD7PIL/ocrc/releases/download/ocrc-remote-pack-${appVersion}`).replace(/\/+$/, "");
-  return `${base}/ocrc-remote-pack-manifest.json`;
+  const base = (process.env.OCRC_PACK_BASE ?? `https://github.com/BD7PIL/ocrc/releases/download/ocrc-openchamber-pack-${appVersion}`).replace(/\/+$/, "");
+  return `${base}/ocrc-openchamber-pack-manifest.json`;
 }
 function parseAppPackManifest(raw, tier) {
   const manifest = raw;

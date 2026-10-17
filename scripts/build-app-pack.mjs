@@ -12,12 +12,12 @@
  * rebuilt for glibc 2.17 (scripts/build-pty-legacy-local.sh).
  *
  * Output per tier:
- *   ocrc-remote-pack-<version>-linux-x64-<tier>.tar.gz
- *   ocrc-remote-pack-<version>-linux-x64-<tier>.tar.gz.sha512   (base64)
- *   ocrc-remote-pack-<version>-linux-x64-<tier>.json            (tier manifest)
- *   ocrc-remote-pack-<version>-linux-x64-<tier>.lock.json       (frozen graph)
+ *   ocrc-openchamber-pack-<version>-linux-x64-<tier>.tar.gz
+ *   ocrc-openchamber-pack-<version>-linux-x64-<tier>.tar.gz.sha512   (base64)
+ *   ocrc-openchamber-pack-<version>-linux-x64-<tier>.json            (tier manifest)
+ *   ocrc-openchamber-pack-<version>-linux-x64-<tier>.lock.json       (frozen graph)
  *
- * The publish job merges the tier manifests into ocrc-remote-pack-manifest.json.
+ * The publish job merges the tier manifests into ocrc-openchamber-pack-manifest.json.
  * The tree is installed with `npm ci` from a lock resolved at build time, so the
  * pack for a given openchamber version is byte-stable across rebuilds.
  */
@@ -46,7 +46,7 @@ const ptyFile = arg('--pty') ? resolve(arg('--pty')) : ''
 const noSmoke = has('--no-smoke')
 const work = resolve(arg('--work', join(out, '..', `.pack-work-${tier}`)))
 const tree = join(work, 'tree')
-const asset = `ocrc-remote-pack-${version}-linux-x64-${tier}.tar.gz`
+const asset = `ocrc-openchamber-pack-${version}-linux-x64-${tier}.tar.gz`
 const glibcFloor = tier === 'legacy-glibc217' ? '2.17' : '2.31'
 
 const run = (cmd, argv = [], opts = {}) => {
@@ -83,7 +83,7 @@ const platform = ['--os=linux', '--cpu=x64', '--libc=glibc']
 const lockDir = join(work, 'lock')
 mkdirSync(lockDir, { recursive: true })
 writeFileSync(join(lockDir, 'package.json'), `${JSON.stringify({
-  name: 'ocrc-remote-pack', version: '0.0.0', private: true,
+  name: 'ocrc-openchamber-pack', version: '0.0.0', private: true,
   dependencies: { '@openchamber/web': version },
 }, null, 2)}\n`)
 
@@ -172,7 +172,7 @@ writeFileSync(`${finalAsset}.sha512`, `${sha512Base64}\n`)
 
 // The frozen graph travels with the pack: it makes "same version ⇒ same bytes"
 // auditable and lets a pruned release be rebuilt identically on demand.
-const lockAsset = `ocrc-remote-pack-${version}-linux-x64-${tier}.lock.json`
+const lockAsset = `ocrc-openchamber-pack-${version}-linux-x64-${tier}.lock.json`
 copyFileSync(lockFile, join(out, lockAsset))
 const lockSha512Hex = createHash('sha512').update(readFileSync(lockFile)).digest('hex')
 
@@ -192,6 +192,6 @@ const manifest = {
   lockSha512Hex,
   createdAt: new Date().toISOString(),
 }
-writeFileSync(join(out, `ocrc-remote-pack-${version}-linux-x64-${tier}.json`), `${JSON.stringify(manifest, null, 2)}\n`)
+writeFileSync(join(out, `ocrc-openchamber-pack-${version}-linux-x64-${tier}.json`), `${JSON.stringify(manifest, null, 2)}\n`)
 
 console.log(`[pack] ${finalAsset} (${(bytes.length / 1e6).toFixed(1)}MB) sha512 ${sha512Base64.slice(0, 16)}…`)

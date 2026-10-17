@@ -51,9 +51,9 @@ describe('app pack tier + naming', () => {
   })
 
   it('names are stable and tier-scoped', () => {
-    expect(appPackName('2.3.3', 'legacy-glibc217')).toBe('ocrc-remote-pack-2.3.3-linux-x64-legacy-glibc217.tar.gz')
-    expect(appPackPath('2.3.3', 'modern').endsWith('ocrc-remote-pack-2.3.3-linux-x64-modern.tar.gz')).toBe(true)
-    expect(appPackManifestUrl('2.3.3')).toContain('ocrc-remote-pack-2.3.3/ocrc-remote-pack-manifest.json')
+    expect(appPackName('2.3.3', 'legacy-glibc217')).toBe('ocrc-openchamber-pack-2.3.3-linux-x64-legacy-glibc217.tar.gz')
+    expect(appPackPath('2.3.3', 'modern').endsWith('ocrc-openchamber-pack-2.3.3-linux-x64-modern.tar.gz')).toBe(true)
+    expect(appPackManifestUrl('2.3.3')).toContain('ocrc-openchamber-pack-2.3.3/ocrc-openchamber-pack-manifest.json')
   })
 
   it('manifest parsing rejects entries without an asset or digest', () => {
@@ -81,8 +81,8 @@ describe('ensureAppPack', () => {
     const body = Buffer.from('remote-pack-bytes')
     const sha = createHash('sha512').update(body).digest('base64')
     const fetchImpl = vi.fn(async (url: string) => {
-      if (String(url).endsWith('ocrc-remote-pack-manifest.json')) {
-        return new Response(JSON.stringify({ tiers: { modern: { asset: 'ocrc-remote-pack-2.3.3-linux-x64-modern.tar.gz', sha512Base64: sha } } }), { status: 200 })
+      if (String(url).endsWith('ocrc-openchamber-pack-manifest.json')) {
+        return new Response(JSON.stringify({ tiers: { modern: { asset: 'ocrc-openchamber-pack-2.3.3-linux-x64-modern.tar.gz', sha512Base64: sha } } }), { status: 200 })
       }
       return new Response(body, { status: 200 })
     }) as unknown as typeof fetch
@@ -93,7 +93,7 @@ describe('ensureAppPack', () => {
 
   it('a digest mismatch is not installed', async () => {
     const fetchImpl = vi.fn(async (url: string) => {
-      if (String(url).endsWith('ocrc-remote-pack-manifest.json')) {
+      if (String(url).endsWith('ocrc-openchamber-pack-manifest.json')) {
         return new Response(JSON.stringify({ tiers: { modern: { asset: 'x.tgz', sha512Base64: 'not-the-digest' } } }), { status: 200 })
       }
       return new Response('tampered', { status: 200 })

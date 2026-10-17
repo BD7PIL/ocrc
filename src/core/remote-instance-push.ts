@@ -74,8 +74,13 @@ export function appPackTierForGlibc(glibc?: string): AppPackTier {
   return major < 2 || (major === 2 && minor < 31) ? 'legacy-glibc217' : 'modern'
 }
 
+/** The peer app pack. Named after what is inside it (openchamber), not after the
+ *  extension that pushes it: `ocrc-remote` means the extension and only that.
+ *  The version stays in the file name because `OCRC_PACK_DIR` is a flat
+ *  directory — an offline mirror holds several versions side by side, so the
+ *  release tag cannot be the only version axis here. */
 export function appPackName(appVersion: string, tier: AppPackTier): string {
-  return `ocrc-remote-pack-${appVersion}-linux-x64-${tier}.tar.gz`
+  return `ocrc-openchamber-pack-${appVersion}-linux-x64-${tier}.tar.gz`
 }
 
 export function appPackPath(appVersion: string, tier: AppPackTier): string {
@@ -84,8 +89,8 @@ export function appPackPath(appVersion: string, tier: AppPackTier): string {
 
 export function appPackManifestUrl(appVersion: string): string {
   const base = (process.env.OCRC_PACK_BASE
-    ?? `https://github.com/BD7PIL/ocrc/releases/download/ocrc-remote-pack-${appVersion}`).replace(/\/+$/, '')
-  return `${base}/ocrc-remote-pack-manifest.json`
+    ?? `https://github.com/BD7PIL/ocrc/releases/download/ocrc-openchamber-pack-${appVersion}`).replace(/\/+$/, '')
+  return `${base}/ocrc-openchamber-pack-manifest.json`
 }
 
 export interface AppPackManifest {

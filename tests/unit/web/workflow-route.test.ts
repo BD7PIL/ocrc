@@ -37,7 +37,7 @@ function fakeBackend(history: unknown[] = [], throwOnHistory = false): AgentBack
   } as AgentBackend
 }
 
-function makeApp(opts: { hold?: boolean; history?: unknown[]; historyThrows?: boolean } = {}) {
+function makeApp(opts: { hold?: boolean; history?: unknown[]; historyThrows?: boolean; ceiling?: number } = {}) {
   const journal = createWorkflowJournal({ dir })
   const artifacts = createArtifactStore({ dir, cwd: dir })
   const saved = createSavedWorkflowsStore(join(dir, 'saved.json'))
@@ -58,6 +58,10 @@ function makeApp(opts: { hold?: boolean; history?: unknown[]; historyThrows?: bo
     registry: singleBackendRegistry(fakeBackend(opts.history, opts.historyThrows)),
     journal, world: createWorldReader({ cwd: dir }), artifacts,
     runScript: runScript as never,
+    // The default ceiling is `availableParallelism() - 2` (clamped 1..16), so a
+    // 4-vCPU CI runner caps at 2 and the concurrency-change assertion below
+    // would silently clamp. Pin it where the test needs headroom.
+    ...(opts.ceiling ? { ceiling: opts.ceiling } : {}),
   })
   const escalations = createEscalationRegistry()
   const app = new Hono()
@@ -267,7 +271,7 @@ describe('workflow routes — P4 projection + live settings', () => {
   })
 
   it('changes a live run\'s concurrency and refuses a live model change', async () => {
-    const { app } = makeApp({ hold: true })
+    const { app } = makeApp({ hold: true, ceiling: 8 })
     const created = await json(await app.request('/api/workflow/runs', {
       method: 'POST', body: JSON.stringify({ scriptText: SCRIPT, cwd: dir, maxConcurrency: 2 }),
     }))

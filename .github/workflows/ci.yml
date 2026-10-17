@@ -39,14 +39,16 @@ jobs:
       - name: Typecheck (tests — the test tree is typechecked too)
         run: npm run typecheck:tests
 
+      # `dist/` before the tests: install/uninstall tests exercise the built
+      # entrypoint, and a fresh clone has no dist until tsc runs.
+      - name: Build (plugin)
+        run: npm run build
+
       - name: Test (plugin — unit)
         run: npm test
 
       - name: Test (plugin — integration, fake bot)
         run: npm run test:integration
-
-      - name: Build (plugin)
-        run: npm run build
 
       - name: Coverage (plugin, baseline report)
         if: matrix.node-version == 22

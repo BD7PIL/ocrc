@@ -1,6 +1,6 @@
 # PRODUCT.md — ocrc 产品宪法
 
-> 每个新需求先过这一页。2026-10-05 经架构 grilling 定稿；**2026-10-06 修订（定位落案 + 双拓扑）**；**2026-10-07 修订（ZCode 平替驾驶舱落案：定位升级 + 功能范围 + backend 域模型 + provisioning/更新矩阵）**；**2026-10-14 修订（基座换位：openchamber 面板 + ocrc 收缩换位）**。修订需在此文件留痕。
+> 每个新需求先过这一页。2026-10-05 经架构 grilling 定稿；**2026-10-06 修订（定位落案 + 双拓扑）**；**2026-10-07 修订（ZCode 平替驾驶舱落案：定位升级 + 功能范围 + backend 域模型 + provisioning/更新矩阵）**；**2026-10-14 修订（基座换位：openchamber 面板 + ocrc 收缩换位）**；**2026-10-16 修订（面板侧 provisioning 与项目级配置：换位后第一份能力契约，见第零点九条与 `docs/research/panel-provisioning-verdict.md`）**；**2026-10-16 二次修订（动线接入 + 运行时闭环：主机现状以命令 chip 交给模型、运行能在被控端真落地，见第零点九条末三段）**；**2026-10-17 修订（对端能力：远程 openchamber 实例 + 引擎 v2 门禁 + 出网中继 + 三级重连，见第零点十条）**。修订需在此文件留痕。
 
 ## 第零条：定位（2026-10-14 基座换位修订）
 
@@ -8,7 +8,8 @@
 > **接受「openchamber 的 UI 为准」**——面板由它承担（Win/Mac，不 fork，external 引擎
 > 模式接入被控端），ZCode 母版平替程序（web-next/vendor 体系）**终止开发、冻结不删**。
 > ocrc 收缩换位为：**被控端 agent（opencode v2 + 1.18 双代）+ IM 通道矩阵 +
-> provisioning/离线推送 + 面板侧 iframe 扩展（连接扩展、omo 编排视图）+ octg 式 CI
+> provisioning/离线推送（2026-10-16 定案：全链落在**面板侧**扩展，见第零点九条）+
+> 面板侧 iframe 扩展（连接扩展、omo 编排视图）+ octg 式 CI
 > 跟随**。完整判定与拓扑见 `docs/research/openchamber-base-swap-verdict.md` 与
 > `docs/research/e1-verdict.md`。**不改名**（语义仍指准 remote control）。
 > 以下三重身份的历史条文保留原样作为沿革记录（第 1 条由 openchamber 承担）：
@@ -40,13 +41,19 @@
 - 每种 transport 都存在两态；新建任务页/远程向导必须**显式呈现**（探测到已有引擎 → 「接入已有引擎」；没有 → 「拉起新引擎」），不得隐式。
 - ZCode 对照：全系 spawn（本地 spawn、远端 deploy+spawn），无任何 adopt——**adopt-first 是 ocrc 的差异化**，也是「生产引擎零测试流量」铁律的架构基础。
 
-## 第零点六条：provisioning 与更新矩阵（2026-10-07 新增，octg 惯例）
+## 第零点六条：provisioning 与更新矩阵（2026-10-07 新增；**2026-10-16 换位修订**）
 
-- **项目自持二进制**：host 维护官方工件缓存 `~/.ocrc/bin-cache/`——host 安装/更新时从 npm registry 官方平台包拉齐**多平台 pin 版本**（linux-x64/arm64；win32-x64 有界支持）。**按目标平台选工件，与 host 自身平台解耦**。
-- **推送为主路径**：远端零联网依赖（scp 推缓存工件）；`curl opencode.ai/install` 降级为「远端自装」可选路径；只用官方工件（never musl/compat）。
-- **中心化更新**：host 是唯一版本源。opencode 升级 = 升级 ocrc 一处（pin 随 host 走），**没有任何远端/客户端需要自己更新**；远端漂移检测（`inspection.version` ≠ host pin）→ 向导/面板「推送升级到 pin x.y.z」一键动作；web 资产随 host 发版。
-- 企业代理 env（`httpProxy/httpsProxy/noProxy/caPath`）同时覆盖远端 serve 的 LLM 流量与安装/下载通道。
-- 版本策略：**pin 1.18.x，不 follow latest**（PRODUCT 第五条）。
+> **换位**：基座换位后，驱动 provisioning 的机器从「被控端 host」变成「面板宿主（Win/Mac）」。
+> 本条按 2026-10-16 裁决重述——**版本源、工件缓存、驱动面全部落在面板侧**；被控端不再承担
+> provisioning。完整裁决见 [panel-provisioning-verdict.md](research/panel-provisioning-verdict.md)。
+
+- **面板自持工件缓存**：面板侧扩展维护官方工件缓存（沿用 `core/bin-cache.ts` 的算法），从 npm registry 官方平台包拉齐**按目标平台**选取的版本（被控端 linux-x64/arm64；win32-x64 有界支持）。**按目标平台选工件，与面板自身平台解耦**——面板是 Win/Mac、被控端是 Linux，这是常态而非例外。
+- **两条取件路，一个开关**：先探测被控端出网能力（对官方源的连通性），通则**被控端联网直取**，不通则**从面板推缓存工件**（air-gapped 场景零联网依赖）；两条路产物必须过**同一套 sha512 校验**。只用官方工件（never musl/compat）；官方 bash 安装脚本**不作为主路径**（无完整性校验）。
+- **落点与身份**：被控端装到 `~/.opencode/bin/`（官方默认路径，与 openchamber 安装器同款），**绝不覆盖用户既有安装**；部署身份用**工件 sha512 记在被控端 marker**（不是版本字符串），以区分「同版本重发」与「升到一半」两种脏态；推送前旧二进制备份 `.ocrc-bak`，失败自动还原；卸载 = 删该目录 + 我们的 marker。
+- **中心化更新（版本源已换位）**：**面板宿主是唯一版本源**——被控端装「面板宿主正在运行的那个 opencode 版本」（镜像），推前用 openchamber 的 `isSupportedOpenCodeVersion` 复核不低于其门禁。被控端**不做自更新**；漂移检测 → 面板「推送升级」一键动作。
+- **provisioning 清单从「二进制」扩为「能力包」**：opencode 引擎 + **Node 运行时（按目标平台，装进我们自己的命名空间）** + ocrc 插件 + MCP 能力所需的运行时/二进制。MCP 声明里的 `npx -y X` 形态在同步时**改写为指向预装好的本地入口**，运行期不再依赖 npx 联网。**omo-slim 默认不装**。
+- 企业代理 env（`httpProxy/httpsProxy/noProxy/caPath`）同时覆盖被控端 serve 的 LLM 流量与安装/下载通道。
+- 版本策略：**镜像面板宿主、不 follow latest**（第五条「不追上游」仍然成立）。
 
 ## 第零点七条：功能范围（2026-10-07 裁决）
 
@@ -103,6 +110,122 @@ ocrc 的已保存 workflow 是一个机器级 store，没有可搬的文件。am
 的会话从前驱转录复制；缺 `forkSession` 的后端如实降级为空会话并记日志，**不拒绝修订**），仍余
 两处按能力/代数降级：不带 in-flight 条目、resume 只回看一代前驱（见 docs/workflow-p4-record.md）。
 
+## 第零点九条：面板侧 provisioning 与被控端项目级配置（2026-10-16 新增）
+
+> 换位后的第一份能力契约。要解决的问题：**面板（Win/Mac）与扩展今天只会开隧道**——
+> 被控端必须「已装且已启动」引擎，否则扩展什么都做不了；而现有配置桥写的是被控端
+> **全局层** `~/.config/opencode/opencode.json`，与「不直接操作对端用户级配置」的设计意图冲突。
+> 本条约定的原则是**「面板控制一切：只要有 ssh，就一定有相应的能力」**。
+> 完整裁决（D1–D19 与取证）见 [panel-provisioning-verdict.md](research/panel-provisioning-verdict.md)；
+> 上游同构参照是 ZCode 的 `detect → deploy → exec → 握手` 管线（被控端只需 sshd + POSIX sh + tar + 可写 `$HOME`）。
+
+- **全链落在面板侧扩展**（D2）：检测 → 取工件 → 推送/联网安装 → 写配置，四步都在
+  `extensions/ocrc-connect`。引擎侧 ocrc 的 provisioning 降为「已装 ocrc 的被控机」辅助路径——
+  鸡生蛋：被控机连引擎都没有时，那边没有 ocrc 可驱动。
+- **自动程度固定为「检测全自动、安装与写配置一次显式确认」**（D3）：检测在连接时与手动刷新时自动跑；
+  安装/写配置必须一次显式确认，可勾「此主机不再询问」。阶段 2/3 会往被控端装东西，这条门禁不得绕开。
+- **就绪四档阶梯**（D8，逐档给出可执行动作，不做「部分可用」模糊态）：
+  ① ssh 可达 → ② POSIX sh + tar + 可写 `$HOME` → ③ 引擎在位且版本匹配 → ④ 远程工作目录存在且可写。
+- **档案 = 主机级**（D16）：`{host, user, port, keyPath, 引擎版本, 运行时, 转发}` 绑主机；
+  **项目目录是它下面的子项**。隧道、引擎、运行时、版本都是主机级的，绑到项目上会导致重复探测/重复安装。
+- **项目级配置是唯一写入目标**（D5/D9/D10/D11）：写 `<远程工作目录>/opencode.jsonc`（存在 `.jsonc` 就写 `.jsonc`，
+  保不住注释就如实提示）；**全局层只读不写**；读远端现状→只写差异、`.ocrc-bak` 兜底、失败回滚、`syncId` 幂等；
+  绝不「每次请求都写」、绝不无条件覆盖。
+- **同步单位是能力，不是凭据类别**（D11/D12/D13/D14）：每项能力声明它的需求（**密钥 / 网络可达 / 运行时**），
+  由 provisioning 在目标侧凑齐——内网地址 → SSH 隧道（按方向补）；本机进程 → 目标侧起进程；
+  本机二进制/运行时 → 纳入能力包安装。产物清单含 **Node 运行时（按目标平台，装进我们自己的命名空间）**；
+  MCP 声明里的 `npx -y X` 在同步时改写为预装的本地入口，运行期不再依赖 npx 联网。
+  **密钥跟着能力走**（粘性合并：面板未提供的密钥字段一律保留远端原值）；
+  **传输凭据（SSH 私钥/密码、TG bot token）永不离开面板宿主**。
+- **运行时与依赖的落点：`~/.ocrc/`**（2026-10-16 裁决）：复用探测到的 Node（≥ 20）优先；
+  不够或缺失时才装进 `~/.ocrc/runtime/<name>/<version>/`，**绝不碰系统包管理器、不碰用户既有 nvm**。
+  被控端因此至多出现两个我们的目录：`~/.opencode/bin`（引擎）与 `~/.ocrc/`（运行时与工件）。
+- **`npx -y X` 的包两条取件路，一个开关**（2026-10-16 裁决，与 D4 同款）：有网时在被控端 `npm i` 指定版本；
+  air-gap 时从面板推 tarball（走 npm 的 integrity 做同一套 sha512 校验）。两条路的产物必须一致。
+  **实现进度留痕（2026-10-16 二次修订）**：本轮只落地了「被控端自取」这一条；推送那条留到下一轮，
+  期间被控端不出网时 `POST /runtime/plan` 会如实报 `impossible`（理由是「不出网」），不静默降级。
+- **运行时补齐的落地约定**（2026-10-16 二次修订，实现见 `service/runtime.ts`）：
+  槽位 = 声明里钉的版本/dist-tag，没钉就是 `latest`（`npm install <pkg>` 装到的那个）；
+  **入口来自包自己的 npm 元数据 `bin`**（优先 `node_modules/.bin/` 垫片），写进配置的是真实路径；
+  槽位里写 marker（`SPEC/PACKAGE/VERSION/ENTRY/SLOT/INSTALLED_AT`），幂等以「spec 相同且入口还在」为准；
+  **目录已存在但没有 marker 就不再动手**（那是别人装的东西，不搅乱）；失败时删掉**本次刚建出来**的
+  槽位（否则下一次探测会把它当成「别人装的」而永久拒装），旧 marker 还原。
+  取件只用被控端自己的 npm——**air-gap 的运行时 tarball 推送尚未实现**，目标机不出网时如实报
+  「装不了」，不假装能装。
+- **动线：现状交给模型，不改上游动线**（2026-10-16 二次修订）：openchamber 不给 guest 任何项目/
+  传输 API（面板入口的硬边界，见 `panel-provisioning-verdict.md` §七），所以 ocrc 的入口只用它**已经
+  开放的那几面**：composer 斜杠命令 `/ocrc-host`（现状）与 `/ocrc-plan`（待办）把四档就绪、引擎、
+  能力缺口打包成一个 chip 交给模型；主机视图提供「在此项目上新建会话」（目录已是 openchamber 项目时）
+  与「贴到当前对话」两条交接。**不做全屏 `contributes.page` 向导、不 fork 上游改它的项目菜单、
+  不给扩展加 `background.entry`**（那会让隐藏帧抢走命令解析）。
+- **端口语义**（2026-10-16 多路转发实验；**2026-10-16 二次更正**）：**主隧道端口不可静默更换**——
+  `localPort` 默认 4096 是**面板宿主启动 openchamber 时用 `OPENCODE_PORT=4096`（或 `OPENCODE_HOST`）指过去的地址**，
+  换掉就等于弄坏接入，冲突时如实报错（把 ssh 的 `cannot listen to port` 原话带回来）；**能力转发的端口是实现细节**，
+  被占用自动换一个空闲端口，并把实际端口回写档案、把「换了哪个」如实报给面板（URL 改写跟着实际端口走）。
+  > **更正留痕**：2026-10-14 的原始裁决写的是「隧道落地 4096 + openchamber 启动自动探测，**零环境变量**」。
+  > 上游已**删掉**盲探 4096 的行为（其源码注释：盲探会劫持用户自己开的 OpenCode，把两边生命周期绑死），
+  > 现在外接引擎必须**显式 opt-in**（`OPENCODE_PORT` / `OPENCODE_HOST` / `OPENCODE_SKIP_START`），
+  > 否则 openchamber 自己拉一个本机引擎。实测证据见
+  > [panel-fusion-and-provisioning.md §7.5](handoff/panel-fusion-and-provisioning.md)。面板宿主的启动脚本必须带上这个变量。
+- **隧道形态**（D15）：复用**同一条 ssh 进程的多路转发**（`-L`/`-R` 同 ssh），生命周期与主隧道完全一致；
+  端口**动态分配并记录**、不写死；能力 URL 按实际端口重写，**重写规则在面板可见**。
+- **IM 通道归位**（D18）：**单主固定在被控端**——一个 bot token 只允许一个 `getUpdates` 长轮询
+  （第二个拿 409）。**不做冷接管、不做多前端**：主力是面板，TG 只在用户不在电脑前时使用。
+- **明确不做**：中继/托管式隧道（延续第零点八条）；IM 跨机接管/双端轮询；远端自更新（版本永远由面板推送）；
+  把密钥写进任何配置文件（只允许 `{env:…}` / `{file:…}` 间接引用）；
+  碰被控端用户既有的用户级配置（唯一例外：provider 凭据条目追加/更新同名条目 + `.ocrc-bak`）；
+  **在被控端起 MCP 进程**（2026-10-16 裁决：那类能力本来就属于桌面侧，D14 已有「面板跑 + 反向接入」的选项；
+  实现它要在被控端引入进程守护与收尸，破坏「被控端零守护」这条更值钱的性质）；
+  **全屏 `contributes.page` 向导 / fork 上游改项目菜单 / 给扩展加 `background.entry`**（2026-10-16 二次修订：
+  动线入口只用 openchamber 已开放的那几面）。
+
+## 第零点十条：对端能力——远程 openchamber 实例（2026-10-17 新增）
+
+**条款（用户口径 R11，2026-10-16 grill 定稿）**：要求在 openchamber 的 **Add project 里直接看到对端**，
+中间主页面**直接与对端引擎交互**。这是**能力**要求，机制由实现选。
+
+**机制（已实测，不是设想）**：把 openchamber 实例**跑在被控端**，控制端只建一条转发、打开转发后的 URL。
+判据来自上游源码：项目/文件/git 这些面全部在**服务进程内**解析（`project-directory-runtime` 的
+`fsPromises.stat`、`lib/fs/routes.js` 直接读本地盘），所以"看见对端"等价于"实例在对端跑"——
+不需要 fork、不需要改它的源码，界面就是 openchamber 自己的界面。归档与证据见
+[handoff/remote-instance-dev-and-test-plan.md](handoff/remote-instance-dev-and-test-plan.md) §2/§4；
+机制裁决见 [research/remote-instance-verdict.md](research/remote-instance-verdict.md)。
+
+- **两档入口**：① 浏览器/PWA 打开 `http://127.0.0.1:<localPort>`（手机也走这条，控制端在 127.0.0.1 上）；
+  ② openchamber 桌面版的 **external 模式**（多机聚合、主机切换靠它）。第二档的「一键」= `ocrc remote connect <id>`：
+  把桌面版对话框要的**地址 / 密码 / 端口**一次算好、验好并可直接 `--open` 打开；`--json` 给脚本与面板。
+  **2026-10-17 实测**：官方桌面版 **2.4.0** 的 external 模式**接受我们自装的 2.3.3 实例**——桌面壳自己建
+  `ssh -L 127.0.0.1:<local>:127.0.0.1:2610`，`/api/system/info` 返回对端 pid，Add project 的目录浏览器
+  列出 `/home/demo`，会话来自对端引擎。**web 版（`:3000`）没有 Electron 的 `desktop_ssh_*` 桥，做不了这件事**；
+  列表仍是 desktop 独占面，`ocrc remote connect` **不自动写**（验收时人工合并 `~/.config/openchamber/settings.json`，
+  已留 `.ocrc-bak`；密码/客户端令牌都不落盘，页面首开手输一次）。
+- **R12 引擎门禁（硬）**：实例的引擎**必须** opencode **major=2 且 ≥ 2.0.20**（上游
+  `compatibility.js` 同判据），二进制路径**钉死绝对路径、绝不靠 PATH、绝不回落 v1**。
+  三个断言点：`plan`（预演）/ `up` 前（pin 断言）/ 实例自报
+  （`GET /api/opencode/compatibility` 的 `state/binary/version`——**这才是"引擎是 v2"的证据**，
+  而不是我们"请求它用 v2"）。默认部署**我们自己**的 pin（`~/.ocrc/remote/engine/opencode`，
+  pin 顺序：manifest > `OCRC_V2_PIN` > 声明默认），对端既有的 v1/v2 一律不动。
+- **R6/R9 出网中继（硬）**：被控端可以**完全没有公网**，计算与引擎留在对端。实例的 serve 行注入
+  `HTTPS_PROXY=http://127.0.0.1:<remotePort>`，该端口由**同一条 ssh 的 `-R`** 拉回控制端的中继
+  （`core/remote-instance-proxy.ts`）；`NO_PROXY` 恒带 `127.0.0.1,localhost`（回环免代理——实例要和
+  自己的引擎在本机说话）。中继**拒绝本机目标**（反向隧道不能变成通往控制端 loopback 的门），
+  并把每次出网记进 `~/.ocrc/remote-relay.log`（"请求成功"分不清是走了我们还是对端自己有网，
+  CONNECT 记录才行）。**目标白名单**可按实例收紧（`proxy.allow`，点边界后缀匹配；空 = 只拒回环），
+  被拒请求在日志里写明原因；注意收紧时要同时放行模型 provider **和**引擎自己的基础设施域名
+  （如 `models.opencode.ai`），否则引擎"能起不能用"。装机路径同理：**控制端备件 + ssh stdin 推送**，
+  对端脚本零联网命令。
+- **R10 三级重连（可开关，默认 开/开/关）**：① 掉线自动重连+重订阅（keepalive + `2s→60s` 退避）
+  ② 控制端重启后自恢复（档案 + `ensureAll()`）③ 断线期间操作排队补发（口径持久化；补发本身是实例
+  自己的队列行为）。开关**落盘且对运行中的监督进程实时生效**（`store.reload()`）。
+- **落点与纪律**：一切新增都在 `~/.ocrc/remote/`（运行时/引擎/应用/暂存）与 `~/.ocrc/remote-instances.json`
+  （0600，`uiPassword` 不回显）；换下来的旧树留 `.ocrc-bak`；**被控端既有资产（用户自己的 opencode、
+  用户自己的 4096 引擎）一个字节都不动**——验收脚本每轮都断言这一条。
+- **明确不做（v1）**：不 fork openchamber、不改它的源码；不做 WSL/Docker 实际支持（结构留位）；
+  不做云端 relay（只保 LAN 直连，中继/托管式隧道的禁令延续）；**不自动写 openchamber 桌面版的 Remote Instances 列表**
+  （`desktopSshInstances` 由桌面外壳独占；`ocrc remote connect` 把三项算好交出去，写入留给人；2026-10-17 已实测
+  桌面版 external 模式可用，人工合并步骤见 OPS）；
+  手机端不做新增连接/装机。
+
 ## UI 原则（2026-10-06 裁决；2026-10-07 增补）
 
 - **右栏的显示能力 ≥ 中栏**：同一内容在右栏的渲染质量不得低于中栏（tool 输出含 md 切换，subagent 转写走统一 Card 管线）。
@@ -153,7 +276,7 @@ ocrc 的已保存 workflow 是一个机器级 store，没有可搬的文件。am
 
 ## 第五条：明确不做
 
-机器管理 · 多租户 · 云同步 · 通用聊天客户端 · 内嵌 agent 运行时 · 跟随 opencode latest（除非 V2 项目完成）· **个人微信自动化**（2026-10-05 裁决：只有 wechaty 类逆向方案，违反 ToS、封号风险真实；企业侧通道 = 企业微信/飞书/钉钉的官方企业接入）· host 原生 workflow runner（2026-10-07 裁决，**维持**；goal 与 workflow 均已改判为做——机制在引擎钩子、引擎本身 vendored 上游 dwf、状态在 host，见上）· 终端页签 · 插件市场 · 语音转写 · 管理员分层。
+机器管理 · 多租户 · 云同步 · 通用聊天客户端 · 内嵌 agent 运行时 · 跟随 opencode latest（除非 V2 项目完成）· **个人微信自动化**（2026-10-05 裁决：只有 wechaty 类逆向方案，违反 ToS、封号风险真实；企业侧通道 = 企业微信/飞书/钉钉的官方企业接入）· host 原生 workflow runner（2026-10-07 裁决，**维持**；goal 与 workflow 均已改判为做——机制在引擎钩子、引擎本身 vendored 上游 dwf、状态在 host，见上）· 终端页签 · 插件市场 · 语音转写 · 管理员分层 · **中继/托管式隧道**（2026-10-16 裁决：隧道用户自理，我们只做档案驱动的本地 ssh 多路转发）· **IM 跨机接管/双端轮询**（2026-10-16 裁决：一个 bot token 只允许一个 `getUpdates` 长轮询，单主固定在被控端；见第零点九条 D18）。
 
 ## 附：企业通道矩阵（2026-10-05 评估）
 

@@ -64,6 +64,89 @@ Web 面板 Inspector → **Remotes** 卡片（API：`/api/remotes`）：
 探测 → 缺装则部署 → 启动隧道 + serve → 等待在线；「连接中」页实时展示
 部署/隧道日志。
 
+## 远程 openchamber 实例（2.0.0-alpha.8，「对端能力」）
+
+在被控端跑一个 openchamber 实例，控制端只建转发并打开它——Add project 列的、中栏连的就是对端。
+契约见 [PRODUCT 第零点十条](PRODUCT.md)，设计/证据见
+[handoff/remote-instance-dev-and-test-plan.md](handoff/remote-instance-dev-and-test-plan.md)。
+
+```bash
+# 登记一台（生成 UI 密码，只落 ~/.ocrc/remote-instances.json 0600）
+ocrc remote add --host 192.168.26.101 --user demo
+
+# 只读预演：ssh/环境/引擎门禁/将要做什么（不写对端）
+ocrc remote plan demo@192.168.26.101
+
+# 装机：推运行时(node24-glibc217) + 引擎(opencode v2 pin) + 应用(@openchamber/web)
+# 控制端备件 → ssh stdin 推送 → 对端原子落位；对端**零联网命令**
+ocrc remote apply demo@192.168.26.101
+
+# 起实例 + 转发 + 出网中继，然后打开 http://127.0.0.1:4610
+ocrc remote up demo@192.168.26.101 --open
+```
+
+| 操作 | 命令 | 说明 |
+|---|---|---|
+| 状态 | `ocrc remote status [id]` | 对端引擎**路径与版本**、隧道 pid/重连次数、中继端口 |
+| 日志 | `ocrc remote logs <id>` | 本端隧道/重连日志尾（受监督时同屏） |
+| 开关 | `ocrc remote switches <id> [--reconnect on\|off] [--restore on\|off] [--replay on\|off]` | R10 三级；**改完立刻对运行中的监督生效** |
+| 出网 | `ocrc remote proxy <id> on\|off` / `relay-status <id>` / `proxy-log <file>` | R9；中继日志 `~/.ocrc/remote-relay.log` 记每次 CONNECT |
+| 白名单 | `ocrc remote proxy <id> allow api.deepseek.com,openai.com` / `allow-clear` | 点边界后缀匹配；**空 = 只拒回环**。收紧后必须同时放行模型 provider 与引擎基础设施域名（`models.opencode.ai` 等），否则引擎能起不能用；改完要 `down`/`up` 重启中继 |
+| 一键 external | `ocrc remote connect <id> [--json] [--open]` | 桌面版 Remote Instances 要的地址/密码/端口一次给出；`--open` 直接开浏览器那档。桌面版 external 模式已实测可用（2.4.0 连自装 2.3.3）；列表由桌面外壳独占，**不自动写**（人工合并见下） |
+| 停机 | `ocrc remote down <id>` | 停实例 + 撤转发（保留档案） |
+| 删档 | `ocrc remote remove <id>` | 只删档案；对端 `~/.ocrc/remote` 不动（要清跑验收脚本 `--teardown --purge`） |
+| 离线证明 | `ocrc remote offline-proof` / `trace-check <file>` | 结构性零联网断言 / strace 判读 |
+| 预热备件 | `ocrc remote prepare [--app-version V]` | 只在控制端取件+打包（离线部署前预热缓存） |
+| 监督 | `ocrc remote supervise` | 前台跑 R10 ①②（无面板机器用）；面板宿主 `ocrc start` 里是同一份实现 |
+
+> EL7 终端修复：`bash scripts/remote-node-pty-glibc217.sh <ssh-target> [--verify\|--rollback]`
+> —— 按宿主 glibc 重建 node-pty（见「排障」最后一条）。
+
+**HTTP 面**（面板/自动化）：`GET/POST /api/remote-instance`、`PATCH /api/remote-instance/:id`、
+`:id/plan|apply|up|down|status|logs|url|delete`。`apply` 要 `confirm:true`（否则 409 + dryRun）。
+密码不回显（`hasUiPassword`）。
+
+**接进 openchamber 桌面版（多机聚合，2026-10-17 真机实测）**
+
+1. 装官方桌面版（2.4.0+；Windows 安装包 `OpenChamber-<v>-win-x64.exe`，per-user 安装，不需要管理员）。
+2. 桌面版 → Settings → Remote Instances → 新增：
+   - **SSH command**：`ssh demo@192.168.26.101`（用 key；不要把 SSH 密码写进去）
+   - **Mode**：`external`；**Remote port**：`2610`；**Bind**：`127.0.0.1`
+   - **UI password**：按需填写；**勾“不保存”**（`store: "never"`），或用完删掉
+3. 连接后桌面壳自己建 `ssh -L 127.0.0.1:<local>:127.0.0.1:2610`。验证：
+   `curl -s http://127.0.0.1:<local>/api/system/info` 返回对端 `openchamberVersion` 与 pid；
+   带登录 cookie 请求 `http://127.0.0.1:<local>/api/fs/list?path=%2Fhome%2Fdemo` 列的是对端目录；
+   Add project 的目录浏览器就是它，会话跑在对端引擎。
+4. **版本不必相等**：external 模式只要求 major=2 且能力 `api.runtime-url.v1`（2.3.3 有）；版本不等提示
+   update-recommended，仍可连。
+5. 若手工合并 `~/.config/openchamber/settings.json`（桌面版必须退出）：先备份 `.ocrc-bak`，只 upsert
+   `desktopSshInstances` 并设 `desktopDefaultHostId`；**不要写明文密码或 clientToken**——本机验收用
+   `store:"never"` + 首开手输，桌面壳不会把值落盘。
+
+> **web 版不能做这件事**：`openchamber --port 3000` 的 Settings 里也有 Remote Instances 页，但 SSH 隧道由
+> Electron 主进程的 `desktop_ssh_*` IPC 提供，浏览器里没有这个桥。`desktopSshInstances` 在 settings registry 里
+> 标注 `scope=instance, owner=desktop-shell, surfaces=[desktop]`，这是“必须走桌面壳”，不是“不能用”——
+> 桌面版 external 模式接受我们自装的实例，不需要它来安装。
+
+**变更与回滚**
+- 换版本：`ocrc remote apply <id> --app-version 2.4.0 --engine-version 2.1.0`（旧树自动留 `<prefix>.ocrc-bak`）。
+- 只换引擎：同上带 `--engine-version`；或先在对端放好再 `--engine-path <绝对路径>`（pin 会被断言，不满足 v2 门禁直接拒）。
+- 关出网中继：`ocrc remote proxy <id> off` + `ocrc remote down/up`（serve 行的 env 只在下一次启动时摘掉）。
+- 全撤：`ocrc remote down <id>` → `ssh <host> 'rm -rf ~/.ocrc/remote'` → `ocrc remote remove <id>` →
+  删 `~/.ocrc/remote-instances.json` 记录与 `~/.ocrc/remote-relay.log`。对端既有 opencode 全程不动。
+
+**排障**
+- `plan` 说"不满足 v2 门禁"：对端只有 v1（或没有）——`apply` 会推我们 pin 的 v2 到 `~/.ocrc/remote/engine/opencode`。
+- `up` 说"本地 <端口> 已被占用，但它没有 -R 出网中继"：多半是旧命令留下的隧道（没有 `-R`），先停掉它再 `up`。
+- 终端不可用（EL7 常见）：实例的 `node-pty` prebuild 要 `GLIBC_2.28`（宿主 glibc 2.17）——**换 libstdc++ 解决不了**。
+  `ocrc remote plan` 的预演里会如实标注。真修走 `scripts/remote-node-pty-glibc217.sh <ssh-target>`：
+  在对端用 devtoolset 按宿主 glibc 重建 node-pty（`-static-libstdc++`），替换 prebuild 并留
+  `.official-glibc228.bak`；`--verify` 断言符号上限并 spawn 真 PTY，`--rollback` 还原。
+  思路与现成工具见 `BD7PIL/zcode-legacy-glibc`（ZCode 桌面版 remote 的同款问题）。**换 openchamber 版本后需重跑。**
+- 对端引擎没出网：`relay-status <id>` 看端口与日志。`-R` 与 `-L` 是**同一条 ssh**，所以隧道掉 = 中继一起掉，
+  受监督时（面板/`supervise`）会自动重连；CLI 的 `up` 起的是 detached 隧道，机器重启后不会自己回来（要 `up` 或跑 `supervise`）。
+- 手机看不到：控制端要监听手机可达的地址（见「公网访问」段），注意手机上的 `127.0.0.1` 是手机自己。
+
 ## 企业内网场景（air-gapped / 中转）
 
 三件事，两件配置一件免费：

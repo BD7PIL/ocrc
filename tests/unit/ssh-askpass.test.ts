@@ -81,8 +81,8 @@ describe('ssh argv per auth mode', () => {
 
 describe('askpass helper', () => {
   it('is not consulted in key mode', () => {
-    expect(askpassEnv({ host: 'peer' })).toBeUndefined()
-    expect(askpassEnv({ host: 'peer', sshAuth: 'password' })).toBeUndefined() // no password → no askpass
+    expect(askpassEnv({})).toBeUndefined()
+    expect(askpassEnv({ sshAuth: 'password' })).toBeUndefined() // no password → no askpass
   })
 
   it('carries the password in the env, never in the file', () => {

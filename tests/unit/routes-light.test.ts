@@ -85,9 +85,14 @@ describe('settings-project routes', () => {
     })
   })
 
-  it('GET /api/settings/project: 500 when dir does not exist (mkdir failure path)', async () => {
+  it('GET /api/settings/project: 500 when dir cannot be created (mkdir failure path)', async () => {
     const app = makeApp()
-    const bad = await app.request(`/api/settings/project?dir=${encodeURIComponent('/nonexistent-ocrc-zzz/nope')}`)
+    // 靶子必须是「两个平台都建不出来」的路径：给一个普通文件，再让它当目录。
+    // （原先用的是不存在的绝对路径 `/nonexistent-ocrc-zzz/nope`——POSIX 上 mkdir
+    // 会失败，Windows 上 recursive mkdir 会**直接建出来**，于是这条用例在
+    // Windows 上衡量的不再是产品的失败路径，只是平台的差异。）
+    const blocker = makeProjectDir({ 'a-file': 'x' })
+    const bad = await app.request(`/api/settings/project?dir=${encodeURIComponent(join(blocker, 'a-file', 'nope'))}`)
     expect(bad.status).toBe(500)
     expect((await bad.json()).error).toBeTruthy()
   })

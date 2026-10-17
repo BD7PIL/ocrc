@@ -13,6 +13,11 @@ beforeAll(() => {
   git(['init', '-b', 'main'])
   git(['config', 'user.email', 't@ocrc.test'])
   git(['config', 'user.name', 'T'])
+  // 行尾由**这个测试仓库自己**决定，不吃机器上的全局 core.autocrlf：否则 Windows 上
+  // `git checkout --` 还原出来的文件带 CRLF，断言「还原成 two\n」会误报——产品行为是对的，
+  // 量到的是这台机器的 git 配置。
+  git(['config', 'core.autocrlf', 'false'])
+  git(['config', 'core.eol', 'lf'])
   writeFileSync(join(dir, 'a.txt'), 'one\n')
   git(['add', '.'])
   git(['commit', '-m', 'init'])

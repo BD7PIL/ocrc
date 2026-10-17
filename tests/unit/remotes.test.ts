@@ -27,7 +27,14 @@ describe('RemotesStore', () => {
     // Debounced write — give it a beat, then assert on-disk mode + content.
     await new Promise((r) => setTimeout(r, 200))
     expect(existsSync(env.path)).toBe(true)
-    expect(statSync(env.path).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') {
+      // 0600 是 POSIX 语义。Windows 上 Node 的 mode 不生效（读回来是 0o666，
+      // 实际由 ACL 管）——在那里断言 0600 只会得到一个永远失败、且与产品无关的用例。
+      expect(statSync(env.path).mode & 0o777).toBe(0o600)
+    } else {
+      // 能验的那一半仍然验：文件确实是「当前用户私有」的常规做法 = 落在用户目录下
+      expect(env.path.startsWith(tmpdir())).toBe(true)
+    }
     const raw = JSON.parse(readFileSync(env.path, 'utf-8')) as { remotes: RemoteHost[] }
     expect(raw.remotes).toHaveLength(1)
     expect(raw.remotes[0].host).toBe('box.lan')

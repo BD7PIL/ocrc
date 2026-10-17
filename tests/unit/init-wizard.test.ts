@@ -1,7 +1,13 @@
 import { describe, it, expect, vi } from 'vitest'
+import { join } from 'node:path'
 import { runInitWizard, type InitDeps } from '../../src/cli/init.js'
 
 describe('init wizard', () => {
+  // 期望路径必须和产品用同一条 join：把 '/test/.env' 写死，在 Windows 上产品写的是
+  // '\test\.env'，Map 的键对不上 → 断言看到的是 undefined（测试自己的 bug，不是产品的）。
+  const cwd = '/test'
+  const envPath = join(cwd, '.env')
+
   function makeDeps(inputs: string[], files = new Map<string, string>()): { deps: InitDeps; outputs: string[] } {
     let idx = 0
     const outputs: string[] = []
@@ -15,7 +21,7 @@ describe('init wizard', () => {
       },
       exists: (path) => files.has(path),
       testConnection: vi.fn().mockResolvedValue(undefined),
-      cwd: '/test',
+      cwd,
     }
     return { deps, outputs }
   }
@@ -25,7 +31,7 @@ describe('init wizard', () => {
     const { deps } = makeDeps(['my-token-123', '987654321'], files)
     await runInitWizard(deps)
 
-    const env = files.get('/test/.env')
+    const env = files.get(envPath)
     expect(env).toBeDefined()
     expect(env).toContain('TELEGRAM_BOT_TOKEN=my-token-123')
     expect(env).toContain('ALLOWED_USER_IDS=987654321')
@@ -37,7 +43,7 @@ describe('init wizard', () => {
     const { deps } = makeDeps(['tok', '123'], files)
     await runInitWizard(deps)
 
-    const env = files.get('/test/.env')
+    const env = files.get(envPath)
     expect(env).not.toContain('SPAWN_OPENCODE')
   })
 
@@ -49,9 +55,9 @@ describe('init wizard', () => {
   })
 
   it('overwrites existing .env when user confirms', async () => {
-    const files = new Map<string, string>([['/test/.env', 'OLD=1']])
+    const files = new Map<string, string>([[envPath, 'OLD=1']])
     const { deps } = makeDeps(['tok', '123', 'y'], files)
     await runInitWizard(deps)
-    expect(files.get('/test/.env')).toContain('TELEGRAM_BOT_TOKEN=tok')
+    expect(files.get(envPath)).toContain('TELEGRAM_BOT_TOKEN=tok')
   })
 })

@@ -141,7 +141,14 @@ export function toggleSkill(home: string, name: string, sourceDir: string, enabl
     if (!existsSync(join(sourceDir, name, 'SKILL.md'))) return { ok: false, error: '源目录没有该技能（SKILL.md 缺失）' }
     mkdirSync(effectiveDir, { recursive: true })
     try { rmSync(link, { force: true }) } catch { /* absent */ }
-    symlinkSync(target, link)
+    try {
+      symlinkSync(target, link)
+    } catch (err) {
+      // 建符号链接要平台权限（Windows 非开发者模式/非管理员 = EPERM）。本函数的契约
+      // 是 `{ok,error}`，所以必须**如实返回失败**：让 EPERM 冒出去，调用方（面板/命令）
+      // 拿到的是未捕获异常，而不是一句能显示给用户的原因。
+      return { ok: false, error: `无法创建符号链接：${(err as Error).message}` }
+    }
     return { ok: true }
   }
   try {

@@ -49,17 +49,16 @@
 | 兼容包 | `tests/unit/remote-app-pack.test.ts`（8）；modern 53MB / legacy 54MB 本机构建；RHEL7 `apply` 推送后 pty GLIBC 2.14；Ubuntu 26.04/glibc 2.43 全新主机走 modern 档 `ACCEPTANCE OK` |
 | 桌面入口 | `tests/unit/desktop-settings.test.ts`（9）；`--desktop-add` 实测写入且无明文密码 |
 | 内嵌否决 | [../research/embedding-experiment.md](../research/embedding-experiment.md) |
+| CI（2026-10-17 实际跑通） | `CI` 两条腿（Node 20/22）绿；`ocrc-follow` 绿（51s，含引擎 pin 冒烟）；`ocrc-pack` 绿（resolve → modern 27s → legacy 1m2s → publish 15s），Release [`ocrc-remote-pack-2.3.3`](https://github.com/BD7PIL/ocrc/releases/tag/ocrc-remote-pack-2.3.3) 六件资产齐；控制端从 Release 取件两档 sha512 校验通过 |
 | 后端门禁 | `npm run typecheck` 干净；`npx vitest run` 1162 passed / 1 skipped |
 
 ## 与批准计划的偏差（有意，均已在 OPS/本页写明）
 
-- **传输**：计划写"主隧道与 `-R` 都归桌面壳"，落地改为**桌面壳 `-L`、service `-R`**。原因：service 是
-  常驻控制端进程，本地中继监听（4711）在它进程里；桌面壳的本地端口是自选的、且两条 `-R` 会撞同一
-  远端端口。service 会**复用**已存在的 `-R`，两种拓扑不会互杀。
+- **传输**：计划写"主隧道与 `-R` 都归桌面壳"，落地为**桌面壳持有 `-L` 与 `-R`**（`--desktop-add` 把
+  `-R` 写进它的 `portForwards`，并由 CLI 起控制端中继监听），扩展 service 发现既有 `-R` 时**复用**；
+  两条 `-R` 不会互杀。service 只负责"对端实例还在不在"（20s 自检 + 自动重拉）。
 - **文档归档**：`docs/research/` 与 `docs/handoff/` 没有搬进 `docs/archive/`。两者已按目录分区、
-  交叉引用密集；搬 28 个文件只会制造断链，不减小实际体积。沿用已有的 `docs/decisions/`（里面本来就有
-  2026-06-12 那条）作为往前写的日志，补了索引与写法。
-- **听写**：决定走远端 STT，但**没有自动改**实例的 dictation 配置（那是用户偏好，在 openchamber 设置里
-  选 `openai-compatible`）；EL7 的本地 sherpa 仍不可用（GLIBC 2.32），不重建。
-- **CI legacy 容器**：`ocrc-pack.yml` 的 centos:7 步骤未实际运行（本地无 Docker）；控制端
-  "无包回退跨装"路径仍然可用，不阻塞。
+  交叉引用密集（28 个文件互为相对链接）；搬动只会制造断链，不减小实际体积。沿用已有的
+  `docs/decisions/`（里面本来就有 2026-06-12 那条）作为往前写的日志，补了索引与写法。
+- **听写**：不自动改实例配置。实测 **Ubuntu/glibc 2.43 上本地 sherpa 正常加载**（本地听写可用）；
+  EL7/glibc 2.17 不可用（GLIBC 2.32），要在实例设置里选 `openai-compatible`（远端 STT）。

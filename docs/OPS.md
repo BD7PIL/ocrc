@@ -126,11 +126,15 @@ ocrc remote up demo@192.168.26.101 --open
    先留 `.ocrc-bak`、按 id 幂等 upsert、其它键一字不动、不写密码/clientToken；桌面版在跑时**拒绝写**
    并说明原因。写完后桌面版启动即自动连上该主机（`desktopDefaultHostId` 指向它）。
 
-> **出网中继归扩展 service，不写进桌面版转发**：`-R 127.0.0.1:2711:127.0.0.1:4711` 由扩展 service 持有
-> （它才是常驻控制端进程）；桌面壳只持有 UI 的 `-L`，本地端口由它自选。因此 service 的
-> `status` 在 external 模式下**不拿配置里的 localPort 当"连上了"的判据**，而是实测远端实例健康 +
-> `-R` 是否在听。service 由 openchamber **懒启动**：第一次打开「OCRC Remote」面板（或触发任一
-> service 请求）时起来并 `ensureAll()`，此后每 20s 自检远端、实例掉了会自动重拉。
+> **出网中继归谁（2026-10-17 实测的最终形态）**：`--desktop-add` 会把 `-R 127.0.0.1:2711:127.0.0.1:4711`
+> **写进桌面版的实例转发**（`portForwards` 的 `type: 'remote'`），并顺手把控制端的**中继监听**起成
+> detached 进程（`ocrc remote proxy-serve`，端口 4711）。桌面壳因此同时持有 `-L`（本地端口自选）与
+> `-R`，**不需要扩展 service 先被打开**（实测：桌面重启后 service 未运行，`-R 2711` 已在听、中继出网 200）。
+> 若用户改用 CLI 的 `ocrc remote up`，那条隧道自带 `-L`+`-R`；扩展 service 起来时发现 2711 已在听会
+> **复用而不是抢**。因此 service 的 `status` 在 external 模式下**不拿配置里的 localPort 当"连上了"的判据**，
+> 而是实测远端实例健康 + `-R` 是否在听；CLI 的 `status` 同样会在本地转发不属于自己时如实说明。
+> service 本身由 openchamber **懒启动**（第一次打开「OCRC Remote」面板/触发 service 请求），此后每 20s
+> 自检远端、实例掉了会自动重拉——它管的是"对端实例还在不在"，不是"隧道在不在"。
 
 > **内嵌结论（2026-10-17）**：扩展页面不能 iframe 对端——guest CSP `frame-src 'self' data: blob:` 与对端
 > `frame-ancestors` 双重阻断；guest sandbox 也没有 `allow-popups`，`window.open` 同样被拦。扩展页面的

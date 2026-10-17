@@ -418,8 +418,13 @@ fetch/img/font/style/media，**从不放宽 frame-src**。即使绕过这一层�
   对端既有的 `~/.opencode/bin/opencode` 1.18.31 未被选中/改动，门禁选中我们推的 v2；
   `ACCEPTANCE OK`，含 terminal `running`、`-R 2713` 出网 200、provider deepseek、fs/sessions 正常。
   顺带发现并修掉验收脚本的可移植性 bug：Ubuntu 没有 `netstat`，中继端口探测改为有 `ss` 用 `ss`。
-- **未验证**：`ocrc-pack.yml` 的 centos:7 容器步骤尚未在 GitHub Actions 跑过（本地无 Docker）；
-  首次 CI 运行前，控制端“无包回退跨装”路径仍然可用。
+- **CI 已实际跑通（2026-10-17）**：三条流水线都在 GitHub Actions 上绿了——`CI`（Node 20/22 两腿）、
+  `ocrc-follow`（51s，含引擎 pin 冒烟）、`ocrc-pack`（resolve → modern 27s → **legacy 1m2s** → publish 15s）。
+  发布产物：Release `ocrc-remote-pack-2.3.3`，六件资产（两档 tar.gz + sha512 + tier manifest + 合并
+  manifest）。控制端**从 Release 取件**两档均通过 sha512 校验（不再依赖 `OCRC_PACK_DIR`）。
+  首轮暴露并修掉的 CI 问题：dwf 引擎需在 typecheck 前构建、`dist/` 需在测试前构建、`ocrc-follow` 内联
+  脚本缺 import、GitHub 的 Node 24 action 在 glibc 2.17 容器里跑不起来（legacy 改为宿主机 checkout +
+  `docker run centos:7`）、`gh release` 缺 `-R`、以及扩展 HostView 测试的渲染时序 flake。
 
 ---
 

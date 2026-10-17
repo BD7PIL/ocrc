@@ -80,7 +80,7 @@ USAGE:
   ocrc remote status [id]          状态（含对端引擎路径与版本）
   ocrc remote connect <id> [--json] [--open] [--desktop-add]
                                    一键 external：桌面版要的三项（地址/密码/端口）+ 可选直接打开
-                                   --desktop-add：桌面版退出时写进它的列表（出网中继由扩展 service 持有，不写密码）
+                                   --desktop-add：桌面版退出时写进它的列表（含 -R 出网中继；不写密码）
   ocrc remote open <id>            打印 URL（并尝试用系统浏览器打开）
   ocrc remote logs <id>            本端隧道/隧道重连日志尾
   ocrc remote remove <id>          删档案（不动对端文件）
@@ -437,14 +437,21 @@ export async function main(argv: string[]): Promise<void> {
       console.log(handoff.lines.join('\n'))
       if (handoff.engine) console.log(`引擎 : ${handoff.engine.version} @ ${handoff.engine.path}`)
       console.log('（openchamber 桌面版 → Remote Instances：把地址与密码填进去，端口填上面那个）')
-      console.log('（或用 --desktop-add：桌面版退出时替你写进它的列表；出网中继由扩展 service 持有）')
+      console.log('（或用 --desktop-add：桌面版退出时写进它的列表，含 -R 出网中继；控制端中继监听一并拉起）')
     }
     if (flags.has('desktop-add')) {
       const path = desktopSettingsPath()
-      // No relay forward here: the extension service owns the reverse `-R` leg
-      // (it is the always-on control-side process). Two `-R`s on the same
-      // remote port would fight; the service adopts one if it already exists.
-      const entry = desktopEntryFor(instance)
+      // The desktop shell can own the whole transport: its `portForwards`
+      // support `type: 'remote'`, so write the -R egress leg too and make sure
+      // the control-side relay listener is up (detached — it outlives this
+      // command). The extension service adopts an existing -R if it starts
+      // later, so the two never fight. Without this the engine has no egress
+      // until someone opens the extension panel.
+      const cfg = proxyConfig(instance)
+      if (cfg.enabled) await ensureRelay(instance)
+      const entry = desktopEntryFor(instance, {
+        reverseRelay: cfg.enabled ? { remotePort: cfg.remotePort, localPort: cfg.localPort } : undefined,
+      })
       try {
         const root = readDesktopSettings(path)
         const merged = mergeDesktopEntry(root, entry, { setDefault: true })

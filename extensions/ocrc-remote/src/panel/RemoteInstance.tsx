@@ -279,7 +279,29 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                   items={handoffFor.reply.lines.map((l, i) => ({ id: String(i), title: l, leading: '·' }))}
                   onSelect={() => { /* 只读展示 */ }}
                 />
-                <div className="oc-muted">密码只在本机终端：ocrc remote connect &lt;id&gt;</div>
+                <div className="oc-row">
+                  <KitButton
+                    size="sm"
+                    variant="outline"
+                    label="复制三项"
+                    onClick={() => void run(`copy:${row.id}`, async () => {
+                      if (!host) throw new Error('宿主未连接，无法写剪贴板')
+                      await host.writeClipboard(handoffFor.reply.lines.join('\n'))
+                    })}
+                  />
+                  <KitButton
+                    size="sm"
+                    variant="ghost"
+                    label="浏览器打开"
+                    onClick={() => void run(`open:${row.id}`, async () => {
+                      if (!host) throw new Error('宿主未连接，无法打开浏览器')
+                      await host.openUrl(handoffFor.reply.url)
+                    })}
+                  />
+                </div>
+                <div className="oc-muted">
+                  密码只在本机终端：`ocrc remote connect &lt;id&gt;`（`--desktop-add` 可写进桌面版列表，但密码仍由你手输一次）。
+                </div>
               </div>
             ) : null}
 

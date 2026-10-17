@@ -1880,11 +1880,7 @@ function createRemoteInstanceManager(opts) {
         return;
       }
       await ensureExternalRelayAsync(fresh);
-      if (await isListening(fresh.localPort)) {
-        if (here.state !== "online") setState(id, "online", "\u5728\u7EBF\uFF08\u5B9E\u6D4B\uFF09");
-      } else if (here.state === "online") {
-        setState(id, "offline", "\u5BF9\u7AEF\u5B9E\u4F8B\u5728\u8DD1\uFF0C\u4F46\u684C\u9762\u7248\u96A7\u9053\u672A\u8FDE\u63A5");
-      }
+      if (here.state !== "online") setState(id, "online", "\u5BF9\u7AEF\u5C31\u7EEA\uFF08\u96A7\u9053\u7531\u684C\u9762\u7248\u6301\u6709\uFF09");
     };
     const timer = setInterval(() => {
       void tick().catch(() => {
@@ -2338,26 +2334,19 @@ function createRemoteInstanceManager(opts) {
       if (externalTunnel) {
         const health = await remoteHealth(instance);
         if (health !== "200") {
-          const r = rt(id);
-          if (r.state === "online") setState(id, "offline", `\u5BF9\u7AEF\u5B9E\u4F8B\u672A\u54CD\u5E94\uFF08health ${health}\uFF09`);
+          const r2 = rt(id);
+          if (r2.state === "online") setState(id, "offline", `\u5BF9\u7AEF\u5B9E\u4F8B\u672A\u54CD\u5E94\uFF08health ${health}\uFF09`);
           return { online: false, detail: `\u5BF9\u7AEF\u5B9E\u4F8B\u672A\u54CD\u5E94\uFF08health ${health}\uFF09` };
         }
-        if (!await isListening(instance.localPort)) {
-          const r = rt(id);
-          if (r.state === "online") setState(id, "offline", "\u5BF9\u7AEF\u5B9E\u4F8B\u5728\u8DD1\uFF0C\u4F46\u684C\u9762\u7248\u96A7\u9053\u672A\u8FDE\u63A5");
-          return { online: false, detail: "\u5BF9\u7AEF\u5B9E\u4F8B\u5728\u8DD1\uFF0C\u4F46\u684C\u9762\u7248\u96A7\u9053\u672A\u8FDE\u63A5\uFF08\u5728\u684C\u9762\u7248 Remote Instances \u91CC\u8FDE\u63A5\u5B83\uFF09" };
-        }
-        try {
-          const probe2 = await probeThroughForward(instance);
-          if (probe2.ok) {
-            const r = rt(id);
-            if (r.state !== "online") setState(id, "online", `openchamber ${probe2.version}\uFF08\u5B9E\u6D4B\uFF09`);
-            return { online: true, version: probe2.version };
-          }
-          return { online: false, detail: probe2.error };
-        } catch (err) {
-          return { online: false, detail: err.message };
-        }
+        await ensureExternalRelayAsync(instance);
+        const relayUp = !proxyConfig(instance).enabled || (await ssh(instance, buildRemotePortProbeCommand(instance.appVersion, proxyConfig(instance).remotePort), 2e4)).stdout.trim().endsWith("open");
+        if (!relayUp) return { online: false, detail: `\u5BF9\u7AEF\u5B9E\u4F8B\u5728\u8DD1\uFF0C\u4F46\u51FA\u7F51\u4E2D\u7EE7 :${proxyConfig(instance).remotePort} \u672A\u5EFA\u7ACB` };
+        const r = rt(id);
+        const probe2 = await withTempForward(instance, (temp) => probeThroughForward(temp)).catch(() => ({ ok: false, error: "\u4E34\u65F6\u8F6C\u53D1\u5931\u8D25" }));
+        const version = probe2.ok ? probe2.version : void 0;
+        const ui = await isListening(instance.localPort) ? `\uFF1B\u672C\u5730\u8F6C\u53D1 :${instance.localPort} \u4E5F\u5728\u542C` : "\uFF1B\u96A7\u9053\u7531\u684C\u9762\u7248\u6301\u6709";
+        if (r.state !== "online") setState(id, "online", version ? `openchamber ${version}\uFF08\u8FDC\u7AEF\u5B9E\u6D4B\uFF09` : `\u5BF9\u7AEF\u5C31\u7EEA${ui}`);
+        return { online: true, version, detail: `\u5BF9\u7AEF\u5B9E\u4F8B\u5728\u7EBF${ui}` };
       }
       const probe = await probeThroughForward(instance);
       if (probe.ok) {
@@ -2528,7 +2517,16 @@ function createRemoteInstanceOps({
           if (!status) return { status: 404, body: { error: "not found" } };
           const live = await manager.probe(op.id);
           if (live.online) {
-            return { status: 200, body: { status: { ...status, state: "online", detail: `openchamber ${live.version}\uFF08\u5B9E\u6D4B\uFF09` } } };
+            return {
+              status: 200,
+              body: {
+                status: {
+                  ...status,
+                  state: "online",
+                  detail: live.version ? `openchamber ${live.version}\uFF08\u5B9E\u6D4B\uFF09` : live.detail ?? status.detail
+                }
+              }
+            };
           }
           return {
             status: 200,

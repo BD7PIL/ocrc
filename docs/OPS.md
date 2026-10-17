@@ -122,6 +122,15 @@ ocrc remote up demo@192.168.26.101 --open
 5. 若手工合并 `~/.config/openchamber/settings.json`（桌面版必须退出）：先备份 `.ocrc-bak`，只 upsert
    `desktopSshInstances` 并设 `desktopDefaultHostId`；**不要写明文密码或 clientToken**——本机验收用
    `store:"never"` + 首开手输，桌面壳不会把值落盘。
+6. **`ocrc remote connect <id> --desktop-add` 替你做第 5 步**（2026-10-17 实测）：桌面版**退出时**写、
+   先留 `.ocrc-bak`、按 id 幂等 upsert、其它键一字不动、不写密码/clientToken；桌面版在跑时**拒绝写**
+   并说明原因。写完后桌面版启动即自动连上该主机（`desktopDefaultHostId` 指向它）。
+
+> **出网中继归扩展 service，不写进桌面版转发**：`-R 127.0.0.1:2711:127.0.0.1:4711` 由扩展 service 持有
+> （它才是常驻控制端进程）；桌面壳只持有 UI 的 `-L`，本地端口由它自选。因此 service 的
+> `status` 在 external 模式下**不拿配置里的 localPort 当"连上了"的判据**，而是实测远端实例健康 +
+> `-R` 是否在听。service 由 openchamber **懒启动**：第一次打开「OCRC Remote」面板（或触发任一
+> service 请求）时起来并 `ensureAll()`，此后每 20s 自检远端、实例掉了会自动重拉。
 
 > **内嵌结论（2026-10-17）**：扩展页面不能 iframe 对端——guest CSP `frame-src 'self' data: blob:` 与对端
 > `frame-ancestors` 双重阻断；guest sandbox 也没有 `allow-popups`，`window.open` 同样被拦。扩展页面的

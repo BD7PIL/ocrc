@@ -437,11 +437,9 @@ export function createRemoteInstanceManager(opts: {
         return
       }
       await ensureExternalRelayAsync(fresh)
-      if (await isListening(fresh.localPort)) {
-        if (here.state !== 'online') setState(id, 'online', '在线（实测）')
-      } else if (here.state === 'online') {
-        setState(id, 'offline', '对端实例在跑，但桌面版隧道未连接')
-      }
+      // Same rule as probe(): the desktop shell owns its own local port, so
+      // "online" here means the far side + the egress leg are healthy.
+      if (here.state !== 'online') setState(id, 'online', '对端就绪（隧道由桌面版持有）')
     }
     const timer = setInterval(() => { void tick().catch(() => { /* next tick */ }) }, EXTERNAL_MONITOR_MS)
     timer.unref?.()
@@ -947,31 +945,30 @@ async probe(id) {
       const instance = opts.store.get(id)
       if (!instance) return { online: false, detail: 'no such instance' }
       if (externalTunnel) {
-        // External mode has no child to watch, so honesty has to come from
-        // probes: the remote instance's own health first (someone may have
-        // stopped it), then the desktop shell's tunnel on the local port.
+        // The desktop shell picks its own local port, so the configured
+        // `localPort` is not a reliable "connected" signal. What this manager
+        // can honestly assert is the pair it owns: the far-side instance is
+        // serving and the egress leg is up.
         const health = await remoteHealth(instance)
         if (health !== '200') {
           const r = rt(id)
           if (r.state === 'online') setState(id, 'offline', `对端实例未响应（health ${health}）`)
           return { online: false, detail: `对端实例未响应（health ${health}）` }
         }
-        if (!(await isListening(instance.localPort))) {
-          const r = rt(id)
-          if (r.state === 'online') setState(id, 'offline', '对端实例在跑，但桌面版隧道未连接')
-          return { online: false, detail: '对端实例在跑，但桌面版隧道未连接（在桌面版 Remote Instances 里连接它）' }
-        }
-        try {
-          const probe = await probeThroughForward(instance)
-          if (probe.ok) {
-            const r = rt(id)
-            if (r.state !== 'online') setState(id, 'online', `openchamber ${probe.version}（实测）`)
-            return { online: true, version: probe.version }
-          }
-          return { online: false, detail: probe.error }
-        } catch (err) {
-          return { online: false, detail: (err as Error).message }
-        }
+        await ensureExternalRelayAsync(instance)
+        const relayUp = !proxyConfig(instance).enabled
+          || (await ssh(instance, buildRemotePortProbeCommand(instance.appVersion, proxyConfig(instance).remotePort), 20_000)).stdout.trim().endsWith('open')
+        if (!relayUp) return { online: false, detail: `对端实例在跑，但出网中继 :${proxyConfig(instance).remotePort} 未建立` }
+        const r = rt(id)
+        // Read the version through a one-shot forward: the desktop shell's own
+        // port is not ours to use, and "online" deserves a real version, not a
+        // guess.
+        const probe = await withTempForward(instance, (temp) => probeThroughForward(temp))
+          .catch(() => ({ ok: false as const, error: '临时转发失败' }))
+        const version = probe.ok ? probe.version : undefined
+        const ui = (await isListening(instance.localPort)) ? `；本地转发 :${instance.localPort} 也在听` : '；隧道由桌面版持有'
+        if (r.state !== 'online') setState(id, 'online', version ? `openchamber ${version}（远端实测）` : `对端就绪${ui}`)
+        return { online: true, version, detail: `对端实例在线${ui}` }
       }
       const probe = await probeThroughForward(instance)
       if (probe.ok) {

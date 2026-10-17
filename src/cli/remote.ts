@@ -5,6 +5,10 @@ import { createRemoteInstancesStore, redactInstance, remoteInstancesPath } from 
 import { createRemoteInstanceManager, cleanSshNoise, proxyConfig, type InstanceStatus } from '../core/remote-instance-bridge.js'
 import { DEFAULT_APP_VERSION, DEFAULT_INSTANCE_PORT, DEFAULT_LOCAL_PORT, PROXY_DEFAULTS, RECONNECT_DEFAULTS, buildDesktopHandoff, instanceIdFor, type RemoteInstance } from '../core/remote-instance.js'
 import { appPayloadPath, buildOfflineGuardExports, ensureAppPayload, ensureRuntimePayload, runtimePayloadPath, sha512Base64, sha256Hex, appTreeDir } from '../core/remote-instance-push.js'
+import {
+  desktopEntryFor, desktopSettingsPath, mergeDesktopEntry, readDesktopSettings, writeDesktopSettings,
+} from '../core/desktop-settings.js'
+import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs'
 import net from 'node:net'
 import { spawn } from 'node:child_process'
@@ -74,8 +78,9 @@ USAGE:
   ocrc remote relay-status <id>    中继端口与日志尾（R9 证据）
   ocrc remote down <id>            停实例 + 撤转发（保留档案）
   ocrc remote status [id]          状态（含对端引擎路径与版本）
-  ocrc remote connect <id> [--json] [--open]
+  ocrc remote connect <id> [--json] [--open] [--desktop-add]
                                    一键 external：桌面版要的三项（地址/密码/端口）+ 可选直接打开
+                                   --desktop-add：桌面版退出时写进它的列表（出网中继由扩展 service 持有，不写密码）
   ocrc remote open <id>            打印 URL（并尝试用系统浏览器打开）
   ocrc remote logs <id>            本端隧道/隧道重连日志尾
   ocrc remote remove <id>          删档案（不动对端文件）
@@ -169,6 +174,21 @@ function printStatus(s: InstanceStatus): void {
   if (s.app) console.log(`    app     ${s.app}`)
   console.log(`    engine  ${engine}`)
   if (s.inspected) console.log(`    host    ${s.inspected.uname ?? '?'} glibc ${s.inspected.glibc ?? '?'}`)
+}
+
+/** Is the openchamber desktop shell running? A live Electron holds the same
+ *  settings file and rewrites it on exit, so a write now would be lost. */
+function desktopAppRunning(): boolean {
+  try {
+    if (process.platform === 'win32') {
+      const out = execFileSync('tasklist', ['/FI', 'IMAGENAME eq OpenChamber.exe', '/NH'], { encoding: 'utf-8' })
+      return /OpenChamber\.exe/i.test(out)
+    }
+    const out = execFileSync('pgrep', ['-f', 'OpenChamber'], { encoding: 'utf-8' })
+    return out.trim().length > 0
+  } catch {
+    return false
+  }
 }
 
 /** The record the command should act on: an id from the store, or `--target`. */
@@ -415,6 +435,24 @@ export async function main(argv: string[]): Promise<void> {
       console.log(handoff.lines.join('\n'))
       if (handoff.engine) console.log(`引擎 : ${handoff.engine.version} @ ${handoff.engine.path}`)
       console.log('（openchamber 桌面版 → Remote Instances：把地址与密码填进去，端口填上面那个）')
+      console.log('（或用 --desktop-add：桌面版退出时替你写进它的列表；出网中继由扩展 service 持有）')
+    }
+    if (flags.has('desktop-add')) {
+      const path = desktopSettingsPath()
+      // No relay forward here: the extension service owns the reverse `-R` leg
+      // (it is the always-on control-side process). Two `-R`s on the same
+      // remote port would fight; the service adopts one if it already exists.
+      const entry = desktopEntryFor(instance)
+      try {
+        const root = readDesktopSettings(path)
+        const merged = mergeDesktopEntry(root, entry, { setDefault: true })
+        const result = writeDesktopSettings(path, merged, { appRunning: desktopAppRunning() })
+        console.log(result.ok ? `OK: ${result.detail}` : `FAIL: ${result.detail}`)
+        if (!result.ok) process.exitCode = 1
+      } catch (err) {
+        console.error(`FAIL: ${(err as Error).message}`)
+        process.exitCode = 1
+      }
     }
     if (flags.has('open')) {
       if (!handoff.running) console.error('注意：实例当前不在线，打开会失败——先 ocrc remote up')

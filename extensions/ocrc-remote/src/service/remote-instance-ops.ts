@@ -159,7 +159,16 @@ export function createRemoteInstanceOps({
           // in this deployment, so only a live probe can say "online".
           const live = await manager.probe(op.id)
           if (live.online) {
-            return { status: 200, body: { status: { ...status, state: 'online', detail: `openchamber ${live.version}（实测）` } } }
+            return {
+              status: 200,
+              body: {
+                status: {
+                  ...status,
+                  state: 'online',
+                  detail: live.version ? `openchamber ${live.version}（实测）` : (live.detail ?? status.detail),
+                },
+              },
+            }
           }
           return {
             status: 200,

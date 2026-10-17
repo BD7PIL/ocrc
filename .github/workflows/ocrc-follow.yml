@@ -202,8 +202,11 @@ jobs:
           # must exist in the built bundle (the v2 host reads them via
           # context.tool.transform; namespace gating is pinned by
           # tests/unit/plugin-remote-tools.test.ts).
+          # The tools are registered in dist/plugin/remote-tools.js (imported by
+          # the plugin entry), not in the package's index re-export; search the
+          # whole built tree so the assertion tracks the registration face.
           for T in ocrc_remote_list ocrc_remote_sync_workspace ocrc_remote_provision ocrc_remote_create_session; do
-            grep -q "$T" "$SMOKE_HOME/ocrc-pkg/dist/index.js" || { echo "::error::registration face: $T missing from dist"; exit 1; }
+            grep -rq "$T" "$SMOKE_HOME/ocrc-pkg/dist" || { echo "::error::registration face: $T missing from dist"; exit 1; }
           done
           echo "smoke 3/3: ocrc consumption face OK (dist loads, four remote tools present)"
 

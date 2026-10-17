@@ -151,8 +151,10 @@ jobs:
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           TAG="ocrc-remote-pack-${VERSION}"
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --title "OCRC Remote pack ${VERSION}" \
+          # This job has no checkout, so `gh` cannot infer the repo from git.
+          if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" \
+              --title "OCRC Remote pack ${VERSION}" \
               --notes "App packs for openchamber ${VERSION} (Linux x64; modern + legacy glibc 2.17)."
           fi
-          gh release upload "$TAG" pack/* --clobber
+          gh release upload "$TAG" pack/* -R "$GITHUB_REPOSITORY" --clobber

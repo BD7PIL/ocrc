@@ -29,10 +29,15 @@ done
 [ -x "$NODE_DIR/bin/node" ] || { echo "node not found: $NODE_DIR/bin/node" >&2; exit 1; }
 
 APP="$TREE/lib/node_modules/@openchamber/web"
-PKG="$APP/node_modules/node-pty"
-ADDON="$APP/node_modules/node-addon-api"
-[ -d "$PKG" ] || { echo "node-pty not found: $PKG" >&2; exit 1; }
-[ -d "$ADDON" ] || { echo "node-addon-api not found: $ADDON" >&2; exit 1; }
+# npm's layout is not guaranteed: a global-style install nests deps under the
+# package, `npm ci` hoists them beside it. Both resolve at runtime.
+MODS=""
+for d in "$APP/node_modules" "$TREE/lib/node_modules"; do
+  if [ -d "$d/node-pty" ] && [ -d "$d/node-addon-api" ]; then MODS="$d"; break; fi
+done
+[ -n "$MODS" ] || { echo "node-pty/node-addon-api not found under $APP/node_modules or $TREE/lib/node_modules" >&2; exit 1; }
+PKG="$MODS/node-pty"
+ADDON="$MODS/node-addon-api"
 
 DEVTOOLSET=""
 for v in 12 11 10 9; do

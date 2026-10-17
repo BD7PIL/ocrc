@@ -49,3 +49,7 @@ coverage/
 # (a missing OCRC_HOME used to drop them here as ./bin-cache or ./undefined)
 /bin-cache/
 /undefined/
+
+# local runs of scripts/build-app-pack.mjs stage the tree and the packs here
+/.pack-work-*/
+/.packtest/

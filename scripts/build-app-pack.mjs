@@ -112,7 +112,13 @@ const cli = join(appDir, 'bin', 'cli.js')
 if (!existsSync(cli)) throw new Error(`layout check failed: ${cli} missing`)
 
 // 3. Legacy tier: replace node-pty's prebuild with the glibc-2.17 rebuild.
-const ptyTarget = join(appDir, 'node_modules', 'node-pty', 'prebuilds', 'linux-x64', 'pty.node')
+//    npm's layout is not guaranteed: a global-style install nests deps under the
+//    package, `npm ci` hoists them beside it. Both resolve at runtime, so look
+//    in both places rather than assuming one.
+const ptyDir = [join(appDir, 'node_modules', 'node-pty'), join(tree, 'lib', 'node_modules', 'node-pty')]
+  .find((dir) => existsSync(dir))
+if (!ptyDir) throw new Error('node-pty not found in the packed tree')
+const ptyTarget = join(ptyDir, 'prebuilds', 'linux-x64', 'pty.node')
 if (tier === 'legacy-glibc217') {
   if (!existsSync(ptyTarget)) throw new Error(`node-pty prebuild missing: ${ptyTarget}`)
   if (ptyFile) {
@@ -133,7 +139,7 @@ if (!noSmoke) {
   const got = (v.stdout || '').trim().split(/\r?\n/).pop() || ''
   if (!got.startsWith(version)) throw new Error(`smoke: cli --version printed ${JSON.stringify(got)}, expected ${version}`)
   if (process.platform !== 'win32') {
-    const p = spawnSync(nodePath, ['-e', 'require(process.argv[1])', join(appDir, 'node_modules', 'node-pty')], { encoding: 'utf8' })
+    const p = spawnSync(nodePath, ['-e', 'require(process.argv[1])', ptyDir], { encoding: 'utf8' })
     if (p.status !== 0) throw new Error(`smoke: node-pty failed to load\n${p.stderr || p.stdout}`)
   }
   console.log(`[pack] smoke ok (cli ${got}${process.platform === 'win32' ? ', pty load skipped on win32' : ', pty loads'})`)

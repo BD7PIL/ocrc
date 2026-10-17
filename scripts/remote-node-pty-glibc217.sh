@@ -63,10 +63,15 @@ fi
 [ -n "$APP_DIR" ] && [ -d "$APP_DIR" ] || { echo "找不到应用树（$REMOTE_ROOT/openchamber/<version>）" >&2; exit 1; }
 
 WEB="$APP_DIR/lib/node_modules/@openchamber/web"
-PKG="$WEB/node_modules/node-pty"
+# npm 的布局不保证：全局式安装把依赖嵌在包里，`npm ci` 提升到同级。两处都看。
+MODS=""
+for d in "$WEB/node_modules" "$APP_DIR/lib/node_modules"; do
+  if [ -d "$d/node-pty" ] && [ -d "$d/node-addon-api" ]; then MODS="$d"; break; fi
+done
+[ -n "$MODS" ] || { echo "找不到 node-pty/node-addon-api（$WEB/node_modules 或 $APP_DIR/lib/node_modules）" >&2; exit 1; }
+PKG="$MODS/node-pty"
 TARGET_NODE="$PKG/prebuilds/linux-x64/pty.node"
 BAK="$TARGET_NODE.official-glibc228.bak"
-[ -d "$PKG" ] || { echo "找不到 node-pty（$PKG）" >&2; exit 1; }
 NPTY_VERSION="$("$RUNTIME/bin/node" -p "require('$PKG/package.json').version")"
 echo "  运行时 $("$RUNTIME/bin/node" -v)  应用 $(basename "$APP_DIR")  node-pty $NPTY_VERSION"
 echo "  目标 $TARGET_NODE"
@@ -125,7 +130,7 @@ case "$MODE" in
     mkdir -p "$WORK/node_modules"
     cp -r "$PKG" "$WORK/node-pty"
     rm -rf "$WORK/node-pty/build" "$WORK/node-pty/prebuilds"
-    cp -r "$WEB/node_modules/node-addon-api" "$WORK/node_modules/node-addon-api"
+    cp -r "$MODS/node-addon-api" "$WORK/node_modules/node-addon-api"
 
     echo "[apply] devtoolset-$DEVTOOLSET + $(basename "$PYTHON") 编译 node-pty@$NPTY_VERSION"
     (

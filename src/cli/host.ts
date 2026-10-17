@@ -18,6 +18,8 @@ import { createChannelsStore } from '../core/channels.js'
 import { createRemotesStore } from '../core/remotes.js'
 import { createSharesStore } from '../core/shares.js'
 import { createRemoteHostManager } from '../core/remote-host.js'
+import { createRemoteInstancesStore, remoteInstancesPath } from '../core/remote-instances.js'
+import { createRemoteInstanceManager } from '../core/remote-instance-bridge.js'
 import { createPairingStore } from '../connectivity/pairing.js'
 import type { AcpPermissionRequest } from '../core/agent/acp-backend.js'
 import { createBackendRegistry } from '../core/agent/registry.js'
@@ -148,6 +150,10 @@ export async function main(): Promise<void> {
   // projection over HTTP (one clock — see ws-hub.ts).
   const workflowSink: { broadcast?: (frame: { sessionId: string; runId: string; status: string }) => void } = {}
   const remoteManager = createRemoteHostManager({ store: remotesStore })
+  // 2.0.0-alpha.8: remote openchamber instances — supervised in-process (the panel
+  // is the long-lived owner) and restored at boot per R10 开关 ②.
+  const remoteInstancesStore = createRemoteInstancesStore(remoteInstancesPath(dataDir))
+  const remoteInstanceManager = createRemoteInstanceManager({ store: remoteInstancesStore })
 
   // Build every backend (spawning opencode server(s) + ACP agents) and wire each
   // one's event source to the relay below. The spawned server's port comes from
@@ -177,6 +183,7 @@ export async function main(): Promise<void> {
   // Boot-time: bring every enabled remote's tunnel up (was missing on the
   // host topology — plugin entry had ensureAll, host didn't).
   void remoteManager.ensureAll()
+  remoteInstanceManager.ensureAll()
 
   const relay = createRelay({
     cardBus,
@@ -510,6 +517,8 @@ export async function main(): Promise<void> {
       workflowEscalations,
       workflowSink,
       remoteManager,
+      remoteInstances: remoteInstancesStore,
+      remoteInstanceManager,
       onRemoteEnabled: (r) => wireHandle.registerRemoteBackend(r),
       settingsConfigDir: process.env.OPENCODE_CONFIG_DIR ?? join(process.env.HOME ?? '', '.config', 'opencode'),
       statePath: config.statePath,
@@ -556,6 +565,7 @@ export async function main(): Promise<void> {
     workflowApproval?.stop()
     offpeak.stop()
     remoteManager.dispose()
+    remoteInstanceManager.dispose()
     void wireHandle.dispose()
     push.stop()
     await void wireHandle.dispose()

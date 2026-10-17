@@ -51,6 +51,7 @@ import { registerSuggestions } from './routes/suggestions.js'
 import { registerSchedules } from './routes/schedules.js'
 import { registerChannels } from './routes/channels.js'
 import { registerRemotes } from './routes/remotes.js'
+import { registerRemoteInstance } from './routes/remote-instance.js'
 import { registerSubagents } from './routes/subagents.js'
 import { registerM8 } from './routes/m8.js'
 import { registerPairExchange, registerPairQr, registerPairOnboarding, registerPairReset, registerPairSession } from './routes/pairing.js'
@@ -82,6 +83,8 @@ export interface BuildServerOpts {
   /** 0.26.0 SSH remote hosts: store + lifecycle manager (optional). */
   remotes?: import('../../core/remotes.js').RemotesStore
   remoteManager?: import('../../core/remote-host.js').RemoteHostManager
+  remoteInstances?: import('../../core/remote-instances.js').RemoteInstancesStore
+  remoteInstanceManager?: import('../../core/remote-instance-bridge.js').RemoteInstanceManager
   /** 0.27: runtime remote registration (see WebTransportConfig). */
   onRemoteEnabled?: (r: import('../../core/remotes.js').RemoteHost) => void
   /** M5 设置域: dir containing the opencode global config (defaults inside
@@ -232,6 +235,7 @@ export function buildServer(opts: BuildServerOpts): Hono {
   registerSchedules(app, opts.scheduler)
   registerChannels(app, opts.channels, opts.telegramStatus, opts.telegramMeta)
   registerRemotes(app, opts.remotes, opts.remoteManager, opts.onRemoteEnabled)
+  registerRemoteInstance(app, opts.remoteInstances, opts.remoteInstanceManager)
   registerSubagents(app, reg, opts.state)
   registerM8(app, reg, opts.state)
   registerPairQr(app, opts.pairing)

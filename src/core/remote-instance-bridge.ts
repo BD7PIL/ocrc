@@ -1,0 +1,772 @@
+/**
+ * Remote instance lifecycle (dev plan §3 launch/forward, §4 P4) — the half that
+ * actually drives ssh.
+ *
+ * Three things this module is responsible for, each tied to a requirement:
+ *   · **Engine gate on every path that can start something** (R12): `plan`,
+ *     `apply` and `up` all refuse to proceed when the far side has no opencode
+ *     v2 (major 2, ≥ 2.0.20). A pinned `enginePath` must itself satisfy the gate;
+ *     we never silently swap the user's pin for another binary.
+ *   · **Restart-restore** (R10): the persisted list plus `ensureAll()` is what
+ *     re-establishes every tunnel after the control side restarts.
+ *   · **Forward supervision** (R10): keepalives are in the ssh args, and an
+ *     unexpected exit reconnects with `nextRetryDelay` (2s→60s) — toggled by
+ *     `instance.reconnect`.
+ */
+
+import { spawn, type ChildProcess } from 'node:child_process'
+import net from 'node:net'
+import { openSync } from 'node:fs'
+import { join } from 'node:path'
+import { ocrcHome } from '../utils/paths.js'
+import { createLogger } from '../utils/logger.js'
+import { parseGlibcVersion, nextRetryDelay } from './remote-host.js'
+import { createInstanceProxy, type InstanceProxy } from './remote-instance-proxy.js'
+import {
+  DEFAULT_ENGINE_CANDIDATES, DEFAULT_ENGINE_PIN, NODE_RUNTIME, PROXY_DEFAULTS, buildEngineProbeCommand,
+  buildForwardArgs, buildInstanceServeCommand, buildInstanceStopCommand, buildRemotePortProbeCommand,
+  buildTerminalProbeCommand, instancePaths, parseTerminalProbe,
+  judgeEngineCompat, judgeInstanceVersion, parseEngineProbe, pickV2Engine, type EngineCandidate,
+  type EngineCompatPayload, type EnginePick, type InstanceProxyConfig,
+  type RemoteInstance, type SshTargetRef,
+} from './remote-instance.js'
+import { buildAppProbeCommand, buildOfflineGuardExports, buildRuntimeProbeCommand, provisionOffline, sshRun } from './remote-instance-push.js'
+import type { RemoteInstancesStore } from './remote-instances.js'
+
+const log = createLogger('remote-instance')
+
+export type InstanceState =
+  | 'unknown' | 'checking' | 'provisioning' | 'starting' | 'online'
+  | 'offline' | 'error' | 'disabled'
+
+export interface InstanceStatus {
+  id: string
+  state: InstanceState
+  detail?: string
+  since?: number
+  /** `http://127.0.0.1:<localPort>` — the URL the user actually opens. */
+  url: string
+  forwardPid?: number
+  forwardAttempts?: number
+  engine?: { path: string; version: string }
+  runtime?: string
+  app?: string
+  inspected?: InstanceInspection
+  /** P6: 终端能不能用（node-pty 的 GLIBCXX 依赖在 EL7 上是硬伤）；未修就如实标注。 */
+  terminal?: { ok: boolean; reason?: string }
+  /** R9: where the controlled host's egress comes out, and what it has dialled. */
+  proxy?: { enabled: boolean; localPort: number; remotePort: number; listening: boolean; connects: string[] }
+  logTail: string[]
+}
+
+export interface InstanceInspection {
+  uname?: string
+  glibc?: string
+  home?: string
+}
+
+export interface InstancePlan {
+  id: string
+  target: string
+  reachable: boolean
+  sshError?: string
+  inspected?: InstanceInspection
+  runtime?: string
+  app?: string
+  engine?: { path: string; version: string }
+  engineError?: string
+  engineCandidates: EngineCandidate[]
+  actions: string[]
+  url: string
+}
+
+export interface InstanceOutcome { ok: boolean; detail: string }
+
+export interface RemoteInstanceManager {
+  plan(id: string): Promise<InstancePlan>
+  /** P2: push runtime + engine + app (offline path) — the engine gate runs first. */
+  apply(id: string, opts?: { force?: boolean; engineVersion?: string; guard?: boolean; trace?: string; onLog?: (line: string) => void }): Promise<InstanceOutcome>
+  /** Ensure the instance is serving on the far side and the tunnel is up.
+   *  `guard` starts it under the poisoned-egress env (§5.3 offline proof). */
+  up(id: string, opts?: { guard?: boolean }): Promise<InstanceOutcome>
+  /** Stop the instance and tear the tunnel down (records are kept). */
+  down(id: string): Promise<InstanceOutcome>
+  /** 实测（不是读内存状态）：隧道能不能通 + 实例自己报的版本。
+   *  CLI/路由在**另一个进程**里也能据此说真话——内存状态只在拥有隧道的进程里。 */
+  probe(id: string): Promise<{ online: boolean; version?: string; detail?: string }>
+  status(id: string): InstanceStatus | undefined
+  statusAll(): InstanceStatus[]
+  logs(id: string): string[]
+  /** Boot restore (R10 `restoreOnStart`): bring up every enabled record. */
+  ensureAll(): void
+  dispose(): void
+}
+
+const LOG_CAP = 200
+
+/** Effective R9 config for one instance (defaults filled in). */
+export function proxyConfig(instance: RemoteInstance): InstanceProxyConfig {
+  return {
+    enabled: instance.proxy?.enabled ?? PROXY_DEFAULTS.enabled,
+    localPort: instance.proxy?.localPort && instance.proxy.localPort > 0 ? instance.proxy.localPort : PROXY_DEFAULTS.localPort,
+    remotePort: instance.proxy?.remotePort && instance.proxy.remotePort > 0 ? instance.proxy.remotePort : PROXY_DEFAULTS.remotePort,
+    allow: instance.proxy?.allow ?? [],
+  }
+}
+
+/** Is something already listening on the control-side relay port? (A detached
+ *  `ocrc remote proxy-serve` from an earlier `up`, or an unrelated service —
+ *  both mean "do not bind here".) */
+function isListening(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const srv = net.connect(port, '127.0.0.1')
+    const done = (v: boolean) => {
+      srv.destroy()
+      resolve(v)
+    }
+    srv.once('connect', () => done(true))
+    srv.once('error', () => done(false))
+    srv.setTimeout(1_000, () => done(false))
+  })
+}
+
+/** ssh prints advisory lines that are not our story (post-quantum warning, host
+ *  key notices). Kept out of log tails so a real error is readable. */
+export function cleanSshNoise(text: string): string {
+  return (text ?? '')
+    .split('\n')
+    .map((l) => l.trimEnd())
+    .filter((l) => !/^\*\* WARNING: connection is not using/.test(l))
+    .filter((l) => !/^\*\* This session may be vulnerable/.test(l))
+    .filter((l) => !/^\*\* The server may need to be upgraded/.test(l))
+    .filter((l) => !/^Warning: Permanently added /.test(l))
+    .join('\n')
+}
+
+/** Remote: one round of environment facts (uname / glibc / HOME). */
+export function buildInstanceEnvProbeCommand(): string {
+  return [
+    'echo "UNAME=$(uname -s -m 2>/dev/null)"',
+    'echo "LDD=$(ldd --version 2>/dev/null | head -1)"',
+    'echo "HOME=$HOME"',
+  ].join('; ')
+}
+
+/** Remote: HTTP health of the instance **on the controlled host** — answered
+ *  before any tunnel exists, so `up` can tell "start it" from "just forward it".
+ *  Uses the runtime we pushed (a host may have no curl), and always prints one
+ *  line: the status code, or `000`. */
+export function buildRemoteHealthCommand(appVersion: string, port: number): string {
+  const node = instancePaths(appVersion).node
+  const js = `const h=require('http');const r=h.get({host:'127.0.0.1',port:${port},path:'/health',timeout:3000},s=>{console.log(s.statusCode);process.exit(0)});r.on('error',()=>{console.log('000');process.exit(0)});r.on('timeout',()=>{console.log('000');r.destroy();process.exit(0)})`
+  return `if [ -x ${node} ]; then ${node} -e "${js}"; else echo 000; fi`
+}
+
+export function parseEnvProbe(out: string): InstanceInspection {
+  const kv = new Map<string, string>()
+  for (const line of (out ?? '').split('\n')) {
+    const i = line.indexOf('=')
+    if (i > 0) kv.set(line.slice(0, i), line.slice(i + 1).trim())
+  }
+  return {
+    uname: kv.get('UNAME') || undefined,
+    glibc: parseGlibcVersion(kv.get('LDD')),
+    home: kv.get('HOME') || undefined,
+  }
+}
+
+interface InstanceRuntime {
+  state: InstanceState
+  detail?: string
+  since?: number
+  logs: string[]
+  inspected?: InstanceInspection
+  terminal?: { ok: boolean; reason?: string }
+  runtimeVersion?: string
+  appVersion?: string
+  engine?: { path: string; version: string }
+  forward?: ChildProcess
+  forwardPid?: number
+  forwardAttempts: number
+  forwardTimer?: ReturnType<typeof setTimeout>
+  stopping: boolean
+}
+
+/** Local port of the tunnel URL. */
+export function instanceUrl(localPort: number): string {
+  return `http://127.0.0.1:${localPort}`
+}
+
+export function createRemoteInstanceManager(opts: {
+  store: RemoteInstancesStore
+  /** Extra env prefix for the instance's own serve line (P3 injects the proxy). */
+  serveEnvPrefix?: (instance: RemoteInstance) => string
+  /**
+   * How the tunnel process is owned:
+   *   · `supervised` (default; the panel host) — piped stdio so the log tail is
+   *     live, and `dispose()` tears it down;
+   *   · `detached` (the CLI) — the tunnel must **outlive the command** that
+   *     created it: spawned detached with stderr appended to
+   *     `<ocrcHome>/remote-forward.log`, `unref()`ed so the CLI can exit, and
+   *     `dispose()` leaves it alone. Without this split one of the two is wrong:
+   *     a piped child keeps the CLI's event loop alive (so `up` hangs), and
+   *     killing it on dispose makes `up` pointless.
+   */
+  forwards?: 'supervised' | 'detached'
+}): RemoteInstanceManager {
+  const runtimes = new Map<string, InstanceRuntime>()
+  const detachedForwards = opts.forwards === 'detached'
+  const forwardLogPath = join(ocrcHome(), 'remote-forward.log')
+
+  const rt = (id: string): InstanceRuntime => {
+    let r = runtimes.get(id)
+    if (!r) {
+      r = { state: 'unknown', logs: [], forwardAttempts: 0, stopping: false }
+      runtimes.set(id, r)
+    }
+    return r
+  }
+
+  const pushLog = (id: string, line: string) => {
+    const clean = cleanSshNoise(line).trim()
+    if (!clean) return
+    const r = rt(id)
+    for (const one of clean.split('\n')) if (one.trim()) r.logs.push(one.trim())
+    if (r.logs.length > LOG_CAP) r.logs.splice(0, r.logs.length - LOG_CAP)
+  }
+
+  const setState = (id: string, state: InstanceState, detail?: string) => {
+    const r = rt(id)
+    r.state = state
+    r.detail = detail
+    r.since = Date.now()
+    log.info(`instance ${id}: ${state}${detail ? ` — ${detail}` : ''}`)
+  }
+
+  const need = (id: string): RemoteInstance => {
+    const instance = opts.store.get(id)
+    if (!instance) throw new Error(`unknown remote instance ${id}`)
+    return instance
+  }
+
+  const ssh = (instance: SshTargetRef, command: string, timeoutMs = 60_000) => sshRun(instance, command, { timeoutMs })
+
+  // ── probes ──────────────────────────────────────────────────────────────────
+
+  async function probeEnv(instance: RemoteInstance): Promise<InstanceInspection | undefined> {
+    const r = await ssh(instance, buildInstanceEnvProbeCommand(), 25_000)
+    if (r.code !== 0) return undefined
+    return parseEnvProbe(r.stdout)
+  }
+
+  /** R12 gate. A pinned path must itself pass; an unpinned host is searched in
+   *  preference order and the winner becomes the pin. */
+  async function resolveEngine(instance: RemoteInstance): Promise<EnginePick> {
+    const candidates = instance.enginePath
+      ? [instance.enginePath]
+      : DEFAULT_ENGINE_CANDIDATES
+    const r = await ssh(instance, buildEngineProbeCommand(candidates), 45_000)
+    const parsed = parseEngineProbe(r.stdout)
+    const pick = pickV2Engine(parsed)
+    if (!pick.ok && instance.enginePath) {
+      return {
+        ok: false,
+        seen: parsed,
+        error: `pin 的引擎不满足 v2 门禁：${parsed.map((c) => `${c.path} → ${c.raw || '（版本未知）'}`).join('；') || instance.enginePath}`,
+      }
+    }
+    return pick
+  }
+
+  async function remoteHealth(instance: RemoteInstance): Promise<string> {
+    const r = await ssh(instance, buildRemoteHealthCommand(instance.appVersion, instance.instancePort), 20_000)
+    return (r.stdout ?? '').trim().split('\n').pop()?.trim() || '000'
+  }
+
+  async function waitHealthy(instance: RemoteInstance, timeoutMs = 45_000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      if ((await remoteHealth(instance)) === '200') return true
+      await new Promise((r) => setTimeout(r, 1_500))
+    }
+    return false
+  }
+
+  // ── instance process (remote) ───────────────────────────────────────────────
+
+  async function startInstance(instance: RemoteInstance, enginePath: string, guard = false): Promise<InstanceOutcome> {
+    const prefix = guard ? buildOfflineGuardExports() : opts.serveEnvPrefix?.(instance) ?? ''
+    // R9: the engine's egress goes to its own loopback, which the reverse
+    // forward brings back to the control side's relay. Loopback stays out of it
+    // (NO_PROXY) so the instance can still talk to its engine locally.
+    const relay = instance.proxy?.enabled !== false ? `http://127.0.0.1:${proxyConfig(instance).remotePort}` : undefined
+    const script = `${prefix}${buildInstanceServeCommand({
+      appVersion: instance.appVersion,
+      port: instance.instancePort,
+      uiPassword: instance.uiPassword,
+      enginePath,
+      proxy: relay ? { httpProxy: relay, httpsProxy: relay } : undefined,
+      detached: true,
+    })}`
+    pushLog(instance.id, `$ instance serve :${instance.instancePort}（engine ${enginePath}）`)
+    const r = await ssh(instance, script, 60_000)
+    if (r.code !== 0) return { ok: false, detail: `启动实例失败：${cleanSshNoise(r.stderr || r.stdout).trim().split('\n').pop() ?? `exit ${r.code}`}` }
+    if (!(await waitHealthy(instance))) {
+      const tail = await tailRemoteLog(instance)
+      return { ok: false, detail: `实例启动后 /health 未就绪${tail ? `；远端日志尾：${tail}` : ''}` }
+    }
+    return { ok: true, detail: `实例在 :${instance.instancePort} 就绪` }
+  }
+
+  async function tailRemoteLog(instance: RemoteInstance): Promise<string> {
+    const p = instancePaths(instance.appVersion)
+    const r = await ssh(instance, `tail -n 5 ${p.log} 2>/dev/null || true`, 15_000)
+    return cleanSshNoise(r.stdout).split('\n').map((l) => l.trim()).filter(Boolean).slice(-3).join(' | ')
+  }
+
+  async function stopInstance(instance: RemoteInstance): Promise<InstanceOutcome> {
+    const r = await ssh(instance, buildInstanceStopCommand(instance.appVersion, instance.instancePort), 45_000)
+    const code = (await remoteHealth(instance)) === '200'
+    if (code) return { ok: false, detail: `实例仍在 :${instance.instancePort} 上响应（stop 未生效）` }
+    // exit code is 0 even when nothing was running (the `|| true`), so the health
+    // probe — not the exit code — is the assertion.
+    pushLog(instance.id, `$ instance stop :${instance.instancePort}`)
+    return { ok: true, detail: r.stdout.trim().split('\n').pop() || '已停' }
+  }
+
+  // ── egress relay (R9) ───────────────────────────────────────────────────────
+
+  /** One relay per control-side port, owned here when this process is the
+   *  long-lived one (the panel host). A detached `ocrc remote proxy-serve` from
+   *  an earlier CLI `up` shows up as `external` — both are fine, we just must not
+   *  bind the same port twice. */
+  const proxies = new Map<number, InstanceProxy>()
+
+  async function ensureProxy(instance: RemoteInstance): Promise<'in-process' | 'external' | 'off'> {
+    const cfg = proxyConfig(instance)
+    if (!cfg.enabled) return 'off'
+    if (proxies.has(cfg.localPort)) return 'in-process'
+    if (await isListening(cfg.localPort)) {
+      pushLog(instance.id, `egress relay 已在 :${cfg.localPort} 上监听（外部进程，复用）`)
+      return 'external'
+    }
+    try {
+      const proxy = await createInstanceProxy({
+        port: cfg.localPort,
+        allow: cfg.allow,
+        onLog: (line) => pushLog(instance.id, `relay: ${line}`),
+      })
+      proxies.set(cfg.localPort, proxy)
+      pushLog(instance.id, `egress relay 起在 127.0.0.1:${cfg.localPort}（对端经 ssh -R 127.0.0.1:${cfg.remotePort} 进来到这）`)
+      return 'in-process'
+    } catch (err) {
+      pushLog(instance.id, `egress relay 起不来：${(err as Error).message}`)
+      return 'off'
+    }
+  }
+
+  // ── forward supervision (R10) ───────────────────────────────────────────────
+
+  function stopForward(id: string): void {
+    const r = rt(id)
+    if (r.forwardTimer) {
+      clearTimeout(r.forwardTimer)
+      r.forwardTimer = undefined
+    }
+    const child = r.forward
+    r.forward = undefined
+    r.forwardPid = undefined
+    if (child && child.exitCode === null) {
+      try { child.kill() } catch { /* already gone */ }
+    }
+  }
+
+  function ensureForward(instance: RemoteInstance): void {
+    const r = rt(instance.id)
+    if (r.forward && r.forward.exitCode === null) return
+    const cfg = proxyConfig(instance)
+    // R9 rides the same ssh process: `-L` gives us the UI, `-R` gives the
+    // controlled host its egress. One tunnel, one reconnect loop.
+    const reverse = cfg.enabled ? { remotePort: cfg.remotePort, localPort: cfg.localPort } : undefined
+    const args = buildForwardArgs({
+      host: instance.host,
+      port: instance.port,
+      user: instance.user,
+      localPort: instance.localPort,
+      remotePort: instance.instancePort,
+      reverse,
+    })
+    pushLog(instance.id, `$ ssh -N -L 127.0.0.1:${instance.localPort}:127.0.0.1:${instance.instancePort}${reverse ? ` -R 127.0.0.1:${reverse.remotePort}:127.0.0.1:${reverse.localPort}` : ''} ${instance.user ? `${instance.user}@` : ''}${instance.host}`)
+    const child = detachedForwards
+      ? spawn('ssh', args, { stdio: ['ignore', 'ignore', openSync(forwardLogPath, 'a')], detached: true })
+      : spawn('ssh', args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    r.forward = child
+    r.forwardPid = child.pid
+    if (detachedForwards) {
+      // No pipes on purpose: pipes would hold this process's event loop open, so
+      // `ocrc remote up` would never return. ssh's own story goes to the log file.
+      child.unref()
+      pushLog(instance.id, `隧道以 detached 方式起（stderr → ${forwardLogPath}），本进程退出后继续活着`)
+      return
+    }
+    child.stdout?.on('data', (d: Buffer) => pushLog(instance.id, d.toString()))
+    child.stderr?.on('data', (d: Buffer) => pushLog(instance.id, d.toString()))
+    child.on('error', (err) => {
+      pushLog(instance.id, `ssh: ${err.message}`)
+      setState(instance.id, 'error', `转发进程起不来：${err.message}`)
+    })
+    child.on('exit', (code) => {
+      const current = rt(instance.id)
+      if (current.forward === child) {
+        current.forward = undefined
+        current.forwardPid = undefined
+      }
+      if (current.stopping) return
+      if (code === 0) {
+        setState(instance.id, 'offline', '转发已退出')
+        return
+      }
+      // Unexpected exit: reconnect while the record says so (R10 开关 ①).
+      // Reload first — the switch may have been flipped by another process
+      // (CLI/panel) while this supervisor was running.
+      try { opts.store.reload() } catch { /* best effort */ }
+      const fresh = opts.store.get(instance.id)
+      if (!fresh?.enabled || fresh.reconnect === false) {
+        setState(instance.id, 'offline', `转发退出（reconnect 关）：exit ${code}`)
+        return
+      }
+      current.forwardAttempts += 1
+      const delay = nextRetryDelay(current.forwardAttempts)
+      setState(instance.id, 'offline', `转发断开，${Math.round(delay / 1000)}s 后重连（第 ${current.forwardAttempts} 次）`)
+      current.forwardTimer = setTimeout(() => {
+        current.forwardTimer = undefined
+        const again = opts.store.get(instance.id)
+        if (!again || again.enabled === false || again.reconnect === false || current.stopping) return
+        void resumeForward(again)
+      }, delay)
+      current.forwardTimer.unref?.()
+    })
+  }
+
+  /** Re-establish a dropped tunnel: the far-side instance is usually still up,
+   *  so this is "forward again and re-verify", not "restart everything". */
+  async function resumeForward(instance: RemoteInstance): Promise<void> {
+    ensureForward(instance)
+    await new Promise((r) => setTimeout(r, 800))
+    const probe = await probeThroughForward(instance)
+    if (probe.ok) {
+      setState(instance.id, 'online', `转发已恢复（${probe.version}）`)
+      rt(instance.id).forwardAttempts = 0
+    } else {
+      pushLog(instance.id, `重连后探活失败：${probe.error}`)
+    }
+  }
+
+  /** `/api/version` through the tunnel: proves forward + instance + capability
+   *  in one call (the same judgement openchamber's own host probe makes). */
+  async function probeThroughForward(instance: RemoteInstance) {
+    try {
+      const res = await fetch(`${instanceUrl(instance.localPort)}/api/version`, { signal: AbortSignal.timeout(5_000) })
+      if (!res.ok) return { ok: false as const, error: `HTTP ${res.status}` }
+      const payload = (await res.json()) as Record<string, unknown>
+      return judgeInstanceVersion(payload)
+    } catch (err) {
+      return { ok: false as const, error: (err as Error).message }
+    }
+  }
+
+  /** Which engine is really behind the panel (R12 assertion point ③). Needs the
+   *  UI session: log in with the stored password, reuse the cookie for the one
+   *  authenticated read. */
+  async function probeEngineCompat(instance: RemoteInstance): Promise<ReturnType<typeof judgeEngineCompat>> {
+    const base = instanceUrl(instance.localPort)
+    try {
+      const headers: Record<string, string> = {}
+      if (instance.uiPassword) {
+        const login = await fetch(`${base}/auth/session`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ password: instance.uiPassword, trustDevice: true }),
+          signal: AbortSignal.timeout(8_000),
+        })
+        const cookie = login.headers.getSetCookie?.()[0] ?? login.headers.get('set-cookie') ?? ''
+        if (!login.ok || !cookie) return { ok: false as const, error: `登录实例失败：HTTP ${login.status}` }
+        headers.cookie = cookie.split(';')[0]!
+      }
+      const res = await fetch(`${base}/api/opencode/compatibility`, { headers, signal: AbortSignal.timeout(10_000) })
+      if (!res.ok) return { ok: false as const, error: `兼容性接口 HTTP ${res.status}` }
+      return judgeEngineCompat((await res.json()) as EngineCompatPayload)
+    } catch (err) {
+      return { ok: false as const, error: (err as Error).message }
+    }
+  }
+
+  // ── public surface ──────────────────────────────────────────────────────────
+
+  const manager: RemoteInstanceManager = {
+    async plan(id) {
+      const instance = need(id)
+      setState(id, 'checking')
+      const target = `${instance.user ? `${instance.user}@` : ''}${instance.host}:${instance.port}`
+      const actions: string[] = []
+      const url = instanceUrl(instance.localPort)
+      const env = await probeEnv(instance)
+      if (!env) {
+        setState(id, 'error', 'ssh 不可达')
+        return { id, target, reachable: false, sshError: `ssh ${target} 连不上（BatchMode）`, engineCandidates: [], actions, url }
+      }
+      rt(id).inspected = env
+
+      const engineCmd = await ssh(instance, buildEngineProbeCommand(instance.enginePath ? [instance.enginePath] : DEFAULT_ENGINE_CANDIDATES), 45_000)
+      const candidates = parseEngineProbe(engineCmd.stdout)
+      const pick = await resolveEngine(instance)
+      if (pick.ok) rt(id).engine = { path: pick.candidate.path, version: pick.candidate.version }
+
+      const runtimeProbe = await ssh(instance, buildRuntimeProbeCommand(), 25_000)
+      const runtimeRaw = runtimeProbe.stdout.trim().split('\n').pop() ?? ''
+      const runtime = runtimeRaw && runtimeRaw !== 'MISSING' ? runtimeRaw : undefined
+      rt(id).runtimeVersion = runtime
+
+      // P6：终端可用性（node-pty 的 GLIBCXX 依赖）——预演里就说清楚，别等用户点终端
+      const termProbe = await ssh(instance, buildTerminalProbeCommand(instance.appVersion), 25_000)
+      const terminal = parseTerminalProbe(termProbe.stdout)
+      rt(id).terminal = terminal.ok ? { ok: true } : { ok: false, reason: terminal.reason }
+
+      const appProbe = await ssh(instance, buildAppProbeCommand(instance.appVersion), 45_000)
+      const appRaw = appProbe.stdout.trim().split('\n').pop() ?? ''
+      const app = appRaw && appRaw !== 'MISSING' ? appRaw : undefined
+      rt(id).appVersion = app
+
+      if (!runtime) actions.push(`推送运行时 node v${NODE_RUNTIME.version}（控制端已备件，离线）`)
+      if (app !== instance.appVersion) actions.push(`推送应用 ${instance.appVersion} 到 ~/.ocrc/remote/openchamber/${instance.appVersion}（旧树留 .ocrc-bak）`)
+      if (runtime && app === instance.appVersion) actions.push('运行时与应用都在位，推送会跳过')
+      const term = rt(id).terminal
+      if (term && term.ok === false) {
+        actions.push(`注意：终端暂不可用（${term.reason ?? '原因未知'}）——实例其余功能不受影响`)
+      }
+      actions.push(pick.ok
+        ? `启动实例：serve --hostname 127.0.0.1 --port ${instance.instancePort}（引擎 ${pick.candidate.path} → ${pick.candidate.version}）`
+        : `部署我们 pin 的引擎 opencode ${DEFAULT_ENGINE_PIN} 到 ~/.ocrc/remote/engine/opencode（对端现有 v1 一律不动）`)
+      actions.push(`建转发：ssh -N -L 127.0.0.1:${instance.localPort}:127.0.0.1:${instance.instancePort} → 打开 ${url}`)
+      setState(id, 'unknown')
+      return {
+        id, target, reachable: true, inspected: env, runtime, app,
+        engine: pick.ok ? { path: pick.candidate.path, version: pick.candidate.version } : undefined,
+        engineError: pick.ok ? undefined : pick.error,
+        engineCandidates: candidates,
+        actions,
+        url,
+      }
+    },
+
+    async apply(id, applyOpts = {}) {
+      const instance = need(id)
+      const ourEngine = `${instancePaths('x').engineDir}/opencode`
+      // A foreign pin (explicit --engine-path) is asserted, never replaced; the
+      // default path deploys **our own** pinned v2 into our namespace, which is
+      // what makes a controlled host with only a v1 usable at all (R12).
+      const foreignPin = instance.enginePath && instance.enginePath !== ourEngine ? instance.enginePath : undefined
+      if (foreignPin) {
+        setState(id, 'provisioning', '断言 pin 的引擎')
+        const pick = await resolveEngine(instance)
+        if (!pick.ok) {
+          setState(id, 'error', '引擎不满足 v2 门禁')
+          return { ok: false, detail: `${pick.error}（R12：不许回落 v1）` }
+        }
+        rt(id).engine = { path: pick.candidate.path, version: pick.candidate.version }
+      } else {
+        setState(id, 'provisioning', '推送运行时/引擎/应用')
+      }
+      const result = await provisionOffline(instance, instance.appVersion, {
+        force: applyOpts.force,
+        skipEngine: !!foreignPin,
+        engineVersion: applyOpts.engineVersion,
+        guard: applyOpts.guard,
+        trace: applyOpts.trace,
+        onLog: (line) => { pushLog(id, line); applyOpts.onLog?.(line) },
+      })
+      const enginePath = (result.engine as { path?: string }).path ?? ourEngine
+      if (result.engine.ok && !foreignPin) {
+        // Pin what we deployed: every later start uses this exact path, never PATH.
+        opts.store.update(id, { enginePath, engineVersion: result.engine.version })
+        rt(id).engine = { path: enginePath, version: result.engine.version ?? '' }
+      }
+      if (result.runtime.ok) rt(id).runtimeVersion = result.runtime.detail.replace(/^已推送 |^已在位 /, '')
+      if (result.app.ok) rt(id).appVersion = instance.appVersion
+      const parts = `运行时：${result.runtime.detail}；引擎：${result.engine.detail}；应用：${result.app.detail}`
+      setState(id, result.ok ? 'offline' : 'error', result.ok ? '装机完成（未启动）' : parts)
+      return { ok: result.ok, detail: parts }
+    },
+
+    async up(id, upOpts = {}) {
+      const instance = need(id)
+      setState(id, 'starting')
+      const pick = await resolveEngine(instance)
+      if (!pick.ok) {
+        setState(id, 'error', '引擎不满足 v2 门禁')
+        return { ok: false, detail: `${pick.error}（R12：不许回落 v1）` }
+      }
+      const runtime = await ssh(instance, buildRuntimeProbeCommand(), 25_000)
+      if ((runtime.stdout.trim().split('\n').pop() ?? 'MISSING') === 'MISSING') {
+        setState(id, 'error', '运行时缺失')
+        return { ok: false, detail: '目标机上还没有运行时/应用——先跑 ocrc remote apply <id>' }
+      }
+      if ((await remoteHealth(instance)) !== '200') {
+        // R9 relay must be up BEFORE the instance starts: the serve line hands the
+        // engine a proxy URL, and a dead port there is a broken engine later.
+        const relay = await ensureProxy(instance)
+        if (relay !== 'off') pushLog(instance.id, `egress relay: ${relay}`)
+        const started = await startInstance(instance, pick.candidate.path, upOpts.guard)
+        if (!started.ok) {
+          setState(id, 'error', started.detail)
+          return started
+        }
+        pushLog(id, started.detail)
+      } else {
+        pushLog(id, `实例已在 :${instance.instancePort} 上服务（复用，不重启）`)
+      }
+      // The relay is needed either way: a reused instance may have been started
+      // without one and its engine would then have no egress.
+      if (proxyConfig(instance).enabled) await ensureProxy(instance)
+      // A tunnel from an earlier CLI run is invisible to this process. Reuse it
+      // only when it carries the -R relay too; otherwise say so instead of
+      // letting ssh die on a busy port (or silently stealing the port).
+      if (await isListening(instance.localPort)) {
+        const relayLive = proxyConfig(instance).enabled
+          ? (await ssh(instance, buildRemotePortProbeCommand(instance.appVersion, proxyConfig(instance).remotePort), 20_000)).stdout.trim().endsWith('open')
+          : true
+        if (relayLive) {
+          pushLog(id, `本地 ${instance.localPort} 已在监听且带 -R 中继——复用这条隧道`)
+        } else {
+          const detail = `本地 127.0.0.1:${instance.localPort} 已被占用，但它没有 -R 出网中继（多半是旧命令留下的隧道）——先停掉它再 up`
+          setState(id, 'error', detail)
+          return { ok: false, detail }
+        }
+      }
+      ensureForward(instance)
+      // Through-the-tunnel verification: this is the URL the user opens.
+      const deadline = Date.now() + 20_000
+      let probe = await probeThroughForward(instance)
+      while (!probe.ok && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 1_000))
+        probe = await probeThroughForward(instance)
+      }
+      if (!probe.ok) {
+        setState(id, 'error', `转发探活失败：${probe.error}`)
+        return { ok: false, detail: `实例已起但转发探活失败：${probe.error}` }
+      }
+      // R12 ③：实例自己说它用的是哪个引擎——这才是「引擎是 v2」的证据，
+      // 而不是我们「请求它用 v2」。复用到既有实例时这一步尤其重要。
+      const compat = await probeEngineCompat(instance)
+      if (!compat.ok) {
+        setState(id, 'error', `引擎门禁未过：${compat.error}`)
+        return { ok: false, detail: `实例在跑，但引擎门禁未过：${compat.error}` }
+      }
+      const r = rt(id)
+      r.forwardAttempts = 0
+      r.engine = { path: compat.binary, version: compat.version }
+      setState(id, 'online', `openchamber ${probe.version}（引擎 ${compat.version} @ ${compat.binary}）`)
+      return { ok: true, detail: `online：${instanceUrl(instance.localPort)}（openchamber ${probe.version}，引擎 ${compat.version} @ ${compat.binary}）` }
+    },
+
+    async down(id) {
+      const instance = need(id)
+      const r = rt(id)
+      r.stopping = true
+      try {
+        stopForward(id)
+        const stopped = await stopInstance(instance)
+        setState(id, stopped.ok ? 'offline' : 'error', stopped.detail)
+        return stopped
+      } finally {
+        r.stopping = false
+      }
+    },
+
+    async probe(id) {
+      const instance = opts.store.get(id)
+      if (!instance) return { online: false, detail: 'no such instance' }
+      const probe = await probeThroughForward(instance)
+      if (probe.ok) {
+        // 顺手把本进程的状态也对齐（拥有隧道的进程里 status 立刻变 online）
+        const r = rt(id)
+        if (r.state !== 'online') setState(id, 'online', `openchamber ${probe.version}（实测）`)
+        return { online: true, version: probe.version }
+      }
+      return { online: false, detail: probe.error }
+    },
+
+    status(id) {
+      const instance = opts.store.get(id)
+      const r = runtimes.get(id)
+      if (!instance) return undefined
+      const cfg = proxyConfig(instance)
+      const proxy = proxies.get(cfg.localPort)
+      return {
+        id,
+        state: r?.state ?? (instance.enabled ? 'unknown' : 'disabled'),
+        detail: r?.detail,
+        since: r?.since,
+        url: instanceUrl(instance.localPort),
+        forwardPid: r?.forwardPid,
+        forwardAttempts: r?.forwardAttempts,
+        engine: r?.engine ?? (instance.enginePath ? { path: instance.enginePath, version: instance.engineVersion ?? "" } : undefined),
+        runtime: r?.runtimeVersion,
+        app: r?.appVersion,
+        inspected: r?.inspected,
+        terminal: r?.terminal,
+        proxy: {
+          ...cfg,
+          listening: !!proxy,
+          connects: (proxy?.connects ?? []).slice(-20).map((t) => `${t.host}:${t.port}`),
+        },
+        logTail: r?.logs.slice(-40) ?? [],
+      }
+    },
+
+    statusAll() {
+      return opts.store.list().map((i) => manager.status(i.id)).filter((s): s is InstanceStatus => !!s)
+    },
+
+    logs(id) {
+      return rt(id).logs.slice(-LOG_CAP)
+    },
+
+    ensureAll() {
+      for (const instance of opts.store.list()) {
+        if (!instance.enabled) {
+          setState(instance.id, 'disabled')
+          continue
+        }
+        if (instance.restoreOnStart === false) {
+          pushLog(instance.id, 'restoreOnStart 关：不自动拉起（R10 开关 ②）')
+          continue
+        }
+        // Boot restore is background: the host must come up even when a
+        // controlled host is unreachable (its own reconnect loop takes over).
+        void manager.up(instance.id).catch((err: unknown) => {
+          setState(instance.id, 'error', `自恢复失败：${(err as Error).message}`)
+        })
+      }
+    },
+
+    dispose() {
+      // Detached forwards belong to the machine, not to this process: `ocrc remote
+      // down` is the only thing that stops them (a panel restart must not kill
+      // tunnels someone still uses).
+      if (!detachedForwards) {
+        for (const id of runtimes.keys()) {
+          const r = rt(id)
+          r.stopping = true
+          stopForward(id)
+        }
+      }
+      for (const [port, proxy] of proxies) {
+        void proxy.close().catch(() => { /* closing */ })
+        proxies.delete(port)
+      }
+    },
+  }
+
+  return manager
+}

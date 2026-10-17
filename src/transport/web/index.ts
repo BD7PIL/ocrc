@@ -58,6 +58,9 @@ export interface WebTransportConfig {
   goalSink?: { broadcast?: (frame: { sessionId: string; goal: import('../../core/state.js').GoalRecord | undefined; verifying: boolean }) => void }
   /** 0.26.0 remote host management routes. */
   remotes?: import('../../core/remotes.js').RemotesStore
+  /** 2.0.0-alpha.8: remote openchamber instances (对端能力) routes. */
+  remoteInstances?: import('../../core/remote-instances.js').RemoteInstancesStore
+  remoteInstanceManager?: import('../../core/remote-instance-bridge.js').RemoteInstanceManager
   remoteManager?: import('../../core/remote-host.js').RemoteHostManager
   /** 0.27: runtime remote registration (backend + tunnel + events, no restart). */
   onRemoteEnabled?: (r: import('../../core/remotes.js').RemoteHost) => void

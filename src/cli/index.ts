@@ -33,6 +33,7 @@ COMMANDS:
   status        Show instance state (server / supervisor / web panel / workdir)
   host          Run standalone against an ACP agent (no opencode; OCRC_ACP_CMD)
   wf <sub>      Dynamic workflows (list / show / run / resume / amend / …)
+  remote <sub>  Remote openchamber instances (add / plan / apply / up / down / …)
   --help, -h    Show this help
 `
 
@@ -75,6 +76,12 @@ async function main() {
 
   if (cmd === 'wf') {
     await import('./wf.js').then((m) => m.main(process.argv.slice(3)))
+    return
+  }
+
+  // 2.0.0-alpha.8: remote openchamber instances (the 对端能力, plan §4 P5).
+  if (cmd === 'remote') {
+    await import('./remote.js').then((m) => m.main(process.argv.slice(3)))
     return
   }
 

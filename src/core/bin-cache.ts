@@ -106,11 +106,21 @@ export async function cacheArtifact(version: string, target: string, timeoutMs =
   return dest
 }
 
+/** Windows paths handed to tar need forward slashes AND `--force-local`.
+ *  Verified against GNU tar 1.35 on Windows by trying all four combinations:
+ *  backslashes alone → "Cannot open …\002.0.27-linux-x64"; backslashes with
+ *  `--force-local` → MSYS escape mangling; forward slashes without the flag →
+ *  "Cannot connect to C:". Only forward + flag works. */
+function tarPath(p: string): string {
+  return process.platform === 'win32' ? p.replaceAll('\\', '/') : p
+}
+
 /** Extract the `package/bin/opencode` binary from a cached tgz into destDir. Local side only. */
 export async function extractBinary(tgzPath: string, destDir: string): Promise<string> {
   mkdirSync(destDir, { recursive: true })
+  const forceLocal = process.platform === 'win32' ? ['--force-local'] : []
   await new Promise<void>((resolve, reject) => {
-    const child = spawn('tar', ['xzf', tgzPath, '-C', destDir, 'package/bin/opencode'], {
+    const child = spawn('tar', [...forceLocal, '-xzf', tarPath(tgzPath), '-C', tarPath(destDir), 'package/bin/opencode'], {
       stdio: ['ignore', 'ignore', 'pipe'],
     })
     let err = ''

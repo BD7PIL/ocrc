@@ -8,7 +8,8 @@ export interface SessionNode {
   title: string
   /** Parent session id (null = root). omo subagents always carry one. */
   parentId: string | null
-  /** Agent that ran this session ('orchestrator' | 'explorer' | …). */
+  /** Agent that ran this session. openchamber's guest snapshot does not send
+   *  one today; treat it as decoration if a future host adds it. */
   agent?: string
   activity?: string
   outcome?: string | null
@@ -42,10 +43,14 @@ export function buildTree(sessions: SessionNode[]): TreeNode[] {
   return (childrenOf.get(null) ?? []).sort(sortNewest).map(attach)
 }
 
-/** Sessions that look like omo subagents: they have a parent AND a non-default
- *  agent name. Used to badge the panel ("N 个子代理会话"). */
+/** Sessions that count as omo subagents. A session with a parent is one the
+ *  engine opened on behalf of another — that is the whole signal, and the only
+ *  one openchamber's guest snapshot offers: `GuestSessionRecord` carries
+ *  id/title/parentId/activity/outcome and has no `agent` field. Gating on an
+ *  agent name (as this did until 2026-10-16) made the panel report "no
+ *  orchestration here" on every real host, forever. */
 export function countSubagents(sessions: SessionNode[]): number {
-  return sessions.filter((s) => s.parentId !== null && s.agent && s.agent !== 'build').length
+  return sessions.filter((s) => s.parentId !== null).length
 }
 
 /** Flatten depth-first for rendering. */

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — 清理到只剩一条路（2026-10-19）
+
+- **扩展 0.9.2：上一代三块的服务端也删了。** `extensions/ocrc/src/service/` 只剩 `main.ts`（`/health` + `/remote-instance` 两条路由）与 `remote-instance-ops.ts`：`tunnel`/`tunnels`/`remote-fs`/`config-bridge`/`config-project`/`provision`/`runtime`/`capabilities`/`auth-sync`/`detect`/`artifact`/`install`/`omo-config`/`omo-schema`/`ocrc-host` + 它们的测试 + `shared/protocol.ts` + `shared/provision.ts` 全部删除（服务从 773 行降到 ~100 行，扩展测试 295 → 39 项）。manifest 不再申请 `sessions` 能力（少一次审批）。
+- **配对链接不再有「在 app 里打开」**：宿主对 `open-url` 只放行 http(s)，`openchamber://` 深链必然被拒（实测报 `URL must be http or https.`）。改成「复制链接」（带 toast + 宿主自带的 Copy）并说清去 app 的**服务器列表 →「导入链接」**粘贴。
+- **仓库级清理**：删 `web/.svelte-kit/**`（81 个被误提交的构建缓存）、`desktop/` + 其单测（基座换位后前提消失的壳 scaffold，PRODUCT 第三条已标注作废）、`deploy/com.ocrc.host.plist`（无文档引用的 launchd 模板，内含 fork 期个人路径与域名）、`scripts/cdp/guest-ui.mjs`（由 `preview/audit.mjs` 取代）、`accept-provision.sh` / `accept-workspace.sh` / `spike-multi-forward.sh` / `vendor-omo-schema.mjs`。
+- **README 重写**：从"Telegram/Web PWA 产品介绍"改成当前形态（面板扩展 + 被控端实例 + 配对），补两种安装 URL、`npm run preflight`、评审流水线；去掉已不存在的 `cd web && npm test` 与 `scripts/spike-restart.sh`。
+- 文档：AGENTS/PRODUCT/OPS 标注批次 2–5.1 的功能面已删；四份过时 handoff/计划加了 banner；decision 记录同步。
+
 ## Unreleased — 名字收敛到 `ocrc`（2026-10-18）
 
 - 扩展改名 `ocrc-remote` → **`ocrc`**（目录 `extensions/ocrc`、`panel.id`、显示名、资产 `ocrc.zip`、tag `ocrc-<ver>` / `ocrc-latest`、镜像分支 `ocrc`；发布工作流改名 `ocrc-extension.yml`）。**旧安装（id `ocrc-remote`）要卸载重装**；裁决与代价见 `docs/decisions/2026-10-18-rename-to-ocrc.md`。

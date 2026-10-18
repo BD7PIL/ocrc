@@ -58,3 +58,6 @@ coverage/
 extensions/ocrc/.preview-dist/
 extensions/ocrc/preview/audit/.chrome-profile/
 extensions/ocrc/preview/audit/*.png
+
+# 旧的 Svelte web 面板树的构建缓存（源码已删，缓存被误提交过）
+web/.svelte-kit/

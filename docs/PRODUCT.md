@@ -152,12 +152,14 @@ ocrc 的已保存 workflow 是一个机器级 store，没有可搬的文件。am
   槽位（否则下一次探测会把它当成「别人装的」而永久拒装），旧 marker 还原。
   取件只用被控端自己的 npm——**air-gap 的运行时 tarball 推送尚未实现**，目标机不出网时如实报
   「装不了」，不假装能装。
-- **动线：现状交给模型，不改上游动线**（2026-10-16 二次修订）：openchamber 不给 guest 任何项目/
-  传输 API（面板入口的硬边界，见 `panel-provisioning-verdict.md` §七），所以 ocrc 的入口只用它**已经
-  开放的那几面**：composer 斜杠命令 `/ocrc-host`（现状）与 `/ocrc-plan`（待办）把四档就绪、引擎、
-  能力缺口打包成一个 chip 交给模型；主机视图提供「在此项目上新建会话」（目录已是 openchamber 项目时）
-  与「贴到当前对话」两条交接。**不做全屏 `contributes.page` 向导、不 fork 上游改它的项目菜单、
-  不给扩展加 `background.entry`**（那会让隐藏帧抢走命令解析）。
+- **动线：现状交给模型，不改上游动线**（2026-10-16 二次修订；**2026-10-19 修订**：本条的入口已不存在）：
+  openchamber 不给 guest 任何项目/传输 API（面板入口的硬边界，见 `panel-provisioning-verdict.md` §七）。
+  原文用它**已经开放的那几面**——composer 斜杠命令 `/ocrc-host`（现状）与 `/ocrc-plan`（待办）、
+  以及主机视图的「在此项目上新建会话」/「贴到当前对话」——把现状交给模型。**这些入口在扩展 0.9.2
+  随上一代三块一起删除**：它们的数据源是"控制端 `-L` 连被控端裸引擎"的旧拓扑，面板上早已没有入口。
+  现在的动线是实例级的一条：**添加服务器 → 检查并安装 → 启动 → 配对链接**（详见第零点十条与
+  [OPS](OPS.md)）。仍然有效的边界没变：**不做全屏 `contributes.page` 向导、不 fork 上游改它的
+  项目菜单、不给扩展加 `background.entry`**（那会让隐藏帧抢走命令解析）。
 - **端口语义**（2026-10-16 多路转发实验；**2026-10-16 二次更正**）：**主隧道端口不可静默更换**——
   `localPort` 默认 4096 是**面板宿主启动 openchamber 时用 `OPENCODE_PORT=4096`（或 `OPENCODE_HOST`）指过去的地址**，
   换掉就等于弄坏接入，冲突时如实报错（把 ssh 的 `cannot listen to port` 原话带回来）；**能力转发的端口是实现细节**，
@@ -266,8 +268,9 @@ ocrc 的已保存 workflow 是一个机器级 store，没有可搬的文件。am
 ## 第三条：组件分发模型
 
 - **`@bd7pil/ocrc`**（被控端）：plugin + 守护/supervisor + CLI + 远程主机管理 + 自持工件缓存。
-- **ocrc Desktop**（控制端，规划中）：窗口 + 托盘 + 生命周期编排 + 多设备枢纽。**薄壳**——不内嵌 agent 运行时；与 web 共用同一 React app 层（platform 接缝预留，寄存器：ZCode `IPlatformService`）。壳的启动链 = 检测/拉起本机核心（调守护）→ 等面板端口 → 开窗；**adopt 已运行的 opencode desktop，没有则拉起**（ZCode 只有 spawn，adopt 是 ocrc 领先项）。更新逻辑参考 ZCode autoUpdater/manifest/强更门禁（壳自己的更新线，与 host 管的远端更新是两条线）。
-- **壳技术倾向 Electron**：opencode 官方桌面端 2026-05 从 Tauri 迁移到 Electron，ZCode desktop 亦为 Electron——两个最直接参考都收敛于此。最终定案推迟到壳项目启动。
+- **~~ocrc Desktop~~（作废，2026-10-19）**：这条的前提是"壳与 web 共用同一 React app 层（ZCode `IPlatformService` 寄存器）"——**基座换位（2026-10-14）把这个前提撤了**：ZCode 母版平替程序终止开发、web-next 删除，控制端的面板就是 openchamber 自己的桌面 app（Win/Mac，不 fork）。所以 ocrc 不再有自己的控制端壳，`desktop/` scaffold 与其单测一并删除。历史条文保留在下方作为沿革。
+- ~~**ocrc Desktop**（控制端，规划中）：窗口 + 托盘 + 生命周期编排 + 多设备枢纽。**薄壳**——不内嵌 agent 运行时；与 web 共用同一 React app 层（platform 接缝预留，寄存器：ZCode `IPlatformService`）。壳的启动链 = 检测/拉起本机核心（调守护）→ 等面板端口 → 开窗；**adopt 已运行的 opencode desktop，没有则拉起**（ZCode 只有 spawn，adopt 是 ocrc 领先项）。更新逻辑参考 ZCode autoUpdater/manifest/强更门禁（壳自己的更新线，与 host 管的远端更新是两条线）。~~
+- ~~**壳技术倾向 Electron**：opencode 官方桌面端 2026-05 从 Tauri 迁移到 Electron，ZCode desktop 亦为 Electron——两个最直接参考都收敛于此。最终定案推迟到壳项目启动。~~
 - **企业离线分发**：自持工件缓存（第零点六条）是其地基；参考 DeepSeek harness 社区 pinned-runtime 原子分发模式。
 
 ## 第四条：兼容基线

@@ -42,6 +42,6 @@
 - `ocrc-omo-view`：本来就是 `ocrc-` 前缀，第二段是件类，符合约定。
 - `ocrc-openchamber-pack-<ver>-linux-x64-<tier>.tar.gz`：第二段 `openchamber` 是**件类**
   （包里装的是什么），不是限定词；`OCRC_PACK_DIR` 是平铺镜像目录，版本必须留在文件名里。
-- 源码里的领域词 `remote-instance*` / `remote-fs` / `remote-tools` / `src/cli/remote.ts`：
+- 源码里的领域词 `remote-instance*` / `remote-tools` / `src/cli/remote.ts`（`remote-fs.ts` 已在 0.9.2 随上一代三块删除）：
   它们是"远程实例"这个**领域概念**，不是后缀。改名只会让 `instance.ts` 变得指代不明。
 - `docs/handoff/*`、`docs/research/*`、`CHANGELOG.md`：当时事实的记录，不回改（本文即新记录）。

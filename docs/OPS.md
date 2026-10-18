@@ -302,17 +302,22 @@ https://github.com/BD7PIL/ocrc/releases/download/ocrc-0.9.0/ocrc.zip
 不注册控件（宿主那一栏只有一行宽，下拉+按钮会被挤成两行、落下一个没有主人的按钮，
 而且与面板里的同一组按钮重复）、不挂 rail 徽标、不自写标题（manifest 的 title 已经有一行）。
 
-**上一代三块已从面板撤下**（服务端端点保留，批次 2–5 的验收脚本还在用）：
+**上一代三块已删除**（0.9.2 起，面板与服务端一起）：
 
-| 块 | 它做的事 | 为什么不再露在面板上 |
+| 块 | 它做的事 | 为什么删 |
 | --- | --- | --- |
 | 连接 | 控制端的 openchamber 用 `ssh -L` 去连远程机器上裸跑的 OpenCode | 前提是"远程机器没有自己的界面"；现在远程机器自己跑 openchamber、app 用配对链接连它 |
 | 远程工作区 | 从控制端浏览/编辑远程机器的文件、跑 git | 每个请求要过档案的 `allowedRoots`，而面板的添加表单**从不发这个字段** → 403；打开远程 openchamber 自己的 Files/Git 得到的是真那一份 |
 | 配置同步 | 把控制端面板写的 agents/MCP/providers 写进远程机器**项目目录**的 `opencode.jsonc`（外加 omo 编排面板） | 它要求"隧道已建立"（上一代通道）→ 永远停在空态；实例卡的「配置差异 → 同步配置/同步凭据」写的是用户级 `~/.config/opencode` + `auth.json` |
 
-`/ocrc-host`、`/ocrc-plan` 两个斜杠命令一并撤下：它们的数据源是上一代档案+隧道，
-面板撤掉入口后只会报「没有连接中的档案」。omo 编排面板也随「配置同步」一起撤下
-（对端的 `oh-my-opencode-slim.json` 仍在配置同步白名单里，能整体同步，不能结构化编辑）。
+**服务端也一起删了**：`extensions/ocrc/src/service/` 只剩 `main.ts`（两条路由：`/health`、
+`/remote-instance`）与 `remote-instance-ops.ts`；`tunnel/tunnels/remote-fs/config-bridge/
+config-project/provision/runtime/capabilities/auth-sync/detect/artifact/install/omo-config/
+omo-schema/ocrc-host` 及其测试、`shared/protocol.ts`、`shared/provision.ts`、两个验收脚本
+（`accept-provision.sh` / `accept-workspace.sh`）全部删除——它们的端点面板早已不再调用，
+留着就是第二个产品面。`/ocrc-host`、`/ocrc-plan` 两个斜杠命令与 omo 编排面板同时撤下
+（对端的 `oh-my-opencode-slim.json` 仍由实例卡的配置同步整体带过去，只是不能结构化编辑）。
+manifest 里也不再申请 `sessions` 能力：面板不调会话类 API，装扩展时少一次审批。
 
 **词表（上游 zh-CN）**：远程服务器 / 远程机器 / 配对链接 / 界面密码 / 端口转发 /
 服务器名称 / 服务器地址。我们不再用：对端（→ 远程机器）、引擎（→ OpenCode）、

@@ -1,310 +1,149 @@
-# OCRC — remote control for opencode
+# OCRC — provision and drive remote openchamber instances
 
-> **Current shape (2026-10-17):** the control side is the **openchamber desktop app**
-> (Win/Mac) with the **OCRC Remote** extension (`extensions/ocrc`); the controlled
-> side runs a full openchamber instance provisioned from a CI compat pack. See
-> [AGENTS.md](AGENTS.md) and [docs/PRODUCT.md](docs/PRODUCT.md) for the current
-> architecture; the Telegram/Web sections below describe the earlier surfaces, which
-> remain in the codebase.
+**One machine runs the panel, another machine runs the work.** The control side is the
+**openchamber desktop app** (Win/Mac) with the **OCRC** extension; the controlled side runs a
+full **openchamber** instance that we install for it — runtime, a pinned opencode, and the app
+itself — reachable either directly or through the control side, depending on what that machine
+can reach. You then pair it and it shows up in the app as **another OpenChamber server**.
 
-> **Drive your opencode from your phone or browser** — a Telegram bot plus a
-> scan-to-pair Web PWA. One install; both surfaces stream the same live
-> sessions, tool calls, diffs and costs in real time.
+> Status (2026-10-19): the panel path is the product. Verified end to end on two peers —
+> a RHEL7 box with **no outbound network** (relayed through the control side) and an Ubuntu box
+> with its own internet (direct). The earlier Telegram / Web-PWA surfaces are still in the
+> codebase and still work; they are no longer the entry point.
 
 [![Release](https://img.shields.io/github/v/release/BD7PIL/ocrc?color=10b981)](https://github.com/BD7PIL/ocrc/releases)
 [![License: MIT](https://img.shields.io/github/license/BD7PIL/ocrc?color=10b981)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/BD7PIL/ocrc/ci.yml?branch=main&label=CI)](https://github.com/BD7PIL/ocrc/actions)
-[![tests](https://img.shields.io/badge/tests-591%20backend%20%2B%20140%20web-10b981)](CHANGELOG.md)
 
-npm `@bd7pil/ocrc` · config `~/.ocrc/` · CLI `ocrc`. Works against a local
-opencode (verified on 1.18.x, RHEL7/glibc 2.17 included) — no cloud, no
-shared backend.
-
-<p align="center">
-  <img src="docs/assets/ocrc-web.png" width="840" alt="ocrc — the Web PWA driving a live opencode session (sessions, live chat, task & cost inspector)">
-</p>
+npm `@bd7pil/ocrc` · CLI `ocrc` · state `~/.ocrc/` · extension `extensions/ocrc`
 
 ## What it is
 
-- **Two surfaces, one session.** Prompts in from Telegram or the browser;
-  streaming output, tool calls, approvals and questions mirror to both.
-- **Local-first, single-user.** Runs on your machine against your opencode.
-  One allowlisted Telegram user; the web panel is gated by a device token.
-- **Remote hosts built in.** Drive opencode on other machines over SSH —
-  detection, provisioning, tunneling and credential sync are automated
-  (enterprise proxies supported), and remote turns appear in the same
-  Telegram/Web pipeline as local ones.
-- **Honest channel status.** Telegram and Web are implemented and stable.
-  Feishu / WeCom / DingTalk have a configuration panel pre-wired but the
-  transports themselves are **not implemented yet**.
+- **A panel extension that installs a whole cockpit on the other machine.** Runtime, a pinned
+  opencode, and openchamber itself, pushed over ssh — the remote machine needs no internet and
+  no package manager (`push`), or we can adopt what is already installed (`reuse`) without
+  writing a byte.
+- **Egress is decided by probing, not by a setting.** We ask the controlled machine whether it
+  can reach a model catalogue; if it cannot, its engine talks through a relay leg on the control
+  side (`-R` + a local proxy). The card and the status rail always show which of the two is in
+  effect, and why.
+- **Identity comes from upstream.** A pairing link (one-time, per-device, revocable) is pasted
+  into the app's **导入链接**; the machine appears under *other OpenChamber servers*. We store no
+  credentials for it.
+- **One name, one repo.** Brand `OCRC`; machine identifiers are just `ocrc` — extension
+  directory, `panel.id`, release asset, tags, mirror branch. Why, and what it costs existing
+  installs: [`docs/decisions/2026-10-18-rename-to-ocrc.md`](docs/decisions/2026-10-18-rename-to-ocrc.md).
 
-## Two ways to run
+## Install the extension
 
-| | **Plugin mode** | **Host mode** |
-|---|---|---|
-| Command | opencode loads the npm plugin | `ocrc host` (standalone) |
-| Process | inside opencode — no daemon | own process; spawns the opencode server |
-| Use when | desktop / normal machines | headless servers, minimal environments (verified on RHEL7) |
+Settings → Extensions → paste a URL:
 
-In **plugin mode** the npm package must be listed in opencode's config —
-verified on 1.18.x, the `"plugin"` array is the reliable load path:
-
-```jsonc
-// opencode.json / opencode.jsonc
-{ "plugin": [ "@bd7pil/ocrc" ] }
+```
+https://github.com/BD7PIL/ocrc#ocrc        # git install — the app can update it for you
+https://github.com/BD7PIL/ocrc/releases/download/ocrc-latest/ocrc.zip   # pinned, no self-update
 ```
 
-`ocrc install` adds this line automatically when it can do so safely (plain
-`opencode.json`); for a commented `jsonc` it prints the exact edit. opencode
-installs the package on next start; upgrades ship via `npm i -g
-@bd7pil/ocrc@latest` + restart. This array is the **only** supported
-plugin-mode load path — directory-scanned "bridge" files (an older install
-mechanism) were removed in 0.26.8: opencode loaded them at unpredictable
-moments, spawning ghost instances that fought the real one for the PRIMARY
-lock and the web port. `ocrc uninstall` cleans any legacy bridges up.
+The git form is the only shape openchamber self-updates: the extension lives at the root of the
+`ocrc` branch (`git subtree split` publishes it), which is what the app's update check needs.
+The version in `extensions/ocrc/package.json` **is** the update signal — a release that does not
+bump it is invisible to git-installed copies. Then approve the **service** capability once (the
+extension runs `ssh` on the host); an in-app update asks again.
 
-In **host mode** nothing touches opencode's config at all:
+> An older install with `panel.id = ocrc-remote` (≤ 0.8.2) is a *different* extension: remove it
+> before installing this one, or both stay in the list.
+
+## Use it
+
+1. **添加服务器** — ssh target, login (key or password), install mode, network mode. Derived
+   values (compat tier, runtime, pins, bind) are shown, not asked: the target's glibc decides
+   them.
+2. **检查并安装** — a read-only inspection first (uname, glibc, what is already there, what would
+   be written, and the ssh-reachability verdict). Nothing is written until you confirm in that
+   card.
+3. **启动** — the instance runs on the remote loopback; the control side holds the forward.
+4. **创建配对链接 → 复制链接** — paste it into the app's **导入链接** and confirm. (The panel
+   cannot open `openchamber://` itself: the guest bridge only forwards http/https URLs.)
+5. **配置差异与同步** — diff this machine's `~/.config/opencode` against the remote's, then push
+   files, merge the config document, and ship `auth.json` over stdin at 0600. Deletions are
+   opt-in per item.
+
+The status rail (right edge of the app) is a read-only readout, one line per machine: state,
+OpenChamber version, and `直连` / `经本机转发`.
+
+## CLI
+
+The same library's headless entry — for machines without a panel:
 
 ```bash
-OCRC_BACKENDS=opencode OCRC_WEB_ENABLED=true ocrc host
+ocrc remote list|plan|apply|up|down|status|pairlink|logs|peerlog|upgrade <id>
+ocrc remote config-diff|sync-config|sync-auth <id>
+ocrc remote prepare [--app-version V]     # pre-fetch packs on the control side
+ocrc remote supervise                     # foreground R10 ①② for panel-less hosts
 ```
 
-Both modes elect a single PRIMARY when several instances are alive; the
-losers stand by (one web bind, one Telegram poller, always).
+The remote channel is also exposed **to the model**, from any transport
+(`docs/research/e2-verdict.md`): `ocrc_remote_list`, `ocrc_remote_sync_workspace`,
+`ocrc_remote_provision`, `ocrc_remote_create_session`, `ocrc_remote_sync_auth`.
 
-**Which mode am I in?** Three ways to tell:
+## Earlier surfaces (still in the codebase)
 
-```bash
-ocrc status          # web panel line says: ocrc 0.26.x (plugin|host mode, <commit>)
-curl -s localhost:4099/api/version -H "Authorization: Bearer $(cat ~/.ocrc/token)" | grep mode
-```
-
-or by process: the mode is whichever entry owns the web panel — `node …
-ocrc host` / `ocrc host` in the process list = **host mode**; the panel
-served from inside an `opencode` process = **plugin mode**. Rule of thumb:
-if you started it with `ocrc start` or `ocrc host`, it's host mode; if
-opencode itself was started (TUI/serve) with the plugin configured, it's
-plugin mode.
-
-## Quick start
-
-Requires **opencode 1.17+** (verified on 1.18.x) and **Node 20+**.
+Telegram (35 commands: sessions, running work, controls, ops) and a token-gated Web PWA that
+streams the same live sessions from the same pipeline — prompts from either surface mirror to
+both, approvals arrive as buttons. They predate the panel path and remain supported; the entry
+point for a new setup is the extension above.
 
 ```bash
-# 1. Install
 npm i -g @bd7pil/ocrc
-ocrc install          # interactive: Telegram bot token + your user id
-                      # (the `opencode-remote-control` name on npm is an
-                      #  unrelated package — don't npx it)
-
-# 2. Start
-ocrc start /path/to/your/project    # supervised plugin mode
-# or: OCRC_BACKENDS=opencode OCRC_WEB_ENABLED=true ocrc host
-
-# 3. Talk to it
-#    Telegram: send "hello" to your bot
-#    Web:      open http://<host>:4099 and pair (see below)
+ocrc install            # Telegram bot token + allowed user id
+ocrc start <dir>        # or: OCRC_BACKENDS=opencode OCRC_WEB_ENABLED=true ocrc host
+ocrc pair               # QR + link for a device (works without Telegram)
 ```
 
-## Pairing a device
-
-Web access is gated by a device token. Two ways to pair — **Telegram is not
-required**:
-
-1. **From the host terminal** (works always, no Telegram):
-   ```bash
-   ocrc pair        # prints a QR + link — scan or open on the device
-   ```
-2. **From Telegram** (once the bot is running): send `/pair`, open the link.
-
-Links carry a *pending* token — valid **1 minute, single use**, and issuing
-a new one invalidates the old (refresh = new code). The device exchanges it
-for the real access token on first open; the token never appears in a URL
-again. Already-paired sessions can onboard further devices from the web
-panel's QR (机器人面板 → 配对新设备). The first-run landing page
-(`http://<host>:4099`) also shows the QR plus live channel status — no
-credentials there, status only.
-
-## Lifecycle
-
-```bash
-ocrc start <dir>             # start — supervision built in
-ocrc status                  # server / supervisor / web panel at a glance
-ocrc stop                    # graceful stop (supervisor first, then the instance)
-ocrc restart [dir]           # restart
-ocrc restore                 # re-launch the last instance (idempotent)
-```
-
-Supervision is always on: the supervisor adopts an already-running
-instance, restarts the child after a crash (default 5 s, `OCRC_WATCH_DELAY`),
-and treats SIGKILL / segfaults as crashes — an OOM kill self-heals.
-SIGTERM or the stop file means "stop for real". Boot-time recovery is
-opt-in:
-
-```
-@reboot sleep 60 && ocrc restore >> ~/.ocrc/prod.log 2>&1
-```
-
-## Telegram
-
-35 commands, grouped: sessions (`/sessions /session /new /rename /workspaces
-/projects /cleanup`), running work (`/skills /ls /open /worktree /diff /todo
-/context /subs /current`), controls (`/agent /model /mode /task /tasks /tasklist
-/taskdel /mcps /commands /messages /detach`), ops (`/start /status /version
-/pair /channels /help`), plus `/abort` and plain text relay. Send any text to
-drive the agent; approvals and interactive questions arrive as buttons.
-Streaming replies render live and degrade to plain text when Telegram's
-rich format is unavailable — an unreachable Telegram API never takes the
-web panel down with it.
-
-## Web panel
-
-PWA (installable), token-gated. Desktop uses a three-pane register (sessions
-rail · live chat · tabbed inspector); ≤820px it collapses into a drawer +
-bottom sheet tuned for phones. The right pane opens dynamic tabs: git
-(branch + lazy per-file patches), file browser/viewer, live subagent
-transcripts, full tool-output pages, and a side chat. Per session: todos,
-MCP servers, schedules, usage/cost, context ring, working-dir diff, skills,
-worktrees, remotes — plus a floating plan HUD for subagent jumps and session
-revert/unrevert. The bot channels panel configures reply granularity,
-workspace scope, allowlists, and shows the pairing QR.
-
-## Remote access
-
-The web binds `0.0.0.0:4099` by default (token-gated). For a PWA install you
-need a secure context:
-
-| Method | Command | Notes |
-|---|---|---|
-| **LAN, plain HTTP** | open `http://<lan-ip>:4099` | Works in-browser; PWA install needs HTTPS |
-| **Tailscale** | `tailscale serve 4099` | Stable `https://<host>.ts.net`, device auth |
-| **cloudflared** | `cloudflared tunnel --url http://localhost:4099` | Free, URL rotates; set `OCRC_WEB_PUBLIC_URL` |
-
-### SSH remote hosts (0.26+)
-
-Drive opencode on **other machines** from the same panel. Register a host in
-the Inspector → Remotes panel; ocrc then:
-
-1. **detects** it over one ssh round-trip (platform, glibc, opencode path +
-   version, credentials, port),
-2. **provisions** the official opencode if missing — pinned to THIS machine's
-   version (no internet on the remote? ocrc scp's its own binary),
-3. **launches** `opencode serve` bound to the remote loopback and reaches it
-   through an SSH local forward — one ssh process does tunnel + serve, so
-   when it dies everything it started dies with it (respawn 2s→60s backoff),
-4. **syncs credentials** (`sync-auth`: your `~/.local/share/opencode/auth.json`)
-   so remote turns run with your LLM logins,
-5. mirrors remote turns into Telegram/Web exactly like local ones (per-remote
-   event SSE into the same pipeline).
-
-Per-remote **enterprise proxy** settings (HTTP(S)_PROXY / NO_PROXY / custom
-CA) are injected into the remote's serve environment — NO_PROXY always keeps
-loopback traffic direct. The generated Basic password never leaves
-`~/.ocrc/remotes.json` (0600) and is redacted in every API response.
-Requires only system ssh + a reachable host (`~/.ssh/config`, ProxyJump work
-as-is; verified against OpenSSH 7.4 on EL7).
-
-### Remote tools for the agent (2.0.0-alpha.3+)
-
-The same remote channel is exposed to **the model itself** — the agent you chat
-with (Telegram, web panel, any transport) can call:
-
-- `ocrc_remote_list` — enabled remotes with lifecycle state, version, platform
-- `ocrc_remote_sync_workspace` — push a local directory to the remote over the
-  tar pipeline (`*.ocrc-bak` backups on collisions; `..` escapes rejected)
-- `ocrc_remote_provision` — install/upgrade opencode there (pin drift aware)
-- `ocrc_remote_create_session` — open a session in a directory **on the remote**
-  (never call it from the session it creates)
-- `ocrc_remote_sync_auth` — copy this machine's LLM credentials (auth.json,
-  0600) to the remote, so remote sessions authenticate with the same logins
-
-Typical flow: "把当前工作区推到 lab 机然后在那边开会话" → the agent lists
-remotes, syncs the workspace, creates the remote session. Works unchanged on
-opencode 1.18 (hooks.tool) and 2.x (`context.tool.transform`, see
-`docs/research/e2-verdict.md`); in attached mode every call proxies to the
-host's token-guarded API.
-
-## Security model
-
-- One allowlisted Telegram user; web devices hold a token generated at first
-  start (persisted `0600` at `~/.ocrc/token`), verified with constant-time
-  compare on HTTP and WS.
-- Pairing QR links carry a pending token (1 min, single use) — never the
-  permanent credential.
-- If the opencode server itself runs with `OPENCODE_SERVER_PASSWORD`, ocrc
-  authenticates its server calls with HTTP Basic (same env, no extra config).
-- Bot credentials are write-only through the API: responses carry a last-4
-  hint, never the value.
-- No cloud. Everything stays on the machine except Telegram API traffic.
-
-## Configuration
-
-Settings live in `~/.ocrc/config.env` (`0600`; `KEY=VALUE`). Highlights:
-
-| Key | Default | Notes |
-|---|---|---|
-| `TELEGRAM_BOT_TOKEN` | — | required for the Telegram surface |
-| `TELEGRAM_PROXY` | — | proxy for Bot API egress (`http://proxy:8080`); falls back to `HTTPS_PROXY`/`https_proxy` — for firewalled/corporate networks |
-| `ALLOWED_USER_IDS` | — | comma-separated Telegram user ids |
-| `OCRC_WEB_ENABLED` | `true` | web panel on/off |
-| `OCRC_WEB_PORT` | `4099` | web panel port |
-| `OCRC_WEB_HOST` | `0.0.0.0` | bind address |
-| `OCRC_SERVER_PORT` | `4096` | opencode server port (lifecycle commands) |
-| `OCRC_SERVER_BIN` | `~/.local/bin/opencode` | binary used by `ocrc start` |
-| `OCRC_WATCH_DELAY` | `5` | supervisor restart delay (s) |
-| `OPENCODE_SERVER_PASSWORD` | — | enables HTTP Basic for server calls |
-| `LOG_LEVEL` | `warn` | `debug` / `info` / `warn` / `error` |
-
-Legacy `WEB_*` names are honored as fallbacks. Full list:
-[`docs/OPS.md`](docs/OPS.md).
-
-## Architecture
-
-```
-┌────────────────────────────────────────────────────┐
-│  opencode (single process)                          │
-│                                                     │
-│  ┌─────────────────┐  ┌──────────────────────────┐ │
-│  │ AI engine :4096 │  │ plugin: ocrc              │ │
-│  │                 │  │  ├─ grammY (Telegram)     │ │
-│  │  event hook ────┼──┼─►├─ Hono + WS (Web PWA)  │ │
-│  │                 │  │  └─ relay + CardBus       │ │
-│  └─────────────────┘  └─────────┬────────────────┘ │
-│                                 ▼                   │
-│                        Telegram / Web (PWA)         │
-└────────────────────────────────────────────────────┘
-```
-
-In host mode the same surfaces live in the ocrc process instead, with the
-opencode server spawned on :4096 and reached over HTTP. Deep dive:
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md); production notes:
-[`docs/OPS.md`](docs/OPS.md); product boundaries:
-[`docs/PRODUCT.md`](docs/PRODUCT.md).
+<p align="center">
+  <img src="docs/assets/ocrc-web.png" width="760" alt="the Web PWA driving a live opencode session">
+</p>
 
 ## Compatibility
 
-- **opencode**: pin 1.18.x; the V2 plugin API is a separate track.
-- **OS baseline**: x86_64; verified on RHEL7 (glibc 2.17, OpenSSH 7.4) and
-  current-generation Linux desktops. Windows runs ocrc in host mode inside
-  WSL today; a native Windows shell is planned.
+| | |
+|---|---|
+| opencode | pinned **1.18.x**, plus a v2 track (the packed peer engine is v2, `2.0.27`) |
+| controlled side | Linux x86_64; **RHEL7 / glibc 2.17** is a supported floor (CI builds a legacy pack) |
+| control side | Windows / macOS desktop app; Windows dev boxes covered by the handoff docs |
+| ssh | system OpenSSH (ProxyJump / `~/.ssh/config` work as-is) |
 
 ## Development
 
 ```bash
-npm install && npm run build:all     # plugin + web
+npm install && npm run build:all     # backend + vendored engine
 npm test                             # backend (vitest)
-cd web && npm test                   # web (vitest)
-bash scripts/spike-restart.sh        # isolated dev instance (never touches prod)
+npm run typecheck
+npm run preflight                    # BEFORE COMMITTING: rebuilds both extensions, typechecks,
+                                     # tests, guest-bundle invariants, stages artifacts
 ```
 
-Releases: pushing a `v*` tag runs CI (typecheck + full test matrix + builds)
-and publishes to npm via OIDC trusted publishing — no token in the repo.
+The extension is the only thing installed from a URL, and its artifacts (`panel/ status/ service/
+shared/`) are **committed** so a folder install needs no build — which is why `preflight` exists:
+edit `src/` without rebuilding and CI's dist check fails.
+
+```bash
+npm --prefix extensions/ocrc run typecheck && npm --prefix extensions/ocrc test
+node extensions/ocrc/scripts/preview.mjs     # the real panel on a fake host, ?scenario= switches state
+node extensions/ocrc/scripts/audit.mjs       # per-component screenshots (24 states) for visual review
+bash scripts/accept-remote-instance.sh --target user@host   # end-to-end acceptance on a real peer
+```
+
+Where to read next: [AGENTS.md](AGENTS.md) (orientation, naming, dev rules) ·
+[docs/PRODUCT.md](docs/PRODUCT.md) (product boundaries — read this before proposing a feature) ·
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/OPS.md](docs/OPS.md) (operations, upgrades,
+the egress verdict) · [docs/handoff/](docs/handoff/) (delivery records) ·
+[docs/research/](docs/research/) (verdicts with evidence).
 
 ## Credits & license
 
 MIT — see [LICENSE](LICENSE) and [NOTICE](NOTICE). ocrc began as a fork of
-[opencode-remote-control](https://github.com/agentjoey/opencode-remote-control)
-and has since been rebuilt well past that origin (remote hosts, host mode,
-supervision, the web panel); the Telegram interaction model draws on
-[@grinev/opencode-telegram-bot](https://github.com/grinev/opencode-telegram-bot).
-Both remain standing credits with gratitude.
+[opencode-remote-control](https://github.com/agentjoey/opencode-remote-control) and has since
+been rebuilt well past that origin; the Telegram interaction model draws on
+[@grinev/opencode-telegram-bot](https://github.com/grinev/opencode-telegram-bot), and the panel
+is upstream [openchamber](https://github.com/openchamber/openchamber) (used as-is, not forked).
+All three remain standing credits with gratitude.

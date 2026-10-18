@@ -1,4 +1,6 @@
 # 下一阶段任务书：ZCode 体验面收口（2026-10-10）
+> **已过时（2026-10-19）**：本文件描述的入口/脚本属于**上一代拓扑**（控制端 `-L` 连被控端裸引擎），其中连接页、远程工作区、配置同步、omo 编排面板、`/ocrc-host`、`/ocrc-plan` 与它们的服务端端点、验收脚本已在扩展 **0.9.2 删除**；`scripts/cdp/guest-ui.mjs` 由 `extensions/ocrc/scripts/{preview,audit}.mjs` 取代。保留作为沿革记录。
+
 
 > **来源**：2026-10-09/10 的 grill 裁决（主线=复刻收口；手段=插件钩子；能力长在 host；OmO 替换是副产品）。
 > **事实基础**：①上游 ZCode 运行时源码逐文件读过（`/tmp/zcode-src/apps/zcode-cli`，goal 实现全链）；

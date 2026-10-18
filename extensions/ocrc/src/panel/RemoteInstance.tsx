@@ -655,26 +655,40 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                 {pairFor.reply.link ? (
                   <>
                     <pre className="oc-pre">{pairFor.reply.link}</pre>
+                    {/* 这里**不能**用「在 app 里打开」：宿主对 open-url 的载荷做 http(s)
+                        校验（`case"open-url": … : ks(id, "URL must be http or https.")`，
+                        attach / start-session 共用同一个校验），`openchamber://` 深链永远
+                        被拒。上游给的路径就是"复制链接 → 到 app 的服务器列表里导入链接粘贴"。 */}
                     <div className="oc-muted oc-xs">
-                      点「在 app 里打开」会拉起桌面版并弹确认框——确认后这台机器出现在「其他 OpenChamber 服务器」，
-                      每设备一个 token（可撤销、无过期），我们不存任何凭据。
+                      复制这条链接，到桌面 app 的服务器列表里点「导入链接」粘贴并确认——
+                      确认后这台机器出现在「其他 OpenChamber 服务器」，每设备一个 token
+                      （可撤销、无过期），我们不存任何凭据。
                       {pairFor.reply.expiresAt ? `链接有效期至 ${pairFor.reply.expiresAt}。` : ''}
                     </div>
                     <div className="oc-row">
                       <KitButton
                         size="sm"
-                        label="在 app 里打开"
-                        onClick={() => void run(`openlink:${row.id}`, async () => {
-                          if (!host) throw new Error('宿主未连接，无法打开链接')
-                          await host.openUrl(pairFor.reply.link as string)
+                        label="复制链接"
+                        loading={busy === `copy:${row.id}`}
+                        onClick={() => void run(`copy:${row.id}`, async () => {
+                          const link = pairFor.reply.link as string
+                          await copy(`copy:${row.id}`, link)
+                          // toast 自己带一个 Copy（宿主的 `copy` 字段）：剪贴板写入失败时
+                          // 用户还有第二次机会，而且"去哪儿粘"这句话在这一刻出现在眼前。
+                          await host?.toast({
+                            kind: 'success',
+                            message: '配对链接已复制——去 app 的服务器列表点「导入链接」粘贴',
+                            copy: { text: link },
+                            dismiss: true,
+                          }).catch(() => { /* 老宿主没有 toast，不影响复制本身 */ })
                         }, row.id)}
                       />
                       <KitButton
                         size="sm"
                         variant="outline"
-                        label="复制链接"
-                        loading={busy === `copy:${row.id}`}
-                        onClick={() => void copy(`copy:${row.id}`, pairFor.reply.link as string)}
+                        label="打开界面"
+                        loading={busy === `url:${row.id}`}
+                        onClick={() => void openUi(row)}
                       />
                       <KitButton
                         size="sm"

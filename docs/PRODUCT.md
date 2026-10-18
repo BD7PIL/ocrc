@@ -231,7 +231,12 @@ ocrc 的已保存 workflow 是一个机器级 store，没有可搬的文件。am
   桌面版 external 模式可用，人工合并步骤见 OPS）；
   手机端不做新增连接/装机。
 
-## UI 原则（2026-10-06 裁决；2026-10-07 增补）
+## UI 原则（2026-10-06 裁决；2026-10-07 增补；**2026-10-19 标注：本节约束的前端已不在本仓库**）
+
+> 下面这套口径（右栏/中栏、ocrc ink 调色、ZCode 字号阶梯与动效寄存器）是给 **ocrc 自己的前端**定的——
+> 那两代前端（Svelte PWA、ZCode 壳 `web-next`）都已从仓库删除（壳快照在 tag `web-next-final`），
+> 现在的面板是 openchamber 自己的 UI（不 fork）。**所以本节没有活的约束对象**：留着是决策沿革，
+> 不要拿它去评审 openchamber 的界面；真要恢复 ocrc 前端，先走一次 PRODUCT 级改判。
 
 - **右栏的显示能力 ≥ 中栏**：同一内容在右栏的渲染质量不得低于中栏（tool 输出含 md 切换，subagent 转写走统一 Card 管线）。
 - **配色口径（2026-10-14 修订，替代 2026-10-07 冻结）**：默认皮肤 = **ocrc ink**——中性冷灰双平面轴
@@ -241,7 +246,7 @@ ocrc 的已保存 workflow 是一个机器级 store，没有可搬的文件。am
   见 `docs/research/ui-color-system-import.md`。token 名与三层架构不变。
 - **字体**：ZCode `--ui-font-size:14px` 相对阶梯 7 档 + mono CJK 链（0.26.22 已就位，不回退：无 antialiased、无 optimizeLegibility、mono 不落宋体）+ dsh 式字号一等设置（10–22px 全站缩放）。
 - **动效**：ZCode 寄存器——流式入场 900ms expo-out + 入场去重 LRU、collapse 300ms、`prefers-reduced-motion` 全局降级；compositor-only（transform/opacity）。
-- 发布前必须过 **E2E 门禁**（`scripts/pre-release.sh`：typecheck + 全量测试 + 双 build + 部署 + **真实流式断言**的 live smoke，0.27 起 svelte-check 换 web-next 的 tsc/vitest）。流式断开这类事故的教训：UI 全绿不等于管线绿。
+- 发布前必须过 **发布门禁**（`scripts/pre-release.sh`：typecheck + 全量测试 + build + 部署到生产，任一失败即非零退出）。它曾经还跑 web-next 的 tsc/vitest 与 CDP live smoke——那两代前端连同那些检查在 2.0.0-alpha.1/alpha.8 一起退役（脚本头部有记录）。流式断开这类事故的教训仍在：**UI 全绿不等于管线绿**，管线断言要打真流。
 - **测试流量铁律**：生产引擎（用户 :4096）零测试流量；一切冒烟/联调走隔离栈（mock :4098 + host :4199）。adopt 的引擎永不 kill。
 
 ## 第一条：ocrc 是什么

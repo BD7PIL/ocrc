@@ -31,7 +31,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "build:dwf": "node scripts/build-dwf.mjs"
+    "build:dwf": "node scripts/build-dwf.mjs",
+    "preflight": "node scripts/preflight.mjs"
   },
   "bin": {
     "ocrc": "dist/cli/index.js"

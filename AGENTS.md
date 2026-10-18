@@ -6,7 +6,8 @@
 - **产品定义与边界**：[docs/PRODUCT.md](docs/PRODUCT.md) —— 新需求先过这里（分层归属判据 + 明确不做清单）。
 - **架构**：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)（以代码为准，v0.27 重建蓝图）。**面板 = openchamber**（Win/Mac，external 引擎接入，不 fork）；ocrc 收缩为被控端 agent + IM 通道 + provisioning + 面板侧扩展。**`web-next/`（ZCode 壳）已于 2026-10-17 从 main 删除**——快照在 tag **`web-next-final`**（`git checkout web-next-final -- web-next` 可取回），它在当前架构里没有挂载点。
 - **运维**：[docs/OPS.md](docs/OPS.md)。
-- **开发**：`npm install && npm run build:all` · `npm test`（后端 vitest）· `npm run typecheck`；扩展：`npm --prefix extensions/ocrc run typecheck && npm --prefix extensions/ocrc test`。
+- **开发**：`npm install && npm run build:all` · `npm test`（后端 vitest）· `npm run typecheck`；扩展：`npm --prefix extensions/ocrc run typecheck && npm --prefix extensions/ocrc test`。**提交前跑 `npm run preflight`**——扩展的安装产物是提交进仓库的（`panel/ status/ service/ shared/`），改了 `src/` 忘了重建会被 CI 的 dist 一致性拦下（这条已经栽过两次）。
+- **面板/状态区的视觉评审**：`node extensions/ocrc/scripts/audit.mjs` 按 `preview/audit/README.md` 的清单（组件 × 状态，24 项）出全套截图；改动面板/状态区后跑一遍并**逐张看过**再交。
   - **隔离 dev 实例（4199）**：`HOME=/tmp/ocrc-z-home OCRC_HOME=/tmp/ocrc-z-home/.ocrc OCRC_BACKENDS=opencode OCRC_SERVER_URL=http://127.0.0.1:4298 OCRC_SERVER_PORT=4298 OCRC_WEB_PORT=4199 OCRC_OFFPEAK_WINDOW=00:00-23:59 node dist/cli/index.js host`（nohup 后台；**OCRC_BACKENDS/OCRC_SERVER_URL 不能省**，漏了会落回 acp:kimi 后端、/api/sessions 恒空）。
   - `scripts/spike-restart.sh` 是 **4598 遗留脚本**（旧布局），不是本机隔离实例的 runbook——误跑会用同一 TG token 拉起竞争实例、把 4199 host 顶死（Telegram 409 自杀）。生产重启只有 `~/bin/restart-ocrc.sh`（见 OPS.md）。
 - **兼容硬边界**：被控端 opencode pin 1.18.x；EL7/glibc 2.17 是遗留生产下限。

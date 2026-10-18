@@ -234,6 +234,7 @@ function printStatus(s: InstanceStatus): void {
   console.log(`    state   ${s.state}${s.detail ? ` — ${s.detail}` : ''}`)
   console.log(`    url     ${s.url}`)
   if (s.forwardPid) console.log(`    tunnel  pid ${s.forwardPid}${s.forwardAttempts ? `（重连 ${s.forwardAttempts} 次）` : ''}`)
+  for (const line of s.holders ?? []) console.log(`    持有者  ${line}`)
   if (s.runtime) console.log(`    runtime ${s.runtime}`)
   if (s.app) console.log(`    app     ${s.app}`)
   console.log(`    engine  ${engine}`)

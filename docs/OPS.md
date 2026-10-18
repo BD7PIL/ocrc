@@ -45,6 +45,12 @@ host 自 spawn（4096 起，被占则向后探测 10 个）。ACP 会话持久�
 
 ## SSH remote hosts（0.26+）
 
+> **不推荐新用（D12，2026-10-18）**：这是**引擎级**旧拓扑（控制端跑面板、隧道连对端
+> 引擎，v1 口径），只保留兼容。产品形态是**实例级**——openchamber 跑在对端，见
+> 「远程 openchamber 实例」一节；配置同步也请用实例的 `config-diff`/`sync-config`
+> （深合并 + 显式删除），不要用这里的整文件覆盖版。本节只修 bug，不加功能。
+> 冻结的入口：`src/core/remote-host.ts`、`remotes.json`、`/api/remotes/*`、`ocrc_remote_*`。
+
 Web 面板 Inspector → **Remotes** 卡片（API：`/api/remotes`）：
 
 | 操作 | 路由 | 说明 |
@@ -258,6 +264,18 @@ https://github.com/BD7PIL/ocrc/releases/download/ocrc-remote-0.7.0/ocrc-remote.z
   拷贝出 `package.json panel service status`，能力请求为 `sessions`+`service`（待审批）。
   omo-view 同理（只有 panel，能力请求 `conversation`）。
 
+**omo（oh-my-opencode-slim）边界（D9）**
+
+- `ocrc-omo-view` 只是**只读视图**：它读面板宿主上 omo 的编排配置（per-agent 链、fallback），
+  自己不做任何安装或改写。**面板宿主没装 omo 时它显示空**——这是如实，不是 bug。
+- 对端的 omo 由**同步**带过去：`oh-my-opencode-slim.json` 在配置同步白名单里（C1），
+  `ocrc-remote` 的「omo 编排」区块走 `/omo/config`（服务端拼远端路径、坏 JSON 422 不落盘、`.ocrc-bak` 原子写）。
+- **对端 omo 生效的前提**是对端引擎真的加载了那个插件（`plugin` 键）——而 `plugin` 属于对端
+  openchamber 自己的 managed 层，**我们的配置同步会丢弃它**（C2）。所以：装了 omo 的对端，
+  它的 `plugin` 由对端自己的 openchamber/面板管，我们不越权；`ocrc-omo-view` 显示的是**面板宿主**的链，
+  与对端当前生效的链可能不同——两者都如实标注，不合并成一个数。
+- PRODUCT 的边界没变：**omo-slim 默认不装**（它是可选项，不是我们的 provisioning 义务）。
+
 **配置与凭据从本地同步（C1–C6，2.0.0-alpha.8）**
 
 对端的引擎读的是**对端自己**的 `~/.config/opencode`——面板宿主的配置不会自己飞过去，而且上游的 provider UI
@@ -334,6 +352,21 @@ Host airgapped-01
 
 凭据同步（`sync-auth`）与配置同步（`sync-config`）都走 ssh 通道，不依赖
 公网；代理 URL 含凭据时面板脱敏显示。
+
+**凭据纪律（D8，贴日志/备份前自查）**
+
+| 文件 | 里面可能有什么 | 权限 |
+|---|---|---|
+| `~/.ocrc/remote-instances.json` | **SSH 密码（明文，密码档）**、实例 UI 密码、provider 无关 | 0600（POSIX 生效；**Windows 上由 ACL 决定，不是 0600**） |
+| `~/.ocrc/remote-instances.json` 的 `.tmp` | 同上（写盘中间态） | 0600 |
+| `~/.config/openchamber/settings.json`（**桌面壳自己的**，我们不写） | 桌面壳存的 `auth.sshPassword`（明文） | 由桌面壳决定 |
+| 对端 `~/.local/share/opencode/auth.json` | provider API key（我们同步过去的那份） | 我们写成 0600（同步前对端自己那份实测是 0777） |
+| 对端 `~/.config/opencode/opencode.json(.jsonc)` | 配置；**MCP 的 `environment` 字面量会被写成 `{env:VAR}`**，值不落文件 | 对端自己的权限 |
+
+- `ocrc remote list --json`、面板接口、`config-diff` 输出都**不回显**任何密码（只有 `hasSshPassword`/`hasUiPassword` 布尔）。
+- `ocrc remote connect <id>` 与面板「查看 UI 密码」会**明文打印实例 UI 密码**——那是控制端本地的读出，别把输出贴进工单/截图。
+- 密码档的密码只经环境变量喂给 ssh helper（`OPENCHAMBER_SSH_ASKPASS_VALUE`），**helper 脚本里没有秘密**；但 `ps` 能看到 ssh 子进程的环境（同用户可读），所以别在共享机器上用密码档。
+- 备份 `~/.ocrc` 之前先确认目标位置同样是私有的；**永不进仓库**（2026-10-17 有过一次文档里写入口令字面量、提交前拦下）。
 
 ## 公网访问（手机 PWA 需 HTTPS）
 

@@ -22,6 +22,18 @@ const log = createLogger('remote-host')
  * no stale server, no version drift. Official baseline install only, pinned
  * to the local opencode's version (the 1.18.x family is production-proven on
  * glibc 2.17 AND is the only HTTP API shape ocrc speaks). No musl path.
+ *
+ * ── 冻结（D12，2026-10-18）───────────────────────────────────────────────────
+ * **不再扩展，也不推荐新用**。这是「引擎级」拓扑：控制端跑面板、隧道连对端引擎
+ * （v1 口径）。产品形态已改判为**实例级**（openchamber 跑在对端，见
+ * `remote-instance-bridge.ts` 与 docs/decisions/2026-10-17-convergence.md 决定 2），
+ * 而且这里的 `syncConfig`/`syncAuth` 是**整文件覆盖**语义——实例级的 C 批已用
+ * 「深合并 + 显式删除 + 只写差异」取代它。
+ *
+ * 留着它的唯一原因：`ocrc_remote_*` 四个模型面工具与 `/api/remotes/*` 仍建在这个
+ * 实现上，删掉会动插件注册面（E2 裁决）。**新功能一律加在实例拓扑**；这里只收
+ * 真 bug 修复。
+ * ────────────────────────────────────────────────────────────────────────────
  */
 
 export type RemoteState =

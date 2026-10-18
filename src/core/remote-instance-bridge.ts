@@ -41,6 +41,7 @@ import {
 } from './instance-config.js'
 import { renderConfig } from './config-merge.js'
 import { askpassEnv } from './ssh-askpass.js'
+import { clearForwardMarker, describeHolders, findHolder, writeForwardMarker, type ForwardKind } from './forward-ownership.js'
 import type { RemoteInstancesStore } from './remote-instances.js'
 
 const log = createLogger('remote-instance')
@@ -63,6 +64,10 @@ export interface InstanceStatus {
   tunnelOwner?: 'self' | 'external'
   forwardPid?: number
   forwardAttempts?: number
+  /** D7: one line per forward leg that has a holder on disk (ui/relay/pair),
+   *  with pid and role — the difference between "nobody holds it" and "someone
+   *  else does" used to be invisible, and that is what broke egress once. */
+  holders?: string[]
   engine?: { path: string; version: string }
   runtime?: string
   app?: string
@@ -284,6 +289,13 @@ interface InstanceRuntime {
   stopping: boolean
 }
 
+/** D7: which role is spawning a forward — the marker records it, because the two
+ *  owners behave differently when they exit (a CLI tunnel is detached and
+ *  outlives the command; a service tunnel dies with the service). */
+function ownerRoleFor(detachedForwards: boolean): 'service' | 'cli' {
+  return detachedForwards ? 'cli' : 'service'
+}
+
 /** Local port of the tunnel URL. */
 export function instanceUrl(localPort: number): string {
   return `http://127.0.0.1:${localPort}`
@@ -375,6 +387,30 @@ export function createRemoteInstanceManager(opts: {
   }
 
   const ssh = (instance: SshTargetRef, command: string, timeoutMs = 60_000) => sshRun(instance, command, { timeoutMs })
+
+  // ── D7: forward ownership ───────────────────────────────────────────────────
+  // A leg with no owner is what made the egress incident possible: nobody could
+  // tell "nobody holds it" from "someone else holds it". Every spawn now writes a
+  // marker, and every spawn looks first.
+
+  const ownerRole = ownerRoleFor(detachedForwards)
+
+  /** Look before spawning. A live holder means reuse (a second `-L` on the same
+   *  port is a reconnect loop under `ExitOnForwardFailure`; a second `-R` on the
+   *  same peer port just fails). A stale marker is cleaned up and ignored. */
+  function holderOf(instance: RemoteInstance, kind: ForwardKind) {
+    const lookup = findHolder(instance.id, kind, opts.home)
+    if (lookup.staleCleared) pushLog(instance.id, `${kind} 的持有者标记是陈旧的（进程已不在），已清理`)
+    return lookup.holder
+  }
+
+  function markForward(instance: RemoteInstance, kind: ForwardKind, child: ChildProcess, ports: { localPort?: number; remotePort?: number }): void {
+    if (!child.pid) return
+    writeForwardMarker({
+      instanceId: instance.id, kind, pid: child.pid, owner: ownerRole,
+      localPort: ports.localPort, remotePort: ports.remotePort, startedAt: Date.now(), host: instance.host,
+    }, opts.home)
+  }
 
   /**
    * Pipe a staged directory into one remote script on stdin (`tar -xzf -`).
@@ -586,6 +622,10 @@ export function createRemoteInstanceManager(opts: {
     if (child && child.exitCode === null) {
       try { child.kill() } catch { /* already gone */ }
     }
+    // D7: our leg is gone, so the marker must go with it — a marker that
+    // outlives its process would look like a holder to the next start.
+    clearForwardMarker(id, 'ui', opts.home)
+    clearForwardMarker(id, 'relay', opts.home)
   }
 
   /** Only tears down a `-L` this process spawned — if the desktop shell is the
@@ -596,6 +636,7 @@ export function createRemoteInstanceManager(opts: {
     if (child && child.exitCode === null) {
       try { child.kill() } catch { /* already gone */ }
     }
+    clearForwardMarker(id, 'pair', opts.home)
   }
 
   /** External mode has no child process to watch: nobody can tell us the
@@ -669,6 +710,14 @@ export function createRemoteInstanceManager(opts: {
     const r = rt(instance.id)
     if (r.forward && r.forward.exitCode === null) return
     if (r.relayPending) return
+    // D7: someone else already holds the UI leg (the CLI's detached tunnel, or a
+    // previous service) — adopting beats fighting over the local port.
+    const uiHolder = holderOf(instance, 'ui')
+    if (uiHolder) {
+      pushLog(instance.id, `本地 :${uiHolder.localPort ?? instance.localPort} 由另一个持有者占着（pid ${uiHolder.pid}，${uiHolder.owner}）——本进程不再起 -L，按 external 方式对待`)
+      setState(instance.id, 'online', `隧道由另一个持有者（pid ${uiHolder.pid}，${uiHolder.owner}）持有`)
+      return
+    }
     const cfg = proxyConfig(instance)
     r.relayPending = true
     let adopted = false
@@ -693,6 +742,7 @@ export function createRemoteInstanceManager(opts: {
       : spawn('ssh', args, { stdio: ['ignore', 'pipe', 'pipe'], env: askpassEnv(instance) })
     r.forward = child
     r.forwardPid = child.pid
+    markForward(instance, 'ui', child, { localPort: instance.localPort, remotePort: reverse ? reverse.remotePort : undefined })
     if (detachedForwards) {
       // No pipes on purpose: pipes would hold this process's event loop open, so
       // `ocrc remote up` would never return. ssh's own story goes to the log file.
@@ -819,7 +869,11 @@ export function createRemoteInstanceManager(opts: {
   async function ensurePairingForwardAsync(instance: RemoteInstance): Promise<boolean> {
     if ((await probeThroughForward(instance)).ok) return true
     const r = rt(instance.id)
-    if (!(r.pairForward && r.pairForward.exitCode === null)) {
+    // D7: if a marker says someone holds the pairing leg, wait for their forward
+    // to answer rather than binding the same port ourselves.
+    const pairHolder = holderOf(instance, 'pair')
+    if (pairHolder) pushLog(instance.id, `配对用的 -L 由另一个持有者占着（pid ${pairHolder.pid}，${pairHolder.owner}）——等它通，不抢端口`)
+    if (!pairHolder && !(r.pairForward && r.pairForward.exitCode === null)) {
       const args = buildForwardArgs({
         ...sshFields(instance),
         localPort: instance.localPort,
@@ -829,6 +883,7 @@ export function createRemoteInstanceManager(opts: {
       const child = spawn('ssh', args, { stdio: ['ignore', 'ignore', openSync(forwardLogPath, 'a')], detached: true, env: askpassEnv(instance) })
       child.unref()
       r.pairForward = child
+      markForward(instance, 'pair', child, { localPort: instance.localPort })
     }
     const deadline = Date.now() + 10_000
     while (Date.now() < deadline) {
@@ -889,6 +944,13 @@ export function createRemoteInstanceManager(opts: {
     if (!(await egressFor(instance)).relay) return
     const r = rt(instance.id)
     if (r.forward && r.forward.exitCode === null) return
+    // D7: a second `-R` on the same peer port fails outright, and a live holder
+    // marker tells us that is what would happen before we try.
+    const relayHolder = holderOf(instance, 'relay')
+    if (relayHolder) {
+      pushLog(instance.id, `出网腿由另一个持有者占着（pid ${relayHolder.pid}，${relayHolder.owner}）——复用，不再起 -R`)
+      return
+    }
     // The check below costs a round trip; two callers in the same `up()` would
     // otherwise both pass it and spawn two very short-lived ssh processes.
     if (r.relayPending) return
@@ -914,6 +976,7 @@ export function createRemoteInstanceManager(opts: {
     const child = spawn('ssh', args, { stdio: ['ignore', 'pipe', 'pipe'], env: askpassEnv(instance) })
     r.forward = child
     r.forwardPid = child.pid
+    markForward(instance, 'relay', child, { localPort: cfg.localPort, remotePort: cfg.remotePort })
     child.stdout?.on('data', (d: Buffer) => pushLog(instance.id, d.toString()))
     child.stderr?.on('data', (d: Buffer) => pushLog(instance.id, d.toString()))
     child.on('error', (err) => {
@@ -1308,6 +1371,8 @@ async probe(id) {
         tunnelOwner: externalTunnel ? 'external' : 'self',
         forwardPid: r?.forwardPid,
         forwardAttempts: r?.forwardAttempts,
+        /** D7: who holds each leg, so "端口被占" has a name attached. */
+        holders: describeHolders(instance.id, opts.home),
         engine: r?.engine ?? (instance.enginePath ? { path: instance.enginePath, version: instance.engineVersion ?? "" } : undefined),
         runtime: r?.runtimeVersion,
         app: r?.appVersion,

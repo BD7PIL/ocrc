@@ -74,6 +74,55 @@ jobs:
             echo "pin $PIN satisfies upstream minimum $MIN"
           fi
 
+  # D10: two upstream facts we depend on, checked on every run so we learn about
+  # a change from CI rather than from a broken install. Neither is an error — the
+  # whole point is to notice early and adapt (or drop our own workaround).
+  upstream-asks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Is uploadBundleOverSsh implemented yet?
+        run: |
+          # Our push path exists because upstream's managed mode installs on the
+          # PEER (bun/npm + registry), which an air-gapped host cannot do, and its
+          # `uploadBundleOverSsh` was declared but unimplemented. If that changes,
+          # our provisioning layer becomes a convenience rather than a necessity.
+          set +e
+          body=$(curl -fsSL "https://raw.githubusercontent.com/openchamber/openchamber/main/packages/electron/ssh-manager.mjs" 2>/dev/null)
+          code=$?
+          if [ $code -ne 0 ]; then
+            echo "::warning::could not fetch ssh-manager.mjs — upstream tracking skipped this run"
+            exit 0
+          fi
+          if printf '%s' "$body" | grep -q 'uploadBundleOverSsh'; then
+            if printf '%s' "$body" | grep -A 20 'uploadBundleOverSsh' | grep -qE 'not implemented|TODO|throw new Error'; then
+              echo "uploadBundleOverSsh: still declared-but-unimplemented (our push path remains necessary)"
+            else
+              echo "::warning::uploadBundleOverSsh looks implemented upstream — re-evaluate our offline push layer (docs/handoff/rectification-plan-2026-10-17.md D10)"
+            fi
+          else
+            echo "uploadBundleOverSsh: gone from upstream (check whether managed mode changed shape)"
+          fi
+
+      - name: Can the models.dev URL be overridden (our relay-only ask)?
+        run: |
+          # Experiment #4: the provider/model catalogue comes from the SERVER's
+          # models.dev fetch, whose URL is hardcoded with no env override — so a
+          # peer without egress needs the proxy on the *server*, and panel
+          # terminals inherit it (experiment #6). An override would let us hang
+          # the proxy on the engine only. We asked upstream for it; this check
+          # tells us if it landed.
+          set +e
+          body=$(curl -fsSL "https://raw.githubusercontent.com/openchamber/openchamber/main/packages/web/server/lib/package-manager.js" 2>/dev/null) || true
+          if [ -z "$body" ]; then
+            echo "::warning::could not fetch package-manager.js — upstream tracking skipped this run"
+            exit 0
+          fi
+          if printf '%s' "$body" | grep -qE 'MODELS_DEV_API_URL|MODELS_DEV_URL'; then
+            echo "::warning::a models.dev URL symbol now exists upstream — check whether it is env-overridable (would let the proxy sit on the engine only)"
+          else
+            echo "models.dev URL: still hardcoded (relay-on-server remains our only option for offline peers)"
+          fi
+
   bump-pin:
     needs: upstream-check
     if: needs.upstream-check.outputs.min_engine_crossed == 'true'

@@ -1,7 +1,7 @@
 // src/service/main.ts
 import http3 from "node:http";
-import { readFileSync as readFileSync7, existsSync as existsSync6, writeFileSync as writeFileSync6, mkdirSync as mkdirSync7 } from "node:fs";
-import { join as join11 } from "node:path";
+import { readFileSync as readFileSync8, existsSync as existsSync7, writeFileSync as writeFileSync7, mkdirSync as mkdirSync8 } from "node:fs";
+import { join as join12 } from "node:path";
 import { homedir as homedir5 } from "node:os";
 
 // src/service/tunnel.ts
@@ -980,9 +980,9 @@ function createRemoteInstancesStore(path, opts = {}) {
 // ../../src/core/remote-instance-bridge.ts
 import { spawn as spawn5 } from "node:child_process";
 import net2 from "node:net";
-import { mkdtempSync, openSync, readFileSync as readFileSync6 } from "node:fs";
+import { mkdtempSync, openSync, readFileSync as readFileSync7 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join as join9 } from "node:path";
+import { join as join10 } from "node:path";
 
 // ../../src/core/remote-common.ts
 function parseGlibcVersion(firstLine) {
@@ -2415,6 +2415,67 @@ function discardStaging(dir) {
   rmSync3(dir, { recursive: true, force: true });
 }
 
+// ../../src/core/forward-ownership.ts
+import { existsSync as existsSync6, mkdirSync as mkdirSync7, readFileSync as readFileSync6, readdirSync as readdirSync3, rmSync as rmSync4, writeFileSync as writeFileSync6 } from "node:fs";
+import { join as join9 } from "node:path";
+function forwardMarkerDir(home = ocrcHome()) {
+  return join9(home, "forwards");
+}
+function forwardMarkerPath(instanceId, kind, home = ocrcHome()) {
+  const safe = instanceId.replace(/[^A-Za-z0-9._@-]/g, "-").replace(/^\.+/, "_") || "_";
+  return join9(forwardMarkerDir(home), `${safe}.${kind}.json`);
+}
+function isAlive(pid) {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === "EPERM";
+  }
+}
+function writeForwardMarker(marker, home = ocrcHome()) {
+  try {
+    mkdirSync7(forwardMarkerDir(home), { recursive: true });
+    writeFileSync6(forwardMarkerPath(marker.instanceId, marker.kind, home), `${JSON.stringify(marker, null, 2)}
+`);
+  } catch {
+  }
+}
+function clearForwardMarker(instanceId, kind, home = ocrcHome()) {
+  try {
+    rmSync4(forwardMarkerPath(instanceId, kind, home), { force: true });
+  } catch {
+  }
+}
+function readForwardMarker(instanceId, kind, home = ocrcHome()) {
+  const path = forwardMarkerPath(instanceId, kind, home);
+  if (!existsSync6(path)) return void 0;
+  try {
+    return JSON.parse(readFileSync6(path, "utf-8"));
+  } catch {
+    return void 0;
+  }
+}
+function findHolder(instanceId, kind, home = ocrcHome()) {
+  const marker = readForwardMarker(instanceId, kind, home);
+  if (!marker) return { staleCleared: false };
+  if (isAlive(marker.pid)) return { holder: marker, staleCleared: false };
+  clearForwardMarker(instanceId, kind, home);
+  return { staleCleared: true };
+}
+function describeHolders(instanceId, home = ocrcHome()) {
+  const kinds = ["ui", "relay", "pair"];
+  const lines = [];
+  for (const kind of kinds) {
+    const marker = readForwardMarker(instanceId, kind, home);
+    if (!marker) continue;
+    const alive = isAlive(marker.pid);
+    lines.push(`${kind}: pid ${marker.pid}\uFF08${marker.owner}${marker.localPort ? `\uFF0C\u672C\u5730 :${marker.localPort}` : ""}${marker.remotePort ? `\uFF0C\u5BF9\u7AEF :${marker.remotePort}` : ""}\uFF09${alive ? "" : "\u2014\u2014\u8FDB\u7A0B\u5DF2\u4E0D\u5728\uFF08\u9648\u65E7\u6807\u8BB0\uFF09"}`);
+  }
+  return lines;
+}
+
 // ../../src/core/remote-instance-bridge.ts
 var log7 = createLogger("remote-instance");
 var EXTERNAL_MONITOR_MS = 2e4;
@@ -2467,6 +2528,9 @@ function parseEnvProbe(out) {
     home: kv.get("HOME") || void 0
   };
 }
+function ownerRoleFor(detachedForwards) {
+  return detachedForwards ? "cli" : "service";
+}
 function instanceUrl(localPort) {
   return `http://127.0.0.1:${localPort}`;
 }
@@ -2483,7 +2547,7 @@ function createRemoteInstanceManager(opts) {
   const runtimes = /* @__PURE__ */ new Map();
   const detachedForwards = opts.forwards === "detached";
   const externalTunnel = opts.tunnelOwner === "external";
-  const forwardLogPath = opts.forwardLogPath ?? join9(opts.home ?? ocrcHome(), "remote-forward.log");
+  const forwardLogPath = opts.forwardLogPath ?? join10(opts.home ?? ocrcHome(), "remote-forward.log");
   const rt = (id) => {
     let r = runtimes.get(id);
     if (!r) {
@@ -2512,6 +2576,25 @@ function createRemoteInstanceManager(opts) {
     return instance;
   };
   const ssh = (instance, command, timeoutMs = 6e4) => sshRun(instance, command, { timeoutMs });
+  const ownerRole = ownerRoleFor(detachedForwards);
+  function holderOf(instance, kind) {
+    const lookup = findHolder(instance.id, kind, opts.home);
+    if (lookup.staleCleared) pushLog(instance.id, `${kind} \u7684\u6301\u6709\u8005\u6807\u8BB0\u662F\u9648\u65E7\u7684\uFF08\u8FDB\u7A0B\u5DF2\u4E0D\u5728\uFF09\uFF0C\u5DF2\u6E05\u7406`);
+    return lookup.holder;
+  }
+  function markForward(instance, kind, child, ports) {
+    if (!child.pid) return;
+    writeForwardMarker({
+      instanceId: instance.id,
+      kind,
+      pid: child.pid,
+      owner: ownerRole,
+      localPort: ports.localPort,
+      remotePort: ports.remotePort,
+      startedAt: Date.now(),
+      host: instance.host
+    }, opts.home);
+  }
   function pipeTarToSsh(instance, dir, script, timeoutMs = 12e4) {
     return new Promise((resolve) => {
       const tar = spawn5("tar", ["-czf", "-", "-C", dir, "."], { stdio: ["ignore", "pipe", "pipe"] });
@@ -2687,6 +2770,8 @@ tar: ${err.message}` });
       } catch {
       }
     }
+    clearForwardMarker(id, "ui", opts.home);
+    clearForwardMarker(id, "relay", opts.home);
   }
   function stopPairForward(id) {
     const child = rt(id).pairForward;
@@ -2697,6 +2782,7 @@ tar: ${err.message}` });
       } catch {
       }
     }
+    clearForwardMarker(id, "pair", opts.home);
   }
   function startExternalMonitor(id) {
     if (!externalTunnel) return;
@@ -2761,6 +2847,12 @@ tar: ${err.message}` });
     const r = rt(instance.id);
     if (r.forward && r.forward.exitCode === null) return;
     if (r.relayPending) return;
+    const uiHolder = holderOf(instance, "ui");
+    if (uiHolder) {
+      pushLog(instance.id, `\u672C\u5730 :${uiHolder.localPort ?? instance.localPort} \u7531\u53E6\u4E00\u4E2A\u6301\u6709\u8005\u5360\u7740\uFF08pid ${uiHolder.pid}\uFF0C${uiHolder.owner}\uFF09\u2014\u2014\u672C\u8FDB\u7A0B\u4E0D\u518D\u8D77 -L\uFF0C\u6309 external \u65B9\u5F0F\u5BF9\u5F85`);
+      setState(instance.id, "online", `\u96A7\u9053\u7531\u53E6\u4E00\u4E2A\u6301\u6709\u8005\uFF08pid ${uiHolder.pid}\uFF0C${uiHolder.owner}\uFF09\u6301\u6709`);
+      return;
+    }
     const cfg = proxyConfig(instance);
     r.relayPending = true;
     let adopted = false;
@@ -2781,6 +2873,7 @@ tar: ${err.message}` });
     const child = detachedForwards ? spawn5("ssh", args, { stdio: ["ignore", "ignore", openSync(forwardLogPath, "a")], detached: true, env: askpassEnv(instance) }) : spawn5("ssh", args, { stdio: ["ignore", "pipe", "pipe"], env: askpassEnv(instance) });
     r.forward = child;
     r.forwardPid = child.pid;
+    markForward(instance, "ui", child, { localPort: instance.localPort, remotePort: reverse ? reverse.remotePort : void 0 });
     if (detachedForwards) {
       child.unref();
       pushLog(instance.id, `\u96A7\u9053\u4EE5 detached \u65B9\u5F0F\u8D77\uFF08stderr \u2192 ${forwardLogPath}\uFF09\uFF0C\u672C\u8FDB\u7A0B\u9000\u51FA\u540E\u7EE7\u7EED\u6D3B\u7740`);
@@ -2896,7 +2989,9 @@ tar: ${err.message}` });
   async function ensurePairingForwardAsync(instance) {
     if ((await probeThroughForward(instance)).ok) return true;
     const r = rt(instance.id);
-    if (!(r.pairForward && r.pairForward.exitCode === null)) {
+    const pairHolder = holderOf(instance, "pair");
+    if (pairHolder) pushLog(instance.id, `\u914D\u5BF9\u7528\u7684 -L \u7531\u53E6\u4E00\u4E2A\u6301\u6709\u8005\u5360\u7740\uFF08pid ${pairHolder.pid}\uFF0C${pairHolder.owner}\uFF09\u2014\u2014\u7B49\u5B83\u901A\uFF0C\u4E0D\u62A2\u7AEF\u53E3`);
+    if (!pairHolder && !(r.pairForward && r.pairForward.exitCode === null)) {
       const args = buildForwardArgs({
         ...sshFields(instance),
         localPort: instance.localPort,
@@ -2906,6 +3001,7 @@ tar: ${err.message}` });
       const child = spawn5("ssh", args, { stdio: ["ignore", "ignore", openSync(forwardLogPath, "a")], detached: true, env: askpassEnv(instance) });
       child.unref();
       r.pairForward = child;
+      markForward(instance, "pair", child, { localPort: instance.localPort });
     }
     const deadline = Date.now() + 1e4;
     while (Date.now() < deadline) {
@@ -2948,6 +3044,11 @@ tar: ${err.message}` });
     if (!(await egressFor(instance)).relay) return;
     const r = rt(instance.id);
     if (r.forward && r.forward.exitCode === null) return;
+    const relayHolder = holderOf(instance, "relay");
+    if (relayHolder) {
+      pushLog(instance.id, `\u51FA\u7F51\u817F\u7531\u53E6\u4E00\u4E2A\u6301\u6709\u8005\u5360\u7740\uFF08pid ${relayHolder.pid}\uFF0C${relayHolder.owner}\uFF09\u2014\u2014\u590D\u7528\uFF0C\u4E0D\u518D\u8D77 -R`);
+      return;
+    }
     if (r.relayPending) return;
     r.relayPending = true;
     try {
@@ -2968,6 +3069,7 @@ tar: ${err.message}` });
     const child = spawn5("ssh", args, { stdio: ["ignore", "pipe", "pipe"], env: askpassEnv(instance) });
     r.forward = child;
     r.forwardPid = child.pid;
+    markForward(instance, "relay", child, { localPort: cfg.localPort, remotePort: cfg.remotePort });
     child.stdout?.on("data", (d) => pushLog(instance.id, d.toString()));
     child.stderr?.on("data", (d) => pushLog(instance.id, d.toString()));
     child.on("error", (err) => {
@@ -3309,6 +3411,8 @@ tar: ${err.message}` });
         tunnelOwner: externalTunnel ? "external" : "self",
         forwardPid: r?.forwardPid,
         forwardAttempts: r?.forwardAttempts,
+        /** D7: who holds each leg, so "端口被占" has a name attached. */
+        holders: describeHolders(instance.id, opts.home),
         engine: r?.engine ?? (instance.enginePath ? { path: instance.enginePath, version: instance.engineVersion ?? "" } : void 0),
         runtime: r?.runtimeVersion,
         app: r?.appVersion,
@@ -3395,7 +3499,7 @@ tar: ${err.message}` });
           detail: `\u9884\u6F14\uFF1A\u5C06\u5199 ${plan.files.length} \u4E2A\u6587\u4EF6${plan.deletes.length ? `\u3001\u5220 ${plan.deletes.length} \u4E2A` : ""}\uFF1B${plan.notes.join("\uFF1B")}`
         };
       }
-      const staging = mkdtempSync(join9(tmpdir(), "ocrc-cfgsync-"));
+      const staging = mkdtempSync(join10(tmpdir(), "ocrc-cfgsync-"));
       try {
         const content = plan.merged && plan.configChanged ? renderConfig(plan.merged) : void 0;
         const topLevel = [...new Set(plan.files.map((rel) => rel.split("/")[0]).filter((e) => e !== plan.basename))];
@@ -3434,7 +3538,7 @@ tar: ${err.message}` });
       if (!local.authPresent) {
         return { ok: false, detail: `\u672C\u673A\u6CA1\u6709 ${local.authPath}\u2014\u2014\u5148\u5728\u672C\u673A\u767B\u5F55 provider\uFF08opencode auth login\uFF09` };
       }
-      const content = readFileSync6(local.authPath);
+      const content = readFileSync7(local.authPath);
       const result = await sshRunWithStdin(instance, buildAuthPushScript(), content, { timeoutMs: 45e3 });
       if (result.code !== 0) {
         const detail = `\u51ED\u636E\u540C\u6B65\u5931\u8D25\uFF08exit ${result.code}\uFF09\uFF1A${cleanSshNoise(result.stderr || result.stdout).trim().split("\n").pop() ?? ""}`;
@@ -5925,7 +6029,7 @@ function toReadiness(report, options = {}) {
 // src/service/artifact.ts
 import { createHash as createHash4 } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { join as join10 } from "node:path";
+import { join as join11 } from "node:path";
 var NPM_REGISTRY = "https://registry.npmjs.org";
 var TAR_BINARY_PATH = "package/bin/opencode";
 var packageMetadataUrl = (registry, name, version) => `${registry}/${name.replace("/", "%2F")}/${version}`;
@@ -5969,7 +6073,7 @@ function verifyIntegrity2(bytes, integrity) {
     throw new Error(`\u5DE5\u4EF6\u6821\u9A8C\u5931\u8D25\uFF1A\u671F\u671B ${integrity.slice(0, 20)}\u2026\uFF0C\u5B9E\u5F97 ${actual.slice(0, 20)}\u2026`);
   }
 }
-var cachePathFor = (dir, ref) => join10(dir, `${ref.package.replace("/", "__")}-${ref.version}.tgz`);
+var cachePathFor = (dir, ref) => join11(dir, `${ref.package.replace("/", "__")}-${ref.version}.tgz`);
 async function fetchArtifactToCache(ref, deps) {
   const target = cachePathFor(deps.dir, ref);
   const cached = await readFile(target).catch(() => null);
@@ -5994,7 +6098,7 @@ async function cachedArtifactPath(ref, dir) {
   return sha512Of(bytes) === ref.integrity ? target : null;
 }
 function defaultCacheDir(home) {
-  return join10(home, ".ocrc", "artifacts");
+  return join11(home, ".ocrc", "artifacts");
 }
 
 // src/service/install.ts
@@ -7036,18 +7140,18 @@ function panelAuthPath(env = process.env) {
 import { connect as netConnect } from "node:net";
 var PORT = Number(process.env.OPENCHAMBER_SERVICE_PORT ?? 0);
 var TOKEN = process.env.OPENCHAMBER_SERVICE_TOKEN ?? "";
-var PROFILES_FILE = process.env.OCRC_CONNECT_PROFILES ?? join11(process.env.OPENCHAMBER_DATA_DIR ?? join11(homedir5(), ".config", "openchamber"), "ocrc-connect-profiles.json");
+var PROFILES_FILE = process.env.OCRC_CONNECT_PROFILES ?? join12(process.env.OPENCHAMBER_DATA_DIR ?? join12(homedir5(), ".config", "openchamber"), "ocrc-connect-profiles.json");
 function loadProfiles() {
   try {
-    const raw = JSON.parse(readFileSync7(PROFILES_FILE, "utf-8"));
+    const raw = JSON.parse(readFileSync8(PROFILES_FILE, "utf-8"));
     return (raw.profiles ?? []).map((p) => normalizeProfile(p));
   } catch {
     return [];
   }
 }
 function saveProfiles(profiles) {
-  mkdirSync7(join11(PROFILES_FILE, ".."), { recursive: true });
-  writeFileSync6(PROFILES_FILE, JSON.stringify({ profiles }, null, 2));
+  mkdirSync8(join12(PROFILES_FILE, ".."), { recursive: true });
+  writeFileSync7(PROFILES_FILE, JSON.stringify({ profiles }, null, 2));
 }
 var supervisor = createTunnelSupervisor();
 var provisioner = createProvisioner({
@@ -7155,7 +7259,7 @@ var server = http3.createServer(async (req, res) => {
         json(res, 404, { error: "profile not found" });
         return;
       }
-      if (!existsSync6("/usr/bin/ssh") && !existsSync6("/bin/ssh") && process.platform !== "win32") {
+      if (!existsSync7("/usr/bin/ssh") && !existsSync7("/bin/ssh") && process.platform !== "win32") {
       }
       supervisor.start(p);
       json(res, 200, { status: await supervisor.statusProbed() });
@@ -7622,7 +7726,7 @@ var server = http3.createServer(async (req, res) => {
           json(res, 404, { error: `\u9762\u677F\u5BBF\u4E3B\u4E0A\u6CA1\u6709\u914D\u7F6E\uFF1A${report.configPath}` });
           return;
         }
-        const raw = readFileSync7(report.configPath, "utf-8").replace(/^\uFEFF/, "");
+        const raw = readFileSync8(report.configPath, "utf-8").replace(/^\uFEFF/, "");
         try {
           panelConfig = JSON.parse(raw);
         } catch (e) {
@@ -7736,7 +7840,7 @@ var server = http3.createServer(async (req, res) => {
       const authFile = panelAuthPath();
       let panelAuth = {};
       try {
-        const parsed = JSON.parse(readFileSync7(authFile, "utf-8"));
+        const parsed = JSON.parse(readFileSync8(authFile, "utf-8"));
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) panelAuth = parsed;
       } catch {
       }

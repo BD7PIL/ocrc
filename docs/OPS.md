@@ -130,7 +130,7 @@ ocrc remote up demo@192.168.26.101 --open
    Add project 的目录浏览器就是它，会话跑在对端引擎。
 4. **版本不必相等**：external 模式只要求 major=2 且能力 `api.runtime-url.v1`（2.3.3 有）；版本不等提示
    update-recommended，仍可连。
-5. **推荐路径：`ocrc remote pairlink <id>`（面板上是「生成配对链接」）**——把链接交给官方 app 确认，
+5. **推荐路径：`ocrc remote pairlink <id>`（面板上是「创建配对链接」→「复制链接」）**——把链接**粘贴**到 app 的服务器列表 →「导入链接」并确认，
    身份由上游发（一次性链接 → 每设备、可撤销、无过期的 token），机器出现在「其他 OpenChamber 服务器」。
    **我们不写桌面版的 `settings.json`**（2026-10-17 收敛：那是桌面壳自己拥有的面，写它属于「不做」清单；
    `--desktop-add` 与 `src/core/desktop-settings.ts` 已删除）。手工往 `desktopSshInstances` 里合并请自己

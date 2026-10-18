@@ -73,7 +73,10 @@ html, body {
   border-radius: var(--radius, 9px);
 }
 
-/* Diff and log output: raw text the kit has no primitive for. */
+/* Diff and log output: raw text the kit has no primitive for.
+   `pre-wrap` + `anywhere`: a pairing link (754px) and an ssh command line (766px)
+   both overflowed a 572px card and were rendered clipped — the user copies half a
+   link. Wrapping is the honest rendering; the height cap still scrolls. */
 .oc-pre {
   margin: 0;
   max-height: 220px;
@@ -84,7 +87,26 @@ html, body {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11px;
   line-height: 1.5;
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 表单网格：字段的列宽由这里决定。
+   kit 每个组件外面那层 span 是 `display: contents`，而 `TextFieldProps` /
+   `SelectProps` 没有 width/grow——"让两个字段一样宽"只能靠给每个字段套一层
+   真正的盒子，再由网格约束它。 */
+.oc-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 10px;
+  align-items: start;
+}
+
+.oc-form-cell { min-width: 0; }
+.oc-form-cell-wide { grid-column: 1 / -1; }
+
+@media (max-width: 460px) {
+  .oc-form { grid-template-columns: minmax(0, 1fr); }
 }
 
 .oc-xs { font-size: 11px; }

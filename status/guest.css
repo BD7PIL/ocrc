@@ -1,0 +1,132 @@
+/* Page chrome only — and deliberately short.
+ *
+ * Colour, type scale, radii and control geometry belong to the host. The tokens
+ * arrive from `applyHostReady()` (written onto <html> as both `--oc-*` aliases
+ * and the host's own names), and the SDK kit paints the controls themselves,
+ * injecting its own stylesheet on the first mount. Everything this file used to
+ * carry — a second colour ramp, five duplicated copies of it — was a frozen
+ * copy of the shell's look, which is exactly what made the panels read as a
+ * separate app. What is left is the layout the kit does not provide.
+ *
+ * Every value below falls back to a neutral so a frame previewed outside the
+ * host is still legible. */
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+  /* The shell paints behind the frame; the frame must not paint its own plane. */
+  background: transparent;
+}
+
+#root { min-height: 100%; }
+
+/* A kit wrapper must not become a layout box of its own. */
+.oc-kit { display: contents; }
+
+.oc-page {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 100%;
+  padding: 12px;
+}
+
+.oc-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.oc-row-nowrap { flex-wrap: nowrap; }
+
+/* 两端对齐的一行（左说明、右动作）。这个类从批次 2 起就被面板用着，却一直没定义，
+   于是「已添加 N 台」和按钮永远挤在左边。 */
+.oc-row-between { justify-content: space-between; }
+
+.oc-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.oc-grow { flex: 1 1 auto; min-width: 0; }
+.oc-push { margin-left: auto; }
+
+.oc-truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oc-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--interactive-border, color-mix(in srgb, currentColor 25%, transparent));
+  border-radius: var(--radius, 9px);
+}
+
+/* Diff and log output: raw text the kit has no primitive for. */
+.oc-pre {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: calc(var(--radius, 9px) - 2px);
+  background: var(--surface-muted, color-mix(in srgb, currentColor 8%, transparent));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.oc-xs { font-size: 11px; }
+.oc-sm { font-size: 12px; }
+
+/* 状态区读数：每台服务器两行（名称 + 状态 / 版本 + 网络）。宿主的这一栏只有一行
+   宽，所以这里不放控件，只放事实。 */
+.oc-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 12px;
+}
+
+.oc-rail-peer {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.oc-rail-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.oc-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.oc-ok { color: var(--status-success, #1a7f4b); }
+.oc-warn { color: var(--status-warning, #9a6a00); }
+.oc-err { color: var(--status-error, #c0392b); }
+.oc-off { color: var(--surface-muted-foreground, currentColor); }
+
+/* Icon slot. The kit's own `row-lead` is a fixed 64px mono column, which is
+   right for issue keys and wrong for a 14px glyph. */
+.oc-icon { display: inline-flex; flex: 0 0 auto; align-items: center; }

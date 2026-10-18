@@ -246,7 +246,7 @@ tag 不是唯一的版本轴。扩展相反——它只有一个入口 URL，所
 https://github.com/BD7PIL/ocrc/releases/download/ocrc-remote-latest/ocrc-remote.zip
 
 # 钉版本（不可变，用于复现"这台机器装的是哪一版"）
-https://github.com/BD7PIL/ocrc/releases/download/ocrc-remote-0.7.0/ocrc-remote.zip
+https://github.com/BD7PIL/ocrc/releases/download/ocrc-remote-0.8.0/ocrc-remote.zip
 ```
 
 - 装完会有**一次 service 能力审批**（扩展要在宿主上跑 `ssh`）——批准。

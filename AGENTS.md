@@ -1,22 +1,46 @@
 # OCRC — 面向 AI 代理的导读
 
-- **命名（2026-10-18 收敛到单一仓库名）**：品牌写作 **OCRC**，机器标识一律 **`ocrc`**——CLI 命令 `ocrc`、npm 包 `@bd7pil/ocrc`、面板扩展目录 `extensions/ocrc`、`panel.id = ocrc`、发布资产 `ocrc.zip`、tag `ocrc-<ver>` / `ocrc-latest`、镜像分支 `ocrc`。**不再有 `-remote` / `ext-` 这类限定词**（历史名 `ocrc-connect` → `ocrc-remote` → `ocrc`；`extensions/ocrc-connect/` 那个空目录已删）。扩展 `panel.id` 变更意味着**旧安装要卸载重装**（现在装的那份 id 是 `ocrc-remote`）。另一个扩展保持 `ocrc-omo-view`（它本来就是 `ocrc-` 前缀）。档案文件名 `ocrc-profiles.json`（env `OCRC_PROFILES`）。
-- **工件命名**：名字从机器标识派生、第二段是件类；版本放哪一侧看"怎么被寻址"——**平铺目录寻址的带版本**（`ocrc-openchamber-pack-<ver>-linux-x64-<tier>.tar.gz`，因为 `OCRC_PACK_DIR` 是平铺镜像目录），**tag 寻址的靠 tag**（`ocrc.zip`，tag `ocrc-<ver>` 钉 / `ocrc-latest` 通道）。扩展**粘 URL 安装**（Settings → Extensions）：git 装法（`https://github.com/BD7PIL/ocrc#ocrc`）能自更新，zip 装法不能（升级 = 用同一 URL 覆盖安装）。发布走 `.github/workflows/ocrc-extension.yml`（仅手动 dispatch）。
+**一句话**：这个仓库只做一件事——**把一整套 openchamber 装到远程 Linux 机器上，起它，配对进桌面 app，并保持它的配置与凭据同步**。别的都不要了（见下"已删除"）。
 
-- **产品定义与边界**：[docs/PRODUCT.md](docs/PRODUCT.md) —— 新需求先过这里（分层归属判据 + 明确不做清单）。
-- **架构**：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)（以代码为准，v0.27 重建蓝图）。**面板 = openchamber**（Win/Mac，external 引擎接入，不 fork）；ocrc 收缩为被控端 agent + IM 通道 + provisioning + 面板侧扩展。**`web-next/`（ZCode 壳）已于 2026-10-17 从 main 删除**——快照在 tag **`web-next-final`**（`git checkout web-next-final -- web-next` 可取回），它在当前架构里没有挂载点。
-- **运维**：[docs/OPS.md](docs/OPS.md)。
-- **开发**：`npm install && npm run build:all` · `npm test`（后端 vitest）· `npm run typecheck`；扩展：`npm --prefix extensions/ocrc run typecheck && npm --prefix extensions/ocrc test`。**提交前跑 `npm run preflight`**——扩展的安装产物是提交进仓库的（`panel/ status/ service/ shared/`），改了 `src/` 忘了重建会被 CI 的 dist 一致性拦下（这条已经栽过两次）。
-- **面板/状态区的视觉评审**：`node extensions/ocrc/scripts/audit.mjs` 按 `preview/audit/README.md` 的清单（组件 × 状态，24 项）出全套截图；改动面板/状态区后跑一遍并**逐张看过**再交。
-  - **隔离 dev 实例（4199）**：`HOME=/tmp/ocrc-z-home OCRC_HOME=/tmp/ocrc-z-home/.ocrc OCRC_BACKENDS=opencode OCRC_SERVER_URL=http://127.0.0.1:4298 OCRC_SERVER_PORT=4298 OCRC_WEB_PORT=4199 OCRC_OFFPEAK_WINDOW=00:00-23:59 node dist/cli/index.js host`（nohup 后台；**OCRC_BACKENDS/OCRC_SERVER_URL 不能省**，漏了会落回 acp:kimi 后端、/api/sessions 恒空）。
-  - `scripts/spike-restart.sh` 是 **4598 遗留脚本**（旧布局），不是本机隔离实例的 runbook——误跑会用同一 TG token 拉起竞争实例、把 4199 host 顶死（Telegram 409 自杀）。生产重启只有 `~/bin/restart-ocrc.sh`（见 OPS.md）。
-- **兼容硬边界**：被控端 opencode pin 1.18.x；EL7/glibc 2.17 是遗留生产下限。
-- **批次 2–5.1 的功能面已在扩展 0.9.2 删除**：下面这几条（连接页/`-L` 隧道、远程工作区 fs/git 桥、配置同步的项目级写入、omo 编排面板、`/ocrc-host`+`/ocrc-plan` 命令）连同它们的**服务端端点与验收脚本**一起删了——它们属于"控制端用 `-L` 连被控端裸引擎"的上一代拓扑，面板上早已没有入口（详见 [docs/OPS.md](docs/OPS.md) 的「上一代三块已删除」与 [docs/decisions/2026-10-18-rename-to-ocrc.md](docs/decisions/2026-10-18-rename-to-ocrc.md)）。留下的是**实例级**一条路：装 openchamber 到远程机器 + 配对链接 + 实例级配置同步。以下批次条目作为沿革保留。
-- **基座换位（2026-10-14 裁决，批次 1 交付 2.0.0-alpha.1）**：面板让位 openchamber（Win/Mac，不 fork，external 引擎接入），ocrc 收缩为被控端 agent + IM 通道 + provisioning + CI 跟随——判定与拓扑见 [docs/research/openchamber-base-swap-verdict.md](docs/research/openchamber-base-swap-verdict.md)、实验结论 [docs/research/e1-verdict.md](docs/research/e1-verdict.md)。opencode v2.0.27 在 EL7 实测可跑；插件注册键 V2=`plugins`/V1=`plugin`（分键而治，见 install/uninstall 契约测试）；V2 工件离线推送走 `core/bin-cache.ts`（pin：manifest > OCRC_V2_PIN > 动态跟随）；CI 跟随流水线 `.github/workflows/ocrc-follow.yml`（引擎 pin）与 `.github/workflows/ocrc-pack.yml`（两档兼容包）。web-next 已删除（tag `web-next-final`）。
-- **批次 2（2.0.0-alpha.2，2026-10-14）**：面板能力以 iframe 扩展回归——`extensions/ocrc`（SSH 隧道守护，external 引擎零环境变量接入）+ `extensions/ocrc-omo-view`（omo 编排树只读视图）。独立 npm root（vite lib IIFE，产物提交进仓库）；面板侧安装/验收 handoff 见 [docs/handoff/batch2-panel-testing.md](docs/handoff/batch2-panel-testing.md)。
-- **批次 3（2.0.0-alpha.3，2026-10-15）**：远程通道 agent 工具化——`ocrc_remote_list / remote_sync_workspace / remote_provision / remote_create_session` 四工具上引擎模型面，通道无关（TG/web 皆可用）。注册面 = v2 插件 `context.tool.transform`（E2 实证：SDK 类型缺失但引擎存在；自定义工具必须 `namespace:'ocrc'` 才上模型面，execute 返 `{output}`），裁决与契约见 [docs/research/e2-verdict.md](docs/research/e2-verdict.md)；handler 层 `src/plugin/remote-tools.ts` 一套三装配（V1 PRIMARY / V1 ATTACHED 薄代理 / V2 setup）。`manager.syncDirectory` 参数化 tar 管道（`*.ocrc-bak` 同族语义，`..` 越界拒绝）。
-- **批次 4（2.0.0-alpha.4，2026-10-15）**：远程工作区面板桥——`extensions/ocrc` 0.2.0 加 fs/git-over-ssh 端点组（`/fs/*`、`/git/*`、`/git-branch`；service 在面板宿主 spawn `ssh <profile> <script>`，被控端零守护）+ 「远程工作区」面板 tab（文件树/原子编辑/.bak/git 面板）+ `allowedRoots` 白名单（空=403，`..`=400，service 每请求复核）。上游 Files/Git 不碰（#3113）。验收 = `extensions/ocrc/scripts/accept-workspace.sh`（loopback 全链 10 步）；Win/Mac 侧动作见 handoff 批次 4 增补段。
-- **批次 5（2.0.0-alpha.5，2026-10-15）**：配置与凭据桥——openchamber 面板写的 agents/MCP/providers 配置只落面板宿主磁盘，external 引擎收不到（`docs/research/llm-config-fallback-survey.md` 六问裁决）。`extensions/ocrc` 0.3.0 配置桥（`/config/source|preview|apply`：深合并——面板段逐叶覆盖、被控端独有键保留、`.ocrc-bak` 兜底、不自动重启；密钥不桥接）；引擎侧第五工具 `ocrc_remote_sync_auth` + `remotes.json` per-host `env` 注入（env-only provider 通道）+ syncConfig 白名单扩 `agents`/`skills`/`oh-my-opencode-slim.json`。LLM fallback 结论：引擎无、面板是分类路由、omo-slim 有链（v2 宿主为 `session.switchModel` steering 语义）。
-- **批次 5.1（2.0.0-alpha.6，2026-10-15）**：omo-slim 配置的 UI 控制——`extensions/ocrc` 0.4.0 `GET/POST /omo/config`（远端路径服务端拼装、坏 JSON 422 不落盘、`.ocrc-bak` 原子写）+ 面板「omo 编排」区块（预设下拉/fallback 控件/per-agent 链只读树/原始 JSON 逃生门）+ vendor 官方 schema（`scripts/vendor-omo-schema.mjs`）。E4 spike 实证：installer 生成 `.json`、V1 `plugin` 键 v2 可载、**热重载（omo 插件自己的 watcher，坏 JSON 保 last-known-good）**、agents 注册面不热变——全部归档 `docs/research/omo-config-surface.md`。
-- 历史遗留的 pact/pactify 多代理协作协议已于 2026-10-05 移除（工具从未存在于本机，属上游遗留死配置）。
-- **N 系列分层规则（2026-10-07 grill 裁决；2026-10-17 随 web-next 删除失效）**：历史条文——`/z/`（`/next/z`）= vendor 的 ZCode 真前端（上游 **zai-org/ZCode**，Apache-2.0）；两层契约：**ocrc 卡片流（card/sdelta/seq/replayEnd）= 唯一长期稳定核心**——引擎适配、功能扩展都对着它写。ZCode 界面已随 `web-next/` 移除（tag `web-next-final`）；多 agent 适配走引擎层（HarnessAdapter），ACP 列 N4+。
+- **命名**：品牌 **OCRC**，机器标识一律 **`ocrc`**——CLI 命令 `ocrc`、npm 包 `@bd7pil/ocrc`、扩展目录 `extensions/ocrc`、`panel.id = ocrc`、发布资产 `ocrc.zip`、tag `ocrc-<ver>` / `ocrc-latest`、镜像分支 `ocrc`。**不再有 `-remote` / `ext-` 这类限定词**。扩展 `panel.id` 变更过 → **旧安装（id `ocrc-remote`）要卸载重装**。另一个扩展 `ocrc-omo-view` 保持原名。
+- **工件命名**：平铺目录寻址的带版本（`ocrc-openchamber-pack-<ver>-linux-x64-<tier>.tar.gz`，因为 `OCRC_PACK_DIR` 是平铺镜像目录）；tag 寻址的靠 tag（`ocrc.zip`，`ocrc-<ver>` 钉 / `ocrc-latest` 通道）。扩展**粘 URL 安装**：git 装法（`https://github.com/BD7PIL/ocrc#ocrc`）能自更新，zip 装法不能。发布走 `.github/workflows/ocrc-extension.yml`（仅手动 dispatch）。
+
+## 仓库里有什么
+
+| 位置 | 是什么 |
+| --- | --- |
+| `extensions/ocrc/` | **面板扩展**：`panel/`（服务器列表）、`status/`（右侧只读读数）、`service/`（宿主上那个能跑 ssh 的进程，两条路由 `/health` + `/remote-instance`）。产物提交进仓库（零构建 folder 安装）。 |
+| `src/core/` | 实例线核心：`remote-instance*`（arg 构造 / 门禁 / 桥接 / 推送 / 出网代理）、`remote-instances`（store）、`instance-config` + `config-merge`（配置同步）、`forward-ownership`（转发持有者标记）、`ssh-askpass`、`bin-cache`（工件缓存）。 |
+| `src/cli/remote.ts` | `ocrc remote add\|plan\|apply\|up\|down\|pairlink\|config-diff\|sync-config\|sync-auth\|peerlog\|upgrade\|prepare\|offline-proof` —— 面板的 headless 等价物。 |
+| `extensions/ocrc-omo-view/` | 另一个面板扩展：omo 编排树只读视图。 |
+| `ops/` | 引擎 pin manifest（`ocrc-follow.yml` 跟着上游写，`bin-cache` 读）。 |
+| `scripts/` | `accept-remote-instance.sh`（真机端到端验收）、`preflight.mjs`（提交前自检）、`check-guest-bundles.mjs`、`build-app-pack.mjs`、EL7 node-pty 重建脚本。 |
+| `docs/` | [PRODUCT](docs/PRODUCT.md)（边界，新需求先过）· [ARCHITECTURE](docs/ARCHITECTURE.md) · [OPS](docs/OPS.md) · `decisions/`（裁决）· `handoff/` 与 `research/`（历史记录，多数已加"已过时"banner）。 |
+
+## 开发
+
+```bash
+npm install && npm run build          # CLI（tsc）
+npm test                              # 180 项（实例线）
+npm run typecheck && npm run typecheck:tests
+npm run preflight                     # 提交前必跑：重建两扩展 + 三处 typecheck + 三套测试 + guest 不变量
+npm --prefix extensions/ocrc test     # 扩展测试（39 项）
+node extensions/ocrc/scripts/preview.mjs   # 真面板挂假宿主，?scenario= 切状态
+node extensions/ocrc/scripts/audit.mjs     # 逐组件截图（24 项清单见 preview/audit/README.md）
+bash scripts/accept-remote-instance.sh --target user@host   # 真机验收（含真发消息）
+```
+
+**改面板/状态区之后**：跑 `audit.mjs` 并**逐张看过**再交（清单与结论表在 `preview/audit/README.md`）。
+**改了 `extensions/*/src/` 之后**：必须重建产物（`npm run preflight` 会做），否则 CI 的 dist 一致性会红——这条栽过两次。
+
+## 已删除（2026-10-19，别按旧记忆找）
+
+ocrc 自己的"驾驶舱"那一代**整个从这个仓库删掉了**，它会作为**独立的 openchamber 扩展**在别的项目里做：
+
+- 通道：Telegram（35 命令）、Web PWA/HTTP-WS API、Lark/Feishu、DingTalk、WeCom 推送，以及 `src/connectivity/`（配对/CF Access/cloudflared 暴露）。
+- 引擎侧功能：动态工作流（`ocrc wf` + `vendored zcode-dwf`）、日程、技能管理、子代理、goal、会话分享、off-peak、浏览器控制、MCP/上下文/todo/vcs 面。
+- 引擎级远程主机：`/api/remotes/*` + 四个 `ocrc_remote_*` agent 工具 + `remotes.json`（**被实例级取代**；两者的区别是"引擎跑在远端"还是"整套 openchamber 跑在远端"）。
+- CLI 的 `init/install/uninstall/start/stop/restart/status/restore/pair/host/wf/mcp-browser`、`src/plugin/`（opencode 插件入口）、`src/transport/`（14,914 行）、`vendor/zcode-dwf/`、`desktop/`、`web/`（前端）。
+- 18 个运行时依赖随之清零——剩下的代码只用 Node 内建模块。
+
+历史记录在 `docs/handoff/`、`docs/research/`、`docs/decisions/` 与 `CHANGELOG.md`（不回改，多数已 banner）。

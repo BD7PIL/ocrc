@@ -1,10 +1,17 @@
 #!/usr/bin/env node
-import { createInterface } from 'node:readline'
-import { writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { runInitWizard, defaultTestConnection } from './init.js'
 
+/**
+ * ocrc CLI — **远程 openchamber 实例这一件事**。
+ *
+ * 这里曾经还有一整套"驾驶舱"命令（`install`/`uninstall` 装成 opencode 插件、`start`/`stop`/
+ * `restart`/`status`/`restore` 的守护与监督、`pair` 的网页配对、`host` 的 ACP 主机、`wf` 的
+ * 动态工作流、`mcp-browser`）。它们属于另一个产品面（ocrc 自己的 IM 驾驶舱：Telegram/Web
+ * 两个通道 + 引擎级远程主机 + 工作流/日程/技能），那个面**已经从这个仓库删除**，会作为独立的
+ * openchamber 扩展在别的项目里做。所以这里只剩 `remote`。
+ */
 const VERSION = (() => {
   try {
     const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../package.json')
@@ -21,78 +28,15 @@ USAGE:
   ocrc <command>
 
 COMMANDS:
-  init          Interactive setup wizard (writes .env)
-  install       Install as opencode plugin
-  uninstall     Remove from opencode plugin config
-  pair          Show QR + URL to pair a device
-  start <dir>   Start the production instance under its supervisor
-                (crash auto-restart; env from ~/.ocrc/config.env)
-  restore       Re-launch the last instance (the @reboot cron calls this)
-  stop          Stop it (supervisor first, then the instance)
-  restart [dir] Restart it
-  status        Show instance state (server / supervisor / web panel / workdir)
-  host          Run standalone against an ACP agent (no opencode; OCRC_ACP_CMD)
-  wf <sub>      Dynamic workflows (list / show / run / resume / amend / …)
-  remote <sub>  Remote openchamber instances (add / plan / apply / up / down / …)
+  remote <sub>  Remote openchamber instances (add / plan / apply / up / down / pairlink / …)
   --help, -h    Show this help
 `
 
 async function main() {
   const cmd = process.argv[2]
 
-  if (cmd === 'init') {
-    const rl = createInterface({ input: process.stdin, output: process.stdout })
-    const deps = {
-      ask: (q: string) => new Promise<string>((resolve) => rl.question(q, resolve)),
-      writeFile: (p: string, c: string) => writeFileSync(p, c),
-      exists: (p: string) => existsSync(p),
-      testConnection: defaultTestConnection,
-      cwd: process.cwd(),
-    }
-    await runInitWizard(deps)
-    rl.close()
-    return
-  }
-
-  if (cmd === 'install') {
-    await import('./install.js').then((m) => m.main(process.argv.slice(3)))
-    return
-  }
-
-  if (cmd === 'uninstall') {
-    await import('./uninstall.js').then((m) => m.main())
-    return
-  }
-
-  if (cmd === 'pair') {
-    await import('./pair.js').then((m) => m.main(process.argv.slice(3)))
-    return
-  }
-
-  if (cmd === 'host') {
-    await import('./host.js').then((m) => m.main())
-    return
-  }
-
-  if (cmd === 'wf') {
-    await import('./wf.js').then((m) => m.main(process.argv.slice(3)))
-    return
-  }
-
-  // 2.0.0-alpha.8: remote openchamber instances (the 对端能力, plan §4 P5).
   if (cmd === 'remote') {
     await import('./remote.js').then((m) => m.main(process.argv.slice(3)))
-    return
-  }
-
-  // 0.27 M7: MCP stdio server exposing the sidecar browser as engine tools.
-  if (cmd === 'mcp-browser') {
-    await import('./mcp-browser.js').then((m) => m.runMcpBrowser())
-    return
-  }
-
-  if (cmd === 'start' || cmd === 'stop' || cmd === 'restart' || cmd === 'status' || cmd === 'restore') {
-    await import('./service.js').then((m) => m.main(process.argv.slice(2)))
     return
   }
 

@@ -1,5 +1,7 @@
 # Phase 3 — In-UI multi-backend switching
 
+> **已过时（2026-10-19）**：本文件描述的功能/入口属于**已删除的驾驶舱那一代**（Telegram/Web 通道、工作流、日程、技能、子代理、引擎级远程主机）。它们已从本仓库删除，会作为独立的 openchamber 扩展在别的项目里做；保留作为历史记录。当前产品见 [AGENTS.md](../AGENTS.md) 与 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
+
 > **状态（2026-06-19）**：piece 1–5 已合并入 main 并随 **v0.7.0** 发版；多后端
 > host（opencode + kimi）现已是生产域名（`ocrc.agentjoey.ai`）背后的实例。
 > v0.7.1 又补齐了 ACP 会话的持久化、按会话工作目录、列表按后端过滤等。

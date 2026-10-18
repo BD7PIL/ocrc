@@ -1,5 +1,7 @@
 # 批次 6 Windows 验收结果（执行报告）
 
+> **已过时（2026-10-19）**：本文件描述的功能/入口属于**已删除的驾驶舱那一代**（Telegram/Web 通道、工作流、日程、技能、子代理、引擎级远程主机）。它们已从本仓库删除，会作为独立的 openchamber 扩展在别的项目里做；保留作为历史记录。当前产品见 [AGENTS.md](../AGENTS.md) 与 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
+
 > 执行日期：2026-10-16 · 执行环境：Windows 面板宿主（`bd7pi@Jared_Laptop`）
 > 被控机：`demo@192.168.26.101`（V93000VM，RHEL 7.9，glibc 2.17，OpenSSH 7.4）
 > 依据：`docs/handoff/batch6-windows-testing.md` §0–§3

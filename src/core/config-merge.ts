@@ -30,7 +30,7 @@
  * Pure string/structure in, pure string/structure out: the ssh transport is
  * injected by the caller, which is what makes the merge testable without a peer.
  */
-import { stripJsonc } from './settings-service.js'
+import { stripJsonc } from '../utils/jsonc.js'
 
 export const CONFIG_BASENAMES = ['opencode.jsonc', 'opencode.json'] as const
 

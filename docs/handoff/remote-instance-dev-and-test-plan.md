@@ -1,5 +1,7 @@
 # 开发测试方案：openchamber 对端能力（v1：本地 + SSH）
 
+> **已过时（2026-10-19）**：本文件描述的功能/入口属于**已删除的驾驶舱那一代**（Telegram/Web 通道、工作流、日程、技能、子代理、引擎级远程主机）。它们已从本仓库删除，会作为独立的 openchamber 扩展在别的项目里做；保留作为历史记录。当前产品见 [AGENTS.md](../AGENTS.md) 与 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
+
 - **日期**：2026-10-16
 - **性质**：可落地的完整开发 + 测试方案（含验收、门禁、回滚、时间估计）
 - **前置裁决**：[remote-instance-verdict.md](../research/remote-instance-verdict.md)（Phase 0 取证：主路成立、运行时选型、`external` 模式要求、离线可跑、node-pty 阻塞）

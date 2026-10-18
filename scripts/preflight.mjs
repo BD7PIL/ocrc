@@ -10,10 +10,10 @@
  * （共享层 `guest.css` 同步进另一个扩展时最容易漏）。这里把顺序固定下来：
  *
  *   1. 重建两个扩展（vite/esbuild 产物 + stage-dist）
- *   2. 两处 typecheck
- *   3. 两个扩展的测试
+ *   2. 三处 typecheck（cli / 测试树 / 两个扩展）
+ *   3. cli 与两个扩展的测试
  *   4. guest bundle 不变量（无 process.env / 主题桥 / 无 window.prompt）
- *   5. 产物与 src 一致（等价于 CI 那条 git diff --exit-code）
+ *   5. 产物重建并暂存（一致性由 CI 在干净检出上比对）
  */
 import { execSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
@@ -23,10 +23,11 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const steps = [
   ['重建 ocrc 扩展', 'npm --prefix extensions/ocrc run build'],
   ['重建 ocrc-omo-view 扩展', 'npm --prefix extensions/ocrc-omo-view run build'],
-  ['typecheck（主体）', 'npm run typecheck'],
+  ['typecheck（cli）', 'npm run typecheck'],
   ['typecheck（测试树）', 'npm run typecheck:tests'],
   ['typecheck（ocrc 扩展）', 'npm --prefix extensions/ocrc run typecheck'],
   ['typecheck（omo-view 扩展）', 'npm --prefix extensions/ocrc-omo-view run typecheck'],
+  ['测试（cli）', 'npm test'],
   ['测试（ocrc 扩展）', 'npm --prefix extensions/ocrc test'],
   ['测试（omo-view 扩展）', 'npm --prefix extensions/ocrc-omo-view test'],
   ['guest bundle 不变量', 'node scripts/check-guest-bundles.mjs'],

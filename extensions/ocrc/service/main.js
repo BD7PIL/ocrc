@@ -515,15 +515,14 @@ function createLogger(mod) {
   };
 }
 
-// ../../src/core/remotes.ts
+// ../../src/utils/secret.ts
 import { randomBytes } from "node:crypto";
-var log = createLogger("remotes");
-function generateServerPassword() {
+function generateSecret() {
   return randomBytes(18).toString("base64url");
 }
 
 // ../../src/core/remote-instances.ts
-var log2 = createLogger("remote-instances");
+var log = createLogger("remote-instances");
 function remoteInstancesPath(home) {
   return join3(home, "remote-instances.json");
 }
@@ -536,7 +535,7 @@ function createRemoteInstancesStore(path, opts = {}) {
       if (!Array.isArray(raw.instances)) return;
       instances = raw.instances.filter((i) => i && typeof i.id === "string" && typeof i.host === "string" && i.host);
     } catch (err) {
-      log2.warn(`failed to load ${path}: ${err.message}`);
+      log.warn(`failed to load ${path}: ${err.message}`);
     }
   }
   let writeQueued;
@@ -551,7 +550,7 @@ function createRemoteInstancesStore(path, opts = {}) {
       writeFileSync(tmp, JSON.stringify({ instances: snapshot }, null, 2), { mode: 384 });
       renameSync2(tmp, path);
     } catch (err) {
-      log2.warn(`persist failed: ${err.message}`);
+      log.warn(`persist failed: ${err.message}`);
     }
   }
   function persist() {
@@ -633,7 +632,7 @@ function createRemoteInstancesStore(path, opts = {}) {
       if (existing) {
         Object.assign(existing, instance, { id });
         Object.assign(existing, normalize(existing));
-        existing.uiPassword ??= generateServerPassword();
+        existing.uiPassword ??= generateSecret();
         persist();
         return { ...existing };
       }
@@ -647,7 +646,7 @@ function createRemoteInstancesStore(path, opts = {}) {
         name: instance.name,
         instancePort: instance.instancePort ?? DEFAULT_INSTANCE_PORT,
         localPort: instance.localPort ?? DEFAULT_LOCAL_PORT,
-        uiPassword: instance.uiPassword || generateServerPassword(),
+        uiPassword: instance.uiPassword || generateSecret(),
         enginePath: instance.enginePath,
         engineVersion: instance.engineVersion,
         appVersion: instance.appVersion ?? DEFAULT_APP_VERSION,
@@ -701,7 +700,7 @@ function nextRetryDelay(attempt) {
 // ../../src/core/remote-instance-proxy.ts
 import http from "node:http";
 import net from "node:net";
-var log3 = createLogger("remote-instance-proxy");
+var log2 = createLogger("remote-instance-proxy");
 function parseConnectTarget(line) {
   const m = /^CONNECT\s+(\[[0-9a-fA-F:.]+\]|[^\s:]+):(\d{1,5})\s+HTTP\/1\.[01]$/i.exec((line ?? "").trim());
   if (!m) return void 0;
@@ -734,7 +733,7 @@ function createInstanceProxy(opts = {}) {
   const host = opts.host ?? "127.0.0.1";
   const connects = [];
   const say = (line) => {
-    log3.info(line);
+    log2.info(line);
     opts.onLog?.(line);
   };
   const server2 = http.createServer((req, res) => {
@@ -848,7 +847,7 @@ import { existsSync as existsSync2, mkdirSync as mkdirSync3, readFileSync as rea
 import { spawn } from "node:child_process";
 import { homedir as homedir2 } from "node:os";
 import { join as join4 } from "node:path";
-var log4 = createLogger("bin-cache");
+var log3 = createLogger("bin-cache");
 function bundleDir() {
   return process.env.OCRC_BUNDLE_DIR ?? join4(binCacheRoot(), "bundle");
 }
@@ -869,7 +868,7 @@ function takeBundleArtifact(version, target, dir = bundleDir()) {
   if (!existsSync2(file)) return void 0;
   const digest = readBundleManifest(dir)?.digests?.[target]?.sha512;
   if (!digest) {
-    log4.warn(`bundle has ${file} but no digest for ${target} \u2014 ignoring it (unverified bytes are not worth using)`);
+    log3.warn(`bundle has ${file} but no digest for ${target} \u2014 ignoring it (unverified bytes are not worth using)`);
     return void 0;
   }
   const expected = digest.startsWith("sha512-") ? digest.slice(7) : digest;
@@ -895,7 +894,7 @@ function verifyIntegrity(file, integrity) {
 }
 function proxyAwareFetch(url, timeoutMs) {
   const proxy = process.env.HTTPS_PROXY ?? process.env.https_proxy ?? process.env.HTTP_PROXY ?? process.env.http_proxy;
-  if (proxy) log4.warn(`HTTPS_PROXY=${proxy} is set but not applied to registry fetch (no proxy agent dependency); direct fetch attempted`);
+  if (proxy) log3.warn(`HTTPS_PROXY=${proxy} is set but not applied to registry fetch (no proxy agent dependency); direct fetch attempted`);
   return fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
 }
 async function fetchIntegrity(version, target, timeoutMs = 3e4) {
@@ -912,19 +911,19 @@ async function cacheArtifact(version, target, timeoutMs = 3e5) {
   const dir = join4(root, version);
   const dest = join4(dir, `cli-${target}-${version}.tgz`);
   if (existsSync2(dest)) {
-    log4.info(`cache hit: ${dest}`);
+    log3.info(`cache hit: ${dest}`);
     return dest;
   }
   mkdirSync3(dir, { recursive: true });
   const bundled = takeBundleArtifact(version, target);
   if (bundled) {
     writeFileSync2(dest, readFileSync2(bundled.file), { mode: 420 });
-    log4.info(`bundle hit: ${bundled.file} \u2192 ${dest}\uFF08sha512 \u6821\u9A8C\u901A\u8FC7\uFF0C\u672A\u8D70\u7F51\u7EDC\uFF09`);
+    log3.info(`bundle hit: ${bundled.file} \u2192 ${dest}\uFF08sha512 \u6821\u9A8C\u901A\u8FC7\uFF0C\u672A\u8D70\u7F51\u7EDC\uFF09`);
     return dest;
   }
   const integrity = await fetchIntegrity(version, target);
   const url = `${REGISTRY}/@opencode/cli-${target}/-/cli-${target}-${version}.tgz`;
-  log4.info(`downloading ${url}`);
+  log3.info(`downloading ${url}`);
   const res = await proxyAwareFetch(url, timeoutMs);
   if (!res.ok || !res.body) throw new Error(`download failed: HTTP ${res.status}`);
   const buf = Buffer.from(await res.arrayBuffer());
@@ -1038,7 +1037,7 @@ function askpassEnv(spec, opts = {}) {
 }
 
 // ../../src/core/remote-instance-push.ts
-var log5 = createLogger("remote-instance-push");
+var log4 = createLogger("remote-instance-push");
 var APP_PACKAGE = "@openchamber/web";
 function appCacheDir(appVersion) {
   return join6(binCacheRoot(), "remote-app", appVersion);
@@ -1643,8 +1642,7 @@ import { cpSync, existsSync as existsSync4, mkdirSync as mkdirSync6, readFileSyn
 import { createHash as createHash3 } from "node:crypto";
 import { join as join7, relative, sep } from "node:path";
 
-// ../../src/core/settings-service.ts
-var log6 = createLogger("settings");
+// ../../src/utils/jsonc.ts
 function stripJsonc(text) {
   let out = "";
   let i = 0;
@@ -1689,9 +1687,12 @@ function stripJsonc(text) {
 function parseConfig(raw) {
   try {
     const parsed = JSON.parse(stripJsonc(raw));
-    return parsed && typeof parsed === "object" ? { ok: true, parsed } : { ok: false, error: "\u9876\u5C42\u5FC5\u987B\u662F\u5BF9\u8C61" };
-  } catch (err) {
-    return { ok: false, error: err.message };
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false, error: "\u9876\u5C42\u4E0D\u662F\u5BF9\u8C61" };
+    }
+    return { ok: true, parsed };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
 
@@ -2167,7 +2168,7 @@ function describeHolders(instanceId, home = ocrcHome()) {
 }
 
 // ../../src/core/remote-instance-bridge.ts
-var log7 = createLogger("remote-instance");
+var log5 = createLogger("remote-instance");
 var EXTERNAL_MONITOR_MS = 2e4;
 var LOG_CAP = 200;
 var EGRESS_TTL_MS = 5 * 6e4;
@@ -2258,7 +2259,7 @@ function createRemoteInstanceManager(opts) {
     r.state = state;
     r.detail = detail;
     r.since = Date.now();
-    log7.info(`instance ${id}: ${state}${detail ? ` \u2014 ${detail}` : ""}`);
+    log5.info(`instance ${id}: ${state}${detail ? ` \u2014 ${detail}` : ""}`);
   };
   const need = (id) => {
     const instance = opts.store.get(id);

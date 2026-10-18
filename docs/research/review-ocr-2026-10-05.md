@@ -1,5 +1,7 @@
 # OCR 审查报告 — glm-5.3-flash × 17 commits（2026-10-05）
 
+> **已过时（2026-10-19）**：本文件描述的功能/入口属于**已删除的驾驶舱那一代**（Telegram/Web 通道、工作流、日程、技能、子代理、引擎级远程主机）。它们已从本仓库删除，会作为独立的 openchamber 扩展在别的项目里做；保留作为历史记录。当前产品见 [AGENTS.md](../AGENTS.md) 与 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
+
 总览：44 文件 / 68 条（1 critical · 7 high · 25 medium · 35 low）/ 18m9s / 4.85M tokens（Coding Plan 额度）
 
 处置：critical+high 全部处置（详见各 commit）；medium 修 20 条；low 35 条为风格建议未逐条采纳。

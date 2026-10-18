@@ -1,5 +1,7 @@
 # omo-slim 身份查证与接入可行性
 
+> **已过时（2026-10-19）**：本文件描述的功能/入口属于**已删除的驾驶舱那一代**（Telegram/Web 通道、工作流、日程、技能、子代理、引擎级远程主机）。它们已从本仓库删除，会作为独立的 openchamber 扩展在别的项目里做；保留作为历史记录。当前产品见 [AGENTS.md](../AGENTS.md) 与 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
+
 - 调研日期：2026-10-14
 - 语境：ocrc 评估以 openchamber（github.com/openchamber/openchamber）作面板基座；用户问「参考 omo-slim 能否接入」。部署拓扑：**Windows/Mac 跑 openchamber 面板；EL7/glibc 2.17 只当被控端（跑 opencode v2，已实测原生可跑）；ocrc 的 IM 通道插件以共生拓扑住被控端 opencode 配置数组。**
 - 结论置信度：高（身份、形态、license、交互面均有一手来源直接证据）

@@ -1,5 +1,7 @@
 # E1 实验结论：omo-slim EL7 接入 + ocrc v2.0.27 健康 + 双写规则
 
+> **已过时（2026-10-19）**：本文件描述的功能/入口属于**已删除的驾驶舱那一代**（Telegram/Web 通道、工作流、日程、技能、子代理、引擎级远程主机）。它们已从本仓库删除，会作为独立的 openchamber 扩展在别的项目里做；保留作为历史记录。当前产品见 [AGENTS.md](../AGENTS.md) 与 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
+
 - **日期**：2026-10-14
 - **环境**：EL7/glibc 2.17 本机，隔离 PREFIX `/tmp/e1-lab`（HOME/OCRC_HOME 独立，端口 4597 引擎 + 4310 stub LLM，TG 用测试 bot B，零生产接触）
 - **方法**：opencode 2.0.27 经 npm tarball 安装（`@opencode/cli-linux-x64`，sha512 integrity 校验通过——bin-cache 校验算法实测可行）→ `plugins` 数组注册 omo-slim@3.0.4 + ocrc@1.0.0-rc.4（本地 symlink 安装）→ python OpenAI 兼容 stub LLM 驱动真实编排。

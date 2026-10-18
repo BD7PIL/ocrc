@@ -6,11 +6,11 @@ full **openchamber** instance that we install for it — runtime, a pinned openc
 itself — reachable either directly or through the control side, depending on what that machine
 can reach. You then pair it and it shows up in the app as **another OpenChamber server**.
 
-> Status (2026-10-19): the panel path is the product. Verified end to end on two peers —
-> a RHEL7 box with **no outbound network** (relayed through the control side) and an Ubuntu box
-> with its own internet (direct). The earlier Telegram channel is still in the codebase and still
-> works; it is no longer the entry point. The browser UI this project used to ship is gone (see
-> *Earlier surfaces*).
+> Status (2026-10-19): this is the whole product. Verified end to end on two peers — a RHEL7 box
+> with **no outbound network** (relayed through the control side) and an Ubuntu box with its own
+> internet (direct). Everything else ocrc used to be — its own Telegram/Web cockpit, workflows,
+> schedules, skills, engine-level remote hosts — was removed from this repo and is being rebuilt
+> as separate openchamber extensions elsewhere (see [AGENTS.md](AGENTS.md) → *已删除*).
 
 [![Release](https://img.shields.io/github/v/release/BD7PIL/ocrc?color=10b981)](https://github.com/BD7PIL/ocrc/releases)
 [![License: MIT](https://img.shields.io/github/license/BD7PIL/ocrc?color=10b981)](LICENSE)
@@ -18,21 +18,23 @@ can reach. You then pair it and it shows up in the app as **another OpenChamber 
 
 npm `@bd7pil/ocrc` · CLI `ocrc` · state `~/.ocrc/` · extension `extensions/ocrc`
 
-## What it is
+## What it does
 
-- **A panel extension that installs a whole cockpit on the other machine.** Runtime, a pinned
-  opencode, and openchamber itself, pushed over ssh — the remote machine needs no internet and
-  no package manager (`push`), or we can adopt what is already installed (`reuse`) without
-  writing a byte.
-- **Egress is decided by probing, not by a setting.** We ask the controlled machine whether it
-  can reach a model catalogue; if it cannot, its engine talks through a relay leg on the control
-  side (`-R` + a local proxy). The card and the status rail always show which of the two is in
-  effect, and why.
-- **Identity comes from upstream.** A pairing link (one-time, per-device, revocable) is pasted
+- **Installs a whole cockpit on the other machine.** Runtime, a pinned opencode, and openchamber
+  itself, pushed over ssh — the remote machine needs no internet and no package manager
+  (`push`), or we adopt what is already installed (`reuse`) without writing a byte.
+- **Decides egress by probing, not by a setting.** We ask the controlled machine whether it can
+  reach a model catalogue; if it cannot, its engine talks through a relay leg on the control side
+  (`-R` + a local proxy). The card and the status rail always show which of the two is in effect,
+  and why.
+- **Takes identity from upstream.** A pairing link (one-time, per-device, revocable) is pasted
   into the app's **导入链接**; the machine appears under *other OpenChamber servers*. We store no
   credentials for it.
+- **Keeps config and credentials in sync.** Diff this machine's `~/.config/opencode` against the
+  remote's, push files, deep-merge the config document, ship `auth.json` over stdin at 0600 —
+  with deletions opt-in per item and `.ocrc-bak` backups.
 - **One name, one repo.** Brand `OCRC`; machine identifiers are just `ocrc` — extension
-  directory, `panel.id`, release asset, tags, mirror branch. Why, and what it costs existing
+  directory, `panel.id`, release asset, tags, mirror branch. Why, and what it cost existing
   installs: [`docs/decisions/2026-10-18-rename-to-ocrc.md`](docs/decisions/2026-10-18-rename-to-ocrc.md).
 
 ## Install the extension
@@ -64,9 +66,7 @@ extension runs `ssh` on the host); an in-app update asks again.
 3. **启动** — the instance runs on the remote loopback; the control side holds the forward.
 4. **创建配对链接 → 复制链接** — paste it into the app's **导入链接** and confirm. (The panel
    cannot open `openchamber://` itself: the guest bridge only forwards http/https URLs.)
-5. **配置差异与同步** — diff this machine's `~/.config/opencode` against the remote's, then push
-   files, merge the config document, and ship `auth.json` over stdin at 0600. Deletions are
-   opt-in per item.
+5. **配置差异与同步** — diff, then push files / merge the config / ship credentials, as above.
 
 The status rail (right edge of the app) is a read-only readout, one line per machine: state,
 OpenChamber version, and `直连` / `经本机转发`.
@@ -76,54 +76,34 @@ OpenChamber version, and `直连` / `经本机转发`.
 The same library's headless entry — for machines without a panel:
 
 ```bash
-ocrc remote list|plan|apply|up|down|status|pairlink|logs|peerlog|upgrade <id>
+ocrc remote add --host H [--user U] [--ssh-auth key|password] [--egress auto|relay|direct]
+                        [--provision push|reuse] [--instance-port 2610] [--local-port 4610]
+ocrc remote list|status <id>
+ocrc remote plan <id>                # read-only dry run: ssh, environment, engine gate, actions
+ocrc remote apply <id> [--force]     # push runtime + pinned opencode + app
+ocrc remote up|down <id>             # start / stop (relay leg + forwards come with it)
+ocrc remote pairlink <id>            # one-time pairing link
 ocrc remote config-diff|sync-config|sync-auth <id>
-ocrc remote prepare [--app-version V]     # pre-fetch packs on the control side
-ocrc remote supervise                     # foreground R10 ①② for panel-less hosts
+ocrc remote peerlog <id> | logs <id> | upgrade <id> | remove <id>
+ocrc remote prepare [--app-version V]        # pre-fetch packs on the control side
+ocrc remote offline-proof | trace-check F    # prove an install made no outbound calls
 ```
-
-The remote channel is also exposed **to the model**, from any transport
-(`docs/research/e2-verdict.md`): `ocrc_remote_list`, `ocrc_remote_sync_workspace`,
-`ocrc_remote_provision`, `ocrc_remote_create_session`, `ocrc_remote_sync_auth`.
-
-## Earlier surfaces (still in the codebase)
-
-Telegram (35 commands: sessions, running work, controls, ops) streams live sessions with
-approvals as buttons, and it is the only **user-facing** channel here — see the table below.
-
-Channel status, per transport (checked against `src/transport/*`):
-
-| Transport | Outbound | Inbound | Notes |
-|---|---|---|---|
-| Telegram | yes | yes (long poll, buttons for approvals) | production channel |
-| Lark / Feishu | yes (cards, editable, streaming) | yes (long connection) | |
-| WeCom | yes (group-robot webhook, markdown) | **no** | inbound needs a publicly reachable callback URL, which contradicts local-first |
-| DingTalk | yes (markdown via `oToMessages`) | **no** | v1 |
-| Web (`OCRC_WEB_ENABLED`) | yes | yes (token-gated) | **HTTP + WS API only** — the browser UI it used to serve is no longer in this repo (the Svelte PWA and the `web-next` shell were both removed), so `ocrc pair` produces a link to a page this repo does not ship. Use it as an API for automation, or bring your own frontend. |
-
-```bash
-npm i -g @bd7pil/ocrc
-ocrc install            # Telegram bot token + allowed user id
-ocrc start <dir>        # or: OCRC_BACKENDS=opencode ocrc host
-ocrc pair               # QR + link (needs a UI: see the Web row above)
-```
-
 
 ## Compatibility
 
 | | |
 |---|---|
-| opencode | pinned **1.18.x**, plus a v2 track (the packed peer engine is v2, `2.0.27`) |
+| opencode | the packed peer engine is **v2** (`2.0.27`); the v2 gate is enforced (`major=2`, `>= 2.0.20`) |
 | controlled side | Linux x86_64; **RHEL7 / glibc 2.17** is a supported floor (CI builds a legacy pack) |
-| control side | Windows / macOS desktop app; Windows dev boxes covered by the handoff docs |
+| control side | Windows / macOS desktop app; the service runs on that host |
 | ssh | system OpenSSH (ProxyJump / `~/.ssh/config` work as-is) |
 
 ## Development
 
 ```bash
-npm install && npm run build:all     # backend + vendored engine
-npm test                             # backend (vitest)
-npm run typecheck
+npm install && npm run build         # CLI (tsc) — no runtime dependencies
+npm test                             # 180 tests (the instance line)
+npm run typecheck && npm run typecheck:tests
 npm run preflight                    # BEFORE COMMITTING: rebuilds both extensions, typechecks,
                                      # tests, guest-bundle invariants, stages artifacts
 ```
@@ -142,14 +122,13 @@ bash scripts/accept-remote-instance.sh --target user@host   # end-to-end accepta
 Where to read next: [AGENTS.md](AGENTS.md) (orientation, naming, dev rules) ·
 [docs/PRODUCT.md](docs/PRODUCT.md) (product boundaries — read this before proposing a feature) ·
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/OPS.md](docs/OPS.md) (operations, upgrades,
-the egress verdict) · [docs/handoff/](docs/handoff/) (delivery records) ·
-[docs/research/](docs/research/) (verdicts with evidence).
+the egress verdict) · [docs/handoff/](docs/handoff/) and [docs/research/](docs/research/)
+(delivery records and verdicts, historical) · [docs/decisions/](docs/decisions/) (why things are
+the way they are).
 
 ## Credits & license
 
 MIT — see [LICENSE](LICENSE) and [NOTICE](NOTICE). ocrc began as a fork of
-[opencode-remote-control](https://github.com/agentjoey/opencode-remote-control) and has since
-been rebuilt well past that origin; the Telegram interaction model draws on
-[@grinev/opencode-telegram-bot](https://github.com/grinev/opencode-telegram-bot), and the panel
-is upstream [openchamber](https://github.com/openchamber/openchamber) (used as-is, not forked).
-All three remain standing credits with gratitude.
+[opencode-remote-control](https://github.com/agentjoey/opencode-remote-control) and has since been
+rebuilt well past that origin; the panel is upstream
+[openchamber](https://github.com/openchamber/openchamber) (used as-is, not forked).

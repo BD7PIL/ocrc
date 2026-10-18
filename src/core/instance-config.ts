@@ -27,7 +27,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join, relative, sep } from 'node:path'
-import { parseConfig, stripJsonc } from './settings-service.js'
+import { parseConfig, stripJsonc } from '../utils/jsonc.js'
 import { hasChanges, mergeSticky, stripLiteralSecrets } from './config-merge.js'
 
 /** The peer's user-level config dir — the one the instance's engine reads. */

@@ -1,5 +1,7 @@
 # OCRC 整改方案（2026-10-17）
 
+> **已过时（2026-10-19）**：本文件描述的功能/入口属于**已删除的驾驶舱那一代**（Telegram/Web 通道、工作流、日程、技能、子代理、引擎级远程主机）。它们已从本仓库删除，会作为独立的 openchamber 扩展在别的项目里做；保留作为历史记录。当前产品见 [AGENTS.md](../AGENTS.md) 与 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
+
 依据：`docs/research/openchamber-source-review-2026-10-17.md`（源码复盘）+ 本轮配对路径实测。
 原则：**上游已经做完的，一律不重做；我们只保留上游做不了的那一层。**
 

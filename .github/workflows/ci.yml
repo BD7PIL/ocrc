@@ -21,40 +21,24 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
-      - name: Install (plugin + extensions)
+      - name: Install (cli + extensions)
         run: |
           npm ci
           npm --prefix extensions/ocrc ci
           npm --prefix extensions/ocrc-omo-view ci
 
-      # src/ imports the vendored workflow engine from vendor/zcode-dwf/dist,
-      # which is a build product (gitignored). A fresh clone has no dist, so
-      # every job that typechecks or packs must build it first.
-      - name: Build vendored dwf engine
-        run: npm run build:dwf
-
-      - name: Typecheck (plugin)
+      - name: Typecheck (cli)
         run: npm run typecheck
 
       - name: Typecheck (tests — the test tree is typechecked too)
         run: npm run typecheck:tests
 
-      # `dist/` before the tests: install/uninstall tests exercise the built
-      # entrypoint, and a fresh clone has no dist until tsc runs.
-      - name: Build (plugin)
+      # `dist/` before the tests: a fresh clone has no dist until tsc runs.
+      - name: Build (cli)
         run: npm run build
 
-      - name: Test (plugin — unit)
+      - name: Test (cli)
         run: npm test
-
-      - name: Test (plugin — integration, fake bot)
-        run: npm run test:integration
-
-      - name: Coverage (plugin, baseline report)
-        if: matrix.node-version == 22
-        run: |
-          npx vitest run --coverage --coverage.reporter=text --coverage.reporter=json-summary
-          npx vitest run --coverage --coverage.reporter=text-summary 2>/dev/null | tail -20 || true
 
       - name: Typecheck + test + build (extensions)
         run: |
@@ -80,19 +64,3 @@ jobs:
       # the five-copies-of-theme.css drift.
       - name: Guest bundle invariants (no process.env, theme bridge, no prompts)
         run: node scripts/check-guest-bundles.mjs
-
-      # Windows-handoff artifact: both extensions at their install shape,
-      # packed for the panel's folder install (batch6 handoff §2).
-      - name: Pack ocrc-extensions tarball
-        run: |
-          mkdir -p pack
-          cp -r extensions/ocrc extensions/ocrc-omo-view pack/
-          rm -rf pack/*/src pack/*/node_modules pack/*/dist pack/*/tests
-          tar czf ocrc-extensions-${{ github.sha }}.tar.gz -C pack ocrc ocrc-omo-view
-
-      - name: Upload extension pack
-        uses: actions/upload-artifact@v4
-        with:
-          name: ocrc-extensions-${{ github.sha }}
-          path: ocrc-extensions-${{ github.sha }}.tar.gz
-          retention-days: 30

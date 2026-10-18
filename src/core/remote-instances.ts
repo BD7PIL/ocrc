@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { createLogger } from '../utils/logger.js'
-import { generateServerPassword } from './remotes.js'
+import { generateSecret } from '../utils/secret.js'
 import {
   DEFAULT_APP_VERSION, DEFAULT_INSTANCE_PORT, DEFAULT_LOCAL_PORT, PROXY_DEFAULTS, RECONNECT_DEFAULTS,
   instanceIdFor, redactInstance, type RedactedInstance, type RemoteInstance,
@@ -170,7 +170,7 @@ export function createRemoteInstancesStore(path: string, opts: { flushOnExit?: b
       if (existing) {
         Object.assign(existing, instance, { id })
         Object.assign(existing, normalize(existing))
-        existing.uiPassword ??= generateServerPassword()
+        existing.uiPassword ??= generateSecret()
         persist()
         return { ...existing }
       }
@@ -184,7 +184,7 @@ export function createRemoteInstancesStore(path: string, opts: { flushOnExit?: b
         name: instance.name,
         instancePort: instance.instancePort ?? DEFAULT_INSTANCE_PORT,
         localPort: instance.localPort ?? DEFAULT_LOCAL_PORT,
-        uiPassword: instance.uiPassword || generateServerPassword(),
+        uiPassword: instance.uiPassword || generateSecret(),
         enginePath: instance.enginePath,
         engineVersion: instance.engineVersion,
         appVersion: instance.appVersion ?? DEFAULT_APP_VERSION,

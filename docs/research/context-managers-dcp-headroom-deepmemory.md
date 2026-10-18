@@ -1,5 +1,7 @@
 # 上下文管理三项目对比：opencode dcp vs headroom vs opencode-deep-memory
 
+> **已过时（2026-10-19）**：本文件描述的功能/入口属于**已删除的驾驶舱那一代**（Telegram/Web 通道、工作流、日程、技能、子代理、引擎级远程主机）。它们已从本仓库删除，会作为独立的 openchamber 扩展在别的项目里做；保留作为历史记录。当前产品见 [AGENTS.md](../AGENTS.md) 与 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
+
 - **日期**：2026-10-15
 - **性质**：三项目深入对比调研。两个外部项目为网络一手调研（GitHub API / raw.githubusercontent / npm registry，非博客转述）；deep-memory 为本地源码盘点（`/home/demo/develop/opencode-plugin/opencode-deep-memory`）。
 - **触发**：用户要求「调研 opencode dcp、我们自己开发的 opencode-deepmemory、headroom 这三个项目，深入评估差异和优缺点」。

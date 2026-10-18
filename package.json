@@ -1,37 +1,23 @@
 {
   "name": "@bd7pil/ocrc",
-  "version": "2.0.0-alpha.8",
-  "description": "Provision and drive remote openchamber instances: install openchamber (runtime + pinned opencode) on a Linux machine over ssh, relay its egress when it has none, and pair it into the desktop app. The same library ships as the OCRC panel extension and as this CLI/agent.",
+  "version": "2.0.0-alpha.9",
+  "description": "Provision and drive remote openchamber instances over ssh: install openchamber (runtime + pinned opencode + app) on a Linux machine that may have no outbound network, relay its egress when it cannot reach a model catalogue, pair it into the desktop app, and keep its config and credentials in sync.",
   "type": "module",
-  "main": "dist/plugin/entry.js",
+  "main": "dist/index.js",
   "exports": {
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
-    },
-    "./plugin": {
-      "import": "./dist/plugin/entry.js",
-      "types": "./dist/plugin/entry.d.ts"
-    },
-    "./install": {
-      "import": "./dist/cli/install.js",
-      "types": "./dist/cli/install.d.ts"
-    },
-    "./uninstall": {
-      "import": "./dist/cli/uninstall.js",
-      "types": "./dist/cli/uninstall.d.ts"
     }
   },
   "scripts": {
     "build": "tsc",
-    "build:all": "npm run build && npm run build:dwf",
-    "prepublishOnly": "npm run build:all",
+    "build:all": "npm run build",
+    "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:integration": "vitest run --config vitest.integration.config.ts",
-    "build:dwf": "node scripts/build-dwf.mjs",
     "preflight": "node scripts/preflight.mjs"
   },
   "bin": {
@@ -39,29 +25,9 @@
   },
   "files": [
     "dist",
-    "ops",
-    "vendor/zcode-dwf/dist"
+    "ops"
   ],
-  "dependencies": {
-    "@agentclientprotocol/sdk": "^1.6.1",
-    "@hono/node-server": "^2.0.2",
-    "@larksuiteoapi/node-sdk": "^1.74.0",
-    "@opencode-ai/plugin": "^1.18.34",
-    "@opencode-ai/sdk": "^1.17.13",
-    "diff": "^9.0.0",
-    "dingtalk-stream": "^2.1.6-beta.1",
-    "dotenv": "^18.0.5",
-    "grammy": "^1.46.0",
-    "hono": "^4.13.12",
-    "jose": "^6.2.3",
-    "mdast-util-to-string": "^4.0.0",
-    "qrcode": "^1.5.4",
-    "remark-gfm": "^4.0.1",
-    "remark-parse": "^11.0.0",
-    "undici": "^7.30.0",
-    "unified": "^11.0.5",
-    "ws": "^8.20.1"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/diff": "^8.0.0",
     "@types/node": "^20.14.0",
@@ -86,15 +52,13 @@
     "access": "public"
   },
   "keywords": [
-    "opencode",
     "openchamber",
-    "remote-control",
+    "opencode",
     "provisioning",
     "ssh",
     "relay",
     "air-gap",
-    "telegram",
-    "ai-agent"
+    "remote-instance"
   ],
   "engines": {
     "node": ">=20"

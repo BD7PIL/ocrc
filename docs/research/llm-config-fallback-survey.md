@@ -1,5 +1,7 @@
 # LLM 配置 / per-agent 模型 / fallback / MCP-skills 同步调研（批次 5 依据）
 
+> **已过时（2026-10-19）**：本文件描述的功能/入口属于**已删除的驾驶舱那一代**（Telegram/Web 通道、工作流、日程、技能、子代理、引擎级远程主机）。它们已从本仓库删除，会作为独立的 openchamber 扩展在别的项目里做；保留作为历史记录。当前产品见 [AGENTS.md](../AGENTS.md) 与 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
+
 - 日期：2026-10-15
 - 性质：三向一手源查证（openchamber 源码级、opencode v2 2.0 分支源码+官方 schema、omo-slim 仓库文档级），回答用户六问并立项批次 5「配置与凭据桥」。
 - 落地记录：本批次交付（第五工具 / env 注入 / 白名单修订 / ocrc-remote 配置桥）。

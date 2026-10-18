@@ -1,74 +1,21 @@
 # Operations Guide
 
-> ocrc 运维手册，对齐 **v0.26.5** 现状（npm 包 `@bd7pil/ocrc`、`ocrc start`
-> 生命周期、SSH remote hosts）。架构见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+> ocrc 运维手册：**这个仓库只做远程 openchamber 实例**——把整套 openchamber 装到远程 Linux
+> 机器、起它、配对进桌面 app、同步配置与凭据。驾驶舱那一代（Telegram/Web 通道、工作流、日程、
+> 技能、引擎级远程主机）已从仓库删除，会作为独立的 openchamber 扩展在别的项目里做。
+> 架构见 [ARCHITECTURE.md](ARCHITECTURE.md)，产品边界见 [PRODUCT.md](PRODUCT.md)。
 
-## 安装
-
-```bash
-npm i -g @bd7pil/ocrc     # npm 上的 opencode-remote-control 是无关包，别 npx
-ocrc install              # 交互：Telegram bot token + user id（可留空 → web-only）
-ocrc start /path/to/your/project
-```
-
-要求：Node 20+，opencode 1.17+（生产验证至 1.18.32，EL7/glibc 2.17 是硬边界）。
-`ocrc install` 写插件桥到 `~/.config/opencode/plugins/ocrc.js`、配置到仓库 `.env`
-（0600）。从源码跑：`npm install && npm run build:all`，CLI 入口 `node dist/cli/index.js`。
-
-## 生产生命周期（supervisor 内建）
+## 安装（控制端 CLI）
 
 ```bash
-ocrc start <dir>    # spawn 自身 --supervisor（detached），adopt-or-spawn
-ocrc status         # binary / server / supervisor / web panel / workdir
-ocrc stop           # 先 TERM supervisor，再实例；15s 后 SIGKILL 兜底
-ocrc restart [dir]  # stop + start
-ocrc restore        # 读 ~/.ocrc/run/last.json 幂等复活（@reboot cron 用）
+npm i -g @bd7pil/ocrc        # 只用 Node 内建模块，零运行时依赖
+ocrc remote list             # 看已登记的远程实例
+ocrc remote add --host 192.168.26.101 --user demo --ssh-auth key
 ```
 
-语义（cli/service.ts）：
-- **崩溃自愈**：子进程 SIGKILL/段错误/OOM 都视为崩溃，5s 后重启
-  （`OCRC_WATCH_DELAY` 可调）；SIGTERM/SIGINT 或 stop 文件 = 真停。
-- **adopt**：端口已被占用时收编现有实例而不是双起。
-- 开机自启（opt-in）：`@reboot sleep 60 && ocrc restore >> ~/.ocrc/prod.log 2>&1`
-- 日志：`~/.ocrc/prod.log`（supervisor/实例 stdout）+ `~/.ocrc/ocrc.log`
-  （应用日志，10MB 轮转）。
-
-## Standalone host（可选，多后端）
-
-```bash
-OCRC_BACKENDS="opencode, kimi=kimi acp" ocrc host
-```
-
-独立进程（非插件），ACP agent 需先登录（如 `kimi login`）；opencode 后端由
-host 自 spawn（4096 起，被占则向后探测 10 个）。ACP 会话持久化在
-`~/.ocrc/acp-sessions.json`。前台进程，崩溃不自启——生产建议 plugin 模式。
-
-## SSH remote hosts（0.26+）
-
-> **不推荐新用（D12，2026-10-18）**：这是**引擎级**旧拓扑（控制端跑面板、隧道连对端
-> 引擎，v1 口径），只保留兼容。产品形态是**实例级**——openchamber 跑在对端，见
-> 「远程 openchamber 实例」一节；配置同步也请用实例的 `config-diff`/`sync-config`
-> （深合并 + 显式删除），不要用这里的整文件覆盖版。本节只修 bug，不加功能。
-> 冻结的入口：`src/core/remote-host.ts`、`remotes.json`、`/api/remotes/*`、`ocrc_remote_*`。
-
-Web 面板 Inspector → **Remotes** 卡片（API：`/api/remotes`）：
-
-| 操作 | 路由 | 说明 |
-|---|---|---|
-| 注册/编辑 | `POST/PATCH /api/remotes[/:id]` | host/port/user/remotePort；密码自动生成（0600 存储，API 永不回显） |
-| 探测 | `POST /api/remotes/:id/inspect` | 一轮 ssh：平台/glibc/opencode 路径+版本/凭据/端口 |
-| 安装 | `POST /api/remotes/:id/provision` | 官方安装器 pin 本地版本；无外网回退 scp 本地二进制 |
-| 同步凭据 | `POST /api/remotes/:id/sync-auth` | 复制本机 `~/.local/share/opencode/auth.json`（0600） |
-| 启停 | `PATCH /api/remotes/:id` `enabled` | 启动 = 隧道+serve 一个 ssh 进程；删除两步确认 |
-
-状态机：`unknown → detecting → provisioning → launching → online`，异常态
-`needs-auth / error / offline / disabled`；面板轮询 GET /api/remotes 看
-`status.logTail`（ssh 输出 200 行环）。远端默认端口 4199（避开用户自己的
-4096 serve）。注册生效需重启实例（channels 同款语义，UI 已标注）。
-
-添加主机走**四步向导**（选择方式 → 填写配置 → 连接中 → 完成）：向导自动
-探测 → 缺装则部署 → 启动隧道 + serve → 等待在线；「连接中」页实时展示
-部署/隧道日志。
+要求：Node 20+。**控制端**是装了 openchamber 桌面 app 的那台机器（Win/Mac），**被控端**是
+Linux x86_64（EL7 / glibc 2.17 是支持下限）。面板扩展的安装与升级见下面「装扩展」一节。
+从源码跑：`npm install && npm run build`，CLI 入口 `node dist/cli/index.js`。
 
 ## 远程 openchamber 实例（2.0.0-alpha.8，「对端能力」）
 
@@ -501,159 +448,45 @@ Host airgapped-01
 - 密码档的密码只经环境变量喂给 ssh helper（`OPENCHAMBER_SSH_ASKPASS_VALUE`），**helper 脚本里没有秘密**；但 `ps` 能看到 ssh 子进程的环境（同用户可读），所以别在共享机器上用密码档。
 - 备份 `~/.ocrc` 之前先确认目标位置同样是私有的；**永不进仓库**（2026-10-17 有过一次文档里写入口令字面量、提交前拦下）。
 
-## 公网访问（Web API）
-
-> **注意（2026-10-19）**：本仓库**不再包含 Web 前端**——Svelte PWA 与 `web-next` 壳都已删除，`ocrc host` 的 `/` 路由因此没有可服务的前端产物，`ocrc pair` 的链接指向的页面本仓库不提供。下面这张表仍然对**把 Web 当 API 用**（或自带前端）的部署有效；要 PWA 就得自己构建前端并放进 `staticRoot`。
-
-Web 默认 `0.0.0.0:4099`（token 门禁）。要让浏览器安全上下文（HTTPS）成立：
-
-| 方式 | 命令 | 说明 |
-|---|---|---|
-| LAN 明文 HTTP | `http://<lan-ip>:4099` | 浏览器可用；装 PWA 需 HTTPS |
-| Tailscale | `tailscale serve 4099` | 稳定 `*.ts.net`，设备级认证 |
-| cloudflared | ingress `service: http://localhost:4099` | 稳定域名；改后 `kill -HUP <pid>` 热重载 |
-| cloudflared 快速隧道 | `cloudflared tunnel --url http://localhost:4099` | 免费，URL 轮换；配 `OCRC_WEB_PUBLIC_URL` |
-
-### 配对与远控会话（P-remote，对齐 ZCode v3.15.1 语义）
-
-两层凭据，生命周期完全解耦：
-
-| 层 | 凭据 | 进入方式 | 失效时机 |
-|---|---|---|---|
-| **锚设备**（桌面） | 永久 token（`~/.ocrc/token`） | `ocrc start` 末尾打印的 `#token=` 链接 | 仅 `ocrc pair --reset` / 撤销配对轮换 |
-| **手机**（会话） | 会话凭证（内存态，主机重启即清） | 面板侧栏 ▸ 远程控制 扫码 / `ocrc pair` / TG `/pair` | 会话**刷新**（新 epoch 踢全部手机）或**停止** |
-
-远控会话管理**仅限主机本机**（loopback 403 兜底）：面板远程控制弹层左栏
-（开启/刷新二维码/停止/复制链接，刷新与停止有官方同款确认弹窗），或 CLI：
-
-- `ocrc pair` — 开启/刷新会话并打印二维码（再跑一次 = 刷新 = 踢人）
-- `ocrc pair --stop` — 停止会话（锚设备不受影响）
-- `ocrc pair --reset` — 轮换锚 token（锚设备与手机全部失效；TG bot 通道不受影响）
-
-会话存续期二维码可**多台手机**扫（每台各得一个会话凭证）；会话关闭后
-onboarding 页显示「已关闭」而非二维码。`WEB_AUTH=cf-access` 模式无会话
-（相关端点 409）。**隧道后严禁** `OCRC_WEB_CF_ACCESS_DEV_BYPASS=true`
-（cloudflared 从 127.0.0.1 连入，等于对全网免认证——也会绕过会话管理的
-loopback 门）。
-
-## 环境变量（`~/.ocrc/config.env` 或 `.env`，0600）
+## 环境变量
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
-| `TELEGRAM_BOT_TOKEN` / `ALLOWED_USER_IDS` | — | TG 通道；两者必须成对，留空 = web-only |
-| `OCRC_WEB_ENABLED` / `_HOST` / `_PORT` | `true` / `0.0.0.0` / `4099` | fork 默认 LAN-first（legacy `WEB_*` 名仍兼容） |
-| `OCRC_WEB_AUTH` | `token` | 或 `cf-access`（需 TEAM+AUD） |
-| `OCRC_WEB_PUBLIC_URL` | 自动探测 | cloudflared ingress → LAN IP → loopback |
-| `OCRC_SERVER_PORT` / `OCRC_SERVER_BIN` | `4096` / `~/.local/bin/opencode` | `ocrc start` 用 |
-| `OCRC_WATCH_DELAY` | `5`（秒） | 崩溃重启延迟 |
-| `OPENCODE_SERVER_PASSWORD` | — | 服务端开了 Basic 认证时，所有裸 fetch 自动附带 |
-| `CHAT_TIMEOUT_MS` | `600000` | 单轮超时 |
-| `TG_CHUNK_SOFT_LIMIT` | `3500` | TG 分页软限 |
-| `LOG_LEVEL` | `warn` | 只写文件（stdout 会污染 TUI） |
-| `OCRC_LOCALE` | `zh` | TG i18n（en 兜底） |
-| `OCRC_BACKENDS` / `OCRC_ACP_CMD` | — / `kimi acp` | 仅 standalone host |
-| `OCRC_OFFPEAK_WINDOW` | `00:00-08:00` | 闲时工单派发窗口（`HH:MM-HH:MM`，start>end 表示跨午夜） |
-| `OCRC_CSP` | `enforce` | web 面板 CSP 响应头模式：`enforce` / `report`（Report-Only 收集）/ `off`。由 host 下发（非 `<meta>`），脚本 nonce 每响应一枚；排障或新部署可先切 `report` 看违规 |
+| `OCRC_HOME` | `~/.ocrc` | 状态目录（实例记录、工件缓存、转发标记、日志） |
+| `OCRC_PACK_DIR` | — | 平铺镜像目录：离线部署时从这里取 `ocrc-openchamber-pack-*` 而不是去 registry |
+| `OCRC_REGISTRY` / `OCRC_CACHE_DIR` | — | 验收脚本用的 fixture registry / 缓存目录（产品路径不设） |
+| `OCRC_V2_PIN` | 见 `ops/v2-pin-manifest.json` | 引擎 pin 的覆盖（pin 优先级：manifest > 这个变量 > 动态跟随） |
+| `OPENCODE_SERVER_PASSWORD` | — | 被控端引擎开了 Basic 认证时，转发/探活带它 |
+| `LOG_LEVEL` | `warn` | `debug` 更细；只写文件，stdout 会污染 TUI |
 
-## 目标循环（N12 goal）——运维要点
-
-- **状态在哪**：`~/.ocrc/state.json` 的 `goals` 槽位（按 sessionId）。删会话会连带清掉；
-  `POST /api/goal {action:'clear'}` 或 TG `/goal clear` 单清。
-- **重启行为**：host 启动时把**所有 active 目标落成 `paused`**（绝不自动拉起——上游同款
-  冷恢复语义）。用户 `resume` 才续跑；状态、迭代计数、用量与验收历史都不丢。
-- **验收器**：一次独立子会话调用（`promptOnce`：建子会话 → 带 `tools` 禁用写类工具发一次
-  prompt → 读回复 → 删子会话）。**fail-closed**：坏 JSON / 调用失败 / 空回复一律停机并通知，
-  不判"通过"。**残余风险**：工具名空间无法枚举，`tools` map 只能禁已知写类工具（write/edit/
-  multiedit/patch/bash/task/todowrite），叠加提示词里的"不要调用工具"约束；证据窗口有界
-  （~8k 字符），超长会话可能"证据不足"→ 同样停机通知（宁可停，不误判完成）。
-- **三条硬闸**：token 预算（上游有）、迭代上限 12、无进展检测（连续 2 轮同 nextAction）
-  ——后两条是本项目新增。撞闸 = `paused` + 一张 info 卡（TG 与 /z/ 都收得到）。
-- **成本**：每回合末一次验收调用（一个子会话，约等于一次短问答）。不想要就 `/goal clear`。
-- **关停**：host `dispose()` 会先 `goalManager.stop()` 再拆传输——停机时不会有续跑派发进已拆的
-  relay。
-
-## Dynamic workflows（P0–P4）——运维要点
-
-- **开关**：`OCRC_WORKFLOW=off` 整面变暗（不读 journal、不注册路由）。host 日志里
-  `workflow engine enabled — journal at <dir>` / `workflow engine disabled` 是判据。
-- **状态在哪**：`~/.ocrc/workflows/`——
-  `runs/<runId>.jsonl`（每 run 一个 journal，行种类见 ARCHITECTURE）、
-  `artifacts/<runId>/<id>.v<version>`（产物字节 + `index.json` 记 contentType）、
-  `saved.json`（具名可复用脚本）。删 run 就删它的 journal；产物目录可单独清。
-- **崩溃恢复**：host 重启时把 `running` 的 run 落 `stopped(interrupted)`（**可 resume**），
-  **绝不自动续跑**——actor 会话是用户的，重跑要花 token。`ocrc wf resume <runId>` 或
-  `POST /api/workflow/runs/:id/resume`。`errored`（脚本自己的错）**不可 resume**，只能 amend。
-- **取消**：`ocrc wf cancel <runId>` 只对**本进程**在飞的 run 生效（host 持有的那些）；
-  落 `stopped(user)`。
-- **并发**：run 级上限 = 提交时的 `maxConcurrency`（默认 4），进程天花板
-  `max(1,min(16,availableParallelism()-2))`。引擎按上限排序派发，driver 另有一层 seat gate。
-- **token 预算**：提交时给 `tokenBudget`，越线即停（`stopped`）。用量取引擎自己的
-  per-session token 计数，与面板同源。
-- **world.run 的人工门**（默认开）：`OCRC_WORKFLOW_RUN=off` 一律拒绝 /
-  `=auto` 放行并每次 warn（无人值守）/ 缺省发审批卡等决策，**超时 5 分钟即拒绝**。
-  只有从会话里起的 run 才有父会话可问；没有父会话的命令一律拒绝。`always` 按
-  (run, 命令) 记忆。
-- **world 读的 caps**：grep 2000 条 / 256KB、glob 2000、git diff 512KB、world.run
-  stdout+stderr 各 256KB、默认超时 300s。**超限是拒绝不是截断**（脚本可以 catch）。
-- **成本**：每个 actor 是一个独立子会话（与用户会话同列，可在面板里打开）；一个 3 actor
-  fan-out 就是 3 份上下文。想省就在脚本里少扇出，或给 `tokenBudget`。
-- **CLI**：`ocrc wf list|show|events|cancel|resume|amend|run|compile|saved`（读面不需要
-  引擎在跑；`run`/`resume` 指向 host 用的同一个引擎，`OCRC_SERVER_URL` 决定是哪个）。
-
-### 面板面（P4）——面板与命令
-
-- **workflow 面在 `/z/` 里是否可见**，唯一总闸是 `codingPlanSubscriptionService
-  .getDynamicWorkflowClientConfig()`（我们如实回 `alwaysOn/override`）。它 fail-closed：取数
-  失败即 `enabled:false`，卡片/按钮/侧页/Saved Workflows 全部隐藏——面板里「什么都没有」时
-  先查这一条。
-- **读面**：`GET /api/workflow/projection[?sessionId=]` 是面板读的那一份（journal 现算）；
-  另有七条 vendor 形状的只读查询（`/runs/:id/{events/v4,workspace,artifacts/v4,...}`），
-  每条都要求 `sessionId` 等于该 run 的 parentSessionId。
-- **`ocrc wf` 与面板读同一份 journal**，但路径不同：CLI 直接读文件，面板经 HTTP。所以 CLI 能
-  看到而面板看不到时，先确认 host 在跑、token 有效。
-- **amend 的缓存**（P4b）：日志里 `amend <id>: import cache {...}` 是命中；`no import cache
-  (missing_boundaries)` 表示前驱的 ask 没有 `messageBoundary`（P4b 之前的 run 都是这样），
-  修订照常进行、只是重跑——不是错误。`messageBoundary` 由 driver 补写（typed ask 在值被接受时
-  写临时值，turn end 写权威值——权威那条常常在 run 结算**之后**才到，由 `settledDrivers` 接住），
-  单位是 actor 会话的**卡片条数**，宿主另记一行 `ask-boundary`（含边界消息 id）。
-- **转录种子**（P4b 第二轮）：日志里 `actor … seeded from <session>: N units` 是分歧 actor 拿到了
-  前驱前缀；`no transcript seeding … (backend lacks forkSession)` / `no boundary at N units` /
-  `fork failed` 都是**如实降级**——那条 actor 以空会话开场、修订照常跑。`transcript seeding … the
-  copy will be one message short` 表示源转录读不出来、只能拿边界消息当切点（少一条）。
-- **saved workflows**：`~/.ocrc/workflows/saved.json` 是**机器级**一个 store（不是按项目分
-  目录的文件）。面板的 `dir`/`path` 报的就是这个文件；scope 是记录上的字段（默认 `project`）。
-  `moveSavedWorkflow`（全局→项目）如实拒绝——没有可搬的文件。
-- **门禁**（隔离栈 + 真实浏览器/CDP，全部在 `scripts/spikes/p4-*/`）：
-  `p4-projection` 23/23、`p4-queries` 37/37、`p4-saved` 20/20、`p4b-amend` 18/18。
-  每道都自起 host(:4199)+引擎(:4295)+stub 模型(:4300)，**生产引擎 :4096 零接触**，子进程 env
-  显式清空 Telegram 凭据。记录见 `docs/workflow-p4-record.md`。
+面板 service 由 openchamber 拉起，只读它给的两个变量（`OPENCHAMBER_SERVICE_PORT` /
+`OPENCHAMBER_SERVICE_TOKEN`）——不要手工设。
 
 ## 诊断速查
 
 ```bash
-ocrc status                                          # 一眼看全
-tail -f ~/.ocrc/ocrc.log                             # 应用日志（LOG_LEVEL=debug 更细）
-curl -s -H "Authorization: Bearer $(cat ~/.ocrc/token)" \
-  http://127.0.0.1:4099/api/logs | tail              # 应用内日志环（500 行）
-curl http://localhost:4096/global/health             # opencode 健康
-ss -ltnp | grep -E '4096|4099'                       # 端口占用
+ocrc remote status <id>                    # 状态 + 出口决定 + 转发持有者
+ocrc remote peerlog <id>                   # 被控端两份日志（我们的 instance.log + 对端 openchamber）
+ocrc remote proxy-log ~/.ocrc/remote-relay.log   # 判读对端是否真的走了我们的中继
+ocrc remote plan <id>                      # 只读预演：ssh/环境/引擎门禁/将要做什么
 ```
 
-WS 上下文零帧/配对失败等前端问题：浏览器 DevTools → Application → Service
-Workers → Unregister（别用 Clear site data，会连 localStorage 的 token 一起清）。
+面板里等价：卡片「详情」看端口/路径/转发/探测/最近一次结果，「日志」看三处。
+服务不可达时面板会说「服务未运行」，状态区也会——**不会**假装成空列表。
 
 ## 构建与测试（源码开发）
 
 ```bash
-npm install && npm run build:all   # tsc + vendor dwf 引擎 + web-next（vite build）
-npm test                           # 后端 vitest（853 例）
-npm run typecheck
-cd web-next && npm test            # /z/ 桥接 vitest（161 例）；npm run typecheck
+npm install && npm run build      # CLI（tsc）；零运行时依赖
+npm test                          # 180 项（实例线）
+npm run typecheck && npm run typecheck:tests
+npm run preflight                 # 提交前必跑（重建两扩展 + 三处 typecheck + 三套测试 + guest 不变量）
 
-# 隔离 dev 实例（4199）——AGENTS.md 有完整命令。scripts/spike-restart.sh
-# （4598 遗留，误跑会抢 TG token 顶死隔离 host）已于 2.0.0-alpha.7 删除；
-# scripts/v2-restart.sh 仅限 /tmp/ocrc-spike 沙盒，非沙盒环境会自我拒绝。
+npm --prefix extensions/ocrc test          # 扩展测试（39 项）
+node extensions/ocrc/scripts/audit.mjs     # 逐组件截图（清单见 preview/audit/README.md）
+bash scripts/accept-remote-instance.sh --target user@host   # 真机端到端验收
 ```
 
-> 本地 vitest 不编译 web 的全部组件——CI 才是完整门禁（历史上两次构建错误只有
-> CI 抓到）。
+CI（`.github/workflows/ci.yml`）跑：typecheck（CLI + 测试树）、CLI 测试、两个扩展的
+typecheck/test/build、扩展产物一致性、guest bundle 不变量。本地 `preflight` 是同一套。
+

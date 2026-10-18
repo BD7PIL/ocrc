@@ -4,11 +4,11 @@
  * Why this exists: openchamber's project/file/git faces resolve **inside the
  * serving process** (`project-directory-runtime.validateDirectoryPath` is an
  * `fsPromises.stat`; `lib/fs/routes.js` reads the local disk). So "Add project
- * 列对端 / 中栏连对端引擎" is satisfied by running the instance **on the
+ * 列远程机器 / 中栏连远程机器引擎" is satisfied by running the instance **on the
  * controlled host** and looking at its UI through a forwarded port — zero
  * patches to openchamber. This module owns the decisions and the shell lines;
- * the ssh transport, store and routes live next door (`core/remote-host.ts`,
- * `transport/web/routes/remote-instance.ts`).
+ * the ssh transport, store and the ops layer live next door
+ * (`core/remote-instance-bridge.ts`, `extensions/ocrc/src/service/`).
  *
  * Two hard rules encoded here (plan §2.1 / R12):
  *   · **Engine must be opencode v2, major 2, >= 2.0.20** — never fall back to

@@ -23,13 +23,13 @@ jobs:
       - name: Upgrade npm (Trusted Publishing requires npm >= 11.5.1)
         run: npm install -g npm@latest
 
-      - name: Install (plugin)
+      - name: Install
         run: npm ci
 
       - name: Verify (typecheck + tests + build)
         run: |
-          npm run build:dwf
           npm run typecheck
+          npm run typecheck:tests
           npm test
           npm run build
 

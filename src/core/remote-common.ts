@@ -1,7 +1,7 @@
-/** Small helpers shared by the remote-host and remote-instance layers.
+/** Small helpers shared across the remote-instance layer.
  *
  * Kept separate so the instance manager (which is bundled into the
- * openchamber extension service) does not pull in all of remote-host.ts just
+ * openchamber extension service) does not pull in the whole bridge just
  * for a version parser and a backoff curve.
  */
 

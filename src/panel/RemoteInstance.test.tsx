@@ -26,6 +26,8 @@ function fakeRequest(handler: (call: Call) => { status: number; body: unknown })
   return { request, calls }
 }
 
+const STUB_HOST = { openUrl: async () => {}, writeClipboard: async () => {} } as never
+
 const ROW = {
   id: 'demo@192.168.26.101', host: '192.168.26.101', user: 'demo', port: 22,
   instancePort: 2610, localPort: 4610, appVersion: '2.3.3', enabled: true, name: 'EL7 box',
@@ -74,7 +76,7 @@ const PLAN = {
 describe('远程服务器卡片', () => {
   it('三行固定字段：名称+状态 / 地址+登录方式 / 版本+网络；地址只出现一次', async () => {
     const { request } = fakeRequest(() => ({ status: 200, body: { instances: [ROW] } }))
-    await act(async () => { render(<RemoteInstance request={request} host={null} />) })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
     await waitFor(() => expect(screen.getByText('EL7 box')).toBeTruthy())
     expect(screen.getByText('在线')).toBeTruthy()
     // 地址：只在第二行出现一次（它曾经既进标题又进第二行）
@@ -87,14 +89,14 @@ describe('远程服务器卡片', () => {
 
   it('缺的字段写「未知」，不省字段（两台机器不许显示成两个产品）', async () => {
     const { request } = fakeRequest(() => ({ status: 200, body: { instances: [FRESH] } }))
-    await act(async () => { render(<RemoteInstance request={request} host={null} />) })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
     await waitFor(() => expect(screen.getByText('新机器')).toBeTruthy())
     expect(screen.getByText(/OpenChamber 未知 · OpenCode 未知 · 未探测/)).toBeTruthy()
   })
 
   it('主动作随状态推进：未安装→检查并安装，已停止→启动，在线→打开界面+停止', async () => {
     const { request } = fakeRequest(() => ({ status: 200, body: { instances: [FRESH, STOPPED, ROW] } }))
-    await act(async () => { render(<RemoteInstance request={request} host={null} />) })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
     await waitFor(() => expect(screen.getByText('新机器')).toBeTruthy())
     expect(screen.getByText('检查并安装')).toBeTruthy()
     expect(screen.getByText('启动')).toBeTruthy()
@@ -112,12 +114,12 @@ describe('远程服务器卡片', () => {
       if (body?.op === 'apply') return { status: 200, body: { ok: true, detail: '已推送 2.3.3' } }
       return { status: 200, body: {} }
     })
-    await act(async () => { render(<RemoteInstance request={request} host={null} />) })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
     await waitFor(() => expect(screen.getByText('检查并安装')).toBeTruthy())
 
     await act(async () => { screen.getByText('检查并安装').click() })
     await waitFor(() => expect(screen.getByText('检查结果（只读，不写远程机器）')).toBeTruthy())
-    expect(screen.getByText('1.18.32')).toBeTruthy()
+    expect(screen.getByText(/1.18.32/)).toBeTruthy()
     expect(screen.getByText(/推送我们 pin 的 OpenCode/)).toBeTruthy()
     expect(calls.filter((c) => (c.body as { op?: string })?.op === 'apply')).toHaveLength(0)
 
@@ -133,7 +135,7 @@ describe('远程服务器卡片', () => {
 
   it('service 不可达时如实报，不装成空列表', async () => {
     const { request } = fakeRequest(() => ({ status: 502, body: { error: '控制端 service 不可达：connect ECONNREFUSED' } }))
-    await act(async () => { render(<RemoteInstance request={request} host={null} />) })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
     await waitFor(() => expect(screen.getByText(/控制端 service 不可达/)).toBeTruthy())
   })
 
@@ -143,7 +145,7 @@ describe('远程服务器卡片', () => {
       if (body?.op === 'list') return { status: 200, body: { instances: [ROW] } }
       return { status: 200, body: {} }
     })
-    await act(async () => { render(<RemoteInstance request={request} host={null} />) })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
     await waitFor(() => expect(screen.getByText('EL7 box')).toBeTruthy())
     // 次要动作默认不在屏上
     expect(screen.queryByText('配置差异与同步')).toBeNull()
@@ -165,7 +167,7 @@ describe('远程服务器卡片', () => {
 
   it('详情里放事实：端口、OpenCode 路径、转发、探测原因；网络只在详情出现第二次', async () => {
     const { request } = fakeRequest(() => ({ status: 200, body: { instances: [ROW] } }))
-    await act(async () => { render(<RemoteInstance request={request} host={null} />) })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
     await waitFor(() => expect(screen.getByText('EL7 box')).toBeTruthy())
     await act(async () => { screen.getByText('详情 ▾').click() })
     await waitFor(() => expect(screen.getByText('端口：远程 2610 → 本机 4610（绑定 127.0.0.1）')).toBeTruthy())
@@ -221,7 +223,7 @@ describe('远程服务器卡片', () => {
       if (body?.op === 'syncconfig') return { status: 200, body: { ok: true, detail: '同步 2 个文件' } }
       return { status: 200, body: {} }
     })
-    await act(async () => { render(<RemoteInstance request={request} host={null} />) })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
     await act(async () => { screen.getByText('更多 ▾').click() })
     await act(async () => { screen.getByText('配置差异与同步').click() })
     await waitFor(() => expect(screen.getByText(/配置差异（控制端 ↔ 远程机器/)).toBeTruthy())
@@ -250,7 +252,7 @@ describe('远程服务器卡片', () => {
       if (body?.op === 'defaults') return { status: 200, body: DEFAULTS }
       return { status: 200, body: {} }
     })
-    await act(async () => { render(<RemoteInstance request={request} host={null} />) })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
     await act(async () => { screen.getByText('添加服务器').click() })
     await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'defaults')).toBe(true))
     expect((screen.getByDisplayValue('4612') as HTMLInputElement).value).toBe('4612')

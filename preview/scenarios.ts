@@ -76,6 +76,115 @@ export const SCENARIOS: Record<string, PreviewRow[]> = {
   fresh: [FRESH],
 }
 
+export const rows = (scenario: string): PreviewRow[] =>
+  scenario === 'upfail' ? [STOPPED]
+    : scenario === 'pw' ? [{ ...STOPPED, sshAuth: 'password' as const, hasSshPassword: true, provision: 'reuse' as const }]
+      : SCENARIOS[scenario] ?? []
+
+/**
+ * 每个 op 的固定应答——**没有这些，面板里那些卡片根本打不开**，
+ * 而"看过每个组件"要求它们都能打开。
+ */
+export const opRoutes = () => ({
+  'POST /remote-instance#defaults': {
+    body: { localPort: 4614, instancePort: 2610, appVersion: '2.3.3', enginePin: '2.0.27', nodeRuntime: '24.22.0', bind: '127.0.0.1', taken: [4610, 4612] },
+  },
+  'POST /remote-instance#plan': {
+    body: {
+      reachable: true,
+      inspected: { uname: 'Linux x86_64', glibc: '2.17', home: '/home/demo' },
+      app: '2.3.3',
+      engineError: '远程机器上没有找到满足 v2 门禁的 OpenCode（候选：$HOME/.ocrc/remote/engine/opencode, $HOME/.opencode/bin/opencode, $HOME/.local/bin/opencode）——先装一份 v2（面板的「检查并安装」会推我们 pin 的那份）',
+      engineCandidates: [
+        { path: '/home/demo/.local/bin/opencode', raw: '1.18.32' },
+        { path: '/usr/local/bin/opencode', raw: '（版本未知）' },
+      ],
+      actions: [
+        '推送运行时 node v24.22.0（控制端已备件，离线）',
+        'FAIL OpenCode 不满足 v2 门禁：远程机器上只有 v1',
+        '安装我们 pin 的 OpenCode 2.0.27 到 ~/.ocrc/remote/engine/opencode（远程机器现有 v1 一律不动）',
+        '联网方式：经本机转发（远程机器出不了网）',
+        '注意：实例端口 2610 在远程机器已被占用——换个实例端口，或确认那是上一次的实例（启动会复用）',
+      ],
+      url: 'http://127.0.0.1:4610',
+      egress: { mode: 'auto', relay: true, reason: '远程机器出不了网', probe: 'none' },
+      provision: 'push',
+      tier: 'legacy-glibc217',
+      peerPort: 'open',
+    },
+  },
+  'POST /remote-instance#pairlink': {
+    body: {
+      ok: true,
+      detail: '配对链接已生成（远程实例在跑）',
+      link: 'openchamber://connect?v=2&p=eyJ2IjoyLCJyZWxheSI6IndzczovL3JlbGF5Lm9wZW5jaGFtYmVyLmRldiIsImtleSI6Ik1IUU5aSUxFT2EzWU1KcUcifQ',
+      expiresAt: '2026-10-18T12:34:56Z',
+      url: 'http://127.0.0.1:4610',
+    },
+  },
+  'POST /remote-instance#logs': {
+    body: {
+      lines: [
+        '[2026-10-18T10:01:02Z] forward: ssh -N -L 127.0.0.1:4610:127.0.0.1:2610 -R 127.0.0.1:2711:127.0.0.1:4711 demo@192.168.26.101',
+        '[2026-10-18T10:01:03Z] forward: connected',
+        '[2026-10-18T10:01:05Z] relay: listening on 127.0.0.1:4711',
+        '[2026-10-18T10:01:06Z] probe: GET http://127.0.0.1:4610/api/system/info → 200 (openchamber 2.3.3)',
+        '[2026-10-18T10:01:06Z] instance demo@192.168.26.101: online',
+      ],
+    },
+  },
+  'POST /remote-instance#peerlog': {
+    body: {
+      ok: true,
+      instance: [
+        '2026-10-18T10:01:04Z serve: listening 127.0.0.1:2610',
+        '2026-10-18T10:01:04Z engine: /home/demo/.ocrc/remote/engine/opencode (2.0.27)',
+      ],
+      app: [
+        '2026-10-18T10:01:05Z openchamber 2.3.3 started on 127.0.0.1:2610',
+        '2026-10-18T10:01:07Z provider: 13 configured, 1 builtin',
+      ],
+      paths: { instance: '/home/demo/.ocrc/remote/instance.log', app: '/home/demo/.config/openchamber/logs/openchamber-2610.log' },
+    },
+  },
+  'POST /remote-instance#uipassword': {
+    body: { uiPassword: 'b3qGkbFTm3CuiGdVcKIBMu43', url: 'http://127.0.0.1:4610' },
+  },
+  'POST /remote-instance#configdiff': {
+    body: {
+      localDir: '/home/u/.config/opencode',
+      add: ['skill/new-skill.md', 'agents/reviewer.md'],
+      change: ['opencode.json'],
+      same: ['skill/existing.md'],
+      peerOnly: ['agent/old-agent.md'],
+      unknown: ['auth.json'],
+      auth: { local: true, peer: false },
+      plan: {
+        basename: 'opencode.jsonc',
+        configChanged: true,
+        files: ['opencode.jsonc', 'skill/new-skill.md', 'agents/reviewer.md'],
+        deletes: [],
+        keyDeletes: { requested: [], removed: [] },
+        keyDeleteCandidates: [{ collection: 'provider', key: 'acc-provider' }, { collection: 'mcp.servers', key: 'acc' }],
+        droppedManagedKeys: ['plugin'],
+        secretsReplaced: [{ path: 'mcp.servers.acc.environment.ACC_TOKEN', env: 'ACC_TOKEN' }],
+        baseUrlRewrites: [],
+        shadowed: ['provider.acc.baseURL'],
+        notes: ['远程机器独有的 1 个文件不会被动（要删得显式勾选）', 'plugin 键由远程机器自己的 OpenChamber 管，我们不写'],
+      },
+    },
+  },
+  'POST /remote-instance#syncconfig': {
+    body: { ok: true, detail: '同步 3 个文件；opencode.jsonc.ocrc-bak 已留' },
+  },
+  'POST /remote-instance#syncauth': {
+    body: { ok: true, detail: 'auth.json 已写到远程机器 0600（旧件留 .ocrc-bak）' },
+  },
+  'POST /remote-instance#up': { body: { ok: true, detail: '远程实例在线；openchamber 2.3.3' } },
+  'POST /remote-instance#down': { body: { ok: true, detail: '已停' } },
+  'POST /remote-instance#url': { body: { url: 'http://127.0.0.1:4610', online: true } },
+})
+
 /** 宿主主题：浅色/深色两套，和 app 里的观感对齐（`?theme=light|dark`）。 */
 const LIGHT: HostTheme = {
   mode: 'light',

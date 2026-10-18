@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { buildEgressProbeCommand, parseEgressProbe, resolveEgressPolicy } from '../../src/core/remote-instance.js'
+import {
+  buildEgressProbeCommand, buildInstanceProxyProbeCommand, parseEgressProbe, parseInstanceProxyProbe,
+  relayProxyUrl, resolveEgressPolicy,
+} from '../../src/core/remote-instance.js'
 
 /**
  * A peer with its own internet must not be routed through the control side: the
@@ -64,5 +67,48 @@ describe('buildEgressProbeCommand', () => {
     expect(cmd).toContain('api.deepseek.com')
     expect(cmd).toContain('1500')
     expect(cmd).toContain('2500')
+  })
+})
+
+/**
+ * The relay env is decided when the instance **starts**, so a peer whose
+ * connectivity changes keeps running with the old decision. That produced a real
+ * "online but can't work" state (EL7 with its internet cut: policy flipped to
+ * relay, running instance had zero proxy variables, `up` still reported online).
+ * `up` now compares the running instance's env against the decision before
+ * reusing it — which needs a way to read that env off the peer.
+ */
+describe('instance egress probe (what the running instance actually carries)', () => {
+  it('reports the relay URL the instance was started with', () => {
+    expect(parseInstanceProxyProbe('PROXY=http://127.0.0.1:2711\n')).toBe('http://127.0.0.1:2711')
+  })
+
+  it('reports "none" when the instance carries no proxy at all', () => {
+    expect(parseInstanceProxyProbe('PROXY=none\n')).toBe('none')
+  })
+
+  it('reports "unknown" when no serve process was found or the output is junk', () => {
+    expect(parseInstanceProxyProbe('PROXY=unknown\n')).toBe('unknown')
+    expect(parseInstanceProxyProbe('')).toBe('unknown')
+    expect(parseInstanceProxyProbe('bash: /proc: Permission denied\n')).toBe('unknown')
+  })
+
+  it('the probe matches on the instance port, as a shell variable, and prefers our own tree', () => {
+    const cmd = buildInstanceProxyProbeCommand('2.3.3', 2610)
+    // A `sh -c` script carries its own text in argv: a literal `--port 2610`
+    // would match the probing shell and report the wrong process.
+    expect(cmd).toContain('PORT=2610')
+    expect(cmd).toContain('--port $PORT')
+    expect(cmd).not.toContain('--port 2610')
+    // The listener is openchamber's own child (`server/index.js --port 2610`),
+    // not our `serve --hostname …` line — matching on the command shape found
+    // nothing on a live peer, so the port is the discriminator.
+    expect(cmd).not.toContain('serve --hostname')
+    expect(cmd).toContain('.ocrc/remote')
+    expect(cmd).toContain('HTTPS_PROXY')
+  })
+
+  it('relayProxyUrl is the single source of the injected URL', () => {
+    expect(relayProxyUrl(2711)).toBe('http://127.0.0.1:2711')
   })
 })

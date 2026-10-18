@@ -565,6 +565,61 @@ export function parsePortProbe(stdout: string): 'open' | 'closed' | 'unknown' {
   return last === 'open' || last === 'closed' ? last : 'unknown'
 }
 
+/**
+ * Remote: which egress the **running** instance was started with.
+ *
+ * Why this exists: the relay env is decided when the instance starts, so a peer
+ * whose internet disappears (or comes back) keeps running with the *old* decision
+ * until it is restarted — and `up` used to answer "已在服务，复用，不重启" while the
+ * engine silently had no egress at all (measured on EL7 with its internet cut:
+ * policy flipped to relay, running instance carried zero proxy variables, `up`
+ * still said online).
+ *
+ * Two details that only a live run reveals:
+ *   · The instance port is the discriminator, **not** the command shape. Our serve
+ *     line is `<node> <cli.js> serve --hostname 127.0.0.1 --port 2610`, but the
+ *     process that ends up holding the listener is openchamber's own child,
+ *     `.../server/index.js --port 2610 -`. Matching on `serve --hostname` found
+ *     nothing (measured), so we match on `--port <instancePort>`.
+ *   · The port travels as a **shell variable**: a `sh -c` script carries its own
+ *     text in argv, so a literal `--port 2610` would match the probing shell and
+ *     report the wrong process.
+ */
+export function buildInstanceProxyProbeCommand(_appVersion: string, port: number): string {
+  return [
+    `PORT=${port}`,
+    'ME=$$',
+    'FOUND=""',
+    'for d in /proc/[0-9]*; do',
+    '  pid=${d#/proc/}',
+    '  [ "$pid" = "$ME" ] && continue',
+    '  c=$(tr \'\\0\' \' \' < "$d/cmdline" 2>/dev/null) || continue',
+    '  case "$c" in *"--port $PORT"*)',
+    '    case "$c" in *".ocrc/remote"*) FOUND="$pid"; break ;; esac',
+    '    [ -n "$FOUND" ] || FOUND="$pid"',
+    '  ;; esac',
+    'done',
+    'if [ -z "$FOUND" ]; then echo "PROXY=unknown";',
+    'elif tr \'\\0\' \'\\n\' < "/proc/$FOUND/environ" 2>/dev/null | grep -q "^HTTPS_PROXY="; then',
+    '  tr \'\\0\' \'\\n\' < "/proc/$FOUND/environ" 2>/dev/null | sed -n "s/^HTTPS_PROXY=//p" | head -1 | sed "s/^/PROXY=/"',
+    'else echo "PROXY=none"; fi',
+  ].join('\n')
+}
+
+/** `none` (no proxy at all) / `unknown` (no serve process found) / the URL. */
+export function parseInstanceProxyProbe(stdout: string): 'none' | 'unknown' | string {
+  const line = (stdout ?? '').split('\n').map((l) => l.trim()).filter((l) => l.startsWith('PROXY=')).pop()
+  if (!line) return 'unknown'
+  const value = line.slice('PROXY='.length).trim()
+  if (!value || value === 'unknown') return 'unknown'
+  return value === 'none' ? 'none' : value
+}
+
+/** The relay URL the engine must carry when this peer goes through us. */
+export function relayProxyUrl(remotePort: number): string {
+  return `http://127.0.0.1:${remotePort}`
+}
+
 /** D3: the two peer-side logs that explain a failure, in one round trip.
  *
  *  `instance.log` is **ours** (the `nohup` redirect of the serve line: startup

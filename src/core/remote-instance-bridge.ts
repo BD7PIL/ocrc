@@ -27,6 +27,7 @@ import {
   DEFAULT_APP_VERSION, DEFAULT_ENGINE_CANDIDATES, DEFAULT_ENGINE_PIN, PROXY_DEFAULTS, buildEngineProbeCommand,
   buildForwardArgs, buildRelayForwardArgs, buildInstanceServeCommand, buildInstanceStopCommand, buildRemotePortProbeCommand, buildSshExecArgs,
   buildPeerPortProbeCommand, parsePortProbe, provisionActions, buildPeerLogCommand, parsePeerLogs, type PeerLogs,
+  buildInstanceProxyProbeCommand, parseInstanceProxyProbe, relayProxyUrl,
   buildPairLinkCommand, parsePairLink, describePairLink, buildEgressProbeCommand, parseEgressProbe, resolveEgressPolicy,
   EGRESS_DEFAULT, type EgressMode, type EgressProbe, type ProvisionMode,
   buildTerminalProbeCommand, instancePaths, parseTerminalProbe,
@@ -510,8 +511,11 @@ export function createRemoteInstanceManager(opts: {
     // forward brings back to the control side's relay. Loopback stays out of it
     // (NO_PROXY) so the instance can still talk to its engine locally. Only when
     // this peer actually needs us — see egressFor().
+    // The URL comes from `relayProxyUrl` on both sides (inject here, compare in
+    // `up`): two spellings of the same string would look like a permanent
+    // mismatch and restart the instance on every `up`.
     const relay = (await egressFor(instance)).relay
-      ? `http://127.0.0.1:${proxyConfig(instance).remotePort}`
+      ? relayProxyUrl(proxyConfig(instance).remotePort)
       : undefined
     const script = `${prefix}${buildInstanceServeCommand({
       appVersion: instance.appVersion,
@@ -537,8 +541,16 @@ export function createRemoteInstanceManager(opts: {
     return cleanSshNoise(r.stdout).split('\n').map((l) => l.trim()).filter(Boolean).slice(-3).join(' | ')
   }
 
-  async function stopInstance(instance: RemoteInstance): Promise<InstanceOutcome> {
-    const r = await ssh(instance, buildInstanceStopCommand(instance.appVersion, instance.instancePort), 45_000)
+  /** Which egress the **running** instance carries (`none` / a URL / `unknown`).
+   *  Read from the peer's own process env, because that is the only place the
+   *  decision actually lives once the instance is up. */
+  async function probeInstanceProxy(instance: RemoteInstance): Promise<'none' | 'unknown' | string> {
+    const r = await ssh(instance, buildInstanceProxyProbeCommand(instance.appVersion, instance.instancePort), 25_000)
+    if (r.code !== 0 && !r.stdout.trim()) return 'unknown'
+    return parseInstanceProxyProbe(r.stdout)
+  }
+
+  async function stopInstance(instance: RemoteInstance): Promise<InstanceOutcome> {    const r = await ssh(instance, buildInstanceStopCommand(instance.appVersion, instance.instancePort), 45_000)
     const code = (await remoteHealth(instance)) === '200'
     if (code) return { ok: false, detail: `实例仍在 :${instance.instancePort} 上响应（stop 未生效）` }
     // exit code is 0 even when nothing was running (the `|| true`), so the health
@@ -1239,7 +1251,36 @@ export function createRemoteInstanceManager(opts: {
         }
         pushLog(id, started.detail)
       } else {
-        pushLog(id, `实例已在 :${instance.instancePort} 上服务（复用，不重启）`)
+        // A running instance carries the egress decision it was **started** with.
+        // If the peer's connectivity changed since (which is the whole point of
+        // probing), "复用，不重启" leaves it online-with-no-egress — measured on EL7
+        // when its internet was cut: the policy flipped to relay, the instance
+        // still had zero proxy variables, and `up` reported online anyway.
+        const wantsRelay = (await egressFor(instance)).relay
+        const running = await probeInstanceProxy(instance)
+        const expected = wantsRelay ? relayProxyUrl(proxyConfig(instance).remotePort) : 'none'
+        if (running === 'unknown') {
+          pushLog(id, `实例已在 :${instance.instancePort} 上服务（复用；读不到对端进程的 env，出口是否与策略一致未知）`)
+        } else if (running === expected) {
+          pushLog(id, `实例已在 :${instance.instancePort} 上服务（复用，不重启；出口 ${running === 'none' ? '直连' : running} 与策略一致）`)
+        } else {
+          const why = wantsRelay ? '策略要求经控制端（对端无出网），但实例是在直连档起的' : '策略是对端直连，但实例还挂在我们中继上'
+          pushLog(id, `${why}——重启实例让 env 跟上（现在 ${running}，期望 ${expected}）`)
+          const stopped = await stopInstance(instance)
+          if (!stopped.ok) {
+            setState(id, 'error', stopped.detail)
+            return stopped
+          }
+          const relay = await ensureProxy(instance)
+          if (relay !== 'off') pushLog(instance.id, `egress relay: ${relay}`)
+          if (externalTunnel) ensureExternalRelay(instance)
+          const restarted = await startInstance(instance, pick.candidate.path, upOpts.guard)
+          if (!restarted.ok) {
+            setState(id, 'error', restarted.detail)
+            return restarted
+          }
+          pushLog(id, `${restarted.detail}（因出口策略变化而重启）`)
+        }
       }
       // The relay is needed either way: a reused instance may have been started
       // without one and its engine would then have no egress.

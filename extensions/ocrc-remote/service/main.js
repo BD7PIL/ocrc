@@ -617,6 +617,36 @@ function parsePortProbe(stdout) {
   const last = (stdout ?? "").trim().split("\n").pop()?.trim() ?? "";
   return last === "open" || last === "closed" ? last : "unknown";
 }
+function buildInstanceProxyProbeCommand(_appVersion, port) {
+  return [
+    `PORT=${port}`,
+    "ME=$$",
+    'FOUND=""',
+    "for d in /proc/[0-9]*; do",
+    "  pid=${d#/proc/}",
+    '  [ "$pid" = "$ME" ] && continue',
+    `  c=$(tr '\\0' ' ' < "$d/cmdline" 2>/dev/null) || continue`,
+    '  case "$c" in *"--port $PORT"*)',
+    '    case "$c" in *".ocrc/remote"*) FOUND="$pid"; break ;; esac',
+    '    [ -n "$FOUND" ] || FOUND="$pid"',
+    "  ;; esac",
+    "done",
+    'if [ -z "$FOUND" ]; then echo "PROXY=unknown";',
+    `elif tr '\\0' '\\n' < "/proc/$FOUND/environ" 2>/dev/null | grep -q "^HTTPS_PROXY="; then`,
+    `  tr '\\0' '\\n' < "/proc/$FOUND/environ" 2>/dev/null | sed -n "s/^HTTPS_PROXY=//p" | head -1 | sed "s/^/PROXY=/"`,
+    'else echo "PROXY=none"; fi'
+  ].join("\n");
+}
+function parseInstanceProxyProbe(stdout) {
+  const line = (stdout ?? "").split("\n").map((l) => l.trim()).filter((l) => l.startsWith("PROXY=")).pop();
+  if (!line) return "unknown";
+  const value = line.slice("PROXY=".length).trim();
+  if (!value || value === "unknown") return "unknown";
+  return value === "none" ? "none" : value;
+}
+function relayProxyUrl(remotePort) {
+  return `http://127.0.0.1:${remotePort}`;
+}
 function buildPeerLogCommand(appVersion, port, lines = 40) {
   const p = instancePaths(appVersion);
   const appLog = `$HOME/.config/openchamber/logs/openchamber-${port}.log`;
@@ -2681,7 +2711,7 @@ tar: ${err.message}` });
   }
   async function startInstance(instance, enginePath, guard = false) {
     const prefix = guard ? buildOfflineGuardExports() : opts.serveEnvPrefix?.(instance) ?? "";
-    const relay = (await egressFor(instance)).relay ? `http://127.0.0.1:${proxyConfig(instance).remotePort}` : void 0;
+    const relay = (await egressFor(instance)).relay ? relayProxyUrl(proxyConfig(instance).remotePort) : void 0;
     const script = `${prefix}${buildInstanceServeCommand({
       appVersion: instance.appVersion,
       port: instance.instancePort,
@@ -2703,6 +2733,11 @@ tar: ${err.message}` });
     const p = instancePaths(instance.appVersion);
     const r = await ssh(instance, `tail -n 5 ${p.log} 2>/dev/null || true`, 15e3);
     return cleanSshNoise(r.stdout).split("\n").map((l) => l.trim()).filter(Boolean).slice(-3).join(" | ");
+  }
+  async function probeInstanceProxy(instance) {
+    const r = await ssh(instance, buildInstanceProxyProbeCommand(instance.appVersion, instance.instancePort), 25e3);
+    if (r.code !== 0 && !r.stdout.trim()) return "unknown";
+    return parseInstanceProxyProbe(r.stdout);
   }
   async function stopInstance(instance) {
     const r = await ssh(instance, buildInstanceStopCommand(instance.appVersion, instance.instancePort), 45e3);
@@ -3304,7 +3339,31 @@ tar: ${err.message}` });
         }
         pushLog(id, started.detail);
       } else {
-        pushLog(id, `\u5B9E\u4F8B\u5DF2\u5728 :${instance.instancePort} \u4E0A\u670D\u52A1\uFF08\u590D\u7528\uFF0C\u4E0D\u91CD\u542F\uFF09`);
+        const wantsRelay = (await egressFor(instance)).relay;
+        const running = await probeInstanceProxy(instance);
+        const expected = wantsRelay ? relayProxyUrl(proxyConfig(instance).remotePort) : "none";
+        if (running === "unknown") {
+          pushLog(id, `\u5B9E\u4F8B\u5DF2\u5728 :${instance.instancePort} \u4E0A\u670D\u52A1\uFF08\u590D\u7528\uFF1B\u8BFB\u4E0D\u5230\u5BF9\u7AEF\u8FDB\u7A0B\u7684 env\uFF0C\u51FA\u53E3\u662F\u5426\u4E0E\u7B56\u7565\u4E00\u81F4\u672A\u77E5\uFF09`);
+        } else if (running === expected) {
+          pushLog(id, `\u5B9E\u4F8B\u5DF2\u5728 :${instance.instancePort} \u4E0A\u670D\u52A1\uFF08\u590D\u7528\uFF0C\u4E0D\u91CD\u542F\uFF1B\u51FA\u53E3 ${running === "none" ? "\u76F4\u8FDE" : running} \u4E0E\u7B56\u7565\u4E00\u81F4\uFF09`);
+        } else {
+          const why = wantsRelay ? "\u7B56\u7565\u8981\u6C42\u7ECF\u63A7\u5236\u7AEF\uFF08\u5BF9\u7AEF\u65E0\u51FA\u7F51\uFF09\uFF0C\u4F46\u5B9E\u4F8B\u662F\u5728\u76F4\u8FDE\u6863\u8D77\u7684" : "\u7B56\u7565\u662F\u5BF9\u7AEF\u76F4\u8FDE\uFF0C\u4F46\u5B9E\u4F8B\u8FD8\u6302\u5728\u6211\u4EEC\u4E2D\u7EE7\u4E0A";
+          pushLog(id, `${why}\u2014\u2014\u91CD\u542F\u5B9E\u4F8B\u8BA9 env \u8DDF\u4E0A\uFF08\u73B0\u5728 ${running}\uFF0C\u671F\u671B ${expected}\uFF09`);
+          const stopped = await stopInstance(instance);
+          if (!stopped.ok) {
+            setState(id, "error", stopped.detail);
+            return stopped;
+          }
+          const relay = await ensureProxy(instance);
+          if (relay !== "off") pushLog(instance.id, `egress relay: ${relay}`);
+          if (externalTunnel) ensureExternalRelay(instance);
+          const restarted = await startInstance(instance, pick.candidate.path, upOpts.guard);
+          if (!restarted.ok) {
+            setState(id, "error", restarted.detail);
+            return restarted;
+          }
+          pushLog(id, `${restarted.detail}\uFF08\u56E0\u51FA\u53E3\u7B56\u7565\u53D8\u5316\u800C\u91CD\u542F\uFF09`);
+        }
       }
       if (proxyConfig(instance).enabled) await ensureProxy(instance);
       if (externalTunnel) {

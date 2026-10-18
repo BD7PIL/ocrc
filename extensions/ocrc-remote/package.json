@@ -1,6 +1,6 @@
 {
   "name": "ocrc-remote",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "description": "OCRC Remote — provision and connect a remote openchamber instance on a controlled Linux host from openchamber",

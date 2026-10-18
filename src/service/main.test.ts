@@ -299,8 +299,13 @@ describe('provisioning 路由契约（第零点九条）', () => {
     })
     expect(after.json.restarted).toBe(true)
 
+    // 端口被占用时服务会换一个并在 portChanges 里说明——所以断言"报的就是它自己决定的
+    // 那个端口"，而不是写死 41002：写死会随跑测机器上谁占着 41002 而随机变红（CI 上
+    // 就红过一次，报的是 36783）。
     const status = await req('GET', '/status')
-    expect(status.json.profiles[0].forwards[0].port).toBe(41002)
+    const reported = status.json.profiles[0].forwards[0].port
+    const rewritten = (after.json.portChanges ?? []).find((c: { from: number }) => c.from === 41002)
+    expect(reported).toBe(rewritten ? rewritten.to : 41002)
   })
 
   it('/forwards 没给档案也不在连接态 → 400，指名道姓', async () => {

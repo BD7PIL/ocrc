@@ -58,9 +58,15 @@ for (const ext of EXTENSIONS) {
     if (!js.includes('ocSurface')) {
       fail(`${ext.name}/${rel}`, 'no theme bridge — the frame never calls applyHostReady (see src/shared/host-theme.ts)')
     }
-    // The kit injects its own stylesheet under this id on first mount.
-    if (!js.includes('oc-sdk-ui-style')) {
-      fail(`${ext.name}/${rel}`, 'no kit stylesheet — no @openchamber/sdk/ui primitive is mounted, so controls would be unstyled')
+    // The kit injects its own stylesheet under this id on first mount — so a
+    // frame that mounts kit primitives (each one renders the `oc-kit` wrapper)
+    // must carry it, or they render unstyled. A frame that mounts none is not
+    // covered: the status rail is a read-only readout (plain markup + host
+    // tokens, no controls), so it legitimately has no stylesheet. Testing for
+    // `oc-sdk-` instead does not work — `applyHostReady` ships that prefix in
+    // its own token/stylesheet text whether or not anything is mounted.
+    if (js.includes('oc-kit') && !js.includes('oc-sdk-ui-style')) {
+      fail(`${ext.name}/${rel}`, 'mounts kit primitives (oc-kit) but has no kit stylesheet — they would be unstyled')
     }
     if (!js.includes('--surface-background')) {
       fail(`${ext.name}/${rel}`, 'no host token table — expected the applyHostReady token list in the bundle')

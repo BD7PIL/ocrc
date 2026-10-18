@@ -160,9 +160,19 @@
 | D6 验收补"能干活" | 验收脚本新增：建会话 → 发标记消息 → 轮询回答；出网那步改成**按策略断言**（relay 查 `-R`+CONNECT 日志 / direct 查"没绕我们"） | **两类对端各跑一遍全过**：EL7（经中继）与 Ubuntu（直连）都在 ~3s 内拿到标记回答 |
 | A4 删旧路径 | 删 `src/core/desktop-settings.ts` + 其单测 + `--desktop-add` + `--desktopRunning` + service 的 `connect` op（面板「桌面版三项」卡在 A3 重写时已消失） | 全量测试 1216 项通过；CLI `connect` 保留为**读出**（浏览器/手动路径），装进 app 走 `pairlink` |
 | A5 文档 | OPS：配置同步三层边界表、`--egress/--provision/--ssh-auth`、peerlog、配对链接为推荐路径、D7 已知缺口；本文件为交付记录 | — |
+| B1–B4 | `prepare` 预热三件（实测取到 210MB 引擎）；CI bundle 被消费（`cacheArtifact` 缓存→bundle→registry，摘要不符报错、无摘要忽略）+ CI 写真实摘要 + 6 项单测；文档写清 pty 两档/runtime 单档；`--offline-proof --assume-offline` | 实测：`prepare` 三件齐；`--assume-offline` 在对端**能**上外网时**拒绝执行**（参数与事实不符） |
+| D5 升级入口 | `manager.upgrade` + 面板「升级到 pin」+ `ocrc remote upgrade`（已在 pin 上则明确说"已是最新"） | 实测 EL7：`OK 已经是对端该有的那一份：2.3.3（pin 来自控制端）` |
+| D7 转发所有权 | `core/forward-ownership.ts`：每条腿写 marker（pid/角色/端口），起腿前先看（活的复用、死的清理），`status` 列持有者 | 9 项单测；**实测**：验收脚本报出 `ui: pid 15836（cli，本地 :4655，对端 :2711）`——残留腿的归属第一次有了名字 |
+| D8–D12 | 凭据纪律表、omo 边界、`ocrc-follow` 两条上游跟踪（`uploadBundleOverSsh` / models.dev URL 可覆盖）、旧拓扑冻结标注 | — |
+
+**执行中修正的一处 DoD 措辞**：v10 的全局 DoD 写「EL7：日志显示"经控制端（探测：对端无出网）"」——**这句话在 2026-10-18 当天就不再成立**：EL7 的
+`registry.npmjs.org` 解析到 `198.18.0.30`（透明代理/假 DNS 段）且直连返回 200，所以探测结论从 `none`（经控制端）翻成 `direct`（对端直连），
+策略自动跟着改（重启后实例 env 零代理变量）。这不是回归，正是 D1 要的行为：**出口按探测走，不按预设走**。
+所以 DoD 的正确读法是「EL7 与 Ubuntu 各跑一遍，日志与策略一致」——relay 档查 `-R` + CONNECT 日志，direct 档查"对端自己出网 + 引擎零代理变量"。
+一条**既有的** `-R 2711`（别的持有者留下的）不算失败，脚本会报出持有者。
 
 **仍未完成 / 需要你**：
 
-1. **A3 的 app 内点击**（U8）：面板生成链接后，需要你在桌面版里点确认。
-2. **B1–B4 provisioning 诚实性**：`prepare` 预热引擎、`ocrc-follow` 离线 bundle 接进 `ensureEngineBinary`、文档写清"pty 两档 / runtime 单档"、`--offline-proof` 加 `--assume-offline`。
-3. **D7–D12**：转发所有权（已知缺口：桌面壳持有 `-L` 时 CLI 无法重建中继）、凭据纪律文档、omo 边界、上游跟踪、旧拓扑冻结标注。
+1. **A3 的 app 内点击**（U8）：面板生成链接后，需要你在桌面版里点确认——这是唯一只有你能做的验收步骤。
+2. **D7 的残余**：桌面壳持有 `-L` 时，CLI 的 `up` 仍会因端口被占失败（现在至少会说清是谁占着）。要彻底解决得让 CLI 也能进 external 模式（本轮没做，属于"新功能"，按 D12 该加在实例拓扑上）。
+3. **D6 的 app 内那一半**：验收脚本走的是引擎 API 直连（真发消息、真拿回答）；"从面板点击发消息"仍需你点。

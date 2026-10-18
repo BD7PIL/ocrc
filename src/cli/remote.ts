@@ -66,12 +66,13 @@ ocrc remote — 远程 openchamber 实例（对端能力）
 USAGE:
   ocrc remote add --host H [--user U] [--port 22] [--name N]
                   [--ssh-auth key|password] [--ssh-password P]
-                  [--egress auto|relay|direct] [--provision push|reuse]
+                  [--egress auto|relay|direct] [--provision push|reuse] [--provider-baseurl id=url,...]
                   [--instance-port ${DEFAULT_INSTANCE_PORT}] [--local-port ${DEFAULT_LOCAL_PORT}]
                   [--engine-path /abs/path] [--app-version ${DEFAULT_APP_VERSION}]
                   --ssh-auth password：不写 --ssh-password 时从终端（不回显）或 stdin 读一行
                   --egress：auto（默认，探测对端）| relay（强制经控制端）| direct（强制直连）
                   --provision：push（默认，推备件）| reuse（不推字节，只检查 + pin 引擎）
+                  --provider-baseurl：同步配置时改写这些 provider 的 baseURL（无外网对端经内网网关，C2b）
   ocrc remote list [--json]
   ocrc remote plan <id>            只读预演：ssh/环境/引擎门禁/装机动作，不写对端
   ocrc remote apply <id> [--force] 推运行时 + 引擎(v2 pin) + 应用（控制端备件，对端零联网）
@@ -323,6 +324,17 @@ export async function main(argv: string[]): Promise<void> {
     if (egressFlag && !['auto', 'relay', 'direct'].includes(egressFlag)) throw new Error('--egress 只认 auto / relay / direct')
     const provisionFlag = flagStr(flags, 'provision')
     if (provisionFlag && !['push', 'reuse'].includes(provisionFlag)) throw new Error('--provision 只认 push / reuse')
+    // C2b: per-peer provider URL rewrites, `id=url,id=url`. A peer without its
+    // own egress may only reach a provider through our relay or an internal
+    // gateway, so the URL the control side uses is not always the peer's.
+    const baseUrlFlag = flagStr(flags, 'provider-baseurl')
+    const providerBaseUrl = baseUrlFlag
+      ? Object.fromEntries(baseUrlFlag.split(',').map((pair) => {
+        const i = pair.indexOf('=')
+        if (i <= 0) throw new Error(`--provider-baseurl 要写成 id=url（收到 ${pair}）`)
+        return [pair.slice(0, i).trim(), pair.slice(i + 1).trim()]
+      }))
+      : undefined
     const s = store()
     const saved = s.upsert({
       host,
@@ -333,6 +345,7 @@ export async function main(argv: string[]): Promise<void> {
       sshPassword,
       egress: egressFlag as 'auto' | 'relay' | 'direct' | undefined,
       provision: provisionFlag as 'push' | 'reuse' | undefined,
+      providerBaseUrl,
       instancePort: flagNum(flags, 'instance-port', DEFAULT_INSTANCE_PORT),
       localPort: flagNum(flags, 'local-port', DEFAULT_LOCAL_PORT),
       appVersion: flagStr(flags, 'app-version') ?? DEFAULT_APP_VERSION,

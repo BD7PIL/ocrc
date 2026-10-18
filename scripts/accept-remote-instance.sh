@@ -292,12 +292,21 @@ if printf '%s' "$EGRESS_LINE" | grep -q '经控制端'; then
     note "（复用既有中继，日志在 ~/.ocrc/remote-relay.log；本次未单独记录）"
   fi
 else
-  # 直连档：断言"确实没经我们"——端口不该在听，对端自己得能出去。
-  [ "$PEER_PORT_OPEN" = "0" ] || fail "策略是对端直连，但对端 $PROXY_REMOTE 还在听——中继腿没撤（会白绕一圈）"
-  note "对端 $PROXY_REMOTE 没有监听（直连档不该有中继腿）"
+  # 直连档：断言"确实没经我们"——对端自己得能出去，且引擎 env 不指向我们的腿。
+  #
+  # 一条**既有的** `-R 2711` 不算失败（2026-10-18 实测遇到）：它可能是另一个持有者
+  # （桌面壳的隧道，或策略还是 relay 时起的）留下的腿，我们不杀别人的进程；实例 env
+  # 已证明没指向它，数据路径上就不白绕。如实报出来并附上持有者。
   DCODE=$(ssh_t "curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://registry.npmjs.org/ || true")
   [ "$DCODE" = "200" ] || fail "直连档但对端自己出不去（HTTP $DCODE）——策略选错了"
   note "对端自己出网：HTTP 200（没有经过控制端）"
+  if [ "$PEER_PORT_OPEN" = "1" ]; then
+    HOLDERS=$(node "$ROOT/dist/cli/index.js" remote status "$TARGET" 2>/dev/null | grep -o '持有者.*' | head -3 | tr '\n' '；' || true)
+    note "注意：对端 $PROXY_REMOTE 上还有一条既有的 -R 在听（不是本次起的，也不在数据路径上）——${HOLDERS:-持有者未知（多半是桌面壳的隧道）}"
+    note "  · 实例 env 不指向它，所以不白绕；要撤它得停那个持有者（我们不杀别人的进程）"
+  else
+    note "对端 $PROXY_REMOTE 没有监听（直连档不该有中继腿）"
+  fi
 fi
 # 引擎进程的 env 要与策略一致：relay 注入 HTTPS_PROXY，direct 一个代理变量都不该有。
 # 用 `pgrep -x opencode`（按进程名）而不是 `-f` 模式匹配：`-f` 会把跑探测的这层 shell

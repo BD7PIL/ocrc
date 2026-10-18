@@ -222,6 +222,12 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
 
   useEffect(() => { void refresh() }, [refresh])
 
+  // The pins and the free local port are needed outside the form too (the
+  // 「升级到 pin」 label names the target), so they are fetched once on mount.
+  useEffect(() => {
+    void op<Defaults>({ op: 'defaults' }).then(setDefaults).catch(() => { /* the form re-asks */ })
+  }, [op])
+
   const run = async (label: string, fn: () => Promise<unknown>) => {
     setBusy(label)
     setError('')
@@ -494,6 +500,18 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                 onClick={() => void makePairLink(row.id)}
               />
               <KitButton size="sm" variant="ghost" label="编辑" onClick={() => openForm(row)} />
+              {/* D5：版本是 pin，不是选项——所以这里只有一个"升级到 pin"的动作，
+                  对端已经在 pin 上时它明确说"已是最新"，不做无意义的重复安装。 */}
+              <KitButton
+                size="sm"
+                variant="ghost"
+                label={`升级到 pin${defaults ? ` ${defaults.appVersion}` : ''}`}
+                loading={busy === `upgrade:${row.id}`}
+                onClick={() => void run(`upgrade:${row.id}`, async () => {
+                  const r = await op<{ ok: boolean; detail: string; changed: boolean }>({ op: 'upgrade', id: row.id })
+                  setSyncResult(`${r.ok ? 'OK' : 'FAIL'} ${r.detail}`)
+                })}
+              />
               <KitButton
                 size="sm"
                 variant="ghost"
@@ -535,6 +553,8 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
               />
               {busy.endsWith(row.id) ? <KitSpinner size="sm" /> : null}
             </div>
+            {/* 动作结果（同步/升级）就贴在这一行下面：卡片可能没打开，结果不能只活在卡片里。 */}
+            {syncResult ? <div className="oc-xs oc-sdk-mono">{syncResult}</div> : null}
 
             {pairFor?.id === row.id ? (
               <div className="oc-card">

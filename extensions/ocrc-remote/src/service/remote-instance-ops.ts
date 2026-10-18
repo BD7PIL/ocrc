@@ -48,6 +48,8 @@ export type RemoteInstanceOp =
   | { op: 'patch'; id: string; payload: Partial<RemoteInstance> }
   | { op: 'plan'; id: string }
   | { op: 'apply'; id: string; payload?: { confirm?: boolean; force?: boolean } }
+  /** D5: move the peer to the control side's app pin (a no-op when it already is). */
+  | { op: 'upgrade'; id: string }
   | { op: 'up'; id: string }
   | { op: 'down'; id: string }
   | { op: 'probe'; id: string }
@@ -216,6 +218,13 @@ export function createRemoteInstanceOps({
             return { status: 409, body: { error: 'confirm:true required', dryRun: true } }
           }
           return start(() => manager.apply(op.id, { force: op.payload?.force === true }))
+        }
+
+        case 'upgrade': {
+          if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
+          // Same write-to-the-peer semantics as `apply`, so the same job pattern
+          // (and the same "the panel must say it is writing" rule).
+          return start(() => manager.upgrade(op.id))
         }
 
         case 'up':

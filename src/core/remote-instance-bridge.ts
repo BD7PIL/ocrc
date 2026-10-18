@@ -24,7 +24,7 @@ import { createLogger } from '../utils/logger.js'
 import { parseGlibcVersion, nextRetryDelay } from './remote-common.js'
 import { createInstanceProxy, type InstanceProxy } from './remote-instance-proxy.js'
 import {
-  DEFAULT_ENGINE_CANDIDATES, DEFAULT_ENGINE_PIN, PROXY_DEFAULTS, buildEngineProbeCommand,
+  DEFAULT_APP_VERSION, DEFAULT_ENGINE_CANDIDATES, DEFAULT_ENGINE_PIN, PROXY_DEFAULTS, buildEngineProbeCommand,
   buildForwardArgs, buildRelayForwardArgs, buildInstanceServeCommand, buildInstanceStopCommand, buildRemotePortProbeCommand, buildSshExecArgs,
   buildPeerPortProbeCommand, parsePortProbe, provisionActions, buildPeerLogCommand, parsePeerLogs, type PeerLogs,
   buildPairLinkCommand, parsePairLink, describePairLink, buildEgressProbeCommand, parseEgressProbe, resolveEgressPolicy,
@@ -151,6 +151,11 @@ export interface RemoteInstanceManager {
   plan(id: string): Promise<InstancePlan>
   /** P2: push runtime + engine + app (offline path) — the engine gate runs first. */
   apply(id: string, opts?: { force?: boolean; engineVersion?: string; guard?: boolean; trace?: string; onLog?: (line: string) => void; tier?: AppPackTier }): Promise<InstanceOutcome>
+  /** D5: move this peer to the control side's app pin. The version is a **pin,
+   *  not a choice** (the user settled that), so the only upgrade question is
+   *  "the peer is on an older pin than I am" — this answers it and does the
+   *  apply in one step. */
+  upgrade(id: string): Promise<InstanceOutcome & { from: string; to: string; changed: boolean }>
   /** Ensure the instance is serving on the far side and the tunnel is up.
    *  `guard` starts it under the poisoned-egress env (§5.3 offline proof). */
   up(id: string, opts?: { guard?: boolean }): Promise<InstanceOutcome>
@@ -1116,6 +1121,28 @@ export function createRemoteInstanceManager(opts: {
         tier: appPackTierForGlibc(env.glibc),
         peerPort,
       }
+    },
+
+    /**
+     * D5: one step from "the peer is on an older pin" to "the peer is on my pin".
+     *
+     * The app version is deliberately **not** a form field (the user settled that
+     * pins are derived, not chosen), so the only meaningful upgrade action is this
+     * one: compare the record against the control side's pin, and if they differ,
+     * move the record and run the normal apply. Nothing happens when they already
+     * match — an "upgrade" that reinstalls the same version is noise.
+     */
+    async upgrade(id) {
+      const instance = need(id)
+      const from = instance.appVersion
+      const to = DEFAULT_APP_VERSION
+      if (from === to) {
+        return { ok: true, changed: false, from, to, detail: `已经是对端该有的那一份：${to}（pin 来自控制端）` }
+      }
+      pushLog(id, `升级：${from} → ${to}（旧树留 .ocrc-bak，一份就够）`)
+      opts.store.update(id, { appVersion: to })
+      const result = await manager.apply(id, { force: false })
+      return { ...result, changed: true, from, to }
     },
 
     async apply(id, applyOpts = {}) {

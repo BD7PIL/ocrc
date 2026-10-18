@@ -41,6 +41,7 @@ function makeManager(): RemoteInstanceManager {
   return {
     plan: vi.fn(async (id: string) => ({ id, target: 'h:22', reachable: true, engineCandidates: [], actions: ['装机'], url: 'http://127.0.0.1:4610' })),
     apply: vi.fn(async () => ({ ok: true, detail: '装机完成' })),
+    upgrade: vi.fn(async () => ({ ok: true, changed: true, from: '2.2.0', to: '2.3.3', detail: '升级完成' })),
     up: vi.fn(async () => ({ ok: true, detail: 'online' })),
     down: vi.fn(async () => ({ ok: true, detail: '已停' })),
     probe: vi.fn(async () => ({ online: true, version: '2.3.3' })),
@@ -169,6 +170,18 @@ describe('remote-instance ops', () => {
     expect(status.detail).toContain('桌面版隧道未连接')
   })
 
+  it('upgrade is a job and reports whether anything changed', async () => {
+    const manager = makeManager()
+    const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager })
+    expect((await ops.handle({ op: 'upgrade', id: 'missing' })).status).toBe(404)
+    const started = await ops.handle({ op: 'upgrade', id: 'demo@h' })
+    expect(started.status).toBe(202)
+    const job = await waitJob(ops, (started.body as { jobId: string }).jobId)
+    expect(job.state).toBe('done')
+    expect(job.result).toMatchObject({ ok: true, changed: true, from: '2.2.0', to: '2.3.3' })
+    expect(manager.upgrade).toHaveBeenCalledWith('demo@h')
+  })
+
   it('config sync ops are jobs and never imply deletions', async () => {
     const manager = makeManager()
     const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager })
@@ -221,7 +234,7 @@ describe('remote-instance ops', () => {
    */
   it('every op in the union has a live case', async () => {
     const everyOp: Record<RemoteInstanceOp['op'], true> = {
-      list: true, add: true, patch: true, plan: true, apply: true, up: true, down: true, probe: true,
+      list: true, add: true, patch: true, plan: true, apply: true, upgrade: true, up: true, down: true, probe: true,
       status: true, logs: true, peerlog: true, url: true, defaults: true, uipassword: true,
       configdiff: true, syncconfig: true, syncauth: true, pairlink: true,
       delete: true, job: true,

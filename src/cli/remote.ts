@@ -93,6 +93,7 @@ USAGE:
                                    --delete-key：删对端独有的配置项（provider:x / mcp.servers:y）
                                    --prefer-commented-target：允许重写带注释的对端配置（注释会丢；默认写 opencode.json）
   ocrc remote sync-auth <id>       把本机 auth.json（provider 凭据）写到对端（0600，不回显）
+  ocrc remote upgrade <id>         升到控制端的 app pin（已在 pin 上就什么都不做）
   ocrc remote open <id>            打印 URL（并尝试用系统浏览器打开）
   ocrc remote logs <id>            本端隧道/隧道重连日志尾
   ocrc remote peerlog <id> [--lines N]  对端日志尾（我们的 instance.log + 对端 openchamber 日志）
@@ -582,6 +583,17 @@ export async function main(argv: string[]): Promise<void> {
         console.log(`（打开失败：${(err as Error).message}——手动复制上面那行）`)
       }
     }
+    return
+  }
+
+  if (sub === 'upgrade') {
+    // D5：版本是 pin 不是选项，所以只有这一个升级动作——对端落后于控制端的 pin 时才动。
+    const instance = resolveInstance(args.slice(1), flags)
+    const m = manager()
+    const r = await m.upgrade(instance.id)
+    m.dispose()
+    console.log(`${r.ok ? 'OK  ' : 'FAIL'} ${r.detail}`)
+    if (!r.ok) process.exit(1)
     return
   }
 

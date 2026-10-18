@@ -3198,6 +3198,27 @@ tar: ${err.message}` });
         peerPort
       };
     },
+    /**
+     * D5: one step from "the peer is on an older pin" to "the peer is on my pin".
+     *
+     * The app version is deliberately **not** a form field (the user settled that
+     * pins are derived, not chosen), so the only meaningful upgrade action is this
+     * one: compare the record against the control side's pin, and if they differ,
+     * move the record and run the normal apply. Nothing happens when they already
+     * match — an "upgrade" that reinstalls the same version is noise.
+     */
+    async upgrade(id) {
+      const instance = need(id);
+      const from = instance.appVersion;
+      const to = DEFAULT_APP_VERSION;
+      if (from === to) {
+        return { ok: true, changed: false, from, to, detail: `\u5DF2\u7ECF\u662F\u5BF9\u7AEF\u8BE5\u6709\u7684\u90A3\u4E00\u4EFD\uFF1A${to}\uFF08pin \u6765\u81EA\u63A7\u5236\u7AEF\uFF09` };
+      }
+      pushLog(id, `\u5347\u7EA7\uFF1A${from} \u2192 ${to}\uFF08\u65E7\u6811\u7559 .ocrc-bak\uFF0C\u4E00\u4EFD\u5C31\u591F\uFF09`);
+      opts.store.update(id, { appVersion: to });
+      const result = await manager.apply(id, { force: false });
+      return { ...result, changed: true, from, to };
+    },
     async apply(id, applyOpts = {}) {
       const instance = need(id);
       if (instance.provision === "reuse" && !applyOpts.force) {
@@ -3710,6 +3731,10 @@ function createRemoteInstanceOps({
             return { status: 409, body: { error: "confirm:true required", dryRun: true } };
           }
           return start(() => manager.apply(op.id, { force: op.payload?.force === true }));
+        }
+        case "upgrade": {
+          if (!store.get(op.id)) return { status: 404, body: { error: "not found" } };
+          return start(() => manager.upgrade(op.id));
         }
         case "up":
           if (!store.get(op.id)) return { status: 404, body: { error: "not found" } };

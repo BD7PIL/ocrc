@@ -92,6 +92,16 @@ streams the same live sessions from the same pipeline — prompts from either su
 both, approvals arrive as buttons. They predate the panel path and remain supported; the entry
 point for a new setup is the extension above.
 
+Channel status, per transport (checked against `src/transport/*` — outbound vs inbound differ):
+
+| Transport | Outbound | Inbound |
+|---|---|---|
+| Telegram | yes | yes (long poll; buttons for approvals) |
+| Web PWA | yes | yes (token-gated) |
+| Lark / Feishu | yes (cards, editable, streaming) | yes (long connection) |
+| WeCom | yes (group-robot webhook, markdown) | **no** — needs a publicly reachable callback URL, which contradicts local-first |
+| DingTalk | yes (markdown via `oToMessages`) | **no** (v1) |
+
 ```bash
 npm i -g @bd7pil/ocrc
 ocrc install            # Telegram bot token + allowed user id

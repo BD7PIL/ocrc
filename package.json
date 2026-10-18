@@ -1,7 +1,7 @@
 {
   "name": "@bd7pil/ocrc",
   "version": "2.0.0-alpha.8",
-  "description": "Remote-control opencode from Telegram and a web PWA — live sessions, tool streams, approvals, SSH remote hosts, schedules. Plugin mode or standalone host.",
+  "description": "Provision and drive remote openchamber instances: install openchamber (runtime + pinned opencode) on a Linux machine over ssh, relay its egress when it has none, and pair it into the desktop app. The same library ships as the OCRC panel extension and as this CLI/agent.",
   "type": "module",
   "main": "dist/plugin/entry.js",
   "exports": {
@@ -39,9 +39,7 @@
   },
   "files": [
     "dist",
-    "bin",
     "ops",
-    "patches",
     "vendor/zcode-dwf/dist"
   ],
   "dependencies": {
@@ -50,23 +48,19 @@
     "@larksuiteoapi/node-sdk": "^1.74.0",
     "@opencode-ai/plugin": "^1.18.34",
     "@opencode-ai/sdk": "^1.17.13",
-    "cmdk": "^1.1.1",
     "diff": "^9.0.0",
     "dingtalk-stream": "^2.1.6-beta.1",
     "dotenv": "^18.0.5",
     "grammy": "^1.46.0",
     "hono": "^4.13.12",
     "jose": "^6.2.3",
-    "lucide-react": "^1.52.0",
     "mdast-util-to-string": "^4.0.0",
     "qrcode": "^1.5.4",
-    "react-resizable-panels": "^4.14.2",
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
     "undici": "^7.30.0",
     "unified": "^11.0.5",
-    "ws": "^8.20.1",
-    "zod": "^4.6.5"
+    "ws": "^8.20.1"
   },
   "devDependencies": {
     "@types/diff": "^8.0.0",
@@ -93,13 +87,16 @@
   },
   "keywords": [
     "opencode",
-    "plugin",
-    "telegram",
+    "openchamber",
     "remote-control",
-    "remote-hosts",
+    "provisioning",
     "ssh",
-    "pwa",
-    "ai-agent",
-    "mobile"
-  ]
+    "relay",
+    "air-gap",
+    "telegram",
+    "ai-agent"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
 }

@@ -9,6 +9,7 @@
  */
 import type { DetectReport, ReadinessReport, ReadinessStep, TargetPlatform } from '../shared/provision.js'
 import { isSupportedEngineVersion, MINIMUM_NODE_MAJOR, readinessAction } from '../shared/provision.js'
+import { DEFAULT_APP_VERSION, buildEgressProbeCommand } from '../../../../src/core/remote-instance.js'
 
 /** 一个脚本探完所有档位。`sh` 而非 bash：EL7 的 /bin/sh 是 bash，但更老的
  *  被控机可能是 dash/busybox，探测本身不该依赖 bash 特性。每条探测都 `|| true`,
@@ -39,15 +40,18 @@ export function buildDetectScript(): string {
     'for c in "$HOME/.local/bin/opencode" /usr/local/bin/opencode /usr/bin/opencode; do',
     '  if [ -x "$c" ]; then echo "LEGACY_PATH=$c"; echo "LEGACY_VERSION=$("$c" --version 2>/dev/null | head -1)"; break; fi',
     'done',
-    // 出网探测：只关心能不能拿到官方 registry（安装通道），所以打的是 npm 而不是
-    // opencode.ai——真正的取件动作只走 registry。
-    'if command -v curl >/dev/null 2>&1; then',
-    '  if curl -sSf -m 8 -o /dev/null https://registry.npmjs.org/@opencode%2Fcli 2>/dev/null; then echo "OUTBOUND=yes"; else echo "OUTBOUND=no"; fi',
-    'elif command -v wget >/dev/null 2>&1; then',
-    '  if wget -q -T 8 -O /dev/null https://registry.npmjs.org/@opencode%2Fcli 2>/dev/null; then echo "OUTBOUND=yes"; else echo "OUTBOUND=no"; fi',
-    'else echo "OUTBOUND=unknown"; fi',
+    // 出网探测：**与实例拓扑共用一份实现**（`buildEgressProbeCommand`）。此前这里是
+    // 另一份独立实现（打 npmjs、不认对端自己的代理、只试一个地址族），于是「连接」页
+    // 与「远程实例」页会对同一台机器给出不同结论——两个面各说各话，用户没法判断信谁。
+    // 判据统一成 models.dev（引擎取 provider 目录的地址），判定词映射回 yes/no/unknown。
+    `echo "OUTBOUND=$(${egressProbeScript()})"`,
     'echo "DETECT_DONE=1"',
   ].join('\n')
+}
+
+/** 实例拓扑的探测脚本（多行、自身就打印一个判定词），嵌进 detect 的一次 ssh 里。 */
+function egressProbeScript(): string {
+  return buildEgressProbeCommand({ appVersion: DEFAULT_APP_VERSION })
 }
 
 /** 把 key=value 行读成表。值里可能带空格（PRETTY_NAME），所以只按第一个 `=` 切。
@@ -116,7 +120,11 @@ export function toDetectReport(stdout: string, options: { reachable?: boolean; s
     homeWritable: f.HOME_WRITABLE === 'yes',
     hasSh: f.HAS_SH === 'yes',
     hasTar: f.HAS_TAR === 'yes',
-    outbound: f.OUTBOUND === 'yes' ? true : f.OUTBOUND === 'no' ? false : undefined,
+    // 实例拓扑的判定词 → 这一页的三态。
+    //   direct              → 可出网
+    //   dns-only / none     → 不出网（有解析没路由 / 两者都不行，动作都是经中继）
+    //   unknown / 空        → 出网未知（不猜）
+    outbound: f.OUTBOUND === 'direct' ? true : f.OUTBOUND === 'dns-only' || f.OUTBOUND === 'none' ? false : undefined,
     engine: f.ENGINE_PATH && f.ENGINE_PATH !== 'none'
       ? { path: f.ENGINE_PATH, version: normalizeVersion(f.ENGINE_VERSION ?? '') }
       : null,

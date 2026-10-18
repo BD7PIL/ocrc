@@ -23,7 +23,7 @@ const EL7_OUTPUT = [
   'ENGINE_VERSION=opencode v2.0.27',
   'LEGACY_PATH=/home/demo/.local/bin/opencode',
   'LEGACY_VERSION=1.18.34',
-  'OUTBOUND=yes',
+  'OUTBOUND=direct',
   'DETECT_DONE=1',
 ].join('\n')
 
@@ -120,7 +120,7 @@ describe('toDetectReport', () => {
   })
 
   it('出网未知时不假装知道', () => {
-    expect(toDetectReport(EL7_OUTPUT.replace('OUTBOUND=yes', 'OUTBOUND=unknown')).outbound).toBeUndefined()
+    expect(toDetectReport(EL7_OUTPUT.replace('OUTBOUND=direct', 'OUTBOUND=unknown')).outbound).toBeUndefined()
   })
 })
 

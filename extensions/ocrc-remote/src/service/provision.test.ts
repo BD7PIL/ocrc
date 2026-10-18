@@ -26,7 +26,7 @@ const DETECT_V2 = [
   'ENGINE_PATH=none',
   'LEGACY_PATH=/home/demo/.local/bin/opencode',
   'LEGACY_VERSION=1.18.34',
-  'OUTBOUND=yes',
+  'OUTBOUND=direct',
   'DETECT_DONE=1',
 ].join('\n')
 

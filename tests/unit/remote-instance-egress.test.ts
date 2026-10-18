@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  buildEgressProbeCommand, buildInstanceProxyProbeCommand, parseEgressProbe, parseInstanceProxyProbe,
-  relayProxyUrl, resolveEgressPolicy,
+  CURL_EXIT_MAP, EGRESS_PROBE_URL, WGET_EXIT_MAP,
+  buildEgressProbeCommand, buildInstanceProxyProbeCommand, egressProbeFromAttempts, parseEgressProbe,
+  parseInstanceProxyProbe, relayProxyUrl, resolveEgressPolicy,
 } from '../../src/core/remote-instance.js'
 
 /**
@@ -57,9 +58,9 @@ describe('buildEgressProbeCommand', () => {
   it('runs on the pushed runtime and is bounded by one deadline', () => {
     const cmd = buildEgressProbeCommand({ appVersion: '2.3.3' })
     expect(cmd).toContain('$HOME/.ocrc/remote/runtime/node-v')
-    expect(cmd).toContain('registry.npmjs.org')
+    expect(cmd).toContain('models.dev')
     expect(cmd).toContain('setTimeout')
-    expect(cmd).toContain('10000') // deadline, so a host that cannot be measured answers instead of hanging
+    expect(cmd).toContain('6000') // node-fallback deadline, so a host that cannot be measured answers instead of hanging
   })
 
   it('accepts a different host and budget', () => {
@@ -141,7 +142,70 @@ describe('egress probe robustness', () => {
 
   it('races a dead resolver against a short timer instead of waiting on it', () => {
     const script = cmd()
-    expect(script).toContain('setTimeout(fallback,4000)')
+    expect(script).toContain('setTimeout(fallback,1500)')
     expect(script).toContain('1.1.1.1')
+  })
+})
+
+/**
+ * Probe v2 — the verdict must be about the **consumer's** path, and the two ways
+ * the first implementation got it wrong are pinned here:
+ *   · it probed the install channel (npmjs) instead of what the instance needs
+ *     (models.dev — the provider catalogue);
+ *   · it tried one address family, so a peer with a v6 default route and a broken
+ *     v6 egress was judged offline (measured: `curl -6` timed out while `curl -4`
+ *     returned 200 in 3.3 s).
+ */
+describe('egress probe v2', () => {
+  const cmd = () => buildEgressProbeCommand({ appVersion: '2.3.3' })
+
+  it('asks the question the instance actually needs answered', () => {
+    expect(EGRESS_PROBE_URL).toBe('https://models.dev/api.json')
+    expect(cmd()).toContain('https://models.dev/api.json')
+  })
+
+  it('prefers IPv4 and only then tries IPv6', () => {
+    const script = cmd()
+    const v4 = script.indexOf('curl -4')
+    const v6 = script.indexOf('curl -6')
+    expect(v4).toBeGreaterThan(-1)
+    expect(v6).toBeGreaterThan(v4)
+    // v6 is attempted only when v4 failed, and never after a killed attempt.
+    expect(script).toContain('if [ "$r4" != 124 ]; then')
+  })
+
+  it('lets the peer use its own proxy (curl/wget honour the env; nothing clears it)', () => {
+    const script = cmd()
+    expect(script).not.toContain('--noproxy')
+    expect(script).not.toMatch(/unset .*PROXY/)
+    expect(script).not.toContain('http_proxy=')
+  })
+
+  it('caps a hanging resolver from outside curl, then falls back to the node probe', () => {
+    const script = cmd()
+    expect(script).toContain('timeout 5')
+    // A killed attempt is not a verdict: it falls through to the node probe, which
+    // bounds the resolver itself.
+    expect(script.indexOf('timeout 5')).toBeLessThan(script.indexOf('node -e'))
+  })
+
+  it('keeps the fallback chain in order: curl → wget → pushed node', () => {
+    const script = cmd()
+    expect(script.indexOf('command -v curl')).toBeLessThan(script.indexOf('command -v wget'))
+    expect(script.indexOf('command -v wget')).toBeLessThan(script.indexOf('node -e'))
+  })
+
+  it('maps exit codes without guessing', () => {
+    // curl: 0 = any response counts (a 401 from models.dev still proves a route).
+    expect(egressProbeFromAttempts([0, 0], CURL_EXIT_MAP)).toBe('direct')
+    expect(egressProbeFromAttempts([0, 28], CURL_EXIT_MAP)).toBe('direct')
+    expect(egressProbeFromAttempts([7, 28], CURL_EXIT_MAP)).toBe('none')
+    expect(egressProbeFromAttempts([6, 6], CURL_EXIT_MAP)).toBe('dns-only')
+    expect(egressProbeFromAttempts([6, 7], CURL_EXIT_MAP)).toBe('none')
+    expect(egressProbeFromAttempts([5, 5], CURL_EXIT_MAP)).toBe('unknown') // proxy error: do not guess
+    expect(egressProbeFromAttempts([35, 35], CURL_EXIT_MAP)).toBe('unknown') // TLS: do not guess
+    // wget: 8 = the server answered with an error status, which still proves a route.
+    expect(egressProbeFromAttempts([8, 4], WGET_EXIT_MAP)).toBe('direct')
+    expect(egressProbeFromAttempts([4, 4], WGET_EXIT_MAP)).toBe('none')
   })
 })

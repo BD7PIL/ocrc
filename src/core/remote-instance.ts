@@ -145,50 +145,128 @@ export const EGRESS_DEFAULT: EgressMode = 'auto'
  *  route still cannot reach a model provider. */
 export type EgressProbe = 'direct' | 'dns-only' | 'none' | 'unknown'
 
-/** Controlled host: can it reach the internet on its own? Runs on the pushed
- *  Node, so a host without curl/wget still answers.
+/**
+ * The address that decides "has egress": **models.dev**, because that is the thing
+ * the instance actually needs (openchamber fetches its provider/model catalogue
+ * from `https://models.dev/api.json` — `server/lib/opencode/models-metadata.js`).
+ * An empty catalogue is what "the peer has no internet" looks like from inside the
+ * panel, so probing the install channel (npmjs) answered a different question: a
+ * peer behind an allowlist that permits npm but not models.dev would have been
+ * judged direct while its provider list stayed empty.
+ */
+export const EGRESS_PROBE_URL = 'https://models.dev/api.json'
+
+/**
+ * Controlled host: can it reach the internet on its own?
  *
- *  Everything is bounded by one deadline: a host with no egress makes the
- *  resolver retry and the TCP connect hang, and the first version of this probe
- *  took 15s on EL7 — close enough to the ssh timeout to come back empty and be
- *  read as "unknown". `deadline` is the whole budget. */
-export function buildEgressProbeCommand(o: { appVersion: string; host?: string; timeoutMs?: number; deadlineMs?: number }): string {
+ * The answer must be about the **consumer's** path, not about a packet, so the
+ * implementation is a chain and the chain is family-aware:
+ *   · `curl` first — it honours the peer's own `http_proxy`/`HTTPS_PROXY` by
+ *     default, so a peer that gets out through its own proxy is correctly "direct"
+ *     (measured on Ubuntu while it ran its own proxy: raw TCP failed, the peer
+ *     itself got out fine).
+ *   · **IPv4 before IPv6, and IPv6 only if IPv4 failed.** Measured on the same
+ *     Ubuntu: it has a v6 default route but a broken v6 egress, its resolver hands
+ *     back AAAA records first, and curl's 4 s connect budget was spent on the dead
+ *     family — a plain `curl` reported a timeout while `curl -4` returned 200 in
+ *     3.3 s. One family is not the peer.
+ *   · `wget` next (same env semantics, different flags), then the pushed Node as a
+ *     last resort — it can only test DNS+TCP and cannot see a proxy, so it is the
+ *     weakest of the three (documented).
+ *
+ * Verdicts stay the same four words; only the method changed. Cost: ~3-4 s for a
+ * peer that works, ~6-12 s for one that cannot get out (both attempts must fail
+ * before "no egress" is a supported claim), cached for five minutes.
+ */
+export function buildEgressProbeCommand(o: { appVersion: string; url?: string; host?: string; timeoutMs?: number; deadlineMs?: number }): string {
   const p = instancePaths(o.appVersion)
-  const host = o.host ?? 'registry.npmjs.org'
-  const timeout = o.timeoutMs ?? 3_000
-  const deadline = o.deadlineMs ?? 10_000
-  // Two hard-won details, both from a live false negative (Ubuntu reported
-  // "对端无出网" while a plain `curl` returned 200):
-  //   · `dns.lookup` without `{all:true}` can sit on the resolver for longer than
-  //     the whole budget, and the old code answered **none** when the deadline
-  //     fired — i.e. it turned "could not measure" into a claim about the peer.
-  //     The deadline now reports `unknown` (policy: relay, but honestly labelled).
-  //   · every resolved address is tried, **IPv4 first**: a host whose AAAA records
-  //     resolve but whose IPv6 route is broken would otherwise decide the verdict
-  //     on its own.
-  const probe = [
+  const url = o.url ?? EGRESS_PROBE_URL
+  // The node fallback runs only when curl/wget are missing or were killed by the
+  // outer cap, so its own budget is deliberately small: 1.5 s to learn whether the
+  // resolver answers at all, 1.5 s per literal-IP connect, 6 s overall.
+  const timeout = o.timeoutMs ?? 1_500
+  const deadline = o.deadlineMs ?? 6_000
+  // A dead resolver makes `getaddrinfo` sit on its own retry schedule (measured on
+  // the offline EL7: the lookup outlived the whole budget), which would turn "DNS is
+  // dead" into "could not measure". Racing it against a short timer and falling
+  // through to a literal IP keeps the two apart: literal IP unreachable → `none`
+  // (a supported claim), literal IP reachable → `dns-only`.
+  const nodeProbe = [
     "const dns=require('dns'),net=require('net')",
-    `const H=${JSON.stringify(host)},T=${timeout}`,
+    `const H=${JSON.stringify(o.host ?? 'models.dev')},T=${timeout}`,
     'const done=(v)=>{console.log(v);process.exit(0)}',
     `setTimeout(()=>done('unknown'),${deadline})`,
     'const tryList=(list,viaDns)=>{let i=0;const next=()=>{'
       + 'if(i>=list.length)return done(viaDns?"dns-only":"none");'
       + 'const a=list[i++];const s=net.connect({host:a.address,port:443,timeout:T},()=>{s.destroy();done("direct")});'
       + 's.on("error",()=>{s.destroy();next()});s.on("timeout",()=>{s.destroy();next()})};next()}',
-    // A dead resolver makes `getaddrinfo` sit on its own retry schedule (measured
-    // on the offline EL7: the lookup outlived the whole budget), which would turn
-    // "DNS is dead" into "could not measure". Racing it against a short timer and
-    // falling through to a literal IP keeps the two apart: literal IP unreachable
-    // → `none` (a supported claim), literal IP reachable → `dns-only`.
     'let answered=false',
     'const fallback=()=>{if(answered)return;answered=true;tryList([{address:"1.1.1.1",family:4}],false)}',
-    'setTimeout(fallback,4000)',
+    'setTimeout(fallback,1500)',
     `dns.lookup(H,{all:true},(e,all)=>{if(answered)return;answered=true;`
       + `if(e||!all||!all.length)return tryList([{address:'1.1.1.1',family:4}],false);`
       + 'tryList([...all].sort((x,y)=>x.family-y.family),true)})',
   ].join(';')
-  return `${p.node} -e ${q(probe)}`
+  const qq = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
+  return [
+    `U=${qq(url)}`,
+    // `timeout` is the outer hard cap: curl's own `--max-time` cannot interrupt a
+    // blocking `getaddrinfo`, so a peer with a *hanging* resolver (measured on the
+    // offline EL7) kept curl busy for glibc's full retry schedule (~10 s per
+    // family). A killed attempt (124) is **not** a verdict — it falls through to the
+    // node probe, which bounds the resolver itself and can still separate "no
+    // route" from "no resolver".
+    'TMO=""; command -v timeout >/dev/null 2>&1 && TMO="timeout 5"',
+    // curl: 0 = got a response (any status counts — a 401 from models.dev still
+    // proves the route), 6 = could not resolve, 7 = could not connect, 28 = timeout.
+    'if command -v curl >/dev/null 2>&1; then',
+    '  $TMO curl -4 -sS -o /dev/null --connect-timeout 3 --max-time 5 "$U" >/dev/null 2>&1; r4=$?',
+    '  [ "$r4" = 0 ] && { echo direct; exit 0; }',
+    '  if [ "$r4" != 124 ]; then',
+    '    $TMO curl -6 -sS -o /dev/null --connect-timeout 3 --max-time 5 "$U" >/dev/null 2>&1; r6=$?',
+    '    [ "$r6" = 0 ] && { echo direct; exit 0; }',
+    '    if [ "$r4" = 6 ] && [ "$r6" = 6 ]; then echo dns-only; exit 0; fi',
+    '    for c in "$r4" "$r6"; do case "$c" in 6|7|28) ;; *) echo unknown; exit 0 ;; esac; done',
+    '    echo none; exit 0',
+    '  fi',
+    'fi',
+    // wget: 0 = fetched, 8 = the server answered with an error status (still a
+    // route!), 4 = network failure, 6 = auth. So 8 counts as reachable.
+    'if command -v wget >/dev/null 2>&1; then',
+    '  $TMO wget -4 -q -T 4 -O /dev/null "$U" >/dev/null 2>&1; w4=$?',
+    '  { [ "$w4" = 0 ] || [ "$w4" = 8 ]; } && { echo direct; exit 0; }',
+    '  if [ "$w4" != 124 ]; then',
+    '    $TMO wget -6 -q -T 4 -O /dev/null "$U" >/dev/null 2>&1; w6=$?',
+    '    { [ "$w6" = 0 ] || [ "$w6" = 8 ]; } && { echo direct; exit 0; }',
+    '    [ "$w4" = 4 ] && [ "$w6" = 4 ] && { echo none; exit 0; }',
+    '    echo unknown; exit 0',
+    '  fi',
+    'fi',
+    `${p.node} -e ${q(nodeProbe)}`,
+  ].join('\n')
 }
+
+/**
+ * Two family attempts → verdict, as a pure function so the mapping is testable
+ * without a peer. `resolveFailure` is the code that means "could not resolve"
+ * (curl 6, wget: none — wget folds DNS failures into 4), `unreachable` the codes
+ * that mean "resolved but could not connect" (curl 7/28, wget 4).
+ */
+export function egressProbeFromAttempts(
+  codes: readonly [number, number],
+  opts: { reachable: readonly number[]; resolveFailure?: number; unreachable: readonly number[] },
+): EgressProbe {
+  if (codes.some((c) => opts.reachable.includes(c))) return 'direct'
+  if (opts.resolveFailure !== undefined && codes.every((c) => c === opts.resolveFailure)) return 'dns-only'
+  // Both families failed in a way we understand — that is a supported "no egress".
+  if (codes.every((c) => opts.unreachable.includes(c) || c === opts.resolveFailure)) return 'none'
+  return 'unknown'
+}
+
+/** curl's exit codes as the mapping above expects. */
+export const CURL_EXIT_MAP = { reachable: [0], resolveFailure: 6, unreachable: [6, 7, 28] } as const
+/** wget's: 8 is "server answered with an error status", which still proves a route. */
+export const WGET_EXIT_MAP = { reachable: [0, 8], unreachable: [4] } as const
 
 export function parseEgressProbe(stdout: string): EgressProbe {
   const last = stdout.trim().split(/\r?\n/).pop()?.trim()

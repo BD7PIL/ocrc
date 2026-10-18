@@ -112,18 +112,40 @@ describe('远程实例页', () => {
     await waitFor(() => expect(screen.getByText(/控制端 service 不可达/)).toBeTruthy())
   })
 
-  it('开机自动重连/自恢复开关：点击把当前值的反写回去（不猜默认）', async () => {
+  it('默认只露三个主操作；开关在「更多操作」里，点了照样反写当前值（不猜默认）', async () => {
     const { request, calls } = fakeRequest((call) => {
       const body = call.body as { op?: string; payload?: unknown } | undefined
       if (body?.op === 'list') return { status: 200, body: { instances: [{ ...ROW, reconnect: false }] } }
       return { status: 200, body: {} }
     })
     await act(async () => { render(<RemoteInstance request={request} host={null} />) })
+    await waitFor(() => expect(screen.getByText('预演')).toBeTruthy())
+    // 布局 B 的契约：次要动作默认不在屏上（十二个同权按钮就是"没有层次感"）
+    expect(screen.queryByText('开自动重连')).toBeNull()
+    expect(screen.queryByText('配置差异')).toBeNull()
+    expect(screen.queryByText('删档案')).toBeNull()
+
+    await act(async () => { screen.getByText('更多操作 ▾').click() })
     await waitFor(() => expect(screen.getByText('开自动重连')).toBeTruthy())
     await act(async () => { screen.getByText('开自动重连').click() })
     await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'patch')).toBe(true))
     const patch = calls.find((c) => (c.body as { op?: string })?.op === 'patch')
     expect((patch?.body as { payload: { reconnect: boolean } }).payload.reconnect).toBe(true)
+  })
+
+  it('「更多操作」里的每个动作都可达（不允许"功能在但点不到"）', async () => {
+    const { request } = fakeRequest((call) => {
+      const body = call.body as { op?: string } | undefined
+      if (body?.op === 'list') return { status: 200, body: { instances: [ROW] } }
+      return { status: 200, body: {} }
+    })
+    await act(async () => { render(<RemoteInstance request={request} host={null} />) })
+    await waitFor(() => expect(screen.getByText('更多操作 ▾')).toBeTruthy())
+    await act(async () => { screen.getByText('更多操作 ▾').click() })
+    for (const label of ['编辑', '打开界面', '日志', '配置差异', '查看 UI 密码', '关自动重连', '关重启自恢复', '删档案']) {
+      await waitFor(() => expect(screen.getByText(label)).toBeTruthy())
+    }
+    expect(screen.getByText(/升级到 pin/)).toBeTruthy()
   })
 
   it('出口是「决定」而不是「中继在不在」：直连的对端不显示中继徽标', async () => {
@@ -190,6 +212,7 @@ describe('远程实例页', () => {
       return { status: 200, body: {} }
     })
     await act(async () => { render(<RemoteInstance request={request} host={null} />) })
+    await act(async () => { screen.getByText('更多操作 ▾').click() })
     await act(async () => { screen.getByText('配置差异').click() })
     await waitFor(() => expect(screen.getByText(/配置差异（本地 ↔ 对端引擎/)).toBeTruthy())
     expect(screen.getByText(/\+ skill\/new\.md/)).toBeTruthy()

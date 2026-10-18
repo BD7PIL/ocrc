@@ -191,6 +191,8 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
   const [syncResult, setSyncResult] = useState('')
   /** Which card has its 详情 expanded (one at a time — the point is less noise). */
   const [detailsFor, setDetailsFor] = useState<string | null>(null)
+  /** Which card has 更多操作 expanded (one at a time, same reason as 详情). */
+  const [moreFor, setMoreFor] = useState<string | null>(null)
   /** Deletions are opt-in per item: a peer-only file or key is never removed by
    *  the diff itself (that would be a wipe wearing a sync's clothes). */
   const [checkedDeletes, setCheckedDeletes] = useState<Record<string, boolean>>({})
@@ -352,7 +354,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
       <KitBanner
         tone="info"
         title="把 openchamber 实例装到对端"
-        body="Add project 列的、中栏连的就是对端。引擎必须是 opencode v2（major 2 且 ≥ 2.0.20）；对端只有 v1 时会推我们 pin 的 v2 到 ~/.ocrc/remote/engine/，既有安装一律不动。装好之后生成配对链接，在官方 app 里确认——这台机器会出现在「其他 OpenChamber 服务器」，不是「远程实例」。"
+        body="面板看到的目录与文件就是对端的，会话跑在对端引擎（必须是 opencode v2）。装好 → 生成配对链接 → 在官方 app 里确认：这台机器会出现在「其他 OpenChamber 服务器」，不是「远程实例」。"
       />
       {error ? <KitBanner tone="error" title="出错了" body={error} /> : null}
 
@@ -509,6 +511,8 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
             ) : null}
 
             <KitSeparator />
+            {/* B：极简卡片——三个主操作直接可见，其余原地折叠。十二个同权按钮排成
+                两行时，没有一个看起来是"该按的"（"没有层次感"那条反馈）。 */}
             <div className="oc-row">
               <KitButton size="sm" label="预演" variant="outline" loading={busy === `plan:${row.id}`} onClick={() => void plan(row.id)} />
               <KitButton
@@ -525,60 +529,76 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                 loading={busy === `pairlink:${row.id}`}
                 onClick={() => void makePairLink(row.id)}
               />
-              <KitButton size="sm" variant="ghost" label="编辑" onClick={() => openForm(row)} />
-              {/* D5：版本是 pin，不是选项——所以这里只有一个"升级到 pin"的动作，
-                  对端已经在 pin 上时它明确说"已是最新"，不做无意义的重复安装。 */}
               <KitButton
-                size="sm"
+                size="xs"
                 variant="ghost"
-                label={`升级到 pin${defaults ? ` ${defaults.appVersion}` : ''}`}
-                loading={busy === `upgrade:${row.id}`}
-                onClick={() => void run(`upgrade:${row.id}`, async () => {
-                  const r = await op<{ ok: boolean; detail: string; changed: boolean }>({ op: 'upgrade', id: row.id })
-                  setSyncResult(`${r.ok ? 'OK' : 'FAIL'} ${r.detail}`)
-                })}
+                label={moreFor === row.id ? '收起更多' : '更多操作 ▾'}
+                onClick={() => setMoreFor(moreFor === row.id ? null : row.id)}
               />
-              <KitButton
-                size="sm"
-                variant="ghost"
-                label="打开界面"
-                onClick={() => void run(`url:${row.id}`, async () => {
-                  const reply = await op<{ url: string }>({ op: 'url', id: row.id })
-                  // The guest sandbox has no allow-popups, so window.open is
-                  // blocked. host.openUrl is the sanctioned "open externally".
-                  if (!host) throw new Error('宿主未连接，无法打开界面')
-                  await host.openUrl(reply.url)
-                })}
-              />
-              <KitButton size="sm" variant="ghost" label="日志" loading={busy === `logs:${row.id}`} onClick={() => void showLogs(row.id)} />
-              <KitButton size="sm" variant="ghost" label="配置差异" loading={busy === `configdiff:${row.id}`} onClick={() => void showConfigDiff(row.id)} />
-              <KitButton size="sm" variant="ghost" label="查看 UI 密码" loading={busy === `secret:${row.id}`} onClick={() => void showSecret(row.id)} />
-              <KitButton
-                size="sm"
-                variant="ghost"
-                label={row.reconnect === false ? '开自动重连' : '关自动重连'}
-                onClick={() => void run(`patch:${row.id}`, async () => {
-                  await op({ op: 'patch', id: row.id, payload: { reconnect: row.reconnect === false } })
-                })}
-              />
-              <KitButton
-                size="sm"
-                variant="ghost"
-                label={row.restoreOnStart === false ? '开重启自恢复' : '关重启自恢复'}
-                onClick={() => void run(`patch:${row.id}`, async () => {
-                  await op({ op: 'patch', id: row.id, payload: { restoreOnStart: row.restoreOnStart === false } })
-                })}
-              />
-              <KitButton
-                size="sm"
-                variant="destructive"
-                label="删档案"
-                onClick={() => void run(`delete:${row.id}`, async () => {
-                  await op({ op: 'delete', id: row.id })
-                })}
-              />
-              {busy.endsWith(row.id) ? <KitSpinner size="sm" /> : null}
             </div>
+
+            {moreFor === row.id ? (
+              <div className="oc-col">
+                <div className="oc-row">
+                  <KitButton size="sm" variant="ghost" label="编辑" onClick={() => openForm(row)} />
+                  {/* D5：版本是 pin，不是选项——所以只有一个"升级到 pin"，对端已经在
+                      pin 上时它明确说"已是最新"，不做无意义的重复安装。 */}
+                  <KitButton
+                    size="sm"
+                    variant="ghost"
+                    label={`升级到 pin${defaults ? ` ${defaults.appVersion}` : ''}`}
+                    loading={busy === `upgrade:${row.id}`}
+                    onClick={() => void run(`upgrade:${row.id}`, async () => {
+                      const r = await op<{ ok: boolean; detail: string; changed: boolean }>({ op: 'upgrade', id: row.id })
+                      setSyncResult(`${r.ok ? 'OK' : 'FAIL'} ${r.detail}`)
+                    })}
+                  />
+                  <KitButton
+                    size="sm"
+                    variant="ghost"
+                    label="打开界面"
+                    onClick={() => void run(`url:${row.id}`, async () => {
+                      const reply = await op<{ url: string }>({ op: 'url', id: row.id })
+                      // The guest sandbox has no allow-popups, so window.open is
+                      // blocked. host.openUrl is the sanctioned "open externally".
+                      if (!host) throw new Error('宿主未连接，无法打开界面')
+                      await host.openUrl(reply.url)
+                    })}
+                  />
+                  <KitButton size="sm" variant="ghost" label="日志" loading={busy === `logs:${row.id}`} onClick={() => void showLogs(row.id)} />
+                  <KitButton size="sm" variant="ghost" label="配置差异" loading={busy === `configdiff:${row.id}`} onClick={() => void showConfigDiff(row.id)} />
+                  <KitButton size="sm" variant="ghost" label="查看 UI 密码" loading={busy === `secret:${row.id}`} onClick={() => void showSecret(row.id)} />
+                </div>
+                <div className="oc-row">
+                  <KitButton
+                    size="sm"
+                    variant="ghost"
+                    label={row.reconnect === false ? '开自动重连' : '关自动重连'}
+                    onClick={() => void run(`patch:${row.id}`, async () => {
+                      await op({ op: 'patch', id: row.id, payload: { reconnect: row.reconnect === false } })
+                    })}
+                  />
+                  <KitButton
+                    size="sm"
+                    variant="ghost"
+                    label={row.restoreOnStart === false ? '开重启自恢复' : '关重启自恢复'}
+                    onClick={() => void run(`patch:${row.id}`, async () => {
+                      await op({ op: 'patch', id: row.id, payload: { restoreOnStart: row.restoreOnStart === false } })
+                    })}
+                  />
+                  <KitButton
+                    size="sm"
+                    variant="destructive"
+                    label="删档案"
+                    onClick={() => void run(`delete:${row.id}`, async () => {
+                      await op({ op: 'delete', id: row.id })
+                    })}
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            {busy.endsWith(row.id) ? <KitSpinner size="sm" /> : null}
             {/* 动作结果（同步/升级）就贴在这一行下面：卡片可能没打开，结果不能只活在卡片里。 */}
             {syncResult ? <div className="oc-xs oc-sdk-mono">{syncResult}</div> : null}
 

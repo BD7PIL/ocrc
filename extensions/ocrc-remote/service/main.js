@@ -388,28 +388,60 @@ function provisionActions(f) {
 }
 var PROXY_DEFAULTS = { enabled: true, localPort: 4711, remotePort: 2711, allow: [] };
 var EGRESS_DEFAULT = "auto";
+var EGRESS_PROBE_URL = "https://models.dev/api.json";
 function buildEgressProbeCommand(o) {
   const p = instancePaths(o.appVersion);
-  const host = o.host ?? "registry.npmjs.org";
-  const timeout = o.timeoutMs ?? 3e3;
-  const deadline = o.deadlineMs ?? 1e4;
-  const probe = [
+  const url = o.url ?? EGRESS_PROBE_URL;
+  const timeout = o.timeoutMs ?? 1500;
+  const deadline = o.deadlineMs ?? 6e3;
+  const nodeProbe = [
     "const dns=require('dns'),net=require('net')",
-    `const H=${JSON.stringify(host)},T=${timeout}`,
+    `const H=${JSON.stringify(o.host ?? "models.dev")},T=${timeout}`,
     "const done=(v)=>{console.log(v);process.exit(0)}",
     `setTimeout(()=>done('unknown'),${deadline})`,
     'const tryList=(list,viaDns)=>{let i=0;const next=()=>{if(i>=list.length)return done(viaDns?"dns-only":"none");const a=list[i++];const s=net.connect({host:a.address,port:443,timeout:T},()=>{s.destroy();done("direct")});s.on("error",()=>{s.destroy();next()});s.on("timeout",()=>{s.destroy();next()})};next()}',
-    // A dead resolver makes `getaddrinfo` sit on its own retry schedule (measured
-    // on the offline EL7: the lookup outlived the whole budget), which would turn
-    // "DNS is dead" into "could not measure". Racing it against a short timer and
-    // falling through to a literal IP keeps the two apart: literal IP unreachable
-    // → `none` (a supported claim), literal IP reachable → `dns-only`.
     "let answered=false",
     'const fallback=()=>{if(answered)return;answered=true;tryList([{address:"1.1.1.1",family:4}],false)}',
-    "setTimeout(fallback,4000)",
+    "setTimeout(fallback,1500)",
     `dns.lookup(H,{all:true},(e,all)=>{if(answered)return;answered=true;if(e||!all||!all.length)return tryList([{address:'1.1.1.1',family:4}],false);tryList([...all].sort((x,y)=>x.family-y.family),true)})`
   ].join(";");
-  return `${p.node} -e ${q(probe)}`;
+  const qq2 = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
+  return [
+    `U=${qq2(url)}`,
+    // `timeout` is the outer hard cap: curl's own `--max-time` cannot interrupt a
+    // blocking `getaddrinfo`, so a peer with a *hanging* resolver (measured on the
+    // offline EL7) kept curl busy for glibc's full retry schedule (~10 s per
+    // family). A killed attempt (124) is **not** a verdict — it falls through to the
+    // node probe, which bounds the resolver itself and can still separate "no
+    // route" from "no resolver".
+    'TMO=""; command -v timeout >/dev/null 2>&1 && TMO="timeout 5"',
+    // curl: 0 = got a response (any status counts — a 401 from models.dev still
+    // proves the route), 6 = could not resolve, 7 = could not connect, 28 = timeout.
+    "if command -v curl >/dev/null 2>&1; then",
+    '  $TMO curl -4 -sS -o /dev/null --connect-timeout 3 --max-time 5 "$U" >/dev/null 2>&1; r4=$?',
+    '  [ "$r4" = 0 ] && { echo direct; exit 0; }',
+    '  if [ "$r4" != 124 ]; then',
+    '    $TMO curl -6 -sS -o /dev/null --connect-timeout 3 --max-time 5 "$U" >/dev/null 2>&1; r6=$?',
+    '    [ "$r6" = 0 ] && { echo direct; exit 0; }',
+    '    if [ "$r4" = 6 ] && [ "$r6" = 6 ]; then echo dns-only; exit 0; fi',
+    '    for c in "$r4" "$r6"; do case "$c" in 6|7|28) ;; *) echo unknown; exit 0 ;; esac; done',
+    "    echo none; exit 0",
+    "  fi",
+    "fi",
+    // wget: 0 = fetched, 8 = the server answered with an error status (still a
+    // route!), 4 = network failure, 6 = auth. So 8 counts as reachable.
+    "if command -v wget >/dev/null 2>&1; then",
+    '  $TMO wget -4 -q -T 4 -O /dev/null "$U" >/dev/null 2>&1; w4=$?',
+    '  { [ "$w4" = 0 ] || [ "$w4" = 8 ]; } && { echo direct; exit 0; }',
+    '  if [ "$w4" != 124 ]; then',
+    '    $TMO wget -6 -q -T 4 -O /dev/null "$U" >/dev/null 2>&1; w6=$?',
+    '    { [ "$w6" = 0 ] || [ "$w6" = 8 ]; } && { echo direct; exit 0; }',
+    '    [ "$w4" = 4 ] && [ "$w6" = 4 ] && { echo none; exit 0; }',
+    "    echo unknown; exit 0",
+    "  fi",
+    "fi",
+    `${p.node} -e ${q(nodeProbe)}`
+  ].join("\n");
 }
 function parseEgressProbe(stdout) {
   const last = stdout.trim().split(/\r?\n/).pop()?.trim();
@@ -5987,15 +6019,16 @@ function buildDetectScript() {
     'for c in "$HOME/.local/bin/opencode" /usr/local/bin/opencode /usr/bin/opencode; do',
     '  if [ -x "$c" ]; then echo "LEGACY_PATH=$c"; echo "LEGACY_VERSION=$("$c" --version 2>/dev/null | head -1)"; break; fi',
     "done",
-    // 出网探测：只关心能不能拿到官方 registry（安装通道），所以打的是 npm 而不是
-    // opencode.ai——真正的取件动作只走 registry。
-    "if command -v curl >/dev/null 2>&1; then",
-    '  if curl -sSf -m 8 -o /dev/null https://registry.npmjs.org/@opencode%2Fcli 2>/dev/null; then echo "OUTBOUND=yes"; else echo "OUTBOUND=no"; fi',
-    "elif command -v wget >/dev/null 2>&1; then",
-    '  if wget -q -T 8 -O /dev/null https://registry.npmjs.org/@opencode%2Fcli 2>/dev/null; then echo "OUTBOUND=yes"; else echo "OUTBOUND=no"; fi',
-    'else echo "OUTBOUND=unknown"; fi',
+    // 出网探测：**与实例拓扑共用一份实现**（`buildEgressProbeCommand`）。此前这里是
+    // 另一份独立实现（打 npmjs、不认对端自己的代理、只试一个地址族），于是「连接」页
+    // 与「远程实例」页会对同一台机器给出不同结论——两个面各说各话，用户没法判断信谁。
+    // 判据统一成 models.dev（引擎取 provider 目录的地址），判定词映射回 yes/no/unknown。
+    `echo "OUTBOUND=$(${egressProbeScript()})"`,
     'echo "DETECT_DONE=1"'
   ].join("\n");
+}
+function egressProbeScript() {
+  return buildEgressProbeCommand({ appVersion: DEFAULT_APP_VERSION });
 }
 function parseDetectOutput(stdout) {
   const out = {};
@@ -6053,7 +6086,11 @@ function toDetectReport(stdout, options = {}) {
     homeWritable: f.HOME_WRITABLE === "yes",
     hasSh: f.HAS_SH === "yes",
     hasTar: f.HAS_TAR === "yes",
-    outbound: f.OUTBOUND === "yes" ? true : f.OUTBOUND === "no" ? false : void 0,
+    // 实例拓扑的判定词 → 这一页的三态。
+    //   direct              → 可出网
+    //   dns-only / none     → 不出网（有解析没路由 / 两者都不行，动作都是经中继）
+    //   unknown / 空        → 出网未知（不猜）
+    outbound: f.OUTBOUND === "direct" ? true : f.OUTBOUND === "dns-only" || f.OUTBOUND === "none" ? false : void 0,
     engine: f.ENGINE_PATH && f.ENGINE_PATH !== "none" ? { path: f.ENGINE_PATH, version: normalizeVersion(f.ENGINE_VERSION ?? "") } : null,
     legacyEngine: f.LEGACY_PATH ? { path: f.LEGACY_PATH, version: normalizeVersion(f.LEGACY_VERSION ?? "") } : null,
     node,

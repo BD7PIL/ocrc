@@ -329,9 +329,31 @@ node extensions/ocrc/scripts/preview.mjs        # 起本地预览，打印两个
 ```
 
 预览挂的是**真面板**（真 kit、真 `guest.css`），只把 `connectHost` 换成假宿主
-（`preview/sdk-shim.ts`），场景见 `preview/scenarios.ts`（empty / one / two / mixed / fresh）。
-CI 绿不等于能用：这一轮就是靠它看出 `guest.css` 没被 esbuild 注入（样式全丢）与
-`.oc-row-between` 这个从批次 2 起就被用着、却一直没定义的类。
+（`preview/sdk-shim.ts`），场景见 `preview/scenarios.ts`（empty / one / two / mixed / fresh /
+slow / error / upfail / pw）。CI 绿不等于能用：第一轮就是靠它看出 `guest.css` 没被
+esbuild 注入（样式全丢）与 `.oc-row-between` 这个从批次 2 起就被用着、却一直没定义的类。
+
+**逐组件评审（24 项，可重复）**
+
+```bash
+node extensions/ocrc/scripts/audit.mjs            # 全套截图 → preview/audit/
+node extensions/ocrc/scripts/audit.mjs --only 15  # 只跑某一项
+```
+
+清单是 `preview/audit/README.md` 里那张**组件 × 状态**表（面板 19 项 + 状态区 5 项），
+每项一张图；README 同时记着每轮的结论与「已知的 P3（记录不修）」。截图本身不入库
+（`audit/*.png` 已 gitignore，Chrome profile 放系统临时目录），需要时重跑即可。
+每张图看七件事：层次 / 对齐 / 折行 / 裁切 / 对比度 / 术语 / 动线。
+
+**提交前自检**
+
+```bash
+npm run preflight   # 重建两个扩展 → 四处 typecheck → 两个扩展的测试 → guest 不变量 → 产物暂存
+```
+
+扩展的安装产物是提交进仓库的（`panel/ status/ service/ shared/`），改了 `src/` 忘了重建
+会被 CI 的 dist 一致性拦下——这条已经栽过两次（第二次是共享层同步进 ocrc-omo-view 时），
+所以把它固化成一条命令。
 
 - 发布走 [`.github/workflows/ocrc-extension.yml`](../.github/workflows/ocrc-extension.yml)（**只有手动
   dispatch**）：钉 tag 只写一次、通道 tag 按设计覆盖。升级前先提

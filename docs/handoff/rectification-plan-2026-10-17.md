@@ -212,3 +212,28 @@
    要删的是 `tunnel/tunnels/remote-fs/config-bridge/config-project/provision/runtime/capabilities/auth-sync/detect/artifact/omo-config`
    及其测试、两个验收脚本、OPS/handoff 对应段落——**等你看完 demo 再动**（demo 见可视化目录 `ocrc-panel-redesign-demo.html`）。
 2. 上面那三条 U8（app 内确认配对链接 / 面板点一次发消息）仍然只有你能做。
+
+---
+
+## 追加（2026-10-18，扩展 0.9.1）：逐组件多模态评审 + 第一轮发现全修
+
+**做了两件之前没做的事**：把「看过每个组件」变成可重复的流水线，并且真的逐张看了。
+
+- `extensions/ocrc/scripts/audit.mjs` 按 `preview/audit/README.md` 的**组件 × 状态**清单
+  （面板 19 项 + 状态区 5 项）驱动真面板出图，每项一张；README 记每轮结论与「已知 P3」。
+- `npm run preflight`：重建两个扩展 → 四处 typecheck → 两个扩展的测试 → guest 不变量 →
+  产物暂存。扩展产物是提交进仓库的，改了 `src/` 忘重建会被 CI 拦下（这条已栽两次）。
+
+**第一轮抓到并修掉的**（证据与修法见 `preview/audit/README.md` 的表）：
+
+| 级别 | 问题 |
+| --- | --- |
+| P0 | 服务不可达时同时显示错误横幅与「还没有服务器」空态（请求失败了却断言"没有"） |
+| P0 | 首屏会报「宿主桥未就绪」：组件第一遍渲染时 host 还是 null |
+| P0 | 配对链接 `754>572`、ssh 命令行 `766>572` 被裁切 |
+| P1 | `KitList` 的 64px `row-lead` 让检查结果的候选/动作清单像坏表格 |
+| P1 | 兼容档把 glibc 说两遍；表单不成网格；配置差异卡是一堵灰字墙；日志三段连成一片 |
+| P2 | 移除确认挤进按钮行；移除与 日志/编辑 同排；未安装卡没有「详情」；空态教用户点按钮；缺首跑提示；用户可见的字面反引号；重复的忙碌 spinner |
+
+第二轮截图逐张对照：24/24 pass（两轮都看过的项没有退化）。仍未做：上一代三块服务端的
+删除（等你对 demo 的决定）、真机上的 hover/focus/键盘顺序（预览测不到）。

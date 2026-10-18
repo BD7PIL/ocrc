@@ -239,30 +239,48 @@ tag 不是唯一的版本轴。扩展相反——它只有一个入口 URL，所
 
 **装扩展（控制端，粘 URL）**
 
-面板 Settings → Extensions 直接粘 URL 即可，**不要** clone 仓库走 folder 安装：
+面板 Settings → Extensions 直接粘 URL 即可，**不要** clone 仓库走 folder 安装。两种装法，按要不要自更新选：
 
 ```
-# 常驻入口（永不变，推荐写进文档）
+# ① 自更新（推荐日常用）：git 装法 —— app 能自己发现并应用更新
+https://github.com/BD7PIL/ocrc#ext-ocrc-remote
+
+# ② 钉版本 / 离线分发：zip 通道（永不变），没有自更新
 https://github.com/BD7PIL/ocrc/releases/download/ocrc-remote-latest/ocrc-remote.zip
 
-# 钉版本（不可变，用于复现"这台机器装的是哪一版"）
-https://github.com/BD7PIL/ocrc/releases/download/ocrc-remote-0.8.1/ocrc-remote.zip
+# ②' 复现"这台机器装的是哪一版"：钉 tag 的 zip（不可变）
+https://github.com/BD7PIL/ocrc/releases/download/ocrc-remote-0.8.2/ocrc-remote.zip
 ```
 
-**升级 = 把同一个通道 URL 再粘一次**（面板会弹冲突确认，确认后带 `replace:true` 覆盖安装；能力审批与启用状态都会保留）。为什么没有自更新、以及 URL 到底会不会变，见下面三条**源码级**事实：
+`ext-ocrc-remote` 是**扩展自己的分支**（`ocrc-ext.yml` 每次发布用 `git subtree split` 把
+`extensions/ocrc-remote` 推到该分支，force-push）。为什么要有这个分支：`parseGitInstallUrl`
+认 `url#ref`，但 `cloneGitRepository` 跑的是 `git clone --depth 1 --branch <ref>` 并把**克隆根**
+当 guest 根，所以 monorepo 的子目录当不了 guest；subtree 分支的根就是扩展本身（根目录有
+`package.json`），两个条件同时满足。
 
+**自更新到底是怎么成立的（源码级 + 本机实测）**：
+
+- 装的时候把 `origin`（url + ref）记进安装记录；`checkGuestUpdate`
+  （`server/lib/guests/updates.js`）在**已装的克隆里**跑 `git fetch --depth 1 -- origin <ref>`
+  → `git show FETCH_HEAD:package.json` → 和本地版本比 semver。
+- 本机用 openchamber 自己的安装代码实测（`parseGitInstallUrl` + `cloneGitRepository` +
+  `checkGuestUpdate`，装到临时目录，不碰已装的扩展）：
+  `#ext-ocrc-remote` → 解析出 `ref`；克隆根有 `package.json`（`ocrc-remote 0.8.2`）与
+  `panel/index.html`、`service/main.js`、`status/*`；同版本 → `available:false`；
+  装作旧版本 → `available:true, version 0.8.2, requested:["sessions","service"]`。
+- 所以**扩展的版本号就是更新信号**：`extensions/<name>/package.json` 的 `version` 不提，
+  git 装的副本就看不到更新（与"钉 tag 会被跳过"是同一条规矩）。
+- zip 装法**没有**自更新，而且面板连"有新版本"都发现不了：`checkGuestUpdate` 的第一道判断是
+  `if (!origin?.url) return { available: false, error: 'not-git' }`（`updates.js:85`）——zip 装的
+  guest 没有 git origin，所以"检查更新"对它返回 **not-git**，不是"已是最新"。
+  zip 装的升级方式 = **把同一个通道 URL 再粘一次**（弹冲突确认，确认后带 `replace:true` 覆盖安装；
+  能力审批与启用状态都会保留）。
 - **URL 是活的**：`-latest` 那个 tag 每次发布都用 `gh release upload --clobber` 覆盖
-  （`.github/workflows/ocrc-ext.yml:157`），所以同一个 URL 永远指向最新那份 zip。实测：同一 URL 从
+  （`.github/workflows/ocrc-ext.yml`），所以同一个 zip URL 永远指向最新那份。实测：同一 URL 从
   0.7.0（253,525 B）变成 0.8.0（273,291 B），sha256 也变了。
-- **已装的那份不会自己更新，而且面板连"有新版本"都发现不了**：`checkGuestUpdate` 的第一道判断是
-  `if (!origin?.url) return { available: false, error: 'not-git' }`（`server/lib/guests/updates.js:85`）——
-  zip 装的 guest 没有 git origin，所以"检查更新"对它返回的是 **not-git**（这条路不通），不是"已是最新"。
-- **也不能改成 git 源来自更新**：`parseGitInstallUrl` 只认 `url#ref`、**不支持子目录**
-  （`server/lib/guests/clone.js:163-175`），而 guest 根目录必须有 `package.json`。我们的扩展在 monorepo 的
-  `extensions/ocrc-remote/` 下，git 装会把仓库根当 guest —— 装不上。所以"zip + 手动重粘"是当前唯一可用
-  形态；要自更新得给扩展单独开一个仓库。
 
-- 装完会有**一次 service 能力审批**（扩展要在宿主上跑 `ssh`）——批准。
+- 装完会有**一次 service 能力审批**（扩展要在宿主上跑 `ssh`）——批准；git 装法在应用更新后
+  会**再问一次**（`requested` 里带着能力清单），这是上游行为，不是回归。
 - 升级后想确认装的是哪一版：看面板的扩展卡片，或 Release 资产的 label（现在是 `ocrc-remote 0.8.2`）。
 
 **面板与状态区（0.8.2 收缩：一个功能、一条动线）**

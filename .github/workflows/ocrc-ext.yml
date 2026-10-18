@@ -24,6 +24,14 @@
 # Publishing is deliberate — workflow_dispatch only, never on a schedule, and the
 # pin tag is never rewritten (a re-dispatch skips it; bump the extension version
 # in package.json to publish a new one).
+#
+# Two install shapes, both published by the same run:
+#   zip (Release asset)  fixed version, NO self-update — the panel's own update
+#                        check answers "not-git" for a zip-installed guest.
+#   git (mirror branch)  `https://github.com/<owner>/<repo>#ext-<name>` — the app
+#                        can check for and apply updates itself.
+# The branch is force-pushed every run; the version in the extension's
+# package.json is the update signal for both shapes.
 
 name: ocrc-ext
 
@@ -156,4 +164,44 @@ jobs:
                 --notes "Channel pointer: always the newest $EXT bundle. Stable install URL $URL_BASE/$CHANNEL/$EXT.zip ; pin a version with the $EXT-<version> tag."
             gh release upload "$CHANNEL" "$EXT.zip#$EXT $VER" -R "$GITHUB_REPOSITORY" --clobber
             echo "channel $CHANNEL now serves $EXT $VER"
+          done
+
+  # ===========================================================================
+  # 3. Mirror each extension to its own branch, so it can be installed from
+  #    git — the only shape openchamber self-updates.
+  # ===========================================================================
+  #
+  # Why a branch and not the monorepo URL: `parseGitInstallUrl` accepts
+  # `url#ref` but `cloneGitRepository` runs `git clone --depth 1 --branch <ref>`
+  # and treats the clone ROOT as the guest, so a subdirectory of the repo cannot
+  # be a guest. `git subtree split` puts the extension at the root of a branch
+  # whose history is only that extension's, which satisfies both.
+  #
+  # What the app then does (verified against the installed @openchamber/web):
+  #   · install: paste https://github.com/<owner>/<repo>#ext-<name>
+  #   · checkGuestUpdate: `git fetch --depth 1 -- origin <ref>` +
+  #     `git show FETCH_HEAD:package.json` → compares semver with the installed
+  #     copy → "更新" applies it and re-asks the capability approval.
+  # So the version in `extensions/<name>/package.json` IS the update signal:
+  # publishing without bumping it means git-installed copies see no update.
+  mirror:
+    needs: bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Push each extension subtree to its branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "ocrc-ext"
+          git config user.email "ocrc-ext@users.noreply.github.com"
+          for EXT in ocrc-remote ocrc-omo-view; do
+            BRANCH="ext-$EXT"
+            git subtree split --prefix="extensions/$EXT" -b "split-$EXT" HEAD >/dev/null
+            git push --force "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" \
+              "split-$EXT:refs/heads/$BRANCH"
+            echo "$BRANCH ← extensions/$EXT (guest root = repo root of that branch)"
           done

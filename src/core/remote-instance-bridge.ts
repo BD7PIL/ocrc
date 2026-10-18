@@ -483,7 +483,7 @@ export function createRemoteInstanceManager(opts: {
       return {
         ok: false,
         seen: parsed,
-        error: `pin 的引擎不满足 v2 门禁：${parsed.map((c) => `${c.path} → ${c.raw || '（版本未知）'}`).join('；') || instance.enginePath}`,
+        error: `pin 的 OpenCode 不满足 v2 门禁：${parsed.map((c) => `${c.path} → ${c.raw || '（版本未知）'}`).join('；') || instance.enginePath}`,
       }
     }
     return pick
@@ -583,7 +583,7 @@ export function createRemoteInstanceManager(opts: {
     }
     const decision = resolveEgressPolicy({ mode, relayAllowed: proxyConfig(instance).enabled, probe })
     r.egress = { ...decision, probe, at: Date.now() }
-    pushLog(instance.id, `出口策略：${decision.relay ? '经控制端' : '直连'}（${decision.reason}）`)
+    pushLog(instance.id, `联网方式：${decision.relay ? '经本机转发' : '直连'}（${decision.reason}）`)
     return r.egress
   }
 
@@ -594,7 +594,7 @@ export function createRemoteInstanceManager(opts: {
   function egressView(instance: RemoteInstance): InstanceStatus['egress'] {
     const mode = instance.egress ?? EGRESS_DEFAULT
     const cached = rt(instance.id).egress
-    if (!cached) return { mode, relay: false, reason: '尚未探测（跑一次预演或启动就会决定）', cached: false }
+    if (!cached) return { mode, relay: false, reason: '尚未探测（跑一次检查或启动就会决定）', cached: false }
     return { mode, relay: cached.relay, reason: cached.reason, probe: cached.probe, cached: true }
   }
 
@@ -607,7 +607,7 @@ export function createRemoteInstanceManager(opts: {
     if (!(await egressFor(instance)).relay) return 'off'
     if (proxies.has(cfg.localPort)) return 'in-process'
     if (await isListening(cfg.localPort)) {
-      pushLog(instance.id, `egress relay 已在 :${cfg.localPort} 上监听（外部进程，复用）`)
+      pushLog(instance.id, `出网转发已在 :${cfg.localPort} 上监听（外部进程，复用）`)
       return 'external'
     }
     try {
@@ -617,10 +617,10 @@ export function createRemoteInstanceManager(opts: {
         onLog: (line) => pushLog(instance.id, `relay: ${line}`),
       })
       proxies.set(cfg.localPort, proxy)
-      pushLog(instance.id, `egress relay 起在 127.0.0.1:${cfg.localPort}（对端经 ssh -R 127.0.0.1:${cfg.remotePort} 进来到这）`)
+      pushLog(instance.id, `出网转发起在 127.0.0.1:${cfg.localPort}（远程机器经 ssh -R 127.0.0.1:${cfg.remotePort} 进来到这）`)
       return 'in-process'
     } catch (err) {
-      pushLog(instance.id, `egress relay 起不来：${(err as Error).message}`)
+      pushLog(instance.id, `出网转发起不来：${(err as Error).message}`)
       return 'off'
     }
   }
@@ -673,16 +673,16 @@ export function createRemoteInstanceManager(opts: {
       const health = await remoteHealth(fresh)
       if (health !== '200') {
         if (fresh.reconnect === false) {
-          setState(id, 'offline', '对端实例未响应（reconnect 关，不自动重启）')
+          setState(id, 'offline', '远程实例未响应（reconnect 关，不自动重启）')
           return
         }
         const pick = await resolveEngine(fresh)
         if (!pick.ok) {
-          setState(id, 'error', `引擎不满足 v2 门禁：${pick.error}`)
+          setState(id, 'error', `OpenCode 不满足 v2 门禁：${pick.error}`)
           return
         }
         const relay = await ensureProxy(fresh)
-        if (relay !== 'off') pushLog(id, `egress relay: ${relay}`)
+        if (relay !== 'off') pushLog(id, `出网转发：${relay}`)
         await ensureExternalRelayAsync(fresh)
         const started = await startInstance(fresh, pick.candidate.path)
         setState(id, started.ok ? 'online' : 'error', started.ok ? `实例已重新拉起（${instanceUrl(fresh.localPort)}）` : started.detail)
@@ -692,7 +692,7 @@ export function createRemoteInstanceManager(opts: {
       await ensureExternalRelayAsync(fresh)
       // Same rule as probe(): the desktop shell owns its own local port, so
       // "online" here means the far side + the egress leg are healthy.
-      if (here.state !== 'online') setState(id, 'online', '对端就绪（隧道由桌面版持有）')
+      if (here.state !== 'online') setState(id, 'online', '远程实例已就绪（转发由桌面应用持有）')
     }
     const timer = setInterval(() => { void tick().catch(() => { /* next tick */ }) }, EXTERNAL_MONITOR_MS)
     timer.unref?.()
@@ -732,7 +732,7 @@ export function createRemoteInstanceManager(opts: {
     const uiHolder = holderOf(instance, 'ui')
     if (uiHolder) {
       pushLog(instance.id, `本地 :${uiHolder.localPort ?? instance.localPort} 由另一个持有者占着（pid ${uiHolder.pid}，${uiHolder.owner}）——本进程不再起 -L，按 external 方式对待`)
-      setState(instance.id, 'online', `隧道由另一个持有者（pid ${uiHolder.pid}，${uiHolder.owner}）持有`)
+      setState(instance.id, 'online', `转发由另一个持有者（pid ${uiHolder.pid}，${uiHolder.owner}）持有`)
       return
     }
     const cfg = proxyConfig(instance)
@@ -743,7 +743,7 @@ export function createRemoteInstanceManager(opts: {
     } finally {
       r.relayPending = false
     }
-    if (adopted) pushLog(instance.id, `远端 ${cfg.remotePort} 已在监听——主隧道不带 -R（复用既有出网中继）`)
+    if (adopted) pushLog(instance.id, `远端 ${cfg.remotePort} 已在监听——主隧道不带 -R（复用既有出网转发）`)
     // R9 rides the same ssh process: `-L` gives us the UI, `-R` gives the
     // controlled host its egress. One tunnel, one reconnect loop.
     const reverse = cfg.enabled && !adopted ? { remotePort: cfg.remotePort, localPort: cfg.localPort } : undefined
@@ -920,7 +920,7 @@ export function createRemoteInstanceManager(opts: {
     if (!instance) return { ok: false, detail: `没有这个实例：${id}` }
     const forwarded = await ensurePairingForwardAsync(instance)
     if (!forwarded) {
-      return { ok: false, detail: `本地转发 127.0.0.1:${instance.localPort} 起不来或对端不可达——先启动实例（配对链接要求它在跑）` }
+      return { ok: false, detail: `本地转发 127.0.0.1:${instance.localPort} 起不来或远程机器不可达——先启动实例（配对链接要求它在跑）` }
     }
     // The pairing link replaces the desktop shell's instance entry, and that
     // entry used to carry the reverse leg. Without it the peer's panel and
@@ -941,7 +941,7 @@ export function createRemoteInstanceManager(opts: {
     }), 45_000)
     const link = parsePairLink(r.stdout)
     if (!link) {
-      return { ok: false, detail: `对端没给出配对链接：${(r.stdout + r.stderr).replace(/\s+/g, ' ').slice(-200)}` }
+      return { ok: false, detail: `远程机器没给出配对链接：${(r.stdout + r.stderr).replace(/\s+/g, ' ').slice(-200)}` }
     }
     const info = describePairLink(link)
     pushLog(id, `配对链接已生成（一次性${info?.expiresAt ? `，${info.expiresAt} 过期` : ''}，${info?.candidates ?? 0} 条路由）`)
@@ -977,7 +977,7 @@ export function createRemoteInstanceManager(opts: {
       // second `-R` on the same remote port would fail and drop us into a
       // reconnect loop, so adopt what is there instead.
       if (await remoteRelayPresent(instance)) {
-        pushLog(instance.id, `远端 ${cfg.remotePort} 已在监听（出网中继由既有隧道提供，复用）`)
+        pushLog(instance.id, `远端 ${cfg.remotePort} 已在监听（出网转发由既有隧道提供，复用）`)
         return
       }
     } finally {
@@ -998,7 +998,7 @@ export function createRemoteInstanceManager(opts: {
     child.stderr?.on('data', (d: Buffer) => pushLog(instance.id, d.toString()))
     child.on('error', (err) => {
       pushLog(instance.id, `ssh -R: ${err.message}`)
-      setState(instance.id, 'error', `出网中继起不来：${err.message}`)
+      setState(instance.id, 'error', `出网转发起不来：${err.message}`)
     })
     child.on('exit', (code) => {
       const current = rt(instance.id)
@@ -1008,18 +1008,18 @@ export function createRemoteInstanceManager(opts: {
       }
       if (current.stopping) return
       if (code === 0) {
-        setState(instance.id, 'offline', '出网中继已退出')
+        setState(instance.id, 'offline', '出网转发已退出')
         return
       }
       try { opts.store.reload() } catch { /* best effort */ }
       const fresh = opts.store.get(instance.id)
       if (!fresh?.enabled || fresh.reconnect === false) {
-        setState(instance.id, 'offline', `出网中继退出（reconnect 关）：exit ${code}`)
+        setState(instance.id, 'offline', `出网转发退出（reconnect 关）：exit ${code}`)
         return
       }
       current.forwardAttempts += 1
       const delay = nextRetryDelay(current.forwardAttempts)
-      setState(instance.id, 'offline', `出网中继断开，${Math.round(delay / 1000)}s 后重连（第 ${current.forwardAttempts} 次）`)
+      setState(instance.id, 'offline', `出网转发断开，${Math.round(delay / 1000)}s 后重连（第 ${current.forwardAttempts} 次）`)
       current.forwardTimer = setTimeout(() => {
         current.forwardTimer = undefined
         const again = opts.store.get(instance.id)
@@ -1108,18 +1108,18 @@ export function createRemoteInstanceManager(opts: {
         actions.push(`注意：终端暂不可用（${term.reason ?? '原因未知'}）——实例其余功能不受影响`)
       }
       actions.push(pick.ok
-        ? `启动实例：serve --hostname 127.0.0.1 --port ${instance.instancePort}（引擎 ${pick.candidate.path} → ${pick.candidate.version}）`
-        : `启动实例前先装引擎：opencode ${DEFAULT_ENGINE_PIN} → ~/.ocrc/remote/engine/opencode（对端现有 v1 一律不动）`)
+        ? `启动实例：serve --hostname 127.0.0.1 --port ${instance.instancePort}（OpenCode ${pick.candidate.path} → ${pick.candidate.version}）`
+        : `启动实例前先装 OpenCode：opencode ${DEFAULT_ENGINE_PIN} → ~/.ocrc/remote/engine/opencode（远程机器现有 v1 一律不动）`)
       actions.push(`建转发：ssh -N -L 127.0.0.1:${instance.localPort}:127.0.0.1:${instance.instancePort} → 打开 ${url}`)
       // A3: `auto` must show what it picked, and the probe costs an ssh round
       // trip we can afford here (this is the "look before you leap" step).
       const egress = await egressFor(instance)
-      actions.push(`出口：${egress.relay ? '经控制端中继' : '对端直连'}（${egress.reason}）`)
+      actions.push(`联网方式：${egress.relay ? '经本机转发' : '直连'}（${egress.reason}）`)
       // A busy instance port is the failure the user can still fix here.
       const portOut = await ssh(instance, buildPeerPortProbeCommand(instance.appVersion, instance.instancePort), 20_000)
       const peerPort = parsePortProbe(portOut.stdout)
-      if (peerPort === 'open') actions.push(`注意：实例端口 ${instance.instancePort} 在对端已被占用——换个实例端口，或确认那是上一次的实例（启动会复用）`)
-      if (peerPort === 'unknown') actions.push(`实例端口 ${instance.instancePort}：对端既没有我们的运行时也没有 ss/netstat，占用情况无法判定（启动时才会知道）`)
+      if (peerPort === 'open') actions.push(`注意：实例端口 ${instance.instancePort} 在远程机器已被占用——换个实例端口，或确认那是上一次的实例（启动会复用）`)
+      if (peerPort === 'unknown') actions.push(`实例端口 ${instance.instancePort}：远程机器既没有我们的运行时也没有 ss/netstat，占用情况无法判定（启动时才会知道）`)
       setState(id, 'unknown')
       return {
         id, target, reachable: true, inspected: env, runtime, app,
@@ -1149,7 +1149,7 @@ export function createRemoteInstanceManager(opts: {
       const from = instance.appVersion
       const to = DEFAULT_APP_VERSION
       if (from === to) {
-        return { ok: true, changed: false, from, to, detail: `已经是对端该有的那一份：${to}（pin 来自控制端）` }
+        return { ok: true, changed: false, from, to, detail: `已经是远程机器该有的那一份：${to}（pin 来自控制端）` }
       }
       pushLog(id, `升级：${from} → ${to}（旧树留 .ocrc-bak，一份就够）`)
       opts.store.update(id, { appVersion: to })
@@ -1162,21 +1162,21 @@ export function createRemoteInstanceManager(opts: {
       // 复用档：不推字节，只检查并把引擎 pin 下来。用同一套探测命令，所以
       // "检查通过" 与 "推包会做什么" 说的是一件事，不是两套判断。
       if (instance.provision === 'reuse' && !applyOpts.force) {
-        setState(id, 'provisioning', '复用档：只检查，不写对端')
+        setState(id, 'provisioning', '复用已安装：只检查，不写远程机器')
         const runtime = (await ssh(instance, buildRuntimeProbeCommand(), 25_000)).stdout.trim().split('\n').pop() ?? 'MISSING'
         const appRaw = (await ssh(instance, buildAppProbeCommand(instance.appVersion), 45_000)).stdout.trim().split('\n').pop() ?? ''
         const pick = await resolveEngine(instance)
-        const detail = `复用档：运行时 ${runtime === 'MISSING' ? '缺失' : runtime}；应用 ${appRaw === instance.appVersion ? instance.appVersion : `不符（${appRaw || '缺失'}）`}；引擎 ${pick.ok ? `${pick.candidate.version} @ ${pick.candidate.path}` : '不满足 v2 门禁'}`
+        const detail = `复用已安装：运行时 ${runtime === 'MISSING' ? '缺失' : runtime}；OpenChamber ${appRaw === instance.appVersion ? instance.appVersion : `不符（${appRaw || '缺失'}）`}；OpenCode ${pick.ok ? `${pick.candidate.version} @ ${pick.candidate.path}` : '不满足 v2 门禁'}`
         pushLog(id, detail)
         if (runtime === 'MISSING' || appRaw !== instance.appVersion || !pick.ok) {
-          setState(id, 'error', '复用档检查未通过')
-          return { ok: false, detail: `${detail} —— 复用档不写任何字节；改用「推包」或先在对端装好 ${instance.appVersion}` }
+          setState(id, 'error', '复用已安装检查未通过')
+          return { ok: false, detail: `${detail} —— 复用已安装不写任何字节；改用「推送安装」或先在远程机器上装好 ${instance.appVersion}` }
         }
         if (pick.ok) {
           opts.store.update(id, { enginePath: pick.candidate.path, engineVersion: pick.candidate.version })
           rt(id).engine = { path: pick.candidate.path, version: pick.candidate.version }
         }
-        setState(id, 'offline', '复用档检查通过（未启动）')
+        setState(id, 'offline', '复用已安装检查通过（未启动）')
         return { ok: true, detail }
       }
       // The pack tier follows the target's glibc, not the control host's:
@@ -1184,23 +1184,23 @@ export function createRemoteInstanceManager(opts: {
       // modern tier. An explicit tier wins (tests / forced packs).
       const inspected = await probeEnv(instance)
       const tier: AppPackTier = applyOpts.tier ?? appPackTierForGlibc(inspected?.glibc)
-      pushLog(id, `应用包档位：${tier}${inspected?.glibc ? `（对端 glibc ${inspected.glibc}）` : ''}`)
-      applyOpts.onLog?.(`应用包档位：${tier}${inspected?.glibc ? `（对端 glibc ${inspected.glibc}）` : ''}`)
+      pushLog(id, `OpenChamber 包兼容档：${tier}${inspected?.glibc ? `（远程机器 glibc ${inspected.glibc}）` : ''}`)
+      applyOpts.onLog?.(`OpenChamber 包兼容档：${tier}${inspected?.glibc ? `（远程机器 glibc ${inspected.glibc}）` : ''}`)
       const ourEngine = `${instancePaths('x').engineDir}/opencode`
       // A foreign pin (explicit --engine-path) is asserted, never replaced; the
       // default path deploys **our own** pinned v2 into our namespace, which is
       // what makes a controlled host with only a v1 usable at all (R12).
       const foreignPin = instance.enginePath && instance.enginePath !== ourEngine ? instance.enginePath : undefined
       if (foreignPin) {
-        setState(id, 'provisioning', '断言 pin 的引擎')
+        setState(id, 'provisioning', '断言 pin 的 OpenCode')
         const pick = await resolveEngine(instance)
         if (!pick.ok) {
-          setState(id, 'error', '引擎不满足 v2 门禁')
+          setState(id, 'error', 'OpenCode 不满足 v2 门禁')
           return { ok: false, detail: `${pick.error}（R12：不许回落 v1）` }
         }
         rt(id).engine = { path: pick.candidate.path, version: pick.candidate.version }
       } else {
-        setState(id, 'provisioning', '推送运行时/引擎/应用')
+        setState(id, 'provisioning', '推送运行时 / OpenCode / OpenChamber')
       }
       const result = await provisionOffline(instance, instance.appVersion, {
         force: applyOpts.force,
@@ -1219,8 +1219,8 @@ export function createRemoteInstanceManager(opts: {
       }
       if (result.runtime.ok) rt(id).runtimeVersion = result.runtime.detail.replace(/^已推送 |^已在位 /, '')
       if (result.app.ok) rt(id).appVersion = instance.appVersion
-      const parts = `运行时：${result.runtime.detail}；引擎：${result.engine.detail}；应用：${result.app.detail}`
-      setState(id, result.ok ? 'offline' : 'error', result.ok ? '装机完成（未启动）' : parts)
+      const parts = `运行时：${result.runtime.detail}；OpenCode：${result.engine.detail}；OpenChamber：${result.app.detail}`
+      setState(id, result.ok ? 'offline' : 'error', result.ok ? '安装完成（未启动）' : parts)
       return { ok: result.ok, detail: parts }
     },
 
@@ -1230,7 +1230,7 @@ export function createRemoteInstanceManager(opts: {
       if (externalTunnel) startExternalMonitor(id)
       const pick = await resolveEngine(instance)
       if (!pick.ok) {
-        setState(id, 'error', '引擎不满足 v2 门禁')
+        setState(id, 'error', 'OpenCode 不满足 v2 门禁')
         return { ok: false, detail: `${pick.error}（R12：不许回落 v1）` }
       }
       const runtime = await ssh(instance, buildRuntimeProbeCommand(), 25_000)
@@ -1242,7 +1242,7 @@ export function createRemoteInstanceManager(opts: {
         // R9 relay must be up BEFORE the instance starts: the serve line hands the
         // engine a proxy URL, and a dead port there is a broken engine later.
         const relay = await ensureProxy(instance)
-        if (relay !== 'off') pushLog(instance.id, `egress relay: ${relay}`)
+        if (relay !== 'off') pushLog(instance.id, `出网转发：${relay}`)
         if (externalTunnel) ensureExternalRelay(instance)
         const started = await startInstance(instance, pick.candidate.path, upOpts.guard)
         if (!started.ok) {
@@ -1260,11 +1260,11 @@ export function createRemoteInstanceManager(opts: {
         const running = await probeInstanceProxy(instance)
         const expected = wantsRelay ? relayProxyUrl(proxyConfig(instance).remotePort) : 'none'
         if (running === 'unknown') {
-          pushLog(id, `实例已在 :${instance.instancePort} 上服务（复用；读不到对端进程的 env，出口是否与策略一致未知）`)
+          pushLog(id, `实例已在 :${instance.instancePort} 上服务（复用；读不到远程机器进程的 env，联网是否与策略一致未知）`)
         } else if (running === expected) {
           pushLog(id, `实例已在 :${instance.instancePort} 上服务（复用，不重启；出口 ${running === 'none' ? '直连' : running} 与策略一致）`)
         } else {
-          const why = wantsRelay ? '策略要求经控制端（对端无出网），但实例是在直连档起的' : '策略是对端直连，但实例还挂在我们中继上'
+          const why = wantsRelay ? '策略要求经本机转发（远程机器出不了网），但实例是在直连档起的' : '策略是直连，但实例还挂在我们转发上'
           pushLog(id, `${why}——重启实例让 env 跟上（现在 ${running}，期望 ${expected}）`)
           const stopped = await stopInstance(instance)
           if (!stopped.ok) {
@@ -1272,7 +1272,7 @@ export function createRemoteInstanceManager(opts: {
             return stopped
           }
           const relay = await ensureProxy(instance)
-          if (relay !== 'off') pushLog(instance.id, `egress relay: ${relay}`)
+          if (relay !== 'off') pushLog(instance.id, `出网转发：${relay}`)
           if (externalTunnel) ensureExternalRelay(instance)
           const restarted = await startInstance(instance, pick.candidate.path, upOpts.guard)
           if (!restarted.ok) {
@@ -1298,7 +1298,7 @@ export function createRemoteInstanceManager(opts: {
           }
           if (!probe.ok) return { ok: false as const, detail: `实例已起但转发探活失败：${probe.error}` }
           const compat = await probeEngineCompat(temp)
-          if (!compat.ok) return { ok: false as const, detail: `实例在跑，但引擎门禁未过：${compat.error}` }
+          if (!compat.ok) return { ok: false as const, detail: `实例在跑，但OpenCode门禁未过：${compat.error}` }
           return { ok: true as const, version: probe.version, compat }
         }).catch((err: unknown) => ({ ok: false as const, detail: (err as Error).message }))
         if (!verified.ok) {
@@ -1308,8 +1308,8 @@ export function createRemoteInstanceManager(opts: {
         const r = rt(id)
         r.forwardAttempts = 0
         r.engine = { path: verified.compat.binary, version: verified.compat.version }
-        setState(id, 'online', `openchamber ${verified.version}（引擎 ${verified.compat.version} @ ${verified.compat.binary}；隧道由桌面版持有）`)
-        return { ok: true, detail: `远端实例在线；隧道由桌面版持有（${instanceUrl(instance.localPort)}；openchamber ${verified.version}，引擎 ${verified.compat.version} @ ${verified.compat.binary}）` }
+        setState(id, 'online', `openchamber ${verified.version}（OpenCode ${verified.compat.version} @ ${verified.compat.binary}；转发由桌面应用持有）`)
+        return { ok: true, detail: `远端实例在线；转发由桌面应用持有（${instanceUrl(instance.localPort)}；openchamber ${verified.version}，OpenCode ${verified.compat.version} @ ${verified.compat.binary}）` }
       }
       // A tunnel from an earlier CLI run is invisible to this process. Reuse it
       // only when it carries the -R relay too; otherwise say so instead of
@@ -1319,9 +1319,9 @@ export function createRemoteInstanceManager(opts: {
           ? (await ssh(instance, buildRemotePortProbeCommand(instance.appVersion, proxyConfig(instance).remotePort), 20_000)).stdout.trim().endsWith('open')
           : true
         if (relayLive) {
-          pushLog(id, `本地 ${instance.localPort} 已在监听且带 -R 中继——复用这条隧道`)
+          pushLog(id, `本地 ${instance.localPort} 已在监听且带 -R 转发——复用这条隧道`)
         } else {
-          const detail = `本地 127.0.0.1:${instance.localPort} 已被占用，但它没有 -R 出网中继（多半是旧命令留下的隧道）——先停掉它再 up`
+          const detail = `本地 127.0.0.1:${instance.localPort} 已被占用，但它没有 -R 出网转发（多半是旧命令留下的隧道）——先停掉它再 up`
           setState(id, 'error', detail)
           return { ok: false, detail }
         }
@@ -1342,14 +1342,14 @@ export function createRemoteInstanceManager(opts: {
       // 而不是我们「请求它用 v2」。复用到既有实例时这一步尤其重要。
       const compat = await probeEngineCompat(instance)
       if (!compat.ok) {
-        setState(id, 'error', `引擎门禁未过：${compat.error}`)
-        return { ok: false, detail: `实例在跑，但引擎门禁未过：${compat.error}` }
+        setState(id, 'error', `OpenCode门禁未过：${compat.error}`)
+        return { ok: false, detail: `实例在跑，但OpenCode门禁未过：${compat.error}` }
       }
       const r = rt(id)
       r.forwardAttempts = 0
       r.engine = { path: compat.binary, version: compat.version }
-      setState(id, 'online', `openchamber ${probe.version}（引擎 ${compat.version} @ ${compat.binary}）`)
-      return { ok: true, detail: `online：${instanceUrl(instance.localPort)}（openchamber ${probe.version}，引擎 ${compat.version} @ ${compat.binary}）` }
+      setState(id, 'online', `openchamber ${probe.version}（OpenCode ${compat.version} @ ${compat.binary}）`)
+      return { ok: true, detail: `online：${instanceUrl(instance.localPort)}（openchamber ${probe.version}，OpenCode ${compat.version} @ ${compat.binary}）` }
     },
 
     async down(id) {
@@ -1379,15 +1379,15 @@ async probe(id) {
         const health = await remoteHealth(instance)
         if (health !== '200') {
           const r = rt(id)
-          if (r.state === 'online') setState(id, 'offline', `对端实例未响应（health ${health}）`)
-          return { online: false, detail: `对端实例未响应（health ${health}）` }
+          if (r.state === 'online') setState(id, 'offline', `远程实例未响应（health ${health}）`)
+          return { online: false, detail: `远程实例未响应（health ${health}）` }
         }
         await ensureExternalRelayAsync(instance)
         // Only a peer that needs us is required to have the leg up: for one with
         // its own egress a missing relay is the correct state, not a fault.
         const relayUp = !(await egressFor(instance)).relay
           || (await ssh(instance, buildRemotePortProbeCommand(instance.appVersion, proxyConfig(instance).remotePort), 20_000)).stdout.trim().endsWith('open')
-        if (!relayUp) return { online: false, detail: `对端实例在跑，但出网中继 :${proxyConfig(instance).remotePort} 未建立` }
+        if (!relayUp) return { online: false, detail: `远程实例在跑，但出网转发 :${proxyConfig(instance).remotePort} 未建立` }
         const r = rt(id)
         // Read the version through a one-shot forward: the desktop shell's own
         // port is not ours to use, and "online" deserves a real version, not a
@@ -1395,9 +1395,9 @@ async probe(id) {
         const probe = await withTempForward(instance, (temp) => probeThroughForward(temp))
           .catch(() => ({ ok: false as const, error: '临时转发失败' }))
         const version = probe.ok ? probe.version : undefined
-        const ui = (await isListening(instance.localPort)) ? `；本地转发 :${instance.localPort} 也在听` : '；隧道由桌面版持有'
-        if (r.state !== 'online') setState(id, 'online', version ? `openchamber ${version}（远端实测）` : `对端就绪${ui}`)
-        return { online: true, version, detail: `对端实例在线${ui}` }
+        const ui = (await isListening(instance.localPort)) ? `；本地转发 :${instance.localPort} 也在听` : '；转发由桌面应用持有'
+        if (r.state !== 'online') setState(id, 'online', version ? `openchamber ${version}（远端实测）` : `远程机器就绪${ui}`)
+        return { online: true, version, detail: `远程实例在线${ui}` }
       }
       const probe = await probeThroughForward(instance)
       if (probe.ok) {
@@ -1510,7 +1510,7 @@ async probe(id) {
       const local = readLocalConfig({ dir: opts.localConfigDir, authPath: opts.localAuthPath })
       const read = await ssh(instance, buildPeerConfigReadScript(), 45_000)
       if (read.code !== 0) {
-        const detail = `读对端配置失败：${cleanSshNoise(read.stderr || read.stdout).trim().split('\n').pop() ?? `exit ${read.code}`}`
+        const detail = `读远程机器配置失败：${cleanSshNoise(read.stderr || read.stdout).trim().split('\n').pop() ?? `exit ${read.code}`}`
         pushLog(id, detail)
         return { ok: false, detail }
       }
@@ -1525,13 +1525,13 @@ async probe(id) {
       })
       const nothing = plan.files.length === 0 && plan.deletes.length === 0
       if (nothing) {
-        pushLog(id, 'sync-config: 无差异，未写对端')
-        return { ok: true, detail: '无差异：对端已经和本地一致（未写任何文件）' }
+        pushLog(id, 'sync-config: 无差异，未写远程机器')
+        return { ok: true, detail: '无差异：远程机器已经和本地一致（未写任何文件）' }
       }
       if (syncOpts.dryRun) {
         return {
           ok: true,
-          detail: `预演：将写 ${plan.files.length} 个文件${plan.deletes.length ? `、删 ${plan.deletes.length} 个` : ''}；${plan.notes.join('；')}`,
+          detail: `试运行：将写 ${plan.files.length} 个文件${plan.deletes.length ? `、删 ${plan.deletes.length} 个` : ''}；${plan.notes.join('；')}`,
         }
       }
       // Staging, not a copy of the local dir: the peer's config file must receive
@@ -1549,8 +1549,8 @@ async probe(id) {
           mergedConfig: content ? { basename: plan.basename, content } : undefined,
         })
         if (staged.length === 0 && plan.deletes.length === 0) {
-          pushLog(id, 'sync-config: 无差异，未写对端')
-          return { ok: true, detail: '无差异：对端已经和本地一致（未写任何文件）' }
+          pushLog(id, 'sync-config: 无差异，未写远程机器')
+          return { ok: true, detail: '无差异：远程机器已经和本地一致（未写任何文件）' }
         }
         pushLog(id, `$ sync-config ${staged.join(' ')}${plan.deletes.length ? ` (delete ${plan.deletes.join(' ')})` : ''}`)
         const result = await pipeTarToSsh(instance, staging, buildConfigApplyScript(plan.deletes), 120_000)
@@ -1564,9 +1564,9 @@ async probe(id) {
         const backedUp = result.stdout.split('\n').filter((l) => l.startsWith('backup:')).length
         const deleted = result.stdout.split('\n').filter((l) => l.startsWith('deleted:')).length
         const detail = `同步 ${written} 个文件${backedUp ? `（${backedUp} 个旧件留 .ocrc-bak）` : ''}${deleted ? `，删 ${deleted} 个（也留 .ocrc-bak）` : ''}`
-          + (plan.droppedManagedKeys.length ? `；跳过 ${plan.droppedManagedKeys.join('/')}（对端自己的插件层）` : '')
+          + (plan.droppedManagedKeys.length ? `；跳过 ${plan.droppedManagedKeys.join('/')}（远程机器自己的插件层）` : '')
         pushLog(id, detail)
-        if (plan.secretsReplaced.length > 0) pushLog(id, `密钥改写为 {env:…}：${plan.secretsReplaced.map((s) => s.env).join(', ')}（值不落对端文件）`)
+        if (plan.secretsReplaced.length > 0) pushLog(id, `密钥改写为 {env:…}：${plan.secretsReplaced.map((s) => s.env).join(', ')}（值不落远程机器文件）`)
         return { ok: true, detail }
       } finally {
         discardStaging(staging)
@@ -1588,8 +1588,8 @@ async probe(id) {
       }
       // Never log the content, and never echo it: the log says what happened,
       // not what was copied.
-      pushLog(id, 'sync-auth: 凭据已写到对端（0600，旧件留 .ocrc-bak）')
-      return { ok: true, detail: `凭据已同步（${content.length} 字节 → 对端 0600）` }
+      pushLog(id, 'sync-auth: 凭据已写到远程机器（0600，旧件留 .ocrc-bak）')
+      return { ok: true, detail: `凭据已同步（${content.length} 字节 → 远程机器 0600）` }
     },
 
     logs(id) {

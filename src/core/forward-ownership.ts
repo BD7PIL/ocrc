@@ -136,7 +136,7 @@ export function describeHolders(instanceId: string, home = ocrcHome()): string[]
     const marker = readForwardMarker(instanceId, kind, home)
     if (!marker) continue
     const alive = isAlive(marker.pid)
-    lines.push(`${kind}: pid ${marker.pid}（${marker.owner}${marker.localPort ? `，本地 :${marker.localPort}` : ''}${marker.remotePort ? `，对端 :${marker.remotePort}` : ''}）${alive ? '' : '——进程已不在（陈旧标记）'}`)
+    lines.push(`${kind}: pid ${marker.pid}（${marker.owner}${marker.localPort ? `，本地 :${marker.localPort}` : ''}${marker.remotePort ? `，远程 :${marker.remotePort}` : ''}）${alive ? '' : '——进程已不在（陈旧标记）'}`)
   }
   return lines
 }

@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
-import { act } from 'react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { makeHost, type FakeHost } from '../test/host-mock.js'
 import { Panel } from './Panel.js'
 
@@ -13,18 +12,21 @@ vi.mock('@openchamber/sdk', async (original) => {
   return { ...actual, connectHost: () => held.host.client }
 })
 
-const STATUS = {
-  status: { profileId: null, tunnel: 'down', engine: 'unknown' },
-  profiles: [],
+const ROW = {
+  id: 'demo@192.168.26.101', host: '192.168.26.101', user: 'demo', port: 22,
+  instancePort: 2610, localPort: 4610, appVersion: '2.3.3', name: 'EL7 box',
+  enabled: true, reconnect: true, restoreOnStart: true, sshAuth: 'key',
+  hasSshPassword: false, provision: 'push', egress: 'auto', hasUiPassword: true,
+  status: { state: 'online', url: 'http://127.0.0.1:4610', app: '2.3.3', engine: { path: '/home/demo/.ocrc/remote/engine/opencode', version: '2.0.27' }, egress: { mode: 'auto', relay: true, reason: '远程机器出不了网', cached: true } },
 }
 
 beforeEach(() => {
-  held.host = makeHost({ '/status': { body: STATUS } })
+  held.host = makeHost({ 'POST /remote-instance': { body: { instances: [ROW] } } })
   document.documentElement.removeAttribute('style')
   document.documentElement.removeAttribute('data-oc-surface')
 })
 
-describe('Panel — host integration', () => {
+describe('Panel — 服务器列表这一件事', () => {
   it('paints the host theme onto the document root', async () => {
     render(<Panel />)
     await waitFor(() => {
@@ -35,109 +37,30 @@ describe('Panel — host integration', () => {
     expect(document.documentElement.style.colorScheme).toBe('dark')
   })
 
-  it('collects a new profile in an inline form — never window.prompt', async () => {
+  it('shows the registered server and no tab bar', async () => {
     render(<Panel />)
-    await screen.findByText('添加档案')
-
-    screen.getByText('添加档案').click()
-    const target = await screen.findByLabelText(/SSH 目标/)
-    const key = screen.getByLabelText(/私钥路径/)
-
-    act(() => {
-      setNativeValue(target, 'demo@192.168.26.101:2222')
-      setNativeValue(key, 'C:\\keys\\id_ed25519')
-    })
-    act(() => { screen.getByText('添加').click() })
-
-    await waitFor(() => {
-      expect(held.host.requests.some((r) => r.method === 'POST' && r.path === '/profiles')).toBe(true)
-    })
-    const post = held.host.requests.find((r) => r.path === '/profiles')
-    expect(post?.body).toEqual({
-      profile: { host: '192.168.26.101', user: 'demo', port: 2222, keyPath: 'C:\\keys\\id_ed25519' },
-    })
+    expect(await screen.findByText('EL7 box')).toBeTruthy()
+    // 上一代的四个标签页（连接 / 远程工作区 / 配置同步 / 远程实例）不再存在：
+    // 它们要么永远停在空态，要么和这张卡片重复。
+    expect(screen.queryAllByRole('tab')).toHaveLength(0)
+    for (const gone of ['连接', '远程工作区', '配置同步']) {
+      expect(screen.queryByText(gone)).toBeNull()
+    }
   })
 
-  it('keeps a half-written form when the user visits another tab', async () => {
-    render(<Panel />)
-    screen.getByText('添加档案').click()
-    const target = await screen.findByLabelText(/SSH 目标/)
-    act(() => { setNativeValue(target, 'demo@host') })
-
-    act(() => { screen.getByRole('tab', { name: '配置同步' }).click() })
-    act(() => { screen.getByRole('tab', { name: '连接' }).click() })
-
-    await waitFor(() => {
-      expect((screen.getByLabelText(/SSH 目标/) as HTMLInputElement).value).toBe('demo@host')
-    })
-  })
-
-  it('reports the tunnel state with host-toned badges', async () => {
+  it('renders every server it is told about', async () => {
     held.host = makeHost({
-      '/status': { body: { status: { profileId: 'p1', tunnel: 'up', engine: 'unreachable' }, profiles: [] } },
-    })
-    render(<Panel />)
-    expect(await screen.findByText('隧道已连')).toBeTruthy()
-    const engine = await screen.findByText('引擎不可达')
-    expect(engine.dataset.tone).toBe('error')
-  })
-
-  it('surfaces a service error as a banner with the service message', async () => {
-    held.host = makeHost({
-      '/status': {
-        body: { status: { profileId: null, tunnel: 'down', engine: 'unknown' }, profiles: [{ id: 'p1', name: 'vm', host: 'h', port: 22, user: 'demo', remotePort: 4096, localPort: 4096 }] },
-      },
-      'POST /connect': { status: 502, body: { error: 'ssh 握手失败：Permission denied (publickey)' } },
-    })
-    render(<Panel />)
-    const card = (await screen.findByText('vm')).closest('.oc-card') as HTMLElement
-    act(() => { within(card).getByText('连接').click() })
-
-    expect(await screen.findByText('ssh 握手失败：Permission denied (publickey)')).toBeTruthy()
-  })
-
-  it('registers the slash commands in the same effect as connectHost', async () => {
-    render(<Panel />)
-    // 同步注册：宿主弹隐藏帧问 /ocrc-host 时，处理者必须已经在了。
-    await waitFor(() => expect(held.host.hasResolver()).toBe(true))
-  })
-
-  it('resolves /ocrc-plan into a chip built from the live service', async () => {
-    held.host = makeHost({
-      '/status': {
+      'POST /remote-instance': {
         body: {
-          status: { profileId: 'p1', tunnel: 'up', engine: 'reachable' },
-          profiles: [{ id: 'p1', name: 'EL7 靶机', host: '192.168.26.101', port: 22, user: 'demo', remotePort: 4096, localPort: 4096, projects: [{ path: '/home/demo/project' }] }],
+          instances: [
+            ROW,
+            { ...ROW, id: 'ubuntu@100.100.69.3', name: 'Ubuntu 26.04', status: { state: 'offline', url: 'http://127.0.0.1:4612', egress: { mode: 'auto', relay: false, reason: '远程机器自己能出网', cached: true } } },
+          ],
         },
       },
-      'POST /detect': {
-        body: {
-          detect: { reachable: true, platform: 'linux-x64', os: 'Red Hat Enterprise Linux 7.9', glibc: '2.17', home: '/home/demo', hasSh: true, hasTar: true, homeWritable: true, outbound: true },
-          readiness: { steps: [{ id: 'engine', label: '③ 引擎在位且版本匹配', ok: false, detail: '未安装', action: '点「部署引擎」' }], ready: false },
-          anchor: '2.0.27',
-          anchorSource: '面板宿主',
-        },
-      },
-      'POST /capabilities': { body: { capabilities: [], forwards: [], rewrites: [], notes: [], config: { projectPath: '/home/demo/project', targetPath: '/home/demo/project/opencode.jsonc', format: 'missing', exists: false } } },
     })
     render(<Panel />)
-    await waitFor(() => expect(held.host.hasResolver()).toBe(true))
-
-    const chip = await held.host.resolve({ command: 'ocrc-plan', args: '' })
-    expect(chip?.providerId).toBe('ocrc')
-    expect(chip?.title).toBe('ocrc 主机待办 · EL7 靶机（1 项）')
-    expect(chip?.text).toContain('✗ ③ 引擎在位且版本匹配')
-    expect(chip?.text).toContain('→ 点「部署引擎」')
-    expect(chip?.url).toBe('http://127.0.0.1:4096/')
+    expect(await screen.findByText('EL7 box')).toBeTruthy()
+    expect(await screen.findByText('Ubuntu 26.04')).toBeTruthy()
   })
 })
-
-/** React tracks the previous value on the node, so a plain assignment is
- *  swallowed: the native setter plus an input event is what React listens to. */
-function setNativeValue(element: HTMLElement, value: string) {
-  const field = element as HTMLInputElement | HTMLTextAreaElement
-  const proto = Object.getPrototypeOf(field) as object
-  const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set
-  setter?.call(field, value)
-  field.dispatchEvent(new Event('input', { bubbles: true }))
-}

@@ -53,3 +53,6 @@ coverage/
 # local runs of scripts/build-app-pack.mjs stage the tree and the packs here
 /.pack-work-*/
 /.packtest/
+
+# 扩展预览构建产物（scripts/preview.mjs 生成，别提交）
+extensions/ocrc-remote/.preview-dist/

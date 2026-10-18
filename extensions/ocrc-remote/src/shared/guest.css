@@ -42,6 +42,10 @@ html, body {
 
 .oc-row-nowrap { flex-wrap: nowrap; }
 
+/* 两端对齐的一行（左说明、右动作）。这个类从批次 2 起就被面板用着，却一直没定义，
+   于是「已添加 N 台」和按钮永远挤在左边。 */
+.oc-row-between { justify-content: space-between; }
+
 .oc-col {
   display: flex;
   flex-direction: column;
@@ -85,6 +89,43 @@ html, body {
 
 .oc-xs { font-size: 11px; }
 .oc-sm { font-size: 12px; }
+
+/* 状态区读数：每台服务器两行（名称 + 状态 / 版本 + 网络）。宿主的这一栏只有一行
+   宽，所以这里不放控件，只放事实。 */
+.oc-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 12px;
+}
+
+.oc-rail-peer {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.oc-rail-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.oc-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.oc-ok { color: var(--status-success, #1a7f4b); }
+.oc-warn { color: var(--status-warning, #9a6a00); }
+.oc-err { color: var(--status-error, #c0392b); }
+.oc-off { color: var(--surface-muted-foreground, currentColor); }
 
 /* Icon slot. The kit's own `row-lead` is a fixed 64px mono column, which is
    right for issue keys and wrong for a 14px glyph. */

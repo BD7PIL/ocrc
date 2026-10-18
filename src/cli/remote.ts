@@ -48,7 +48,7 @@ async function ensureRelay(instance: RemoteInstance): Promise<'existing' | 'star
     }
     await new Promise((r) => setTimeout(r, 150))
   }
-  console.error(`警告：egress relay 没起来（127.0.0.1:${cfg.localPort}）——对端引擎将没有出网`)
+  console.error(`警告：egress relay 没起来（127.0.0.1:${cfg.localPort}）——远程机器的 OpenCode 将没有出网`)
   return 'off'
 }
 
@@ -244,7 +244,7 @@ function printStatus(s: InstanceStatus): void {
   // D1: the decision, not just the relay config. "直连" for a peer with its own
   // internet is a result, not a missing relay, and the reason says which.
   if (s.egress) {
-    console.log(`    出口    ${s.egress.relay ? '经控制端中继' : '对端直连'}（策略 ${s.egress.mode}${s.egress.probe ? `，探测 ${s.egress.probe}` : ''}：${s.egress.reason}）`)
+    console.log(`    联网    ${s.egress.relay ? '经本机转发' : '直连'}（策略 ${s.egress.mode}${s.egress.probe ? `，探测 ${s.egress.probe}` : ''}：${s.egress.reason}）`)
   }
   if (s.egress?.cached === false && s.proxy?.enabled) {
     console.log('            （本进程还没探测过；`ocrc remote plan <id>` 会把它探出来）')
@@ -256,7 +256,7 @@ function resolveInstance(args: string[], flags: Map<string, string | true>): Rem
   const id = args[0]
   if (id) {
     const found = store().get(id)
-    if (!found) throw new Error(`没有这个实例档案：${id}（ocrc remote list 看看）`)
+    if (!found) throw new Error(`没有这台服务器：${id}（用 ocrc remote list 看看）`)
     return found
   }
   const adhoc = targetFromFlags(flags)
@@ -287,10 +287,10 @@ export async function main(argv: string[]): Promise<void> {
       if (hits.length) bad += 1
     }
     if (bad > 0) {
-      console.error(`FAIL: ${bad} 个远程脚本含联网命令（对端无公网，R6）`)
+      console.error(`FAIL: ${bad} 个远程脚本含联网命令（远程机器无公网，R6）`)
       process.exit(1)
     }
-    console.log('OK: 所有远程脚本零联网命令（对端离线可装）')
+    console.log('OK: 所有远程脚本零联网命令（远程机器离线可装）')
     return
   }
 
@@ -308,7 +308,7 @@ export async function main(argv: string[]): Promise<void> {
     // `apply`, because the peer cannot fetch it (that is the whole point).
     const engine = await ensureEngineBinary({ version: flagStr(flags, 'engine-version'), force, onLog: say })
     console.log(`  engine:  ${engine.file} opencode v${engine.version} ${(engine.bytes / 1e6).toFixed(1)}MB sha256 ${engine.sha.slice(0, 16)}…${engine.prepared ? '（新取件）' : '（缓存命中）'} → ${engine.target}`)
-    console.log('  备件齐了：离线 apply 不会再半路缺件（对端全程零联网）。')
+    console.log('  备件齐了：离线 apply 不会再半路缺件（远程机器全程零联网）。')
     return
   }
 
@@ -353,10 +353,10 @@ export async function main(argv: string[]): Promise<void> {
       enabled: true,
     })
     console.log(`已登记：${saved.id} → ${saved.user ? `${saved.user}@` : ''}${saved.host}:${saved.port}（实例端口 ${saved.instancePort}，本地端口 ${saved.localPort}）`)
-    console.log(`认证    ：${saved.sshAuth === 'password' ? '密码（askpass 喂 ssh，密码只落 0600 档案，接口不回显）' : '密钥（BatchMode=yes，用本机 ~/.ssh 与 agent）'}`)
-    console.log(`出口    ：${saved.egress ?? 'auto（探测：能直连就直连，不能才经控制端）'}`)
-    console.log(`装机    ：${saved.provision === 'reuse' ? '复用已有（一个字节都不推，只检查 + pin 引擎）' : '推包（控制端备件推过去，对端零联网）'}`)
-    console.log(`UI 密码：${saved.uiPassword}（只存在 ~/.ocrc/remote-instances.json，0600；接口不回显）`)
+    console.log(`登录方式：${saved.sshAuth === 'password' ? '密码（askpass 喂 ssh，密码只落 0600 文件，接口不回显）' : '密钥（BatchMode=yes，用本机 ~/.ssh 与 agent）'}`)
+    console.log(`联网方式：${saved.egress ?? 'auto（探测：能直连就直连，不能才经本机转发）'}`)
+    console.log(`安装方式：${saved.provision === 'reuse' ? '复用已安装（一个字节都不推，只检查 + pin OpenCode）' : '推送安装（控制端备件推过去，远程机器零联网）'}`)
+    console.log(`界面密码：${saved.uiPassword}（只存在 ~/.ocrc/remote-instances.json，0600；接口不回显）`)
     console.log(`下一步：ocrc remote plan ${saved.id}`)
     return
   }
@@ -368,7 +368,7 @@ export async function main(argv: string[]): Promise<void> {
       return
     }
     if (list.length === 0) {
-      console.log('（空）ocrc remote add --host <对端> --user <用户> 先登记一台')
+      console.log('（空）ocrc remote add --host <主机> --user <用户> 先添加一台')
       return
     }
     const m = manager()
@@ -384,7 +384,7 @@ export async function main(argv: string[]): Promise<void> {
     const instance = resolveInstance(args.slice(1), flags)
     const m = manager()
     const p = await m.plan(instance.id)
-    console.log(`预演 ${p.id}（${p.target}）`)
+    console.log(`检查 ${p.id}（${p.target}）`)
     if (!p.reachable) {
       console.error(`  FAIL ${p.sshError}`)
       process.exit(1)
@@ -392,7 +392,7 @@ export async function main(argv: string[]): Promise<void> {
     console.log(`  主机     ${p.inspected?.uname ?? '?'} glibc ${p.inspected?.glibc ?? '?'} HOME=${p.inspected?.home ?? '?'}`)
     console.log(`  运行时   ${p.runtime ?? '缺失（会推送）'}`)
     console.log(`  应用     ${p.app ?? '缺失（会推送）'}（目标 ${instance.appVersion}）`)
-    console.log(`  引擎     ${p.engine ? `${p.engine.path} → ${p.engine.version}` : '不满足 v2 门禁'}`)
+    console.log(`  OpenCode ${p.engine ? `${p.engine.path} → ${p.engine.version}` : '不满足 v2 门禁'}`)
     for (const c of p.engineCandidates) console.log(`           · ${c.path} → ${c.raw || '（版本未知）'}`)
     if (p.engineError) console.error(`  FAIL ${p.engineError}`)
     console.log('  将要做的：')
@@ -428,7 +428,7 @@ export async function main(argv: string[]): Promise<void> {
     const offenders = findOutboundConnects(readFileSync(file, 'utf-8'))
     for (const line of offenders.slice(0, 10)) console.log(`  ${line}`)
     if (offenders.length > 0) {
-      console.error(`FAIL: 安装期间有 ${offenders.length} 次非回环 connect()（对端应当零外联）`)
+      console.error(`FAIL: 安装期间有 ${offenders.length} 次非回环 connect()（远程机器应当零外联）`)
       process.exit(1)
     }
     console.log(`OK: ${file} 里没有非回环 connect()（安装零外联）`)
@@ -443,7 +443,7 @@ export async function main(argv: string[]): Promise<void> {
     // Started before `up`, so the serve line's proxy URL is already live.
     if (flags.has('no-proxy')) {
       store().update(instance.id, { proxy: { ...(instance.proxy ?? PROXY_DEFAULTS), enabled: false } })
-      console.log('（--no-proxy）本次不注入出网代理；已跑着的对端实例要重启才摘掉旧 env')
+      console.log('（--no-proxy）本次不注入出网代理；已跑着的远程实例要重启才摘掉旧 env')
     } else {
       const relay = await ensureRelay(instance)
       if (relay === 'off') console.log('（代理已关：ocrc remote proxy <id> on 可打开）')
@@ -493,7 +493,7 @@ export async function main(argv: string[]): Promise<void> {
       await m.egress(id).catch(() => { /* 探测失败不改状态结论，照旧由 status 说 */ })
       const live = await m.probe(id)
       const st = m.status(id)
-      if (!st) throw new Error(`没有这个实例档案：${id}`)
+      if (!st) throw new Error(`没有这台服务器：${id}`)
       if (live.online) printStatus({ ...st, state: 'online', detail: live.version ? `openchamber ${live.version}（实测）` : live.detail ?? st.detail })
       else if (live.remote) printStatus({ ...st, state: 'unknown', detail: live.detail })
       else printStatus({ ...st, state: st.state === 'online' ? 'offline' : st.state, detail: live.detail ?? st.detail })
@@ -521,19 +521,19 @@ export async function main(argv: string[]): Promise<void> {
     const d = await m.configDiff(instance.id)
     m.dispose()
     console.log(`本地配置 ${d.localDir}`)
-    if (d.peerError) console.error(`  FAIL 读对端失败：${d.peerError}`)
+    if (d.peerError) console.error(`  FAIL 读远程机器失败：${d.peerError}`)
     const show = (label: string, list: string[]) => console.log(`  ${label} ${list.length}${list.length ? `：${list.slice(0, 8).join(', ')}${list.length > 8 ? ' …' : ''}` : ''}`)
     show('只在本地（会推过去）', d.add)
     show('两边不同（会覆盖，旧件留 .ocrc-bak）', d.change)
     show('两边相同（不动）', d.same)
-    show('只在对端（不动；要删得显式 --delete）', d.peerOnly)
-    show('对端算不出哈希（不当作相同）', d.unknown)
-    console.log(`  凭据 auth.json：本地 ${d.auth.local ? '有' : '无'}，对端 ${d.auth.peer ? '有' : '无'}`)
+    show('只在远程机器（不动；要删得显式 --delete）', d.peerOnly)
+    show('远程机器算不出哈希（不当作相同）', d.unknown)
+    console.log(`  凭据 auth.json：控制端 ${d.auth.local ? '有' : '无'}，远程机器 ${d.auth.peer ? '有' : '无'}`)
     console.log(`  一次同步会：写 ${d.plan.files.length} 个文件${d.plan.deletes.length ? `、删 ${d.plan.deletes.length} 个` : ''}；配置 ${d.plan.configChanged ? `会改（写 ${d.plan.basename}）` : '无变化'}`)
     if (d.plan.keyDeleteCandidates.length > 0) {
-      console.log(`  对端独有的配置项（要删用 --delete-key）：${d.plan.keyDeleteCandidates.map((c) => c.collection + ':' + c.key).join(', ')}`)
+      console.log(`  远程机器独有的配置项（要删用 --delete-key）：${d.plan.keyDeleteCandidates.map((c) => c.collection + ':' + c.key).join(', ')}`)
     }
-    if (d.plan.shadowed.length > 0) console.log(`  会被对端覆盖层压住的键：${d.plan.shadowed.join('、')}`)
+    if (d.plan.shadowed.length > 0) console.log(`  会被远程覆盖层压住的键：${d.plan.shadowed.join('、')}`)
     for (const n of d.plan.notes) console.log(`  · ${n}`)
     return
   }
@@ -616,12 +616,12 @@ export async function main(argv: string[]): Promise<void> {
     const r = await m.peerLogs(instance.id, { lines: flagNum(flags, 'lines', 40) })
     m.dispose()
     if (!r.ok) {
-      console.error(`FAIL 取对端日志失败：${r.error ?? '原因未知'}`)
+      console.error(`FAIL 取远程日志失败：${r.error ?? '原因未知'}`)
       process.exit(1)
     }
-    console.log(`对端实例日志 ${r.paths.instance}`)
+    console.log(`远程实例日志 ${r.paths.instance}`)
     console.log(r.instance.length ? r.instance.join('\n') : '  （空——实例可能没起过）')
-    console.log(`对端 openchamber 日志 ${r.paths.app}`)
+    console.log(`远程机器的 OpenChamber 日志 ${r.paths.app}`)
     console.log(r.app.length ? r.app.join('\n') : '  （空）')
     return
   }
@@ -644,7 +644,7 @@ export async function main(argv: string[]): Promise<void> {
       console.log(JSON.stringify(rest, null, 2))
     } else {
       console.log(handoff.lines.join('\n'))
-      if (handoff.engine) console.log(`引擎 : ${handoff.engine.version} @ ${handoff.engine.path}`)
+      if (handoff.engine) console.log(`OpenCode : ${handoff.engine.version} @ ${handoff.engine.path}`)
       console.log('（浏览器/手动路径用：把地址与密码填进去。装进官方 app 请用 ocrc remote pairlink——身份在上游，我们不写它的 settings.json）')
     }
     if (flags.has('open')) {
@@ -668,7 +668,7 @@ export async function main(argv: string[]): Promise<void> {
     if (!id) throw new Error('用法：ocrc remote switches <id> [--reconnect on|off] [--restore on|off] [--replay on|off]')
     const s = store()
     const cur = s.get(id)
-    if (!cur) throw new Error(`没有这个实例档案：${id}`)
+    if (!cur) throw new Error(`没有这台服务器：${id}`)
     const tri = (name: string): boolean | undefined => {
       const v = flagStr(flags, name)
       if (v === undefined) return undefined
@@ -685,7 +685,7 @@ export async function main(argv: string[]): Promise<void> {
     console.log(`  ① 掉线自动重连 + 重订阅：${patch.reconnect ? '开' : '关'}${patch.reconnect ? `（退避 ${2}s→60s）` : '（掉线就停在那，等你手动 up）'}`)
     console.log(`  ② 控制端重启后自恢复：    ${patch.restoreOnStart ? '开' : '关'}${patch.restoreOnStart ? '（面板/ocrc start 起来就把隧道拉回）' : '（启动时不自动拉）'}`)
     console.log(`  ③ 断线期间操作排队补发：  ${patch.replayQueued ? '开' : '关'}（补发由实例自己的队列决定，我们只持久化这个口径）`)
-    if (updated?.proxy) console.log(`  出网中继（R9）：${updated.proxy.enabled ? '开' : '关'} localPort=${updated.proxy.localPort} remotePort=${updated.proxy.remotePort}`)
+    if (updated?.proxy) console.log(`  出网转发（R9）：${updated.proxy.enabled ? '开' : '关'} localPort=${updated.proxy.localPort} remotePort=${updated.proxy.remotePort}`)
     return
   }
 
@@ -694,7 +694,7 @@ export async function main(argv: string[]): Promise<void> {
     // 这个子命令给无面板/纯 CLI 的机器用：Ctrl-C 退出，隧道交给它盯着。
     const m = supervisedManager()
     const lastState = new Map<string, string>()
-    console.log('隧道监督中（R10 ①②按档案里的开关跑；Ctrl-C 退出）')
+    console.log('转发监督中（R10 ①②按记录里的开关跑；Ctrl-C 退出）')
     const ids = store().list().map((i) => i.id)
     for (const inst of store().list()) {
       const st = m.status(inst.id)
@@ -735,14 +735,14 @@ export async function main(argv: string[]): Promise<void> {
     const id = args[1]
     if (!id) throw new Error('需要实例 id')
     const s = store()
-    if (!s.get(id)) throw new Error(`没有这个实例档案：${id}`)
+    if (!s.get(id)) throw new Error(`没有这台服务器：${id}`)
     const m = manager()
-    await m.down(id).catch((err: unknown) => console.error(`停止时出错（继续删档案）：${cleanSshNoise((err as Error).message)}`))
+    await m.down(id).catch((err: unknown) => console.error(`停止时出错（继续删记录）：${cleanSshNoise((err as Error).message)}`))
     m.dispose()
     // Only the record: what we pushed to the host is the host's business —
     // removing it is an explicit `--purge` on the acceptance script's side.
     if (!s.remove(id)) throw new Error(`删除失败：${id}`)
-    console.log(`已删档案：${id}（对端 ~/.ocrc/remote 未动）`)
+    console.log(`已移除服务器：${id}（远程机器上的 ~/.ocrc/remote 未动）`)
     return
   }
 
@@ -784,7 +784,7 @@ export async function main(argv: string[]): Promise<void> {
     }
     const s = store()
     const cfg = s.get(id)
-    if (!cfg) throw new Error(`没有这个实例档案：${id}`)
+    if (!cfg) throw new Error(`没有这台服务器：${id}`)
     const base = { ...PROXY_DEFAULTS, ...(cfg.proxy ?? {}) }
     const allow = mode === 'allow'
       ? [...new Set((args[3] ?? '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean))]
@@ -793,9 +793,9 @@ export async function main(argv: string[]): Promise<void> {
     const updated = s.update(id, { proxy: { ...base, enabled: mode === 'on' ? true : mode === 'off' ? false : base.enabled, allow } })
     const onoff = updated?.proxy?.enabled ? '开' : '关'
     const allowTxt = updated?.proxy?.allow?.length ? updated.proxy.allow.join(', ') : '（不限制，仅拒回环）'
-    console.log(`egress relay：${updated?.id} 开关=${onoff} localPort=${updated?.proxy?.localPort} → 对端 127.0.0.1:${updated?.proxy?.remotePort}`)
+    console.log(`出网转发：${updated?.id} 开关=${onoff} localPort=${updated?.proxy?.localPort} → 远程机器 127.0.0.1:${updated?.proxy?.remotePort}`)
     console.log(`白名单：${allowTxt}`)
-    console.log(mode === 'on' ? '下次 ocrc remote up 会重新注入；对端实例需要重启才生效' : '注意：已经跑着的实例仍带着代理 env，重启才摘掉')
+    console.log(mode === 'on' ? '下次 `ocrc remote up` 会重新注入；远程实例需要重启才生效' : '注意：已经跑着的实例仍带着代理 env，重启才摘掉')
     return
   }
 
@@ -806,7 +806,7 @@ export async function main(argv: string[]): Promise<void> {
     const lines = readFileSync(file, 'utf-8').split('\n').filter((l) => l.includes('CONNECT ') || l.includes('GET '))
     for (const l of lines.slice(-10)) console.log(`  ${l}`)
     if (lines.length === 0) {
-      console.error('FAIL: relay 日志里没有任何出网记录（对端没走我们的代理）')
+      console.error('FAIL: 转发日志里没有任何出网记录（远程机器没走我们的代理）')
       process.exit(1)
     }
     console.log(`OK: relay 记录了 ${lines.length} 次出网`)

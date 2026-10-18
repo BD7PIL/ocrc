@@ -20,21 +20,21 @@ describe('provisionActions', () => {
   it('push mode describes the bytes it would write', () => {
     const lines = provisionActions({ provision: 'push', targetAppVersion: '2.3.3', engineOk: false })
     expect(lines.join('\n')).toContain('推送运行时 node')
-    expect(lines.join('\n')).toContain('推送应用 2.3.3')
-    expect(lines.join('\n')).toContain('opencode 2.0.27')
+    expect(lines.join('\n')).toContain('推送 OpenChamber 2.3.3')
+    expect(lines.join('\n')).toContain('OpenCode 2.0.27')
   })
 
   it('push mode says when nothing would be written', () => {
     const lines = provisionActions({ provision: 'push', runtime: 'v24.22.0', app: '2.3.3', targetAppVersion: '2.3.3', engineOk: true })
-    expect(lines).toEqual(['运行时与应用都在位，推送会跳过'])
+    expect(lines).toEqual(['运行时与 OpenChamber 都在位，推送会跳过'])
   })
 
   it('reuse mode promises zero bytes and lists what is missing', () => {
     const lines = provisionActions({ provision: 'reuse', targetAppVersion: '2.3.3', engineOk: false, engineError: '只有 v1' })
     expect(lines[0]).toContain('不推送任何字节')
     expect(lines.filter((l) => l.startsWith('FAIL'))).toHaveLength(3) // runtime + app + engine
-    expect(lines.join('\n')).toContain('把装机方式改回「推包」')
-    expect(lines.join('\n')).not.toContain('推送应用')
+    expect(lines.join('\n')).toContain('把安装方式改回「推送安装」')
+    expect(lines.join('\n')).not.toContain('推送 OpenChamber')
   })
 
   it('reuse mode passes when the peer already has everything', () => {

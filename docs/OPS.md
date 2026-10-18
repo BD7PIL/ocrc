@@ -263,7 +263,58 @@ https://github.com/BD7PIL/ocrc/releases/download/ocrc-remote-0.8.1/ocrc-remote.z
   形态；要自更新得给扩展单独开一个仓库。
 
 - 装完会有**一次 service 能力审批**（扩展要在宿主上跑 `ssh`）——批准。
-- 升级后想确认装的是哪一版：看面板的扩展卡片，或 Release 资产的 label（现在是 `ocrc-remote 0.8.1`）。
+- 升级后想确认装的是哪一版：看面板的扩展卡片，或 Release 资产的 label（现在是 `ocrc-remote 0.8.2`）。
+
+**面板与状态区（0.8.2 收缩：一个功能、一条动线）**
+
+面板只剩一件事：**把 openchamber 装到远程机器上，然后把 app 连过去**。动线 =
+添加服务器 → 检查并安装 → 启动 → 创建配对链接（在桌面 app 里确认后，机器出现在
+「其他 OpenChamber 服务器」）。卡片按**固定字段顺序**画，缺的写「未知」：
+
+1. `名称 · 状态`（在线 / 已停止 / 未检查 / 出错 …）
+2. `用户@主机:端口 · 登录方式`
+3. `OpenChamber <版本> · OpenCode <版本> · 直连/经本机转发`
+
+主动作**随状态推进**（未安装 → 检查并安装；已停止 → 启动；在线 → 打开界面 + 停止），
+其余动作收在「详情 ▾」（端口/路径/转发/探测/最近一次结果）与「更多 ▾」（配置 / 维护 /
+开关）里；移除服务器要二次确认。**每条事实只出现一次**——地址不再既进标题又进第二行，
+网络也不再同时进徽标、摘要与详情。
+
+**右侧状态区只读**：每台一行 `名称 · 状态` + `OpenChamber <版本> · 直连/经本机转发`。
+不注册控件（宿主那一栏只有一行宽，下拉+按钮会被挤成两行、落下一个没有主人的按钮，
+而且与面板里的同一组按钮重复）、不挂 rail 徽标、不自写标题（manifest 的 title 已经有一行）。
+
+**上一代三块已从面板撤下**（服务端端点保留，批次 2–5 的验收脚本还在用）：
+
+| 块 | 它做的事 | 为什么不再露在面板上 |
+| --- | --- | --- |
+| 连接 | 控制端的 openchamber 用 `ssh -L` 去连远程机器上裸跑的 OpenCode | 前提是"远程机器没有自己的界面"；现在远程机器自己跑 openchamber、app 用配对链接连它 |
+| 远程工作区 | 从控制端浏览/编辑远程机器的文件、跑 git | 每个请求要过档案的 `allowedRoots`，而面板的添加表单**从不发这个字段** → 403；打开远程 openchamber 自己的 Files/Git 得到的是真那一份 |
+| 配置同步 | 把控制端面板写的 agents/MCP/providers 写进远程机器**项目目录**的 `opencode.jsonc`（外加 omo 编排面板） | 它要求"隧道已建立"（上一代通道）→ 永远停在空态；实例卡的「配置差异 → 同步配置/同步凭据」写的是用户级 `~/.config/opencode` + `auth.json` |
+
+`/ocrc-host`、`/ocrc-plan` 两个斜杠命令一并撤下：它们的数据源是上一代档案+隧道，
+面板撤掉入口后只会报「没有连接中的档案」。omo 编排面板也随「配置同步」一起撤下
+（对端的 `oh-my-opencode-slim.json` 仍在配置同步白名单里，能整体同步，不能结构化编辑）。
+
+**词表（上游 zh-CN）**：远程服务器 / 远程机器 / 配对链接 / 界面密码 / 端口转发 /
+服务器名称 / 服务器地址。我们不再用：对端（→ 远程机器）、引擎（→ OpenCode）、
+中继与出口（→ 经本机转发 / 直连 / 联网方式）、档案（→ 服务器）、预演（→ 检查 / 试运行）、
+装机（→ 安装）、档位（→ 兼容档）、UI 密码（→ 界面密码）、停机（→ 停止）。
+理由：上游自己的中文界面就是这套词，借用它的「中继」反而会撞它自己的 E2E relay 语义。
+
+**自己先看再交（面板/状态区的视觉验收）**
+
+```bash
+node extensions/ocrc-remote/scripts/preview.mjs        # 起本地预览，打印两个 URL
+# 面板   http://127.0.0.1:5199/panel.html?scenario=mixed&theme=light
+# 状态区 http://127.0.0.1:5199/status.html?scenario=two&theme=light
+```
+
+预览挂的是**真面板**（真 kit、真 `guest.css`），只把 `connectHost` 换成假宿主
+（`preview/sdk-shim.ts`），场景见 `preview/scenarios.ts`（empty / one / two / mixed / fresh）。
+CI 绿不等于能用：这一轮就是靠它看出 `guest.css` 没被 esbuild 注入（样式全丢）与
+`.oc-row-between` 这个从批次 2 起就被用着、却一直没定义的类。
+
 - 发布走 [`.github/workflows/ocrc-ext.yml`](../.github/workflows/ocrc-ext.yml)（**只有手动
   dispatch**）：钉 tag 只写一次、通道 tag 按设计覆盖。升级前先提
   `extensions/<name>/package.json` 的 `version`，否则钉 tag 会被跳过。
@@ -279,8 +330,9 @@ https://github.com/BD7PIL/ocrc/releases/download/ocrc-remote-0.8.1/ocrc-remote.z
 
 - `ocrc-omo-view` 只是**只读视图**：它读面板宿主上 omo 的编排配置（per-agent 链、fallback），
   自己不做任何安装或改写。**面板宿主没装 omo 时它显示空**——这是如实，不是 bug。
-- 对端的 omo 由**同步**带过去：`oh-my-opencode-slim.json` 在配置同步白名单里（C1），
-  `ocrc-remote` 的「omo 编排」区块走 `/omo/config`（服务端拼远端路径、坏 JSON 422 不落盘、`.ocrc-bak` 原子写）。
+- 对端的 omo 由**同步**带过去：`oh-my-opencode-slim.json` 在配置同步白名单里（C1）。
+  **面板上的 omo 编排区块已随「配置同步」撤下**（0.8.2）：那个区块只活在上一代通道里，
+  服务端 `/omo/config` 保留但面板不再有入口——要结构化改它，先在对端把文件改好再同步。
 - **对端 omo 生效的前提**是对端引擎真的加载了那个插件（`plugin` 键）——而 `plugin` 属于对端
   openchamber 自己的 managed 层，**我们的配置同步会丢弃它**（C2）。所以：装了 omo 的对端，
   它的 `plugin` 由对端自己的 openchamber/面板管，我们不越权；`ocrc-omo-view` 显示的是**面板宿主**的链，

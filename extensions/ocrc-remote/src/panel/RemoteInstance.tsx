@@ -1,28 +1,23 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { HostClient } from '@openchamber/sdk'
+import { networkLabel, stateLabel, tierLabel } from '../shared/instance-labels.js'
 import { KitBadge, KitBanner, KitButton, KitEmpty, KitField, KitList, KitSelect, KitSeparator, KitSpinner, KitSwitch } from '../shared/kit.js'
 import { post, type RequestFn } from '../shared/service-client.js'
 
 /**
- * 远程实例视图（2.0.0-alpha.8「对端能力」，PRODUCT 第零点十条；A3 重建表单）。
+ * 远程服务器列表（2.0.0-alpha.8「远程机器能力」，PRODUCT 第零点十条；0.8.2 重做卡片）。
  *
- * 这一页就是用户口径的实现面：**Add project 里能看到对端、中栏连的是对端引擎**——
- * 机制是把 openchamber 实例跑在被控端，这里只负责把它装好、起好、给出要打开的地址。
+ * 这一页只做一件事：**把 openchamber 装到远程机器上，然后把 app 连过去**。动线只有
+ * 一条——添加服务器 → 检查并安装 → 启动 → 创建配对链接（在桌面 app 里确认后，这台
+ * 机器出现在「其他 OpenChamber 服务器」）。
  *
- * 表单 = **装机输入**（A1 认证两档、A3 装机方式/出口策略/端口），其余全是派生值：
- * 档位由对端 glibc 决定、运行时只有 glibc-217 一档、app/engine 是 pin、绑定固定回环——
- * 这些都不是选项，所以它们只显示、不带控件（用户点过这一点：tier 与 pin 不是可选项）。
+ * 卡片按**固定字段顺序**画，缺的字段写「未知」：以前是"状态里有什么画什么"，于是两台
+ * 机器显示的事实集不一样（一台有版本没有 node，另一台反过来），看起来像两个产品。
+ * 每条事实只出现一次：地址不再既进标题又进第二行，网络也不再同时进徽标、摘要与详情。
  *
- * 身份那一步交给上游：**生成配对链接 → 官方 app 弹确认 → 这台机器出现在「其他
- * OpenChamber 服务器」**，不在「远程实例」列表里（那是桌面壳自己拥有的面）。
- *
- * 三点纪律在这页的 UI 上直接可见：
- *   · `plan` 先跑（只读预演），把引擎 v2 门禁、"将要做什么"、出口决定摆出来；
- *   · `apply` 会往对端写盘 → 必须一次显式确认（就是那个二次按钮）；
- *   · 引擎的路径与版本来自**实例自报**，不是我猜的（状态里直接显示它自报的 binary）。
- *
- * 所有请求走本扩展的 service（`POST /remote-instance`）；service 直接持有
- * remote-instance manager，不再经过 :4099 的 ocrc host。
+ * 主动作**随状态推进**（未安装 → 检查并安装；已停止 → 启动；在线 → 打开界面 + 停止），
+ * 其余动作收在「更多」里并按配置 / 维护分组——十二个同权按钮排成两行时，没有一个看
+ * 起来是"该按的"。写远程机器的动作（安装、同步、移除）都要一次显式确认。
  */
 
 interface InstanceStatus {
@@ -98,7 +93,7 @@ interface PairLink {
   url?: string
 }
 
-/** C5：本地 vs 对端配置差异 + 一次同步会做什么（同一个 plan 就是 apply 用的那份）。 */
+/** C5：控制端 vs 远程机器的配置差异 + 一次同步会做什么（同一个 plan 就是 apply 用的那份）。 */
 interface ConfigDiff {
   localDir: string
   add: string[]
@@ -149,24 +144,7 @@ const EMPTY_FORM: FormState = {
   reconnect: true, restoreOnStart: true,
 }
 
-const TONE: Record<string, 'success' | 'warning' | 'error' | 'info'> = {
-  online: 'success',
-  starting: 'info',
-  provisioning: 'info',
-  checking: 'info',
-  offline: 'error',
-  error: 'error',
-  unknown: 'warning',
-  disabled: 'warning',
-}
-
-const EGRESS_LABEL: Record<string, string> = {
-  auto: 'auto（探测对端）',
-  relay: 'relay（强制经控制端）',
-  direct: 'direct（强制直连）',
-}
-
-/** D3：对端两份日志（我们的 serve 重定向 + 实例自己的）。 */
+/** D3：远程机器两份日志（我们的 serve 重定向 + 实例自己的）。 */
 interface PeerLogs {
   ok: boolean
   error?: string
@@ -191,8 +169,10 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
   const [syncResult, setSyncResult] = useState('')
   /** Which card has its 详情 expanded (one at a time — the point is less noise). */
   const [detailsFor, setDetailsFor] = useState<string | null>(null)
-  /** Which card has 更多操作 expanded (one at a time, same reason as 详情). */
+  /** Which card has 更多 expanded (one at a time, same reason as 详情). */
   const [moreFor, setMoreFor] = useState<string | null>(null)
+  /** 移除要二次确认：记录删掉之后这台机器就从列表里消失了。 */
+  const [removeFor, setRemoveFor] = useState('')
   /** Deletions are opt-in per item: a peer-only file or key is never removed by
    *  the diff itself (that would be a wipe wearing a sync's clothes). */
   const [checkedDeletes, setCheckedDeletes] = useState<Record<string, boolean>>({})
@@ -228,8 +208,8 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
 
   useEffect(() => { void refresh() }, [refresh])
 
-  // The pins and the free local port are needed outside the form too (the
-  // 「升级到 pin」 label names the target), so they are fetched once on mount.
+  // The pins and the free local port are needed outside the form too (the plan
+  // card names the app version), so they are fetched once on mount.
   useEffect(() => {
     void op<Defaults>({ op: 'defaults' }).then(setDefaults).catch(() => { /* the form re-asks */ })
   }, [op])
@@ -276,7 +256,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
   const save = () => run('save', async () => {
     if (!form) return
     const host0 = form.host.trim()
-    if (!host0) throw new Error('需要 SSH 主机')
+    if (!host0) throw new Error('需要主机地址')
     const port = Number(form.port)
     if (!Number.isFinite(port) || port < 1 || port > 65535) throw new Error('SSH 端口不合法')
     const payload: Record<string, unknown> = {
@@ -306,13 +286,21 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
     setConfirmFor('')
   })
 
+  const openUi = (row: InstanceRow) => run(`url:${row.id}`, async () => {
+    const reply = await op<{ url: string }>({ op: 'url', id: row.id })
+    // The guest sandbox has no allow-popups, so window.open is blocked.
+    // host.openUrl is the sanctioned "open externally".
+    if (!host) throw new Error('宿主未连接，无法打开界面')
+    await host.openUrl(reply.url)
+  })
+
   const makePairLink = (id: string) => run(`pairlink:${id}`, async () => {
     const reply = await op<PairLink>({ op: 'pairlink', id })
     setPairFor({ id, reply })
   })
 
   const showLogs = (id: string) => run(`logs:${id}`, async () => {
-    // 控制端隧道日志是**本进程**的（同步取）；对端两份要一次 ssh（job 型）。
+    // 控制端转发日志是**本进程**的（同步取）；远程机器两份要一次 ssh（job 型）。
     const reply = await op<{ lines: string[] }>({ op: 'logs', id, tail: 80 })
     const peer = await op<PeerLogs>({ op: 'peerlog', id, lines: 60 })
     setLogFor({ id, lines: reply.lines ?? [], peer })
@@ -351,36 +339,33 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
 
   return (
     <div className="oc-stack">
-      <KitBanner
-        tone="info"
-        title="把 openchamber 实例装到对端"
-        body="面板看到的目录与文件就是对端的，会话跑在对端引擎（必须是 opencode v2）。装好 → 生成配对链接 → 在官方 app 里确认：这台机器会出现在「其他 OpenChamber 服务器」，不是「远程实例」。"
-      />
       {error ? <KitBanner tone="error" title="出错了" body={error} /> : null}
 
+      <span className="oc-muted oc-sm">把 openchamber 装到远程机器，然后用配对链接把它加进 app。</span>
       <div className="oc-row oc-row-between">
-        <span className="oc-muted">{`已登记 ${rows.length} 台`}</span>
+        <span className="oc-muted oc-xs">{rows.length > 0 ? `已添加 ${rows.length} 台` : '还没有添加服务器'}</span>
         <div className="oc-row">
-          <KitButton size="sm" label={form ? '取消' : '添加对端'} variant={form ? 'ghost' : 'default'} loading={busy === 'defaults'} onClick={() => (form ? setForm(null) : openForm())} />
+          <KitButton size="sm" label={form ? '取消' : '添加服务器'} variant={form ? 'ghost' : 'default'} loading={busy === 'defaults'} onClick={() => (form ? setForm(null) : openForm())} />
           <KitButton size="sm" label="刷新" variant="ghost" loading={busy === 'refresh'} onClick={() => void run('refresh', refresh)} />
         </div>
       </div>
 
       {form ? (
         <div className="oc-card">
-          <strong>{form.id ? `编辑 ${form.id}` : '添加对端'}</strong>
+          <strong>{form.id ? `编辑 ${form.name || form.id}` : '添加服务器'}</strong>
           <div className="oc-row">
-            <KitField label="SSH 主机" value={form.host} mono onChange={(v) => setForm({ ...form, host: v })} placeholder="192.168.26.101 或主机名" />
-            <KitField label="用户" value={form.user} mono onChange={(v) => setForm({ ...form, user: v })} placeholder="demo（留空=本机当前用户）" />
+            <KitField label="服务器名称" value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder="EL7 box（留空则用 用户@主机）" />
+            <KitField label="主机" value={form.host} mono onChange={(v) => setForm({ ...form, host: v })} placeholder="192.168.26.101 或主机名" />
             <KitField label="SSH 端口" value={form.port} mono onChange={(v) => setForm({ ...form, port: v })} />
           </div>
           <div className="oc-row">
+            <KitField label="登录用户" value={form.user} mono onChange={(v) => setForm({ ...form, user: v })} placeholder="demo（留空=本机当前用户）" />
             <KitSelect
-              label="认证档"
+              label="登录方式"
               value={form.sshAuth}
               options={[
                 { id: 'key', label: '密钥', hint: '用本机 ~/.ssh 与 ssh-agent（BatchMode，不弹提示）' },
-                { id: 'password', label: '密码', hint: '密码经 askpass 喂给 ssh；只落 0600 档案，接口不回显' },
+                { id: 'password', label: '密码', hint: '密码经 askpass 喂给 ssh；只落 0600 文件，接口不回显' },
               ]}
               onChange={(id) => setForm({ ...form, sshAuth: id === 'password' ? 'password' : 'key' })}
             />
@@ -390,222 +375,227 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                 value={form.sshPassword}
                 password
                 onChange={(v) => setForm({ ...form, sshPassword: v })}
-                placeholder={form.id ? '留空 = 不改' : '对端账户密码'}
+                placeholder={form.id ? '留空 = 不改' : '远程账户密码'}
                 helper="密码档会禁用公钥：否则带口令的私钥会先被试，报的错与密码无关。"
               />
             ) : null}
-            <KitField label="昵称" value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder="EL7 box" />
           </div>
           <div className="oc-row">
             <KitSelect
-              label="装机方式"
+              label="安装方式"
               value={form.provision}
               options={[
-                { id: 'push', label: '推包', hint: '控制端备件推过去：运行时 + 我们 pin 的引擎 + 应用，对端零联网' },
-                { id: 'reuse', label: '复用已有', hint: '一个字节都不推：只检查运行时/应用/引擎并把引擎 pin 下来' },
+                { id: 'push', label: '推送安装', hint: '控制端把运行时 + 我们 pin 的 OpenCode + OpenChamber 推过去，远程机器不用联网' },
+                { id: 'reuse', label: '复用已安装', hint: '一个字节都不推：只检查运行时/应用/OpenCode 并把 OpenCode pin 下来' },
               ]}
               onChange={(id) => setForm({ ...form, provision: id === 'reuse' ? 'reuse' : 'push' })}
             />
             <KitSelect
-              label="出口策略"
+              label="联网方式"
               value={form.egress}
               options={[
-                { id: 'auto', label: EGRESS_LABEL.auto, hint: '推荐：探测对端，能自己出网就直连' },
-                { id: 'relay', label: EGRESS_LABEL.relay, hint: '对端完全无出网时用' },
-                { id: 'direct', label: EGRESS_LABEL.direct, hint: '对端有外网；中继不参与' },
+                { id: 'auto', label: '自动（探测远程机器）', hint: '推荐：远程机器能自己出网就直连' },
+                { id: 'relay', label: '经本机转发', hint: '远程机器完全出不了网时用' },
+                { id: 'direct', label: '直连', hint: '远程机器有外网；本机转发不参与' },
               ]}
               onChange={(id) => setForm({ ...form, egress: id === 'relay' ? 'relay' : id === 'direct' ? 'direct' : 'auto' })}
             />
           </div>
           <div className="oc-row">
             <KitField
-              label="实例端口（对端）"
+              label="远程端口"
               value={form.instancePort}
               mono
               onChange={(v) => setForm({ ...form, instancePort: v })}
-              helper={defaults ? `默认 ${defaults.instancePort}；占用情况在预演里说（对端能看到就说，看不到就说看不到）` : undefined}
+              helper={defaults ? `OpenChamber 在远程机器上用的端口，默认 ${defaults.instancePort}；占用情况在检查里说（看得到就说，看不到就说看不到）` : undefined}
             />
             <KitField
-              label="本机端口（控制端）"
+              label="本机端口"
               value={form.localPort}
               mono
               onChange={(v) => setForm({ ...form, localPort: v })}
               helper={defaults
-                ? `实测空闲 ${defaults.localPort}；档案里已占用：${defaults.taken.length ? defaults.taken.join(', ') : '无'}`
+                ? `这台电脑上通往它的端口，实测空闲 ${defaults.localPort}；已占用：${defaults.taken.length ? defaults.taken.join(', ') : '无'}`
                 : undefined}
             />
             <KitSwitch label="自动重连" checked={form.reconnect} onChange={(v) => setForm({ ...form, reconnect: v })} />
-            <KitSwitch label="重启自恢复" checked={form.restoreOnStart} onChange={(v) => setForm({ ...form, restoreOnStart: v })} />
+            <KitSwitch label="服务重启后恢复" checked={form.restoreOnStart} onChange={(v) => setForm({ ...form, restoreOnStart: v })} />
           </div>
 
           <KitSeparator />
-          {/* 派生值：只显示，不给控件（它们不是选项）。 */}
-          <div className="oc-xs oc-muted">派生值（不是选项）：</div>
+          {/* 自动决定的值：只显示，不给控件（它们不是选项）。 */}
+          <div className="oc-xs oc-muted">下面这些由远程机器决定，不是选项：</div>
           <div className="oc-xs oc-muted">
-            {`档位：由对端 glibc 决定${defaults ? '（< 2.28 → legacy 档，含重建的 node-pty）' : ''}　·　运行时：node v${defaults?.nodeRuntime ?? '…'}（只有 glibc-217 一档）`}
+            {`兼容档：按远程机器 glibc 判定${defaults ? '（< 2.28 → 含重建 node-pty 的旧档）' : ''}　·　运行时：node v${defaults?.nodeRuntime ?? '…'}`}
           </div>
           <div className="oc-xs oc-muted">
-            {`app pin：${defaults?.appVersion ?? '…'}（跟随控制端，不取 latest）　·　引擎 pin：opencode ${defaults?.enginePin ?? '…'}　·　绑定：${defaults?.bind ?? '127.0.0.1'}`}
+            {`OpenChamber pin：${defaults?.appVersion ?? '…'}（跟随控制端，不取 latest）　·　OpenCode pin：${defaults?.enginePin ?? '…'}　·　绑定：${defaults?.bind ?? '127.0.0.1'}`}
           </div>
-          <div className="oc-xs oc-muted">UI 密码：登记时自动生成，只在控制端；行内「查看 UI 密码」可看可复制（浏览器打开对端时要）。</div>
+          <div className="oc-xs oc-muted">界面密码：添加时自动生成，只存在控制端；卡片里「界面密码」可看可复制（在浏览器里打开远程界面时要）。</div>
           <div className="oc-row">
-            <KitButton size="sm" label={form.id ? '保存' : '登记'} loading={busy === 'save'} onClick={() => void save()} />
+            <KitButton size="sm" label={form.id ? '保存' : '添加'} loading={busy === 'save'} onClick={() => void save()} />
           </div>
         </div>
       ) : null}
 
       {rows.length === 0 && !form ? (
-        <KitEmpty title="还没有对端" body="点「添加对端」登记一台被控机：先预演，再装机，然后启动它、生成配对链接。" />
+        <KitEmpty
+          title="还没有服务器"
+          body="点「添加服务器」登记一台远程机器：先检查（只读，不写远程机器），再安装，然后启动它、创建配对链接。装好之后在桌面 app 里确认链接，这台机器就会出现在「其他 OpenChamber 服务器」。"
+        />
       ) : null}
 
       {rows.map((row) => {
         const st = row.status
-        const tone = TONE[st?.state ?? 'unknown'] ?? 'warning'
+        const state = stateLabel(st?.state)
+        const isUp = st?.state === 'online'
+        // 「装过没有」只看一件事：有没有探测到 OpenCode。在线本身就是证据。
+        const provisioned = Boolean(st?.engine) || isUp
+        const address = `${row.user ? `${row.user}@` : ''}${row.host}:${row.port}`
         const isPlan = planFor?.id === row.id
         return (
           <div className="oc-card" key={row.id}>
-            <div className="oc-row oc-row-between">
-              <div className="oc-row">
-                <strong>{row.name ? `${row.name} · ${row.id}` : row.id}</strong>
-                <KitBadge label={st?.state ?? 'unknown'} tone={tone} />
-                {st?.engine ? <KitBadge label={`引擎 ${st.engine.version}`} tone="success" /> : null}
-                {st?.runtime ? <KitBadge label={`node ${st.runtime}`} /> : null}
-                <KitBadge label={row.sshAuth === 'password' ? 'SSH 密码' : 'SSH 密钥'} />
-                {row.provision === 'reuse' ? <KitBadge label="复用（不推包）" /> : null}
-                {/* D1：出口是**决定**，不是"中继在不在"——直连的对端不该看起来像缺中继。 */}
-                {st?.egress ? (
-                  <KitBadge
-                    label={st.egress.relay ? `出口 经控制端` : `出口 直连`}
-                    tone={st.egress.cached ? (st.egress.relay ? 'info' : 'success') : 'warning'}
-                  />
-                ) : null}
-                {st?.proxy?.enabled && st?.egress?.relay ? <KitBadge label={`中继 :${st.proxy.localPort} → :${st.proxy.remotePort}`} /> : null}
-              </div>
-              <span className="oc-muted">{`${row.user ? `${row.user}@` : ''}${row.host}:${row.port}`}</span>
-            </div>
-            {/* One summary line stays visible; the rest is behind 详情. Six muted
-                lines per card made every peer look equally important — the "没有
-                层次感" report — while the thing you actually need at a glance is
-                the state and the egress decision, both already badges. */}
-            {st?.detail ? <div className="oc-muted">{st.detail}</div> : null}
+            {/* ① 名称 + 状态 */}
             <div className="oc-row">
-              <KitButton
-                size="xs"
-                variant="ghost"
-                label={detailsFor === row.id ? '收起详情' : '详情'}
-                onClick={() => setDetailsFor(detailsFor === row.id ? null : row.id)}
-              />
-              {st?.egress ? <span className="oc-xs oc-muted">{`出口：${st.egress.relay ? '经控制端中继' : '对端直连'}（${st.egress.reason}）`}</span> : null}
+              <strong className="oc-truncate">{row.name ?? row.id}</strong>
+              <KitBadge label={state.label} tone={state.tone} />
+              {busy.endsWith(row.id) ? <KitSpinner size="sm" /> : null}
             </div>
-            {detailsFor === row.id ? (
-              <div className="oc-col">
-                {st?.egress ? <div className="oc-xs oc-muted">{`出口：策略 ${st.egress.mode}${st.egress.probe ? `，探测 ${st.egress.probe}` : ''}：${st.egress.reason}`}</div> : null}
-                {st?.engine ? <div className="oc-xs oc-muted oc-sdk-mono">{`引擎：${st.engine.path}`}</div> : null}
-                {st?.runtime ? <div className="oc-xs oc-muted">{`运行时：node ${st.runtime}`}</div> : null}
-                {st?.app ? <div className="oc-xs oc-muted">{`应用：openchamber ${st.app}`}</div> : null}
-                {st?.inspected ? <div className="oc-xs oc-muted">{`主机：${st.inspected.uname ?? '?'} · glibc ${st.inspected.glibc ?? '?'}`}</div> : null}
-                {st?.forwardAttempts ? <div className="oc-xs oc-muted">{`隧道重连 ${st.forwardAttempts} 次`}</div> : null}
-                {(st?.holders ?? []).map((line) => <div key={line} className="oc-xs oc-muted">{`持有者 ${line}`}</div>)}
-                <div className="oc-xs oc-muted">{`实例端口 ${row.instancePort} → 本机端口 ${row.localPort}（绑定 127.0.0.1）`}</div>
-              </div>
-            ) : null}
+            {/* ② 地址 + 登录方式 */}
+            <div className="oc-muted oc-sm oc-truncate">{`${address} · ${row.sshAuth === 'password' ? '密码登录' : '密钥登录'}`}</div>
+            {/* ③ 版本 + 网络（缺的写「未知」，不省字段） */}
+            <div className="oc-muted oc-sm">
+              {`OpenChamber ${st?.app ?? '未知'} · OpenCode ${st?.engine?.version ?? '未知'} · ${networkLabel(st?.egress)}`}
+            </div>
+            {/* 需要人管的状态才解释；在线不需要解释（它的解释在详情里）。 */}
+            {st && st.state !== 'online' && st.detail ? <div className="oc-xs oc-muted">{st.detail}</div> : null}
 
             <KitSeparator />
-            {/* B：极简卡片——三个主操作直接可见，其余原地折叠。十二个同权按钮排成
-                两行时，没有一个看起来是"该按的"（"没有层次感"那条反馈）。 */}
+            {/* 主动作随状态推进：没装就装、停了就起、在线就打开。 */}
             <div className="oc-row">
-              <KitButton size="sm" label="预演" variant="outline" loading={busy === `plan:${row.id}`} onClick={() => void plan(row.id)} />
+              {!provisioned ? (
+                <KitButton
+                  size="sm"
+                  label="检查并安装"
+                  loading={busy === `plan:${row.id}`}
+                  onClick={() => void plan(row.id)}
+                />
+              ) : isUp ? (
+                <KitButton size="sm" label="打开界面" loading={busy === `url:${row.id}`} onClick={() => void openUi(row)} />
+              ) : (
+                <KitButton
+                  size="sm"
+                  label="启动"
+                  loading={busy === `up:${row.id}`}
+                  onClick={() => void run(`up:${row.id}`, async () => { await op({ op: 'up', id: row.id }) })}
+                />
+              )}
+              {isUp ? (
+                <KitButton
+                  size="sm"
+                  variant="outline"
+                  label="停止"
+                  loading={busy === `down:${row.id}`}
+                  onClick={() => void run(`down:${row.id}`, async () => { await op({ op: 'down', id: row.id }) })}
+                />
+              ) : null}
+              {/* 配对链接要求实例在跑，所以没装过就不摆出来（免得点了才发现不行）。 */}
+              {provisioned ? (
+                <KitButton
+                  size="sm"
+                  variant="outline"
+                  label="创建配对链接"
+                  loading={busy === `pairlink:${row.id}`}
+                  onClick={() => void makePairLink(row.id)}
+                />
+              ) : null}
+              <span className="oc-push" />
               <KitButton
-                size="sm"
-                label={st?.state === 'online' ? '停机' : '启动'}
-                loading={busy === `${st?.state === 'online' ? 'down' : 'up'}:${row.id}`}
-                onClick={() => void run(`${st?.state === 'online' ? 'down' : 'up'}:${row.id}`, async () => {
-                  await op({ op: st?.state === 'online' ? 'down' : 'up', id: row.id })
-                })}
-              />
-              <KitButton
-                size="sm"
-                label="生成配对链接"
-                loading={busy === `pairlink:${row.id}`}
-                onClick={() => void makePairLink(row.id)}
+                size="xs"
+                variant="ghost"
+                label={detailsFor === row.id ? '收起详情' : '详情 ▾'}
+                onClick={() => setDetailsFor(detailsFor === row.id ? null : row.id)}
               />
               <KitButton
                 size="xs"
                 variant="ghost"
-                label={moreFor === row.id ? '收起更多' : '更多操作 ▾'}
+                label={moreFor === row.id ? '收起更多' : '更多 ▾'}
                 onClick={() => setMoreFor(moreFor === row.id ? null : row.id)}
               />
             </div>
 
+            {detailsFor === row.id ? (
+              <div className="oc-col">
+                <div className="oc-xs oc-muted">{`端口：远程 ${row.instancePort} → 本机 ${row.localPort}（绑定 127.0.0.1）`}</div>
+                {st?.engine ? <div className="oc-xs oc-muted oc-sdk-mono">{`OpenCode：${st.engine.path}`}</div> : null}
+                {st?.runtime ? <div className="oc-xs oc-muted">{`运行时：node ${st.runtime}`}</div> : null}
+                {st?.proxy?.enabled && st?.egress?.relay ? <div className="oc-xs oc-muted">{`本机转发：:${st.proxy.localPort} → :${st.proxy.remotePort}`}</div> : null}
+                {st?.egress ? <div className="oc-xs oc-muted">{`联网方式：${st.egress.mode}${st.egress.probe ? `，探测 ${st.egress.probe}` : ''} —— ${st.egress.reason}`}</div> : null}
+                {st?.inspected ? <div className="oc-xs oc-muted">{`远程机器：${st.inspected.uname ?? '?'} · glibc ${st.inspected.glibc ?? '?'}`}</div> : null}
+                {st?.forwardAttempts ? <div className="oc-xs oc-muted">{`转发重连 ${st.forwardAttempts} 次`}</div> : null}
+                {(st?.holders ?? []).map((line) => <div key={line} className="oc-xs oc-muted">{`转发持有者 ${line}`}</div>)}
+                {st?.detail ? <div className="oc-xs oc-muted">{`最近一次结果：${st.detail}`}</div> : null}
+              </div>
+            ) : null}
+
             {moreFor === row.id ? (
               <div className="oc-col">
+                <div className="oc-xs oc-muted">配置</div>
                 <div className="oc-row">
-                  <KitButton size="sm" variant="ghost" label="编辑" onClick={() => openForm(row)} />
-                  {/* D5：版本是 pin，不是选项——所以只有一个"升级到 pin"，对端已经在
-                      pin 上时它明确说"已是最新"，不做无意义的重复安装。 */}
-                  <KitButton
-                    size="sm"
-                    variant="ghost"
-                    label={`升级到 pin${defaults ? ` ${defaults.appVersion}` : ''}`}
-                    loading={busy === `upgrade:${row.id}`}
-                    onClick={() => void run(`upgrade:${row.id}`, async () => {
-                      const r = await op<{ ok: boolean; detail: string; changed: boolean }>({ op: 'upgrade', id: row.id })
-                      setSyncResult(`${r.ok ? 'OK' : 'FAIL'} ${r.detail}`)
-                    })}
-                  />
-                  <KitButton
-                    size="sm"
-                    variant="ghost"
-                    label="打开界面"
-                    onClick={() => void run(`url:${row.id}`, async () => {
-                      const reply = await op<{ url: string }>({ op: 'url', id: row.id })
-                      // The guest sandbox has no allow-popups, so window.open is
-                      // blocked. host.openUrl is the sanctioned "open externally".
-                      if (!host) throw new Error('宿主未连接，无法打开界面')
-                      await host.openUrl(reply.url)
-                    })}
-                  />
-                  <KitButton size="sm" variant="ghost" label="日志" loading={busy === `logs:${row.id}`} onClick={() => void showLogs(row.id)} />
-                  <KitButton size="sm" variant="ghost" label="配置差异" loading={busy === `configdiff:${row.id}`} onClick={() => void showConfigDiff(row.id)} />
-                  <KitButton size="sm" variant="ghost" label="查看 UI 密码" loading={busy === `secret:${row.id}`} onClick={() => void showSecret(row.id)} />
+                  <KitButton size="sm" variant="ghost" label="配置差异与同步" loading={busy === `configdiff:${row.id}`} onClick={() => void showConfigDiff(row.id)} />
+                  <KitButton size="sm" variant="ghost" label="界面密码" loading={busy === `secret:${row.id}`} onClick={() => void showSecret(row.id)} />
                 </div>
+                <div className="oc-xs oc-muted">维护</div>
                 <div className="oc-row">
-                  <KitButton
-                    size="sm"
-                    variant="ghost"
-                    label={row.reconnect === false ? '开自动重连' : '关自动重连'}
-                    onClick={() => void run(`patch:${row.id}`, async () => {
-                      await op({ op: 'patch', id: row.id, payload: { reconnect: row.reconnect === false } })
+                  <KitButton size="sm" variant="ghost" label={provisioned ? '检查并更新' : '检查并安装'} loading={busy === `plan:${row.id}`} onClick={() => void plan(row.id)} />
+                  <KitButton size="sm" variant="ghost" label="日志" loading={busy === `logs:${row.id}`} onClick={() => void showLogs(row.id)} />
+                  <KitButton size="sm" variant="ghost" label="编辑" onClick={() => openForm(row)} />
+                  {removeFor === row.id ? (
+                    <>
+                      <span className="oc-muted oc-xs">记录删掉就没了（远程机器上的实例会先停）——确认？</span>
+                      <KitButton
+                        size="sm"
+                        variant="destructive"
+                        label="确认移除"
+                        loading={busy === `delete:${row.id}`}
+                        onClick={() => void run(`delete:${row.id}`, async () => {
+                          await op({ op: 'delete', id: row.id })
+                          setRemoveFor('')
+                        })}
+                      />
+                      <KitButton size="sm" variant="ghost" label="取消" onClick={() => setRemoveFor('')} />
+                    </>
+                  ) : (
+                    <KitButton size="sm" variant="ghost" label="移除服务器" onClick={() => setRemoveFor(row.id)} />
+                  )}
+                </div>
+                <div className="oc-xs oc-muted">开关</div>
+                <div className="oc-row">
+                  <KitSwitch
+                    label="自动重连"
+                    checked={row.reconnect !== false}
+                    onChange={(v) => void run(`patch:${row.id}`, async () => {
+                      await op({ op: 'patch', id: row.id, payload: { reconnect: v } })
                     })}
                   />
-                  <KitButton
-                    size="sm"
-                    variant="ghost"
-                    label={row.restoreOnStart === false ? '开重启自恢复' : '关重启自恢复'}
-                    onClick={() => void run(`patch:${row.id}`, async () => {
-                      await op({ op: 'patch', id: row.id, payload: { restoreOnStart: row.restoreOnStart === false } })
-                    })}
-                  />
-                  <KitButton
-                    size="sm"
-                    variant="destructive"
-                    label="删档案"
-                    onClick={() => void run(`delete:${row.id}`, async () => {
-                      await op({ op: 'delete', id: row.id })
+                  <KitSwitch
+                    label="服务重启后恢复"
+                    checked={row.restoreOnStart !== false}
+                    onChange={(v) => void run(`patch:${row.id}`, async () => {
+                      await op({ op: 'patch', id: row.id, payload: { restoreOnStart: v } })
                     })}
                   />
                 </div>
               </div>
             ) : null}
 
-            {busy.endsWith(row.id) ? <KitSpinner size="sm" /> : null}
             {/* 动作结果（同步/升级）就贴在这一行下面：卡片可能没打开，结果不能只活在卡片里。 */}
             {syncResult ? <div className="oc-xs oc-sdk-mono">{syncResult}</div> : null}
 
             {pairFor?.id === row.id ? (
               <div className="oc-card">
                 <div className="oc-row oc-row-between">
-                  <strong>配对链接（身份在上游，我们只递链接）</strong>
+                  <strong>配对链接</strong>
                   <KitButton size="xs" variant="ghost" label="收起" onClick={() => setPairFor(null)} />
                 </div>
                 <div className="oc-muted">{pairFor.reply.detail}</div>
@@ -636,7 +626,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                       <KitButton
                         size="sm"
                         variant="ghost"
-                        label="重新生成"
+                        label="重新创建"
                         loading={busy === `pairlink:${row.id}`}
                         onClick={() => void makePairLink(row.id)}
                       />
@@ -651,7 +641,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
             {secretFor?.id === row.id ? (
               <div className="oc-card">
                 <div className="oc-row oc-row-between">
-                  <strong>UI 密码（控制端本地）</strong>
+                  <strong>界面密码（只在控制端本地）</strong>
                   <KitButton size="xs" variant="ghost" label="收起" onClick={() => setSecretFor(null)} />
                 </div>
                 <pre className="oc-pre">{`${secretFor.url}\n${secretFor.uiPassword}`}</pre>
@@ -669,32 +659,32 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
             {configFor?.id === row.id ? (
               <div className="oc-card">
                 <div className="oc-row oc-row-between">
-                  <strong>配置差异（本地 ↔ 对端引擎的 ~/.config/opencode）</strong>
+                  <strong>配置差异（控制端 ↔ 远程机器的 ~/.config/opencode）</strong>
                   <KitButton size="xs" variant="ghost" label="收起" onClick={() => setConfigFor(null)} />
                 </div>
-                <div className="oc-xs oc-muted">{`本地配置目录：${configFor.diff.localDir}`}</div>
-                {configFor.diff.peerError ? <KitBanner tone="error" title="读对端失败" body={configFor.diff.peerError} /> : null}
+                <div className="oc-xs oc-muted">{`控制端配置目录：${configFor.diff.localDir}`}</div>
+                {configFor.diff.peerError ? <KitBanner tone="error" title="读远程机器失败" body={configFor.diff.peerError} /> : null}
                 <div className="oc-xs oc-muted">
-                  {`只在本地（会推过去）${configFor.diff.add.length}　·　两边不同（覆盖，旧件留 .ocrc-bak）${configFor.diff.change.length}　·　两边相同${configFor.diff.same.length}　·　只在对端${configFor.diff.peerOnly.length}　·　算不出哈希${configFor.diff.unknown.length}`}
+                  {`只在控制端（会推过去）${configFor.diff.add.length}　·　两边不同（覆盖，旧件留 .ocrc-bak）${configFor.diff.change.length}　·　两边相同${configFor.diff.same.length}　·　只在远程机器${configFor.diff.peerOnly.length}　·　算不出哈希${configFor.diff.unknown.length}`}
                 </div>
                 {configFor.diff.add.length + configFor.diff.change.length > 0 ? (
                   <pre className="oc-pre">{[...configFor.diff.add.map((f) => `+ ${f}`), ...configFor.diff.change.map((f) => `~ ${f}`)].join('\n')}</pre>
                 ) : <div className="oc-muted">文件层面没有差异。</div>}
                 <div className="oc-xs oc-muted">
-                  {`配置文档：${configFor.diff.plan.configChanged ? `会改（写对端 ${configFor.diff.plan.basename}）` : '无变化'}　·　凭据 auth.json：本地 ${configFor.diff.auth.local ? '有' : '无'}，对端 ${configFor.diff.auth.peer ? '有' : '无'}`}
+                  {`配置文档：${configFor.diff.plan.configChanged ? `会改（写远程 ${configFor.diff.plan.basename}）` : '无变化'}　·　凭据 auth.json：控制端 ${configFor.diff.auth.local ? '有' : '无'}，远程 ${configFor.diff.auth.peer ? '有' : '无'}`}
                 </div>
                 {configFor.diff.plan.shadowed.length > 0 ? (
                   <KitBanner
                     tone="warning"
-                    title="会被对端覆盖层压住的键"
-                    body={`${configFor.diff.plan.shadowed.join('、')}——对端的 jsonc 是更高优先层，同步后这些键仍按它的值生效。`}
+                    title="会被远程覆盖层压住的键"
+                    body={`${configFor.diff.plan.shadowed.join('、')}——远程的 jsonc 是更高优先层，同步后这些键仍按它的值生效。`}
                   />
                 ) : null}
 
                 {/* 删除必须显式勾选：diff 只负责提出候选。 */}
                 {configFor.diff.peerOnly.length > 0 || configFor.diff.plan.keyDeleteCandidates.length > 0 ? (
                   <div className="oc-col">
-                    <div className="oc-xs oc-muted">对端独有（勾选才会删；旧件留 .ocrc-bak）：</div>
+                    <div className="oc-xs oc-muted">只在远程机器（勾选才会删；旧件留 .ocrc-bak）：</div>
                     {configFor.diff.peerOnly.map((rel) => (
                       <KitSwitch
                         key={`file:${rel}`}
@@ -725,7 +715,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                   <KitButton
                     size="sm"
                     variant="outline"
-                    label="预演（不写对端）"
+                    label="试运行（不写远程机器）"
                     loading={busy === `dryrun:${row.id}`}
                     onClick={() => void syncConfigNow(row.id, true)}
                   />
@@ -744,7 +734,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                   />
                 </div>
                 <div className="oc-xs oc-muted">
-                  凭据走 ssh stdin 写到对端 0600，不回显；配置只推差异、opencode.json 深合并（对端独有键保留）、plugin 键交给对端自己的 openchamber。
+                  凭据走 ssh stdin 写到远程 0600，不回显；配置只推差异、opencode.json 深合并（远程独有键保留）、plugin 键交给远程自己的 OpenChamber。
                 </div>
               </div>
             ) : null}
@@ -752,19 +742,19 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
             {logFor?.id === row.id ? (
               <div className="oc-card">
                 <div className="oc-row oc-row-between">
-                  <strong>日志（三处：控制端隧道 / 对端实例 / 对端 openchamber）</strong>
+                  <strong>日志（三处：控制端转发 / 远程实例 / 远程机器的 OpenChamber）</strong>
                   <KitButton size="xs" variant="ghost" label="收起" onClick={() => setLogFor(null)} />
                 </div>
                 {logFor.peer && !logFor.peer.ok ? (
-                  <KitBanner tone="warning" title="取对端日志失败" body={logFor.peer.error ?? '原因未知'} />
+                  <KitBanner tone="warning" title="取远程日志失败" body={logFor.peer.error ?? '原因未知'} />
                 ) : null}
-                <div className="oc-xs oc-muted">控制端隧道（本进程，尾 80 行）</div>
+                <div className="oc-xs oc-muted">控制端转发（本进程，尾 80 行）</div>
                 <pre className="oc-pre">{logFor.lines.length ? logFor.lines.join('\n') : '（空）'}</pre>
                 {logFor.peer ? (
                   <>
-                    <div className="oc-xs oc-muted">{`对端实例日志（${logFor.peer.paths.instance || '路径未知'}）`}</div>
+                    <div className="oc-xs oc-muted">{`远程实例日志（${logFor.peer.paths.instance || '路径未知'}）`}</div>
                     <pre className="oc-pre">{logFor.peer.instance.length ? logFor.peer.instance.join('\n') : '（空——实例可能没起过）'}</pre>
-                    <div className="oc-xs oc-muted">{`对端 openchamber 日志（${logFor.peer.paths.app || '路径未知'}）`}</div>
+                    <div className="oc-xs oc-muted">{`远程机器的 OpenChamber 日志（${logFor.peer.paths.app || '路径未知'}）`}</div>
                     <pre className="oc-pre">{logFor.peer.app.length ? logFor.peer.app.join('\n') : '（空）'}</pre>
                   </>
                 ) : null}
@@ -774,7 +764,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
             {isPlan && planFor ? (
               <div className="oc-card">
                 <div className="oc-row oc-row-between">
-                  <strong>预演（只读，不写对端）</strong>
+                  <strong>检查结果（只读，不写远程机器）</strong>
                   <KitButton size="xs" variant="ghost" label="收起" onClick={() => setPlanFor(null)} />
                 </div>
                 <div className="oc-muted">
@@ -783,18 +773,18 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                     : `ssh 不可达：${planFor.reply.sshError ?? '未知原因'}`}
                 </div>
                 <div className="oc-muted">{`运行时：${planFor.reply.runtime ?? '缺失（会推送）'}`}</div>
-                <div className="oc-muted">{`应用：${planFor.reply.app ?? '缺失（会推送）'}`}</div>
+                <div className="oc-muted">{`OpenChamber：${planFor.reply.app ?? '缺失（会推送）'}`}</div>
                 <div className="oc-muted">
                   {planFor.reply.engine
-                    ? `引擎：${planFor.reply.engine.path} → ${planFor.reply.engine.version}`
-                    : '引擎：不满足 v2 门禁'}
+                    ? `OpenCode：${planFor.reply.engine.path} → ${planFor.reply.engine.version}`
+                    : 'OpenCode：不满足 v2 门禁'}
                 </div>
                 <div className="oc-xs oc-muted">
-                  {`档位：${planFor.reply.tier ?? '未判定'}（由 glibc ${planFor.reply.inspected?.glibc ?? '?'} 决定）　·　装机方式：${planFor.reply.provision === 'reuse' ? '复用已有（不推字节）' : '推包'}`}
+                  {`兼容档：${tierLabel(planFor.reply.tier)}（按 glibc ${planFor.reply.inspected?.glibc ?? '?'}）　·　安装方式：${planFor.reply.provision === 'reuse' ? '复用已安装（不推字节）' : '推送安装'}`}
                 </div>
                 {planFor.reply.egress ? (
                   <div className="oc-xs oc-muted">
-                    {`出口：${planFor.reply.egress.relay ? '经控制端中继' : '对端直连'}（策略 ${planFor.reply.egress.mode}${planFor.reply.egress.probe ? `，探测 ${planFor.reply.egress.probe}` : ''}：${planFor.reply.egress.reason}）`}
+                    {`网络：${planFor.reply.egress.relay ? '经本机转发' : '直连'}（策略 ${planFor.reply.egress.mode}${planFor.reply.egress.probe ? `，探测 ${planFor.reply.egress.probe}` : ''}：${planFor.reply.egress.reason}）`}
                   </div>
                 ) : null}
                 {planFor.reply.engineCandidates.length > 0 ? (
@@ -803,7 +793,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                     onSelect={() => { /* 只读展示 */ }}
                   />
                 ) : null}
-                {planFor.reply.engineError ? <KitBanner tone="warning" title="引擎门禁" body={planFor.reply.engineError} /> : null}
+                {planFor.reply.engineError ? <KitBanner tone="warning" title="OpenCode 门禁" body={planFor.reply.engineError} /> : null}
                 <div className="oc-muted">将要做的：</div>
                 <KitList
                   items={planFor.reply.actions.map((a, i) => ({ id: String(i), title: a, leading: a.startsWith('FAIL') ? '!' : '·' }))}
@@ -812,10 +802,10 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                 <KitSeparator />
                 {confirmFor === row.id ? (
                   <div className="oc-row">
-                    <span className="oc-muted">会在对端写盘（旧文件留 .ocrc-bak）——确认继续？</span>
+                    <span className="oc-muted">会在远程机器写盘（旧文件留 .ocrc-bak）——确认继续？</span>
                     <KitButton
                       size="sm"
-                      label="确认装机"
+                      label="确认安装"
                       loading={busy === `apply:${row.id}`}
                       onClick={() => void run(`apply:${row.id}`, async () => {
                         await op({ op: 'apply', id: row.id, payload: { confirm: true } })
@@ -829,7 +819,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                   <div className="oc-row">
                     <KitButton
                       size="sm"
-                      label={planFor.reply.provision === 'reuse' ? '检查（复用档：不写对端）' : '装机（推运行时 / 引擎 / 应用）'}
+                      label={planFor.reply.provision === 'reuse' ? '检查（复用已安装：不写远程机器）' : `安装到远程机器（OpenChamber ${defaults?.appVersion ?? planFor.reply.app ?? ''}）`}
                       disabled={!planFor.reply.reachable}
                       onClick={() => setConfirmFor(row.id)}
                     />

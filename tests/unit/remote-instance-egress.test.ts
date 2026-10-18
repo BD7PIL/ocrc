@@ -14,11 +14,11 @@ import {
 
 describe('resolveEgressPolicy', () => {
   it('defaults to auto and relays when the peer has no egress', () => {
-    expect(resolveEgressPolicy({ relayAllowed: true, probe: 'none' })).toEqual({ relay: true, reason: '探测：对端无出网' })
+    expect(resolveEgressPolicy({ relayAllowed: true, probe: 'none' })).toEqual({ relay: true, reason: '远程机器出不了网' })
   })
 
   it('keeps a peer with its own egress direct', () => {
-    expect(resolveEgressPolicy({ relayAllowed: true, probe: 'direct' })).toEqual({ relay: false, reason: '探测：对端自己可出网' })
+    expect(resolveEgressPolicy({ relayAllowed: true, probe: 'direct' })).toEqual({ relay: false, reason: '远程机器自己能出网' })
   })
 
   it('still relays when the peer has a route but no resolver', () => {

@@ -1,6 +1,6 @@
 {
   "name": "ocrc-remote",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "private": true,
   "type": "module",
   "description": "OCRC Remote — provision and connect a remote openchamber instance on a controlled Linux host from openchamber",
@@ -17,7 +17,7 @@
         "entry": "status/index.html",
         "title": "OCRC Remote",
         "height": 96,
-        "defaultExpanded": false
+        "defaultExpanded": true
       },
       "service": {
         "entry": "service/main.js",
@@ -30,16 +30,6 @@
       },
       "capabilities": [
         "sessions"
-      ],
-      "commands": [
-        {
-          "name": "ocrc-host",
-          "description": "把 OCRC 远端主机的现状交给模型（就绪度、引擎、能力缺口）"
-        },
-        {
-          "name": "ocrc-plan",
-          "description": "把「连上这台主机还需要装什么」交给模型去安排"
-        }
       ]
     }
   },

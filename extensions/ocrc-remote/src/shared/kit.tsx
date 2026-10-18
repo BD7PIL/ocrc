@@ -1,10 +1,10 @@
 import { useEffect, useRef } from 'react'
 import {
   mountBadge, mountBanner, mountButton, mountCheckbox, mountEmpty, mountList, mountSelect,
-  mountSeparator, mountSpinner, mountSwitch, mountTabs, mountTextField,
+  mountSeparator, mountSpinner, mountSwitch, mountTextField,
   type BadgeProps, type BannerProps, type ButtonProps, type CheckboxProps, type EmptyProps,
   type Handle, type ListProps, type SelectProps, type SeparatorProps, type SpinnerProps,
-  type TabsProps, type TextFieldProps,
+  type TextFieldProps,
 } from '@openchamber/sdk/ui'
 
 /** Every kit mount has this shape: `update` merges props, `dispose` unpaints. */
@@ -55,10 +55,6 @@ export function KitField(props: TextFieldProps) {
 
 export function KitSelect(props: SelectProps) {
   return <span ref={useKit(mountSelect, props)} className="oc-kit" />
-}
-
-export function KitTabs(props: TabsProps) {
-  return <span ref={useKit(mountTabs, props)} className="oc-kit" />
 }
 
 export function KitEmpty(props: EmptyProps) {

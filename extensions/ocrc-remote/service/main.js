@@ -370,19 +370,19 @@ function inspectConfigSource(env = process.env, exists = (p) => existsSync(p), r
 function provisionActions(f) {
   const appOk = !!f.app && f.app === f.targetAppVersion;
   if (f.provision === "reuse") {
-    const out2 = ["\u590D\u7528\u6863\uFF1A\u4E0D\u63A8\u9001\u4EFB\u4F55\u5B57\u8282\uFF08\u8FD0\u884C\u65F6/\u5E94\u7528/\u5F15\u64CE\u90FD\u4FDD\u6301\u5BF9\u7AEF\u73B0\u72B6\uFF09"];
-    if (!f.runtime) out2.push("FAIL \u8FD0\u884C\u65F6\u7F3A\u5931\u2014\u2014\u590D\u7528\u6863\u4E0B\u65E0\u6CD5\u7EE7\u7EED\uFF0C\u628A\u88C5\u673A\u65B9\u5F0F\u6539\u56DE\u300C\u63A8\u5305\u300D");
-    if (!appOk) out2.push(`FAIL \u5E94\u7528\u7F3A\u5931\u6216\u7248\u672C\u4E0D\u7B26\uFF08\u5BF9\u7AEF ${f.app ?? "\u7F3A\u5931"} \u2260 ${f.targetAppVersion}\uFF09\u2014\u2014\u6539\u56DE\u300C\u63A8\u5305\u300D`);
-    if (!f.engineOk) out2.push(`FAIL \u5F15\u64CE\u4E0D\u6EE1\u8DB3 v2 \u95E8\u7981\uFF1A${f.engineError ?? "\u539F\u56E0\u672A\u77E5"}`);
+    const out2 = ["\u590D\u7528\u5DF2\u5B89\u88C5\uFF1A\u4E0D\u63A8\u9001\u4EFB\u4F55\u5B57\u8282\uFF08\u8FD0\u884C\u65F6 / OpenChamber / OpenCode \u90FD\u4FDD\u6301\u8FDC\u7A0B\u673A\u5668\u73B0\u72B6\uFF09"];
+    if (!f.runtime) out2.push("FAIL \u8FD0\u884C\u65F6\u7F3A\u5931\u2014\u2014\u590D\u7528\u5DF2\u5B89\u88C5\u4E0B\u65E0\u6CD5\u7EE7\u7EED\uFF0C\u628A\u5B89\u88C5\u65B9\u5F0F\u6539\u56DE\u300C\u63A8\u9001\u5B89\u88C5\u300D");
+    if (!appOk) out2.push(`FAIL OpenChamber \u7F3A\u5931\u6216\u7248\u672C\u4E0D\u7B26\uFF08\u8FDC\u7A0B\u673A\u5668 ${f.app ?? "\u7F3A\u5931"} \u2260 ${f.targetAppVersion}\uFF09\u2014\u2014\u6539\u56DE\u300C\u63A8\u9001\u5B89\u88C5\u300D`);
+    if (!f.engineOk) out2.push(`FAIL OpenCode \u4E0D\u6EE1\u8DB3 v2 \u95E8\u7981\uFF1A${f.engineError ?? "\u539F\u56E0\u672A\u77E5"}`);
     if (f.runtime && appOk && f.engineOk) out2.push("\u68C0\u67E5\u901A\u8FC7\uFF0C\u53EF\u4EE5\u76F4\u63A5\u542F\u52A8");
     return out2;
   }
   const out = [];
   if (!f.runtime) out.push(`\u63A8\u9001\u8FD0\u884C\u65F6 node v${f.runtime ?? NODE_RUNTIME.version}\uFF08\u63A7\u5236\u7AEF\u5DF2\u5907\u4EF6\uFF0C\u79BB\u7EBF\uFF09`);
-  if (!appOk) out.push(`\u63A8\u9001\u5E94\u7528 ${f.targetAppVersion} \u5230 ~/.ocrc/remote/openchamber/${f.targetAppVersion}\uFF08\u65E7\u6811\u7559 .ocrc-bak\uFF09`);
-  if (f.runtime && appOk) out.push("\u8FD0\u884C\u65F6\u4E0E\u5E94\u7528\u90FD\u5728\u4F4D\uFF0C\u63A8\u9001\u4F1A\u8DF3\u8FC7");
+  if (!appOk) out.push(`\u63A8\u9001 OpenChamber ${f.targetAppVersion} \u5230 ~/.ocrc/remote/openchamber/${f.targetAppVersion}\uFF08\u65E7\u6811\u7559 .ocrc-bak\uFF09`);
+  if (f.runtime && appOk) out.push("\u8FD0\u884C\u65F6\u4E0E OpenChamber \u90FD\u5728\u4F4D\uFF0C\u63A8\u9001\u4F1A\u8DF3\u8FC7");
   if (!f.engineOk) {
-    out.push(`\u90E8\u7F72\u6211\u4EEC pin \u7684\u5F15\u64CE opencode ${f.enginePin ?? DEFAULT_ENGINE_PIN} \u5230 ~/.ocrc/remote/engine/opencode\uFF08\u5BF9\u7AEF\u73B0\u6709 v1 \u4E00\u5F8B\u4E0D\u52A8\uFF09`);
+    out.push(`\u5B89\u88C5\u6211\u4EEC pin \u7684 OpenCode ${f.enginePin ?? DEFAULT_ENGINE_PIN} \u5230 ~/.ocrc/remote/engine/opencode\uFF08\u8FDC\u7A0B\u673A\u5668\u73B0\u6709 v1 \u4E00\u5F8B\u4E0D\u52A8\uFF09`);
   }
   return out;
 }
@@ -451,16 +451,16 @@ function resolveEgressPolicy(o) {
   const mode = o.mode ?? EGRESS_DEFAULT;
   if (!o.relayAllowed) return { relay: false, reason: "relay \u5DF2\u5173\u95ED" };
   if (mode === "direct") return { relay: false, reason: "\u6309\u914D\u7F6E\u76F4\u8FDE" };
-  if (mode === "relay") return { relay: true, reason: "\u6309\u914D\u7F6E\u7ECF\u63A7\u5236\u7AEF" };
+  if (mode === "relay") return { relay: true, reason: "\u6309\u914D\u7F6E\u7ECF\u672C\u673A\u8F6C\u53D1" };
   switch (o.probe) {
     case "direct":
-      return { relay: false, reason: "\u63A2\u6D4B\uFF1A\u5BF9\u7AEF\u81EA\u5DF1\u53EF\u51FA\u7F51" };
+      return { relay: false, reason: "\u8FDC\u7A0B\u673A\u5668\u81EA\u5DF1\u80FD\u51FA\u7F51" };
     case "dns-only":
-      return { relay: true, reason: "\u63A2\u6D4B\uFF1A\u5BF9\u7AEF\u6709\u8DEF\u7531\u4F46 DNS \u4E0D\u901A" };
+      return { relay: true, reason: "\u8FDC\u7A0B\u673A\u5668\u6709\u8DEF\u7531\u4F46 DNS \u4E0D\u901A" };
     case "none":
-      return { relay: true, reason: "\u63A2\u6D4B\uFF1A\u5BF9\u7AEF\u65E0\u51FA\u7F51" };
+      return { relay: true, reason: "\u8FDC\u7A0B\u673A\u5668\u51FA\u4E0D\u4E86\u7F51" };
     default:
-      return { relay: true, reason: "\u63A2\u6D4B\u672A\u6210\u529F\u2014\u2014\u4FDD\u5B88\u7ECF\u63A7\u5236\u7AEF" };
+      return { relay: true, reason: "\u63A2\u6D4B\u672A\u6210\u529F\u2014\u2014\u4FDD\u5B88\u7ECF\u672C\u673A\u8F6C\u53D1" };
   }
 }
 var RECONNECT_DEFAULTS = { reconnect: true, restoreOnStart: true, replayQueued: false };
@@ -557,7 +557,7 @@ function pickV2Engine(candidates) {
     if (isSupportedEngineVersion(candidate.version)) return { ok: true, candidate };
   }
   if (candidates.length === 0) {
-    return { ok: false, error: `\u76EE\u6807\u673A\u4E0A\u6CA1\u6709\u627E\u5230 opencode \u5F15\u64CE\uFF08\u5019\u9009\uFF1A${DEFAULT_ENGINE_CANDIDATES.join(", ")}\uFF09\u2014\u2014\u8BF7\u5148\u7528\u300C\u90E8\u7F72\u5F15\u64CE\u300D\u88C5\u4E00\u4EFD v2`, seen: [] };
+    return { ok: false, error: `\u8FDC\u7A0B\u673A\u5668\u4E0A\u6CA1\u6709\u627E\u5230\u6EE1\u8DB3 v2 \u95E8\u7981\u7684 OpenCode\uFF08\u5019\u9009\uFF1A${DEFAULT_ENGINE_CANDIDATES.join(", ")}\uFF09\u2014\u2014\u5148\u88C5\u4E00\u4EFD v2\uFF08\u9762\u677F\u7684\u300C\u68C0\u67E5\u5E76\u5B89\u88C5\u300D\u4F1A\u63A8\u6211\u4EEC pin \u7684\u90A3\u4EFD\uFF09`, seen: [] };
   }
   const seen = candidates.map((c) => `${c.path} \u2192 ${c.raw || "\uFF08\u7248\u672C\u672A\u77E5\uFF09"}`).join("\uFF1B");
   return {
@@ -761,18 +761,18 @@ function buildRelayForwardArgs(spec) {
 }
 var REQUIRED_INSTANCE_CAPABILITY = "api.runtime-url.v1";
 function judgeEngineCompat(payload) {
-  if (!payload || typeof payload !== "object") return { ok: false, error: "\u5B9E\u4F8B\u6CA1\u6709\u8FD4\u56DE\u5F15\u64CE\u517C\u5BB9\u6027" };
+  if (!payload || typeof payload !== "object") return { ok: false, error: "\u5B9E\u4F8B\u6CA1\u6709\u8FD4\u56DE OpenCode \u517C\u5BB9\u6027" };
   const state = String(payload.state ?? "");
   const version = normalizeEngineVersion(String(payload.version ?? ""));
   const binary = String(payload.binary ?? "");
   if (state !== "compatible") {
-    return { ok: false, error: `\u5B9E\u4F8B\u5F15\u64CE\u517C\u5BB9\u6027 state=${state || "\uFF08\u7A7A\uFF09"}\uFF08\u9700\u8981 compatible\uFF09` };
+    return { ok: false, error: `\u5B9E\u4F8B\u7684 OpenCode \u517C\u5BB9\u6027 state=${state || "\uFF08\u7A7A\uFF09"}\uFF08\u9700\u8981 compatible\uFF09` };
   }
   if (!isSupportedEngineVersion(version)) {
-    return { ok: false, error: `\u5B9E\u4F8B\u7528\u7684\u5F15\u64CE ${version || "\uFF08\u7248\u672C\u672A\u77E5\uFF09"} \u4E0D\u6EE1\u8DB3 v2 \u95E8\u7981\uFF08\u9700 major=2 \u4E14 \u2265 ${MIN_ENGINE_VERSION}\uFF09${binary ? `\uFF1B\u4E8C\u8FDB\u5236 ${binary}` : ""}` };
+    return { ok: false, error: `\u5B9E\u4F8B\u7528\u7684 OpenCode ${version || "\uFF08\u7248\u672C\u672A\u77E5\uFF09"} \u4E0D\u6EE1\u8DB3 v2 \u95E8\u7981\uFF08\u9700 major=2 \u4E14 \u2265 ${MIN_ENGINE_VERSION}\uFF09${binary ? `\uFF1B\u4E8C\u8FDB\u5236 ${binary}` : ""}` };
   }
   if (!binary.startsWith("/")) {
-    return { ok: false, error: `\u5B9E\u4F8B\u62A5\u7684\u5F15\u64CE\u8DEF\u5F84\u4E0D\u662F\u7EDD\u5BF9\u8DEF\u5F84\uFF1A${binary || "\uFF08\u7A7A\uFF09"}` };
+    return { ok: false, error: `\u5B9E\u4F8B\u62A5\u7684 OpenCode \u8DEF\u5F84\u4E0D\u662F\u7EDD\u5BF9\u8DEF\u5F84\uFF1A${binary || "\uFF08\u7A7A\uFF09"}` };
   }
   return { ok: true, version, binary };
 }
@@ -2541,7 +2541,7 @@ function describeHolders(instanceId, home = ocrcHome()) {
     const marker = readForwardMarker(instanceId, kind, home);
     if (!marker) continue;
     const alive = isAlive(marker.pid);
-    lines.push(`${kind}: pid ${marker.pid}\uFF08${marker.owner}${marker.localPort ? `\uFF0C\u672C\u5730 :${marker.localPort}` : ""}${marker.remotePort ? `\uFF0C\u5BF9\u7AEF :${marker.remotePort}` : ""}\uFF09${alive ? "" : "\u2014\u2014\u8FDB\u7A0B\u5DF2\u4E0D\u5728\uFF08\u9648\u65E7\u6807\u8BB0\uFF09"}`);
+    lines.push(`${kind}: pid ${marker.pid}\uFF08${marker.owner}${marker.localPort ? `\uFF0C\u672C\u5730 :${marker.localPort}` : ""}${marker.remotePort ? `\uFF0C\u8FDC\u7A0B :${marker.remotePort}` : ""}\uFF09${alive ? "" : "\u2014\u2014\u8FDB\u7A0B\u5DF2\u4E0D\u5728\uFF08\u9648\u65E7\u6807\u8BB0\uFF09"}`);
   }
   return lines;
 }
@@ -2732,7 +2732,7 @@ tar: ${err.message}` });
       return {
         ok: false,
         seen: parsed,
-        error: `pin \u7684\u5F15\u64CE\u4E0D\u6EE1\u8DB3 v2 \u95E8\u7981\uFF1A${parsed.map((c) => `${c.path} \u2192 ${c.raw || "\uFF08\u7248\u672C\u672A\u77E5\uFF09"}`).join("\uFF1B") || instance.enginePath}`
+        error: `pin \u7684 OpenCode \u4E0D\u6EE1\u8DB3 v2 \u95E8\u7981\uFF1A${parsed.map((c) => `${c.path} \u2192 ${c.raw || "\uFF08\u7248\u672C\u672A\u77E5\uFF09"}`).join("\uFF1B") || instance.enginePath}`
       };
     }
     return pick;
@@ -2798,13 +2798,13 @@ tar: ${err.message}` });
     }
     const decision = resolveEgressPolicy({ mode, relayAllowed: proxyConfig(instance).enabled, probe });
     r.egress = { ...decision, probe, at: Date.now() };
-    pushLog(instance.id, `\u51FA\u53E3\u7B56\u7565\uFF1A${decision.relay ? "\u7ECF\u63A7\u5236\u7AEF" : "\u76F4\u8FDE"}\uFF08${decision.reason}\uFF09`);
+    pushLog(instance.id, `\u8054\u7F51\u65B9\u5F0F\uFF1A${decision.relay ? "\u7ECF\u672C\u673A\u8F6C\u53D1" : "\u76F4\u8FDE"}\uFF08${decision.reason}\uFF09`);
     return r.egress;
   }
   function egressView(instance) {
     const mode = instance.egress ?? EGRESS_DEFAULT;
     const cached = rt(instance.id).egress;
-    if (!cached) return { mode, relay: false, reason: "\u5C1A\u672A\u63A2\u6D4B\uFF08\u8DD1\u4E00\u6B21\u9884\u6F14\u6216\u542F\u52A8\u5C31\u4F1A\u51B3\u5B9A\uFF09", cached: false };
+    if (!cached) return { mode, relay: false, reason: "\u5C1A\u672A\u63A2\u6D4B\uFF08\u8DD1\u4E00\u6B21\u68C0\u67E5\u6216\u542F\u52A8\u5C31\u4F1A\u51B3\u5B9A\uFF09", cached: false };
     return { mode, relay: cached.relay, reason: cached.reason, probe: cached.probe, cached: true };
   }
   async function ensureProxy(instance) {
@@ -2813,7 +2813,7 @@ tar: ${err.message}` });
     if (!(await egressFor(instance)).relay) return "off";
     if (proxies.has(cfg.localPort)) return "in-process";
     if (await isListening(cfg.localPort)) {
-      pushLog(instance.id, `egress relay \u5DF2\u5728 :${cfg.localPort} \u4E0A\u76D1\u542C\uFF08\u5916\u90E8\u8FDB\u7A0B\uFF0C\u590D\u7528\uFF09`);
+      pushLog(instance.id, `\u51FA\u7F51\u8F6C\u53D1\u5DF2\u5728 :${cfg.localPort} \u4E0A\u76D1\u542C\uFF08\u5916\u90E8\u8FDB\u7A0B\uFF0C\u590D\u7528\uFF09`);
       return "external";
     }
     try {
@@ -2823,10 +2823,10 @@ tar: ${err.message}` });
         onLog: (line) => pushLog(instance.id, `relay: ${line}`)
       });
       proxies.set(cfg.localPort, proxy);
-      pushLog(instance.id, `egress relay \u8D77\u5728 127.0.0.1:${cfg.localPort}\uFF08\u5BF9\u7AEF\u7ECF ssh -R 127.0.0.1:${cfg.remotePort} \u8FDB\u6765\u5230\u8FD9\uFF09`);
+      pushLog(instance.id, `\u51FA\u7F51\u8F6C\u53D1\u8D77\u5728 127.0.0.1:${cfg.localPort}\uFF08\u8FDC\u7A0B\u673A\u5668\u7ECF ssh -R 127.0.0.1:${cfg.remotePort} \u8FDB\u6765\u5230\u8FD9\uFF09`);
       return "in-process";
     } catch (err) {
-      pushLog(instance.id, `egress relay \u8D77\u4E0D\u6765\uFF1A${err.message}`);
+      pushLog(instance.id, `\u51FA\u7F51\u8F6C\u53D1\u8D77\u4E0D\u6765\uFF1A${err.message}`);
       return "off";
     }
   }
@@ -2875,16 +2875,16 @@ tar: ${err.message}` });
       const health = await remoteHealth(fresh);
       if (health !== "200") {
         if (fresh.reconnect === false) {
-          setState(id, "offline", "\u5BF9\u7AEF\u5B9E\u4F8B\u672A\u54CD\u5E94\uFF08reconnect \u5173\uFF0C\u4E0D\u81EA\u52A8\u91CD\u542F\uFF09");
+          setState(id, "offline", "\u8FDC\u7A0B\u5B9E\u4F8B\u672A\u54CD\u5E94\uFF08reconnect \u5173\uFF0C\u4E0D\u81EA\u52A8\u91CD\u542F\uFF09");
           return;
         }
         const pick = await resolveEngine(fresh);
         if (!pick.ok) {
-          setState(id, "error", `\u5F15\u64CE\u4E0D\u6EE1\u8DB3 v2 \u95E8\u7981\uFF1A${pick.error}`);
+          setState(id, "error", `OpenCode \u4E0D\u6EE1\u8DB3 v2 \u95E8\u7981\uFF1A${pick.error}`);
           return;
         }
         const relay = await ensureProxy(fresh);
-        if (relay !== "off") pushLog(id, `egress relay: ${relay}`);
+        if (relay !== "off") pushLog(id, `\u51FA\u7F51\u8F6C\u53D1\uFF1A${relay}`);
         await ensureExternalRelayAsync(fresh);
         const started = await startInstance(fresh, pick.candidate.path);
         setState(id, started.ok ? "online" : "error", started.ok ? `\u5B9E\u4F8B\u5DF2\u91CD\u65B0\u62C9\u8D77\uFF08${instanceUrl(fresh.localPort)}\uFF09` : started.detail);
@@ -2892,7 +2892,7 @@ tar: ${err.message}` });
         return;
       }
       await ensureExternalRelayAsync(fresh);
-      if (here.state !== "online") setState(id, "online", "\u5BF9\u7AEF\u5C31\u7EEA\uFF08\u96A7\u9053\u7531\u684C\u9762\u7248\u6301\u6709\uFF09");
+      if (here.state !== "online") setState(id, "online", "\u8FDC\u7A0B\u5B9E\u4F8B\u5DF2\u5C31\u7EEA\uFF08\u8F6C\u53D1\u7531\u684C\u9762\u5E94\u7528\u6301\u6709\uFF09");
     };
     const timer = setInterval(() => {
       void tick().catch(() => {
@@ -2925,7 +2925,7 @@ tar: ${err.message}` });
     const uiHolder = holderOf(instance, "ui");
     if (uiHolder) {
       pushLog(instance.id, `\u672C\u5730 :${uiHolder.localPort ?? instance.localPort} \u7531\u53E6\u4E00\u4E2A\u6301\u6709\u8005\u5360\u7740\uFF08pid ${uiHolder.pid}\uFF0C${uiHolder.owner}\uFF09\u2014\u2014\u672C\u8FDB\u7A0B\u4E0D\u518D\u8D77 -L\uFF0C\u6309 external \u65B9\u5F0F\u5BF9\u5F85`);
-      setState(instance.id, "online", `\u96A7\u9053\u7531\u53E6\u4E00\u4E2A\u6301\u6709\u8005\uFF08pid ${uiHolder.pid}\uFF0C${uiHolder.owner}\uFF09\u6301\u6709`);
+      setState(instance.id, "online", `\u8F6C\u53D1\u7531\u53E6\u4E00\u4E2A\u6301\u6709\u8005\uFF08pid ${uiHolder.pid}\uFF0C${uiHolder.owner}\uFF09\u6301\u6709`);
       return;
     }
     const cfg = proxyConfig(instance);
@@ -2936,7 +2936,7 @@ tar: ${err.message}` });
     } finally {
       r.relayPending = false;
     }
-    if (adopted) pushLog(instance.id, `\u8FDC\u7AEF ${cfg.remotePort} \u5DF2\u5728\u76D1\u542C\u2014\u2014\u4E3B\u96A7\u9053\u4E0D\u5E26 -R\uFF08\u590D\u7528\u65E2\u6709\u51FA\u7F51\u4E2D\u7EE7\uFF09`);
+    if (adopted) pushLog(instance.id, `\u8FDC\u7AEF ${cfg.remotePort} \u5DF2\u5728\u76D1\u542C\u2014\u2014\u4E3B\u96A7\u9053\u4E0D\u5E26 -R\uFF08\u590D\u7528\u65E2\u6709\u51FA\u7F51\u8F6C\u53D1\uFF09`);
     const reverse = cfg.enabled && !adopted ? { remotePort: cfg.remotePort, localPort: cfg.localPort } : void 0;
     const args = buildForwardArgs({
       ...sshFields(instance),
@@ -3091,7 +3091,7 @@ tar: ${err.message}` });
     if (!instance) return { ok: false, detail: `\u6CA1\u6709\u8FD9\u4E2A\u5B9E\u4F8B\uFF1A${id}` };
     const forwarded = await ensurePairingForwardAsync(instance);
     if (!forwarded) {
-      return { ok: false, detail: `\u672C\u5730\u8F6C\u53D1 127.0.0.1:${instance.localPort} \u8D77\u4E0D\u6765\u6216\u5BF9\u7AEF\u4E0D\u53EF\u8FBE\u2014\u2014\u5148\u542F\u52A8\u5B9E\u4F8B\uFF08\u914D\u5BF9\u94FE\u63A5\u8981\u6C42\u5B83\u5728\u8DD1\uFF09` };
+      return { ok: false, detail: `\u672C\u5730\u8F6C\u53D1 127.0.0.1:${instance.localPort} \u8D77\u4E0D\u6765\u6216\u8FDC\u7A0B\u673A\u5668\u4E0D\u53EF\u8FBE\u2014\u2014\u5148\u542F\u52A8\u5B9E\u4F8B\uFF08\u914D\u5BF9\u94FE\u63A5\u8981\u6C42\u5B83\u5728\u8DD1\uFF09` };
     }
     await ensureExternalRelayAsync(instance);
     startExternalMonitor(id);
@@ -3104,7 +3104,7 @@ tar: ${err.message}` });
     }), 45e3);
     const link = parsePairLink(r.stdout);
     if (!link) {
-      return { ok: false, detail: `\u5BF9\u7AEF\u6CA1\u7ED9\u51FA\u914D\u5BF9\u94FE\u63A5\uFF1A${(r.stdout + r.stderr).replace(/\s+/g, " ").slice(-200)}` };
+      return { ok: false, detail: `\u8FDC\u7A0B\u673A\u5668\u6CA1\u7ED9\u51FA\u914D\u5BF9\u94FE\u63A5\uFF1A${(r.stdout + r.stderr).replace(/\s+/g, " ").slice(-200)}` };
     }
     const info = describePairLink(link);
     pushLog(id, `\u914D\u5BF9\u94FE\u63A5\u5DF2\u751F\u6210\uFF08\u4E00\u6B21\u6027${info?.expiresAt ? `\uFF0C${info.expiresAt} \u8FC7\u671F` : ""}\uFF0C${info?.candidates ?? 0} \u6761\u8DEF\u7531\uFF09`);
@@ -3128,7 +3128,7 @@ tar: ${err.message}` });
     r.relayPending = true;
     try {
       if (await remoteRelayPresent(instance)) {
-        pushLog(instance.id, `\u8FDC\u7AEF ${cfg.remotePort} \u5DF2\u5728\u76D1\u542C\uFF08\u51FA\u7F51\u4E2D\u7EE7\u7531\u65E2\u6709\u96A7\u9053\u63D0\u4F9B\uFF0C\u590D\u7528\uFF09`);
+        pushLog(instance.id, `\u8FDC\u7AEF ${cfg.remotePort} \u5DF2\u5728\u76D1\u542C\uFF08\u51FA\u7F51\u8F6C\u53D1\u7531\u65E2\u6709\u96A7\u9053\u63D0\u4F9B\uFF0C\u590D\u7528\uFF09`);
         return;
       }
     } finally {
@@ -3149,7 +3149,7 @@ tar: ${err.message}` });
     child.stderr?.on("data", (d) => pushLog(instance.id, d.toString()));
     child.on("error", (err) => {
       pushLog(instance.id, `ssh -R: ${err.message}`);
-      setState(instance.id, "error", `\u51FA\u7F51\u4E2D\u7EE7\u8D77\u4E0D\u6765\uFF1A${err.message}`);
+      setState(instance.id, "error", `\u51FA\u7F51\u8F6C\u53D1\u8D77\u4E0D\u6765\uFF1A${err.message}`);
     });
     child.on("exit", (code) => {
       const current = rt(instance.id);
@@ -3159,7 +3159,7 @@ tar: ${err.message}` });
       }
       if (current.stopping) return;
       if (code === 0) {
-        setState(instance.id, "offline", "\u51FA\u7F51\u4E2D\u7EE7\u5DF2\u9000\u51FA");
+        setState(instance.id, "offline", "\u51FA\u7F51\u8F6C\u53D1\u5DF2\u9000\u51FA");
         return;
       }
       try {
@@ -3168,12 +3168,12 @@ tar: ${err.message}` });
       }
       const fresh = opts.store.get(instance.id);
       if (!fresh?.enabled || fresh.reconnect === false) {
-        setState(instance.id, "offline", `\u51FA\u7F51\u4E2D\u7EE7\u9000\u51FA\uFF08reconnect \u5173\uFF09\uFF1Aexit ${code}`);
+        setState(instance.id, "offline", `\u51FA\u7F51\u8F6C\u53D1\u9000\u51FA\uFF08reconnect \u5173\uFF09\uFF1Aexit ${code}`);
         return;
       }
       current.forwardAttempts += 1;
       const delay = nextRetryDelay(current.forwardAttempts);
-      setState(instance.id, "offline", `\u51FA\u7F51\u4E2D\u7EE7\u65AD\u5F00\uFF0C${Math.round(delay / 1e3)}s \u540E\u91CD\u8FDE\uFF08\u7B2C ${current.forwardAttempts} \u6B21\uFF09`);
+      setState(instance.id, "offline", `\u51FA\u7F51\u8F6C\u53D1\u65AD\u5F00\uFF0C${Math.round(delay / 1e3)}s \u540E\u91CD\u8FDE\uFF08\u7B2C ${current.forwardAttempts} \u6B21\uFF09`);
       current.forwardTimer = setTimeout(() => {
         current.forwardTimer = void 0;
         const again = opts.store.get(instance.id);
@@ -3246,14 +3246,14 @@ tar: ${err.message}` });
       if (term && term.ok === false) {
         actions.push(`\u6CE8\u610F\uFF1A\u7EC8\u7AEF\u6682\u4E0D\u53EF\u7528\uFF08${term.reason ?? "\u539F\u56E0\u672A\u77E5"}\uFF09\u2014\u2014\u5B9E\u4F8B\u5176\u4F59\u529F\u80FD\u4E0D\u53D7\u5F71\u54CD`);
       }
-      actions.push(pick.ok ? `\u542F\u52A8\u5B9E\u4F8B\uFF1Aserve --hostname 127.0.0.1 --port ${instance.instancePort}\uFF08\u5F15\u64CE ${pick.candidate.path} \u2192 ${pick.candidate.version}\uFF09` : `\u542F\u52A8\u5B9E\u4F8B\u524D\u5148\u88C5\u5F15\u64CE\uFF1Aopencode ${DEFAULT_ENGINE_PIN} \u2192 ~/.ocrc/remote/engine/opencode\uFF08\u5BF9\u7AEF\u73B0\u6709 v1 \u4E00\u5F8B\u4E0D\u52A8\uFF09`);
+      actions.push(pick.ok ? `\u542F\u52A8\u5B9E\u4F8B\uFF1Aserve --hostname 127.0.0.1 --port ${instance.instancePort}\uFF08OpenCode ${pick.candidate.path} \u2192 ${pick.candidate.version}\uFF09` : `\u542F\u52A8\u5B9E\u4F8B\u524D\u5148\u88C5 OpenCode\uFF1Aopencode ${DEFAULT_ENGINE_PIN} \u2192 ~/.ocrc/remote/engine/opencode\uFF08\u8FDC\u7A0B\u673A\u5668\u73B0\u6709 v1 \u4E00\u5F8B\u4E0D\u52A8\uFF09`);
       actions.push(`\u5EFA\u8F6C\u53D1\uFF1Assh -N -L 127.0.0.1:${instance.localPort}:127.0.0.1:${instance.instancePort} \u2192 \u6253\u5F00 ${url}`);
       const egress = await egressFor(instance);
-      actions.push(`\u51FA\u53E3\uFF1A${egress.relay ? "\u7ECF\u63A7\u5236\u7AEF\u4E2D\u7EE7" : "\u5BF9\u7AEF\u76F4\u8FDE"}\uFF08${egress.reason}\uFF09`);
+      actions.push(`\u8054\u7F51\u65B9\u5F0F\uFF1A${egress.relay ? "\u7ECF\u672C\u673A\u8F6C\u53D1" : "\u76F4\u8FDE"}\uFF08${egress.reason}\uFF09`);
       const portOut = await ssh(instance, buildPeerPortProbeCommand(instance.appVersion, instance.instancePort), 2e4);
       const peerPort = parsePortProbe(portOut.stdout);
-      if (peerPort === "open") actions.push(`\u6CE8\u610F\uFF1A\u5B9E\u4F8B\u7AEF\u53E3 ${instance.instancePort} \u5728\u5BF9\u7AEF\u5DF2\u88AB\u5360\u7528\u2014\u2014\u6362\u4E2A\u5B9E\u4F8B\u7AEF\u53E3\uFF0C\u6216\u786E\u8BA4\u90A3\u662F\u4E0A\u4E00\u6B21\u7684\u5B9E\u4F8B\uFF08\u542F\u52A8\u4F1A\u590D\u7528\uFF09`);
-      if (peerPort === "unknown") actions.push(`\u5B9E\u4F8B\u7AEF\u53E3 ${instance.instancePort}\uFF1A\u5BF9\u7AEF\u65E2\u6CA1\u6709\u6211\u4EEC\u7684\u8FD0\u884C\u65F6\u4E5F\u6CA1\u6709 ss/netstat\uFF0C\u5360\u7528\u60C5\u51B5\u65E0\u6CD5\u5224\u5B9A\uFF08\u542F\u52A8\u65F6\u624D\u4F1A\u77E5\u9053\uFF09`);
+      if (peerPort === "open") actions.push(`\u6CE8\u610F\uFF1A\u5B9E\u4F8B\u7AEF\u53E3 ${instance.instancePort} \u5728\u8FDC\u7A0B\u673A\u5668\u5DF2\u88AB\u5360\u7528\u2014\u2014\u6362\u4E2A\u5B9E\u4F8B\u7AEF\u53E3\uFF0C\u6216\u786E\u8BA4\u90A3\u662F\u4E0A\u4E00\u6B21\u7684\u5B9E\u4F8B\uFF08\u542F\u52A8\u4F1A\u590D\u7528\uFF09`);
+      if (peerPort === "unknown") actions.push(`\u5B9E\u4F8B\u7AEF\u53E3 ${instance.instancePort}\uFF1A\u8FDC\u7A0B\u673A\u5668\u65E2\u6CA1\u6709\u6211\u4EEC\u7684\u8FD0\u884C\u65F6\u4E5F\u6CA1\u6709 ss/netstat\uFF0C\u5360\u7528\u60C5\u51B5\u65E0\u6CD5\u5224\u5B9A\uFF08\u542F\u52A8\u65F6\u624D\u4F1A\u77E5\u9053\uFF09`);
       setState(id, "unknown");
       return {
         id,
@@ -3287,7 +3287,7 @@ tar: ${err.message}` });
       const from = instance.appVersion;
       const to = DEFAULT_APP_VERSION;
       if (from === to) {
-        return { ok: true, changed: false, from, to, detail: `\u5DF2\u7ECF\u662F\u5BF9\u7AEF\u8BE5\u6709\u7684\u90A3\u4E00\u4EFD\uFF1A${to}\uFF08pin \u6765\u81EA\u63A7\u5236\u7AEF\uFF09` };
+        return { ok: true, changed: false, from, to, detail: `\u5DF2\u7ECF\u662F\u8FDC\u7A0B\u673A\u5668\u8BE5\u6709\u7684\u90A3\u4E00\u4EFD\uFF1A${to}\uFF08pin \u6765\u81EA\u63A7\u5236\u7AEF\uFF09` };
       }
       pushLog(id, `\u5347\u7EA7\uFF1A${from} \u2192 ${to}\uFF08\u65E7\u6811\u7559 .ocrc-bak\uFF0C\u4E00\u4EFD\u5C31\u591F\uFF09`);
       opts.store.update(id, { appVersion: to });
@@ -3297,39 +3297,39 @@ tar: ${err.message}` });
     async apply(id, applyOpts = {}) {
       const instance = need(id);
       if (instance.provision === "reuse" && !applyOpts.force) {
-        setState(id, "provisioning", "\u590D\u7528\u6863\uFF1A\u53EA\u68C0\u67E5\uFF0C\u4E0D\u5199\u5BF9\u7AEF");
+        setState(id, "provisioning", "\u590D\u7528\u5DF2\u5B89\u88C5\uFF1A\u53EA\u68C0\u67E5\uFF0C\u4E0D\u5199\u8FDC\u7A0B\u673A\u5668");
         const runtime = (await ssh(instance, buildRuntimeProbeCommand(), 25e3)).stdout.trim().split("\n").pop() ?? "MISSING";
         const appRaw = (await ssh(instance, buildAppProbeCommand(instance.appVersion), 45e3)).stdout.trim().split("\n").pop() ?? "";
         const pick = await resolveEngine(instance);
-        const detail = `\u590D\u7528\u6863\uFF1A\u8FD0\u884C\u65F6 ${runtime === "MISSING" ? "\u7F3A\u5931" : runtime}\uFF1B\u5E94\u7528 ${appRaw === instance.appVersion ? instance.appVersion : `\u4E0D\u7B26\uFF08${appRaw || "\u7F3A\u5931"}\uFF09`}\uFF1B\u5F15\u64CE ${pick.ok ? `${pick.candidate.version} @ ${pick.candidate.path}` : "\u4E0D\u6EE1\u8DB3 v2 \u95E8\u7981"}`;
+        const detail = `\u590D\u7528\u5DF2\u5B89\u88C5\uFF1A\u8FD0\u884C\u65F6 ${runtime === "MISSING" ? "\u7F3A\u5931" : runtime}\uFF1BOpenChamber ${appRaw === instance.appVersion ? instance.appVersion : `\u4E0D\u7B26\uFF08${appRaw || "\u7F3A\u5931"}\uFF09`}\uFF1BOpenCode ${pick.ok ? `${pick.candidate.version} @ ${pick.candidate.path}` : "\u4E0D\u6EE1\u8DB3 v2 \u95E8\u7981"}`;
         pushLog(id, detail);
         if (runtime === "MISSING" || appRaw !== instance.appVersion || !pick.ok) {
-          setState(id, "error", "\u590D\u7528\u6863\u68C0\u67E5\u672A\u901A\u8FC7");
-          return { ok: false, detail: `${detail} \u2014\u2014 \u590D\u7528\u6863\u4E0D\u5199\u4EFB\u4F55\u5B57\u8282\uFF1B\u6539\u7528\u300C\u63A8\u5305\u300D\u6216\u5148\u5728\u5BF9\u7AEF\u88C5\u597D ${instance.appVersion}` };
+          setState(id, "error", "\u590D\u7528\u5DF2\u5B89\u88C5\u68C0\u67E5\u672A\u901A\u8FC7");
+          return { ok: false, detail: `${detail} \u2014\u2014 \u590D\u7528\u5DF2\u5B89\u88C5\u4E0D\u5199\u4EFB\u4F55\u5B57\u8282\uFF1B\u6539\u7528\u300C\u63A8\u9001\u5B89\u88C5\u300D\u6216\u5148\u5728\u8FDC\u7A0B\u673A\u5668\u4E0A\u88C5\u597D ${instance.appVersion}` };
         }
         if (pick.ok) {
           opts.store.update(id, { enginePath: pick.candidate.path, engineVersion: pick.candidate.version });
           rt(id).engine = { path: pick.candidate.path, version: pick.candidate.version };
         }
-        setState(id, "offline", "\u590D\u7528\u6863\u68C0\u67E5\u901A\u8FC7\uFF08\u672A\u542F\u52A8\uFF09");
+        setState(id, "offline", "\u590D\u7528\u5DF2\u5B89\u88C5\u68C0\u67E5\u901A\u8FC7\uFF08\u672A\u542F\u52A8\uFF09");
         return { ok: true, detail };
       }
       const inspected = await probeEnv(instance);
       const tier = applyOpts.tier ?? appPackTierForGlibc(inspected?.glibc);
-      pushLog(id, `\u5E94\u7528\u5305\u6863\u4F4D\uFF1A${tier}${inspected?.glibc ? `\uFF08\u5BF9\u7AEF glibc ${inspected.glibc}\uFF09` : ""}`);
-      applyOpts.onLog?.(`\u5E94\u7528\u5305\u6863\u4F4D\uFF1A${tier}${inspected?.glibc ? `\uFF08\u5BF9\u7AEF glibc ${inspected.glibc}\uFF09` : ""}`);
+      pushLog(id, `OpenChamber \u5305\u517C\u5BB9\u6863\uFF1A${tier}${inspected?.glibc ? `\uFF08\u8FDC\u7A0B\u673A\u5668 glibc ${inspected.glibc}\uFF09` : ""}`);
+      applyOpts.onLog?.(`OpenChamber \u5305\u517C\u5BB9\u6863\uFF1A${tier}${inspected?.glibc ? `\uFF08\u8FDC\u7A0B\u673A\u5668 glibc ${inspected.glibc}\uFF09` : ""}`);
       const ourEngine = `${instancePaths("x").engineDir}/opencode`;
       const foreignPin = instance.enginePath && instance.enginePath !== ourEngine ? instance.enginePath : void 0;
       if (foreignPin) {
-        setState(id, "provisioning", "\u65AD\u8A00 pin \u7684\u5F15\u64CE");
+        setState(id, "provisioning", "\u65AD\u8A00 pin \u7684 OpenCode");
         const pick = await resolveEngine(instance);
         if (!pick.ok) {
-          setState(id, "error", "\u5F15\u64CE\u4E0D\u6EE1\u8DB3 v2 \u95E8\u7981");
+          setState(id, "error", "OpenCode \u4E0D\u6EE1\u8DB3 v2 \u95E8\u7981");
           return { ok: false, detail: `${pick.error}\uFF08R12\uFF1A\u4E0D\u8BB8\u56DE\u843D v1\uFF09` };
         }
         rt(id).engine = { path: pick.candidate.path, version: pick.candidate.version };
       } else {
-        setState(id, "provisioning", "\u63A8\u9001\u8FD0\u884C\u65F6/\u5F15\u64CE/\u5E94\u7528");
+        setState(id, "provisioning", "\u63A8\u9001\u8FD0\u884C\u65F6 / OpenCode / OpenChamber");
       }
       const result = await provisionOffline(instance, instance.appVersion, {
         force: applyOpts.force,
@@ -3350,8 +3350,8 @@ tar: ${err.message}` });
       }
       if (result.runtime.ok) rt(id).runtimeVersion = result.runtime.detail.replace(/^已推送 |^已在位 /, "");
       if (result.app.ok) rt(id).appVersion = instance.appVersion;
-      const parts = `\u8FD0\u884C\u65F6\uFF1A${result.runtime.detail}\uFF1B\u5F15\u64CE\uFF1A${result.engine.detail}\uFF1B\u5E94\u7528\uFF1A${result.app.detail}`;
-      setState(id, result.ok ? "offline" : "error", result.ok ? "\u88C5\u673A\u5B8C\u6210\uFF08\u672A\u542F\u52A8\uFF09" : parts);
+      const parts = `\u8FD0\u884C\u65F6\uFF1A${result.runtime.detail}\uFF1BOpenCode\uFF1A${result.engine.detail}\uFF1BOpenChamber\uFF1A${result.app.detail}`;
+      setState(id, result.ok ? "offline" : "error", result.ok ? "\u5B89\u88C5\u5B8C\u6210\uFF08\u672A\u542F\u52A8\uFF09" : parts);
       return { ok: result.ok, detail: parts };
     },
     async up(id, upOpts = {}) {
@@ -3360,7 +3360,7 @@ tar: ${err.message}` });
       if (externalTunnel) startExternalMonitor(id);
       const pick = await resolveEngine(instance);
       if (!pick.ok) {
-        setState(id, "error", "\u5F15\u64CE\u4E0D\u6EE1\u8DB3 v2 \u95E8\u7981");
+        setState(id, "error", "OpenCode \u4E0D\u6EE1\u8DB3 v2 \u95E8\u7981");
         return { ok: false, detail: `${pick.error}\uFF08R12\uFF1A\u4E0D\u8BB8\u56DE\u843D v1\uFF09` };
       }
       const runtime = await ssh(instance, buildRuntimeProbeCommand(), 25e3);
@@ -3370,7 +3370,7 @@ tar: ${err.message}` });
       }
       if (await remoteHealth(instance) !== "200") {
         const relay = await ensureProxy(instance);
-        if (relay !== "off") pushLog(instance.id, `egress relay: ${relay}`);
+        if (relay !== "off") pushLog(instance.id, `\u51FA\u7F51\u8F6C\u53D1\uFF1A${relay}`);
         if (externalTunnel) ensureExternalRelay(instance);
         const started = await startInstance(instance, pick.candidate.path, upOpts.guard);
         if (!started.ok) {
@@ -3383,11 +3383,11 @@ tar: ${err.message}` });
         const running = await probeInstanceProxy(instance);
         const expected = wantsRelay ? relayProxyUrl(proxyConfig(instance).remotePort) : "none";
         if (running === "unknown") {
-          pushLog(id, `\u5B9E\u4F8B\u5DF2\u5728 :${instance.instancePort} \u4E0A\u670D\u52A1\uFF08\u590D\u7528\uFF1B\u8BFB\u4E0D\u5230\u5BF9\u7AEF\u8FDB\u7A0B\u7684 env\uFF0C\u51FA\u53E3\u662F\u5426\u4E0E\u7B56\u7565\u4E00\u81F4\u672A\u77E5\uFF09`);
+          pushLog(id, `\u5B9E\u4F8B\u5DF2\u5728 :${instance.instancePort} \u4E0A\u670D\u52A1\uFF08\u590D\u7528\uFF1B\u8BFB\u4E0D\u5230\u8FDC\u7A0B\u673A\u5668\u8FDB\u7A0B\u7684 env\uFF0C\u8054\u7F51\u662F\u5426\u4E0E\u7B56\u7565\u4E00\u81F4\u672A\u77E5\uFF09`);
         } else if (running === expected) {
           pushLog(id, `\u5B9E\u4F8B\u5DF2\u5728 :${instance.instancePort} \u4E0A\u670D\u52A1\uFF08\u590D\u7528\uFF0C\u4E0D\u91CD\u542F\uFF1B\u51FA\u53E3 ${running === "none" ? "\u76F4\u8FDE" : running} \u4E0E\u7B56\u7565\u4E00\u81F4\uFF09`);
         } else {
-          const why = wantsRelay ? "\u7B56\u7565\u8981\u6C42\u7ECF\u63A7\u5236\u7AEF\uFF08\u5BF9\u7AEF\u65E0\u51FA\u7F51\uFF09\uFF0C\u4F46\u5B9E\u4F8B\u662F\u5728\u76F4\u8FDE\u6863\u8D77\u7684" : "\u7B56\u7565\u662F\u5BF9\u7AEF\u76F4\u8FDE\uFF0C\u4F46\u5B9E\u4F8B\u8FD8\u6302\u5728\u6211\u4EEC\u4E2D\u7EE7\u4E0A";
+          const why = wantsRelay ? "\u7B56\u7565\u8981\u6C42\u7ECF\u672C\u673A\u8F6C\u53D1\uFF08\u8FDC\u7A0B\u673A\u5668\u51FA\u4E0D\u4E86\u7F51\uFF09\uFF0C\u4F46\u5B9E\u4F8B\u662F\u5728\u76F4\u8FDE\u6863\u8D77\u7684" : "\u7B56\u7565\u662F\u76F4\u8FDE\uFF0C\u4F46\u5B9E\u4F8B\u8FD8\u6302\u5728\u6211\u4EEC\u8F6C\u53D1\u4E0A";
           pushLog(id, `${why}\u2014\u2014\u91CD\u542F\u5B9E\u4F8B\u8BA9 env \u8DDF\u4E0A\uFF08\u73B0\u5728 ${running}\uFF0C\u671F\u671B ${expected}\uFF09`);
           const stopped = await stopInstance(instance);
           if (!stopped.ok) {
@@ -3395,7 +3395,7 @@ tar: ${err.message}` });
             return stopped;
           }
           const relay = await ensureProxy(instance);
-          if (relay !== "off") pushLog(instance.id, `egress relay: ${relay}`);
+          if (relay !== "off") pushLog(instance.id, `\u51FA\u7F51\u8F6C\u53D1\uFF1A${relay}`);
           if (externalTunnel) ensureExternalRelay(instance);
           const restarted = await startInstance(instance, pick.candidate.path, upOpts.guard);
           if (!restarted.ok) {
@@ -3417,7 +3417,7 @@ tar: ${err.message}` });
           }
           if (!probe2.ok) return { ok: false, detail: `\u5B9E\u4F8B\u5DF2\u8D77\u4F46\u8F6C\u53D1\u63A2\u6D3B\u5931\u8D25\uFF1A${probe2.error}` };
           const compat2 = await probeEngineCompat(temp);
-          if (!compat2.ok) return { ok: false, detail: `\u5B9E\u4F8B\u5728\u8DD1\uFF0C\u4F46\u5F15\u64CE\u95E8\u7981\u672A\u8FC7\uFF1A${compat2.error}` };
+          if (!compat2.ok) return { ok: false, detail: `\u5B9E\u4F8B\u5728\u8DD1\uFF0C\u4F46OpenCode\u95E8\u7981\u672A\u8FC7\uFF1A${compat2.error}` };
           return { ok: true, version: probe2.version, compat: compat2 };
         }).catch((err) => ({ ok: false, detail: err.message }));
         if (!verified.ok) {
@@ -3427,15 +3427,15 @@ tar: ${err.message}` });
         const r2 = rt(id);
         r2.forwardAttempts = 0;
         r2.engine = { path: verified.compat.binary, version: verified.compat.version };
-        setState(id, "online", `openchamber ${verified.version}\uFF08\u5F15\u64CE ${verified.compat.version} @ ${verified.compat.binary}\uFF1B\u96A7\u9053\u7531\u684C\u9762\u7248\u6301\u6709\uFF09`);
-        return { ok: true, detail: `\u8FDC\u7AEF\u5B9E\u4F8B\u5728\u7EBF\uFF1B\u96A7\u9053\u7531\u684C\u9762\u7248\u6301\u6709\uFF08${instanceUrl(instance.localPort)}\uFF1Bopenchamber ${verified.version}\uFF0C\u5F15\u64CE ${verified.compat.version} @ ${verified.compat.binary}\uFF09` };
+        setState(id, "online", `openchamber ${verified.version}\uFF08OpenCode ${verified.compat.version} @ ${verified.compat.binary}\uFF1B\u8F6C\u53D1\u7531\u684C\u9762\u5E94\u7528\u6301\u6709\uFF09`);
+        return { ok: true, detail: `\u8FDC\u7AEF\u5B9E\u4F8B\u5728\u7EBF\uFF1B\u8F6C\u53D1\u7531\u684C\u9762\u5E94\u7528\u6301\u6709\uFF08${instanceUrl(instance.localPort)}\uFF1Bopenchamber ${verified.version}\uFF0COpenCode ${verified.compat.version} @ ${verified.compat.binary}\uFF09` };
       }
       if (await isListening(instance.localPort)) {
         const relayLive = proxyConfig(instance).enabled ? (await ssh(instance, buildRemotePortProbeCommand(instance.appVersion, proxyConfig(instance).remotePort), 2e4)).stdout.trim().endsWith("open") : true;
         if (relayLive) {
-          pushLog(id, `\u672C\u5730 ${instance.localPort} \u5DF2\u5728\u76D1\u542C\u4E14\u5E26 -R \u4E2D\u7EE7\u2014\u2014\u590D\u7528\u8FD9\u6761\u96A7\u9053`);
+          pushLog(id, `\u672C\u5730 ${instance.localPort} \u5DF2\u5728\u76D1\u542C\u4E14\u5E26 -R \u8F6C\u53D1\u2014\u2014\u590D\u7528\u8FD9\u6761\u96A7\u9053`);
         } else {
-          const detail = `\u672C\u5730 127.0.0.1:${instance.localPort} \u5DF2\u88AB\u5360\u7528\uFF0C\u4F46\u5B83\u6CA1\u6709 -R \u51FA\u7F51\u4E2D\u7EE7\uFF08\u591A\u534A\u662F\u65E7\u547D\u4EE4\u7559\u4E0B\u7684\u96A7\u9053\uFF09\u2014\u2014\u5148\u505C\u6389\u5B83\u518D up`;
+          const detail = `\u672C\u5730 127.0.0.1:${instance.localPort} \u5DF2\u88AB\u5360\u7528\uFF0C\u4F46\u5B83\u6CA1\u6709 -R \u51FA\u7F51\u8F6C\u53D1\uFF08\u591A\u534A\u662F\u65E7\u547D\u4EE4\u7559\u4E0B\u7684\u96A7\u9053\uFF09\u2014\u2014\u5148\u505C\u6389\u5B83\u518D up`;
           setState(id, "error", detail);
           return { ok: false, detail };
         }
@@ -3453,14 +3453,14 @@ tar: ${err.message}` });
       }
       const compat = await probeEngineCompat(instance);
       if (!compat.ok) {
-        setState(id, "error", `\u5F15\u64CE\u95E8\u7981\u672A\u8FC7\uFF1A${compat.error}`);
-        return { ok: false, detail: `\u5B9E\u4F8B\u5728\u8DD1\uFF0C\u4F46\u5F15\u64CE\u95E8\u7981\u672A\u8FC7\uFF1A${compat.error}` };
+        setState(id, "error", `OpenCode\u95E8\u7981\u672A\u8FC7\uFF1A${compat.error}`);
+        return { ok: false, detail: `\u5B9E\u4F8B\u5728\u8DD1\uFF0C\u4F46OpenCode\u95E8\u7981\u672A\u8FC7\uFF1A${compat.error}` };
       }
       const r = rt(id);
       r.forwardAttempts = 0;
       r.engine = { path: compat.binary, version: compat.version };
-      setState(id, "online", `openchamber ${probe.version}\uFF08\u5F15\u64CE ${compat.version} @ ${compat.binary}\uFF09`);
-      return { ok: true, detail: `online\uFF1A${instanceUrl(instance.localPort)}\uFF08openchamber ${probe.version}\uFF0C\u5F15\u64CE ${compat.version} @ ${compat.binary}\uFF09` };
+      setState(id, "online", `openchamber ${probe.version}\uFF08OpenCode ${compat.version} @ ${compat.binary}\uFF09`);
+      return { ok: true, detail: `online\uFF1A${instanceUrl(instance.localPort)}\uFF08openchamber ${probe.version}\uFF0COpenCode ${compat.version} @ ${compat.binary}\uFF09` };
     },
     async down(id) {
       const instance = need(id);
@@ -3484,18 +3484,18 @@ tar: ${err.message}` });
         const health2 = await remoteHealth(instance);
         if (health2 !== "200") {
           const r2 = rt(id);
-          if (r2.state === "online") setState(id, "offline", `\u5BF9\u7AEF\u5B9E\u4F8B\u672A\u54CD\u5E94\uFF08health ${health2}\uFF09`);
-          return { online: false, detail: `\u5BF9\u7AEF\u5B9E\u4F8B\u672A\u54CD\u5E94\uFF08health ${health2}\uFF09` };
+          if (r2.state === "online") setState(id, "offline", `\u8FDC\u7A0B\u5B9E\u4F8B\u672A\u54CD\u5E94\uFF08health ${health2}\uFF09`);
+          return { online: false, detail: `\u8FDC\u7A0B\u5B9E\u4F8B\u672A\u54CD\u5E94\uFF08health ${health2}\uFF09` };
         }
         await ensureExternalRelayAsync(instance);
         const relayUp = !(await egressFor(instance)).relay || (await ssh(instance, buildRemotePortProbeCommand(instance.appVersion, proxyConfig(instance).remotePort), 2e4)).stdout.trim().endsWith("open");
-        if (!relayUp) return { online: false, detail: `\u5BF9\u7AEF\u5B9E\u4F8B\u5728\u8DD1\uFF0C\u4F46\u51FA\u7F51\u4E2D\u7EE7 :${proxyConfig(instance).remotePort} \u672A\u5EFA\u7ACB` };
+        if (!relayUp) return { online: false, detail: `\u8FDC\u7A0B\u5B9E\u4F8B\u5728\u8DD1\uFF0C\u4F46\u51FA\u7F51\u8F6C\u53D1 :${proxyConfig(instance).remotePort} \u672A\u5EFA\u7ACB` };
         const r = rt(id);
         const probe2 = await withTempForward(instance, (temp) => probeThroughForward(temp)).catch(() => ({ ok: false, error: "\u4E34\u65F6\u8F6C\u53D1\u5931\u8D25" }));
         const version = probe2.ok ? probe2.version : void 0;
-        const ui = await isListening(instance.localPort) ? `\uFF1B\u672C\u5730\u8F6C\u53D1 :${instance.localPort} \u4E5F\u5728\u542C` : "\uFF1B\u96A7\u9053\u7531\u684C\u9762\u7248\u6301\u6709";
-        if (r.state !== "online") setState(id, "online", version ? `openchamber ${version}\uFF08\u8FDC\u7AEF\u5B9E\u6D4B\uFF09` : `\u5BF9\u7AEF\u5C31\u7EEA${ui}`);
-        return { online: true, version, detail: `\u5BF9\u7AEF\u5B9E\u4F8B\u5728\u7EBF${ui}` };
+        const ui = await isListening(instance.localPort) ? `\uFF1B\u672C\u5730\u8F6C\u53D1 :${instance.localPort} \u4E5F\u5728\u542C` : "\uFF1B\u8F6C\u53D1\u7531\u684C\u9762\u5E94\u7528\u6301\u6709";
+        if (r.state !== "online") setState(id, "online", version ? `openchamber ${version}\uFF08\u8FDC\u7AEF\u5B9E\u6D4B\uFF09` : `\u8FDC\u7A0B\u673A\u5668\u5C31\u7EEA${ui}`);
+        return { online: true, version, detail: `\u8FDC\u7A0B\u5B9E\u4F8B\u5728\u7EBF${ui}` };
       }
       const probe = await probeThroughForward(instance);
       if (probe.ok) {
@@ -3595,7 +3595,7 @@ tar: ${err.message}` });
       const local = readLocalConfig({ dir: opts.localConfigDir, authPath: opts.localAuthPath });
       const read = await ssh(instance, buildPeerConfigReadScript(), 45e3);
       if (read.code !== 0) {
-        const detail = `\u8BFB\u5BF9\u7AEF\u914D\u7F6E\u5931\u8D25\uFF1A${cleanSshNoise(read.stderr || read.stdout).trim().split("\n").pop() ?? `exit ${read.code}`}`;
+        const detail = `\u8BFB\u8FDC\u7A0B\u673A\u5668\u914D\u7F6E\u5931\u8D25\uFF1A${cleanSshNoise(read.stderr || read.stdout).trim().split("\n").pop() ?? `exit ${read.code}`}`;
         pushLog(id, detail);
         return { ok: false, detail };
       }
@@ -3610,13 +3610,13 @@ tar: ${err.message}` });
       });
       const nothing = plan.files.length === 0 && plan.deletes.length === 0;
       if (nothing) {
-        pushLog(id, "sync-config: \u65E0\u5DEE\u5F02\uFF0C\u672A\u5199\u5BF9\u7AEF");
-        return { ok: true, detail: "\u65E0\u5DEE\u5F02\uFF1A\u5BF9\u7AEF\u5DF2\u7ECF\u548C\u672C\u5730\u4E00\u81F4\uFF08\u672A\u5199\u4EFB\u4F55\u6587\u4EF6\uFF09" };
+        pushLog(id, "sync-config: \u65E0\u5DEE\u5F02\uFF0C\u672A\u5199\u8FDC\u7A0B\u673A\u5668");
+        return { ok: true, detail: "\u65E0\u5DEE\u5F02\uFF1A\u8FDC\u7A0B\u673A\u5668\u5DF2\u7ECF\u548C\u672C\u5730\u4E00\u81F4\uFF08\u672A\u5199\u4EFB\u4F55\u6587\u4EF6\uFF09" };
       }
       if (syncOpts.dryRun) {
         return {
           ok: true,
-          detail: `\u9884\u6F14\uFF1A\u5C06\u5199 ${plan.files.length} \u4E2A\u6587\u4EF6${plan.deletes.length ? `\u3001\u5220 ${plan.deletes.length} \u4E2A` : ""}\uFF1B${plan.notes.join("\uFF1B")}`
+          detail: `\u8BD5\u8FD0\u884C\uFF1A\u5C06\u5199 ${plan.files.length} \u4E2A\u6587\u4EF6${plan.deletes.length ? `\u3001\u5220 ${plan.deletes.length} \u4E2A` : ""}\uFF1B${plan.notes.join("\uFF1B")}`
         };
       }
       const staging = mkdtempSync(join10(tmpdir(), "ocrc-cfgsync-"));
@@ -3630,8 +3630,8 @@ tar: ${err.message}` });
           mergedConfig: content ? { basename: plan.basename, content } : void 0
         });
         if (staged.length === 0 && plan.deletes.length === 0) {
-          pushLog(id, "sync-config: \u65E0\u5DEE\u5F02\uFF0C\u672A\u5199\u5BF9\u7AEF");
-          return { ok: true, detail: "\u65E0\u5DEE\u5F02\uFF1A\u5BF9\u7AEF\u5DF2\u7ECF\u548C\u672C\u5730\u4E00\u81F4\uFF08\u672A\u5199\u4EFB\u4F55\u6587\u4EF6\uFF09" };
+          pushLog(id, "sync-config: \u65E0\u5DEE\u5F02\uFF0C\u672A\u5199\u8FDC\u7A0B\u673A\u5668");
+          return { ok: true, detail: "\u65E0\u5DEE\u5F02\uFF1A\u8FDC\u7A0B\u673A\u5668\u5DF2\u7ECF\u548C\u672C\u5730\u4E00\u81F4\uFF08\u672A\u5199\u4EFB\u4F55\u6587\u4EF6\uFF09" };
         }
         pushLog(id, `$ sync-config ${staged.join(" ")}${plan.deletes.length ? ` (delete ${plan.deletes.join(" ")})` : ""}`);
         const result = await pipeTarToSsh(instance, staging, buildConfigApplyScript(plan.deletes), 12e4);
@@ -3644,9 +3644,9 @@ tar: ${err.message}` });
         const written2 = result.stdout.split("\n").filter((l) => l.startsWith("new:") || l.startsWith("backup:")).length;
         const backedUp = result.stdout.split("\n").filter((l) => l.startsWith("backup:")).length;
         const deleted = result.stdout.split("\n").filter((l) => l.startsWith("deleted:")).length;
-        const detail = `\u540C\u6B65 ${written2} \u4E2A\u6587\u4EF6${backedUp ? `\uFF08${backedUp} \u4E2A\u65E7\u4EF6\u7559 .ocrc-bak\uFF09` : ""}${deleted ? `\uFF0C\u5220 ${deleted} \u4E2A\uFF08\u4E5F\u7559 .ocrc-bak\uFF09` : ""}` + (plan.droppedManagedKeys.length ? `\uFF1B\u8DF3\u8FC7 ${plan.droppedManagedKeys.join("/")}\uFF08\u5BF9\u7AEF\u81EA\u5DF1\u7684\u63D2\u4EF6\u5C42\uFF09` : "");
+        const detail = `\u540C\u6B65 ${written2} \u4E2A\u6587\u4EF6${backedUp ? `\uFF08${backedUp} \u4E2A\u65E7\u4EF6\u7559 .ocrc-bak\uFF09` : ""}${deleted ? `\uFF0C\u5220 ${deleted} \u4E2A\uFF08\u4E5F\u7559 .ocrc-bak\uFF09` : ""}` + (plan.droppedManagedKeys.length ? `\uFF1B\u8DF3\u8FC7 ${plan.droppedManagedKeys.join("/")}\uFF08\u8FDC\u7A0B\u673A\u5668\u81EA\u5DF1\u7684\u63D2\u4EF6\u5C42\uFF09` : "");
         pushLog(id, detail);
-        if (plan.secretsReplaced.length > 0) pushLog(id, `\u5BC6\u94A5\u6539\u5199\u4E3A {env:\u2026}\uFF1A${plan.secretsReplaced.map((s) => s.env).join(", ")}\uFF08\u503C\u4E0D\u843D\u5BF9\u7AEF\u6587\u4EF6\uFF09`);
+        if (plan.secretsReplaced.length > 0) pushLog(id, `\u5BC6\u94A5\u6539\u5199\u4E3A {env:\u2026}\uFF1A${plan.secretsReplaced.map((s) => s.env).join(", ")}\uFF08\u503C\u4E0D\u843D\u8FDC\u7A0B\u673A\u5668\u6587\u4EF6\uFF09`);
         return { ok: true, detail };
       } finally {
         discardStaging(staging);
@@ -3665,8 +3665,8 @@ tar: ${err.message}` });
         pushLog(id, detail);
         return { ok: false, detail };
       }
-      pushLog(id, "sync-auth: \u51ED\u636E\u5DF2\u5199\u5230\u5BF9\u7AEF\uFF080600\uFF0C\u65E7\u4EF6\u7559 .ocrc-bak\uFF09");
-      return { ok: true, detail: `\u51ED\u636E\u5DF2\u540C\u6B65\uFF08${content.length} \u5B57\u8282 \u2192 \u5BF9\u7AEF 0600\uFF09` };
+      pushLog(id, "sync-auth: \u51ED\u636E\u5DF2\u5199\u5230\u8FDC\u7A0B\u673A\u5668\uFF080600\uFF0C\u65E7\u4EF6\u7559 .ocrc-bak\uFF09");
+      return { ok: true, detail: `\u51ED\u636E\u5DF2\u540C\u6B65\uFF08${content.length} \u5B57\u8282 \u2192 \u8FDC\u7A0B\u673A\u5668 0600\uFF09` };
     },
     logs(id) {
       return rt(id).logs.slice(-LOG_CAP);
@@ -3739,15 +3739,15 @@ function isPortListening(port) {
 function validateInstancePayload(payload) {
   const auth = payload?.sshAuth;
   if (auth !== void 0 && auth !== null && auth !== "key" && auth !== "password") {
-    return `invalid sshAuth: ${String(auth)}`;
+    return `\u767B\u5F55\u65B9\u5F0F\u4E0D\u5408\u6CD5\uFF1A${String(auth)}\uFF08\u53EA\u63A5\u53D7 key / password\uFF09`;
   }
   const egress = payload?.egress;
   if (egress !== void 0 && egress !== null && egress !== "auto" && egress !== "relay" && egress !== "direct") {
-    return `invalid egress: ${String(egress)}`;
+    return `\u8054\u7F51\u65B9\u5F0F\u4E0D\u5408\u6CD5\uFF1A${String(egress)}\uFF08\u53EA\u63A5\u53D7 auto / relay / direct\uFF09`;
   }
   const provision = payload?.provision;
   if (provision !== void 0 && provision !== null && provision !== "push" && provision !== "reuse") {
-    return `invalid provision: ${String(provision)}`;
+    return `\u5B89\u88C5\u65B9\u5F0F\u4E0D\u5408\u6CD5\uFF1A${String(provision)}\uFF08\u53EA\u63A5\u53D7 push / reuse\uFF09`;
   }
   return void 0;
 }
@@ -3795,10 +3795,10 @@ function createRemoteInstanceOps({
           return { status: 200, body: { instances: store.list().map(withStatus(manager)) } };
         case "add": {
           const body = op.payload;
-          if (!body?.host || typeof body.host !== "string") return { status: 400, body: { error: "host required" } };
+          if (!body?.host || typeof body.host !== "string") return { status: 400, body: { error: "\u9700\u8981\u4E3B\u673A\u5730\u5740" } };
           for (const [key, value] of [["port", body.port], ["instancePort", body.instancePort], ["localPort", body.localPort]]) {
             if (value != null && (!Number.isFinite(value) || value < 1 || value > 65535)) {
-              return { status: 400, body: { error: `invalid ${key}` } };
+              return { status: 400, body: { error: `${key} \u4E0D\u662F\u5408\u6CD5\u7AEF\u53E3` } };
             }
           }
           const authError = validateInstancePayload(body);
@@ -3810,44 +3810,44 @@ function createRemoteInstanceOps({
           const authError = validateInstancePayload(op.payload);
           if (authError) return { status: 400, body: { error: authError } };
           const updated = store.update(op.id, op.payload);
-          if (!updated) return { status: 404, body: { error: "not found" } };
+          if (!updated) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
           return { status: 200, body: { instance: { ...redactInstance(updated), status: statusFor(updated.id) ?? null } } };
         }
         case "delete": {
-          if (!store.get(op.id)) return { status: 404, body: { error: "not found" } };
+          if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
           await manager.down(op.id).catch(() => {
           });
           store.remove(op.id);
           return { status: 200, body: { ok: true } };
         }
         case "plan": {
-          if (!store.get(op.id)) return { status: 404, body: { error: "not found" } };
+          if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
           return start(() => manager.plan(op.id));
         }
         case "apply": {
-          if (!store.get(op.id)) return { status: 404, body: { error: "not found" } };
+          if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
           if (op.payload?.confirm !== true) {
-            return { status: 409, body: { error: "confirm:true required", dryRun: true } };
+            return { status: 409, body: { error: "\u5199\u8FDC\u7A0B\u673A\u5668\u9700\u8981\u4E00\u6B21\u663E\u5F0F\u786E\u8BA4\uFF08confirm:true\uFF09", dryRun: true } };
           }
           return start(() => manager.apply(op.id, { force: op.payload?.force === true }));
         }
         case "upgrade": {
-          if (!store.get(op.id)) return { status: 404, body: { error: "not found" } };
+          if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
           return start(() => manager.upgrade(op.id));
         }
         case "up":
-          if (!store.get(op.id)) return { status: 404, body: { error: "not found" } };
+          if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
           return start(() => manager.up(op.id));
         case "down":
-          if (!store.get(op.id)) return { status: 404, body: { error: "not found" } };
+          if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
           return start(() => manager.down(op.id));
         case "probe":
-          if (!store.get(op.id)) return { status: 404, body: { error: "not found" } };
+          if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
           return start(() => manager.probe(op.id));
         case "status": {
-          if (!store.get(op.id)) return { status: 404, body: { error: "not found" } };
+          if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
           const status = statusFor(op.id);
-          if (!status) return { status: 404, body: { error: "not found" } };
+          if (!status) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
           const live = await manager.probe(op.id);
           if (live.online) {
             return {
@@ -3873,25 +3873,25 @@ function createRemoteInstanceOps({
           };
         }
         case "logs": {
-          if (!store.get(op.id)) return { status: 404, body: { error: "not found" } };
+          if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
           const lines = manager.logs(op.id);
           const tail = Number(op.tail ?? 100);
           return { status: 200, body: { lines: Number.isFinite(tail) && tail > 0 ? lines.slice(-tail) : lines } };
         }
         case "peerlog": {
-          if (!store.get(op.id)) return { status: 404, body: { error: "not found" } };
+          if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
           return start(() => manager.peerLogs(op.id, { lines: op.lines }));
         }
         case "url": {
           const instance = store.get(op.id);
-          if (!instance) return { status: 404, body: { error: "not found" } };
+          if (!instance) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
           return {
             status: 200,
             body: { url: `http://127.0.0.1:${instance.localPort}`, online: manager.status(op.id)?.state === "online" }
           };
         }
         case "pairlink": {
-          if (!store.get(op.id)) return { status: 404, body: { error: "not found" } };
+          if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
           return start(() => manager.pairLink(op.id));
         }
         case "defaults": {
@@ -3913,16 +3913,16 @@ function createRemoteInstanceOps({
         }
         case "uipassword": {
           const instance = store.get(op.id);
-          if (!instance) return { status: 404, body: { error: "not found" } };
-          if (!instance.uiPassword) return { status: 404, body: { error: "\u8FD9\u4E2A\u6863\u6848\u6CA1\u6709 UI \u5BC6\u7801" } };
+          if (!instance) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
+          if (!instance.uiPassword) return { status: 404, body: { error: "\u8FD9\u53F0\u670D\u52A1\u5668\u6CA1\u6709\u754C\u9762\u5BC6\u7801" } };
           return { status: 200, body: { uiPassword: instance.uiPassword, url: `http://127.0.0.1:${instance.localPort}` } };
         }
         case "configdiff": {
-          if (!store.get(op.id)) return { status: 404, body: { error: "not found" } };
+          if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
           return start(() => manager.configDiff(op.id));
         }
         case "syncconfig": {
-          if (!store.get(op.id)) return { status: 404, body: { error: "not found" } };
+          if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
           for (const field of ["deletes", "keyDeletes"]) {
             const value = op.payload?.[field];
             if (value !== void 0 && (!Array.isArray(value) || value.some((v) => typeof v !== "string"))) {
@@ -3936,12 +3936,12 @@ function createRemoteInstanceOps({
           }));
         }
         case "syncauth": {
-          if (!store.get(op.id)) return { status: 404, body: { error: "not found" } };
+          if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
           return start(() => manager.syncAuth(op.id));
         }
         case "job": {
           const job = jobs.get(op.jobId);
-          if (!job) return { status: 404, body: { error: "not found" } };
+          if (!job) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
           return {
             status: 200,
             body: {

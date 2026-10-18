@@ -101,19 +101,19 @@ export interface ProvisionFacts {
 export function provisionActions(f: ProvisionFacts): string[] {
   const appOk = !!f.app && f.app === f.targetAppVersion
   if (f.provision === 'reuse') {
-    const out = ['复用档：不推送任何字节（运行时/应用/引擎都保持对端现状）']
-    if (!f.runtime) out.push('FAIL 运行时缺失——复用档下无法继续，把装机方式改回「推包」')
-    if (!appOk) out.push(`FAIL 应用缺失或版本不符（对端 ${f.app ?? '缺失'} ≠ ${f.targetAppVersion}）——改回「推包」`)
-    if (!f.engineOk) out.push(`FAIL 引擎不满足 v2 门禁：${f.engineError ?? '原因未知'}`)
+    const out = ['复用已安装：不推送任何字节（运行时 / OpenChamber / OpenCode 都保持远程机器现状）']
+    if (!f.runtime) out.push('FAIL 运行时缺失——复用已安装下无法继续，把安装方式改回「推送安装」')
+    if (!appOk) out.push(`FAIL OpenChamber 缺失或版本不符（远程机器 ${f.app ?? '缺失'} ≠ ${f.targetAppVersion}）——改回「推送安装」`)
+    if (!f.engineOk) out.push(`FAIL OpenCode 不满足 v2 门禁：${f.engineError ?? '原因未知'}`)
     if (f.runtime && appOk && f.engineOk) out.push('检查通过，可以直接启动')
     return out
   }
   const out: string[] = []
   if (!f.runtime) out.push(`推送运行时 node v${f.runtime ?? NODE_RUNTIME.version}（控制端已备件，离线）`)
-  if (!appOk) out.push(`推送应用 ${f.targetAppVersion} 到 ~/.ocrc/remote/openchamber/${f.targetAppVersion}（旧树留 .ocrc-bak）`)
-  if (f.runtime && appOk) out.push('运行时与应用都在位，推送会跳过')
+  if (!appOk) out.push(`推送 OpenChamber ${f.targetAppVersion} 到 ~/.ocrc/remote/openchamber/${f.targetAppVersion}（旧树留 .ocrc-bak）`)
+  if (f.runtime && appOk) out.push('运行时与 OpenChamber 都在位，推送会跳过')
   if (!f.engineOk) {
-    out.push(`部署我们 pin 的引擎 opencode ${f.enginePin ?? DEFAULT_ENGINE_PIN} 到 ~/.ocrc/remote/engine/opencode（对端现有 v1 一律不动）`)
+    out.push(`安装我们 pin 的 OpenCode ${f.enginePin ?? DEFAULT_ENGINE_PIN} 到 ~/.ocrc/remote/engine/opencode（远程机器现有 v1 一律不动）`)
   }
   return out
 }
@@ -285,12 +285,12 @@ export function resolveEgressPolicy(o: {
   const mode = o.mode ?? EGRESS_DEFAULT
   if (!o.relayAllowed) return { relay: false, reason: 'relay 已关闭' }
   if (mode === 'direct') return { relay: false, reason: '按配置直连' }
-  if (mode === 'relay') return { relay: true, reason: '按配置经控制端' }
+  if (mode === 'relay') return { relay: true, reason: '按配置经本机转发' }
   switch (o.probe) {
-    case 'direct': return { relay: false, reason: '探测：对端自己可出网' }
-    case 'dns-only': return { relay: true, reason: '探测：对端有路由但 DNS 不通' }
-    case 'none': return { relay: true, reason: '探测：对端无出网' }
-    default: return { relay: true, reason: '探测未成功——保守经控制端' }
+    case 'direct': return { relay: false, reason: '远程机器自己能出网' }
+    case 'dns-only': return { relay: true, reason: '远程机器有路由但 DNS 不通' }
+    case 'none': return { relay: true, reason: '远程机器出不了网' }
+    default: return { relay: true, reason: '探测未成功——保守经本机转发' }
   }
 }
 
@@ -464,7 +464,7 @@ export function pickV2Engine(candidates: EngineCandidate[]): EnginePick {
     if (isSupportedEngineVersion(candidate.version)) return { ok: true, candidate }
   }
   if (candidates.length === 0) {
-    return { ok: false, error: `目标机上没有找到 opencode 引擎（候选：${DEFAULT_ENGINE_CANDIDATES.join(', ')}）——请先用「部署引擎」装一份 v2`, seen: [] }
+    return { ok: false, error: `远程机器上没有找到满足 v2 门禁的 OpenCode（候选：${DEFAULT_ENGINE_CANDIDATES.join(', ')}）——先装一份 v2（面板的「检查并安装」会推我们 pin 的那份）`, seen: [] }
   }
   const seen = candidates.map((c) => `${c.path} → ${c.raw || '（版本未知）'}`).join('；')
   return {
@@ -921,18 +921,18 @@ export type CompatJudgement =
  *  whose `OPENCODE_BINARY` was ignored, shows up here — not in the user's face
  *  three clicks later. */
 export function judgeEngineCompat(payload: EngineCompatPayload | undefined): CompatJudgement {
-  if (!payload || typeof payload !== 'object') return { ok: false, error: '实例没有返回引擎兼容性' }
+  if (!payload || typeof payload !== 'object') return { ok: false, error: '实例没有返回 OpenCode 兼容性' }
   const state = String(payload.state ?? '')
   const version = normalizeEngineVersion(String(payload.version ?? ''))
   const binary = String(payload.binary ?? '')
   if (state !== 'compatible') {
-    return { ok: false, error: `实例引擎兼容性 state=${state || '（空）'}（需要 compatible）` }
+    return { ok: false, error: `实例的 OpenCode 兼容性 state=${state || '（空）'}（需要 compatible）` }
   }
   if (!isSupportedEngineVersion(version)) {
-    return { ok: false, error: `实例用的引擎 ${version || '（版本未知）'} 不满足 v2 门禁（需 major=2 且 ≥ ${MIN_ENGINE_VERSION}）${binary ? `；二进制 ${binary}` : ''}` }
+    return { ok: false, error: `实例用的 OpenCode ${version || '（版本未知）'} 不满足 v2 门禁（需 major=2 且 ≥ ${MIN_ENGINE_VERSION}）${binary ? `；二进制 ${binary}` : ''}` }
   }
   if (!binary.startsWith('/')) {
-    return { ok: false, error: `实例报的引擎路径不是绝对路径：${binary || '（空）'}` }
+    return { ok: false, error: `实例报的 OpenCode 路径不是绝对路径：${binary || '（空）'}` }
   }
   return { ok: true, version, binary }
 }

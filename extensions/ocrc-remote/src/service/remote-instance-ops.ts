@@ -98,15 +98,15 @@ export interface OpsReply {
 export function validateInstancePayload(payload: Partial<RemoteInstance> | undefined): string | undefined {
   const auth = payload?.sshAuth
   if (auth !== undefined && auth !== null && auth !== 'key' && auth !== 'password') {
-    return `invalid sshAuth: ${String(auth)}`
+    return `登录方式不合法：${String(auth)}（只接受 key / password）`
   }
   const egress = payload?.egress
   if (egress !== undefined && egress !== null && egress !== 'auto' && egress !== 'relay' && egress !== 'direct') {
-    return `invalid egress: ${String(egress)}`
+    return `联网方式不合法：${String(egress)}（只接受 auto / relay / direct）`
   }
   const provision = payload?.provision
   if (provision !== undefined && provision !== null && provision !== 'push' && provision !== 'reuse') {
-    return `invalid provision: ${String(provision)}`
+    return `安装方式不合法：${String(provision)}（只接受 push / reuse）`
   }
   return undefined
 }
@@ -180,10 +180,10 @@ export function createRemoteInstanceOps({
 
         case 'add': {
           const body = op.payload
-          if (!body?.host || typeof body.host !== 'string') return { status: 400, body: { error: 'host required' } }
+          if (!body?.host || typeof body.host !== 'string') return { status: 400, body: { error: '需要主机地址' } }
           for (const [key, value] of [['port', body.port], ['instancePort', body.instancePort], ['localPort', body.localPort]] as const) {
             if (value != null && (!Number.isFinite(value) || value < 1 || value > 65535)) {
-              return { status: 400, body: { error: `invalid ${key}` } }
+              return { status: 400, body: { error: `${key} 不是合法端口` } }
             }
           }
           const authError = validateInstancePayload(body)
@@ -196,53 +196,53 @@ export function createRemoteInstanceOps({
           const authError = validateInstancePayload(op.payload)
           if (authError) return { status: 400, body: { error: authError } }
           const updated = store.update(op.id, op.payload)
-          if (!updated) return { status: 404, body: { error: 'not found' } }
+          if (!updated) return { status: 404, body: { error: '没有这台服务器' } }
           return { status: 200, body: { instance: { ...redactInstance(updated), status: statusFor(updated.id) ?? null } } }
         }
 
         case 'delete': {
-          if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
+          if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
           await manager.down(op.id).catch(() => { /* stop failures must not block deleting the record */ })
           store.remove(op.id)
           return { status: 200, body: { ok: true } }
         }
 
         case 'plan': {
-          if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
+          if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
           return start(() => manager.plan(op.id))
         }
 
         case 'apply': {
-          if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
+          if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
           if (op.payload?.confirm !== true) {
-            return { status: 409, body: { error: 'confirm:true required', dryRun: true } }
+            return { status: 409, body: { error: '写远程机器需要一次显式确认（confirm:true）', dryRun: true } }
           }
           return start(() => manager.apply(op.id, { force: op.payload?.force === true }))
         }
 
         case 'upgrade': {
-          if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
+          if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
           // Same write-to-the-peer semantics as `apply`, so the same job pattern
           // (and the same "the panel must say it is writing" rule).
           return start(() => manager.upgrade(op.id))
         }
 
         case 'up':
-          if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
+          if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
           return start(() => manager.up(op.id))
 
         case 'down':
-          if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
+          if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
           return start(() => manager.down(op.id))
 
         case 'probe':
-          if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
+          if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
           return start(() => manager.probe(op.id))
 
         case 'status': {
-          if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
+          if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
           const status = statusFor(op.id)
-          if (!status) return { status: 404, body: { error: 'not found' } }
+          if (!status) return { status: 404, body: { error: '没有这台服务器' } }
           // In-memory state is not enough: the desktop shell owns the UI tunnel
           // in this deployment, so only a live probe can say "online".
           const live = await manager.probe(op.id)
@@ -271,20 +271,20 @@ export function createRemoteInstanceOps({
         }
 
         case 'logs': {
-          if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
+          if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
           const lines = manager.logs(op.id)
           const tail = Number(op.tail ?? 100)
           return { status: 200, body: { lines: Number.isFinite(tail) && tail > 0 ? lines.slice(-tail) : lines } }
         }
 
         case 'peerlog': {
-          if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
+          if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
           return start(() => manager.peerLogs(op.id, { lines: op.lines }))
         }
 
         case 'url': {
           const instance = store.get(op.id)
-          if (!instance) return { status: 404, body: { error: 'not found' } }
+          if (!instance) return { status: 404, body: { error: '没有这台服务器' } }
           return {
             status: 200,
             body: { url: `http://127.0.0.1:${instance.localPort}`, online: manager.status(op.id)?.state === 'online' },
@@ -292,7 +292,7 @@ export function createRemoteInstanceOps({
         }
 
         case 'pairlink': {
-          if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
+          if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
           return start(() => manager.pairLink(op.id))
         }
 
@@ -316,18 +316,18 @@ export function createRemoteInstanceOps({
 
         case 'uipassword': {
           const instance = store.get(op.id)
-          if (!instance) return { status: 404, body: { error: 'not found' } }
-          if (!instance.uiPassword) return { status: 404, body: { error: '这个档案没有 UI 密码' } }
+          if (!instance) return { status: 404, body: { error: '没有这台服务器' } }
+          if (!instance.uiPassword) return { status: 404, body: { error: '这台服务器没有界面密码' } }
           return { status: 200, body: { uiPassword: instance.uiPassword, url: `http://127.0.0.1:${instance.localPort}` } }
         }
 
         case 'configdiff': {
-          if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
+          if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
           return start(() => manager.configDiff(op.id))
         }
 
         case 'syncconfig': {
-          if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
+          if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
           for (const field of ['deletes', 'keyDeletes'] as const) {
             const value = op.payload?.[field]
             if (value !== undefined && (!Array.isArray(value) || value.some((v) => typeof v !== 'string'))) {
@@ -342,13 +342,13 @@ export function createRemoteInstanceOps({
         }
 
         case 'syncauth': {
-          if (!store.get(op.id)) return { status: 404, body: { error: 'not found' } }
+          if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
           return start(() => manager.syncAuth(op.id))
         }
 
         case 'job': {
           const job = jobs.get(op.jobId)
-          if (!job) return { status: 404, body: { error: 'not found' } }
+          if (!job) return { status: 404, body: { error: '没有这台服务器' } }
           return {
             status: 200,
             body: {

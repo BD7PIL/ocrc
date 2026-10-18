@@ -5,10 +5,12 @@ import type { GuestRequestMethod, GuestRequestResult } from '@openchamber/sdk'
 import { RemoteInstance } from './RemoteInstance.js'
 
 /**
- * 远程实例页的「不撒谎」清单：
- *   · 引擎路径/版本显示的是**实例自报**的那一份（不是我请求它用的）；
- *   · 装机必须先预演、再二次确认（面板上一个手滑不能变成往对端写盘）；
- *   · ocrc host 不可达时说"不可达"，不装成空列表。
+ * 远程服务器卡片的「不撒谎」清单：
+ *   · 每条事实只出现一次（地址不再既进标题又进第二行；网络不再同时进徽标、摘要、详情）；
+ *   · 字段顺序固定，缺的写「未知」——两台机器不许显示成两个产品；
+ *   · 主动作随状态推进（未安装 → 检查并安装；已停止 → 启动；在线 → 打开界面 + 停止）；
+ *   · 安装必须两步：先检查（只读）、再二次确认；
+ *   · 移除服务器要二次确认；service 不可达时如实报，不装成空列表。
  */
 
 type Call = { path: string; method: GuestRequestMethod; body: unknown }
@@ -26,15 +28,28 @@ function fakeRequest(handler: (call: Call) => { status: number; body: unknown })
 
 const ROW = {
   id: 'demo@192.168.26.101', host: '192.168.26.101', user: 'demo', port: 22,
-  instancePort: 2610, localPort: 4610, appVersion: '2.3.3', enabled: true,
+  instancePort: 2610, localPort: 4610, appVersion: '2.3.3', enabled: true, name: 'EL7 box',
   reconnect: true, restoreOnStart: true, hasUiPassword: true,
   sshAuth: 'key' as const, provision: 'push' as const, egress: 'auto' as const,
   status: {
-    state: 'online', detail: 'openchamber 2.3.3（引擎 2.0.27）', url: 'http://127.0.0.1:4610',
+    state: 'online', detail: '远端实例在线；隧道由桌面版持有', url: 'http://127.0.0.1:4610',
+    app: '2.3.3',
     engine: { path: '/home/demo/.ocrc/remote/engine/opencode', version: '2.0.27' },
     runtime: 'v24.22.0', proxy: { enabled: true, localPort: 4711, remotePort: 2711 },
-    egress: { mode: 'auto', relay: true, reason: '探测：对端无出网', probe: 'none', cached: true },
+    egress: { mode: 'auto', relay: true, reason: '远程机器出不了网', probe: 'none', cached: true },
   },
+}
+
+/** 没装过：探测不到 OpenCode，状态停在未检查。 */
+const FRESH = {
+  ...ROW, id: 'root@10.0.0.5', host: '10.0.0.5', user: 'root', name: '新机器',
+  status: { state: 'unknown', url: 'http://127.0.0.1:4614', detail: '还没有检查过' },
+}
+
+/** 装过但停了。 */
+const STOPPED = {
+  ...ROW, id: 'ubuntu@100.100.69.3', host: '100.100.69.3', user: 'ubuntu', name: 'Ubuntu 26.04',
+  status: { ...ROW.status, state: 'offline', app: '2.3.3', egress: { mode: 'auto', relay: false, reason: '远程机器自己能出网', cached: true } },
 }
 
 const DEFAULTS = {
@@ -46,152 +61,147 @@ const PLAN = {
   reachable: true,
   inspected: { uname: 'Linux x86_64', glibc: '2.17', home: '/home/demo' },
   runtime: 'v24.22.0', app: '2.3.3',
-  engine: undefined, engineError: '目标机上没有找到 opencode 引擎——请先用「部署引擎」装一份 v2',
+  engine: undefined, engineError: '远程机器上没有找到满足 v2 门禁的 OpenCode',
   engineCandidates: [{ path: '/home/demo/.local/bin/opencode', raw: '1.18.32' }],
-  actions: ['部署我们 pin 的引擎 opencode 2.0.27 到 ~/.ocrc/remote/engine/opencode', '建转发'],
+  actions: ['推送我们 pin 的 OpenCode 2.0.27 到 ~/.ocrc/remote/engine/opencode', '建转发'],
   url: 'http://127.0.0.1:4610',
-  egress: { mode: 'auto', relay: true, reason: '探测：对端无出网', probe: 'none' },
+  egress: { mode: 'auto', relay: true, reason: '远程机器出不了网', probe: 'none' },
   provision: 'push' as const,
   tier: 'legacy',
   peerPort: 'closed' as const,
 }
 
-describe('远程实例页', () => {
-  it('列出实例：一眼看到状态与出口决定，路径/版本在「详情」里', async () => {
+describe('远程服务器卡片', () => {
+  it('三行固定字段：名称+状态 / 地址+登录方式 / 版本+网络；地址只出现一次', async () => {
     const { request } = fakeRequest(() => ({ status: 200, body: { instances: [ROW] } }))
     await act(async () => { render(<RemoteInstance request={request} host={null} />) })
-    await waitFor(() => expect(screen.getByText('demo@192.168.26.101')).toBeTruthy())
-    // 摘要层：状态、引擎版本、出口决定、中继端口（六个 muted 行挤在一张卡上
-    // 会让每台对端看起来一样重要——这就是"没有层次感"那条反馈）
-    expect(screen.getByText('online')).toBeTruthy()
-    expect(screen.getByText('引擎 2.0.27')).toBeTruthy()
-    expect(screen.getByText('出口 经控制端')).toBeTruthy()
-    expect(screen.getByText('中继 :4711 → :2711')).toBeTruthy()
-    expect(screen.getByText(/出口：经控制端中继（探测：对端无出网）/)).toBeTruthy()
-    // 明细默认收起
+    await waitFor(() => expect(screen.getByText('EL7 box')).toBeTruthy())
+    expect(screen.getByText('在线')).toBeTruthy()
+    // 地址：只在第二行出现一次（它曾经既进标题又进第二行）
+    expect(screen.getAllByText(/demo@192\.168\.26\.101:22 · 密钥登录/)).toHaveLength(1)
+    expect(screen.getByText(/OpenChamber 2\.3\.3 · OpenCode 2\.0\.27 · 经本机转发/)).toBeTruthy()
+    // 在线不解释自己；详情默认收起
+    expect(screen.queryByText(/隧道由桌面版持有/)).toBeNull()
     expect(screen.queryByText('/home/demo/.ocrc/remote/engine/opencode')).toBeNull()
-
-    await act(async () => { screen.getByText('详情').click() })
-    await waitFor(() => expect(screen.getByText('引擎：/home/demo/.ocrc/remote/engine/opencode')).toBeTruthy())
-    expect(screen.getByText('运行时：node v24.22.0')).toBeTruthy()
-    expect(screen.getByText(/实例端口 2610 → 本机端口 4610/)).toBeTruthy()
   })
 
-  it('装机要两步：先预演（只读），再二次确认才 apply', async () => {
+  it('缺的字段写「未知」，不省字段（两台机器不许显示成两个产品）', async () => {
+    const { request } = fakeRequest(() => ({ status: 200, body: { instances: [FRESH] } }))
+    await act(async () => { render(<RemoteInstance request={request} host={null} />) })
+    await waitFor(() => expect(screen.getByText('新机器')).toBeTruthy())
+    expect(screen.getByText(/OpenChamber 未知 · OpenCode 未知 · 未探测/)).toBeTruthy()
+  })
+
+  it('主动作随状态推进：未安装→检查并安装，已停止→启动，在线→打开界面+停止', async () => {
+    const { request } = fakeRequest(() => ({ status: 200, body: { instances: [FRESH, STOPPED, ROW] } }))
+    await act(async () => { render(<RemoteInstance request={request} host={null} />) })
+    await waitFor(() => expect(screen.getByText('新机器')).toBeTruthy())
+    expect(screen.getByText('检查并安装')).toBeTruthy()
+    expect(screen.getByText('启动')).toBeTruthy()
+    expect(screen.getByText('打开界面')).toBeTruthy()
+    expect(screen.getByText('停止')).toBeTruthy()
+    // 没装过的机器不摆配对链接（它要求实例在跑）
+    expect(screen.getAllByText('创建配对链接')).toHaveLength(2)
+  })
+
+  it('安装两步：先检查（只读），再二次确认才 apply', async () => {
     const { request, calls } = fakeRequest((call) => {
       const body = call.body as { op?: string } | undefined
-      if (body?.op === 'list') return { status: 200, body: { instances: [ROW] } }
+      if (body?.op === 'list') return { status: 200, body: { instances: [FRESH] } }
       if (body?.op === 'plan') return { status: 200, body: PLAN }
       if (body?.op === 'apply') return { status: 200, body: { ok: true, detail: '已推送 2.3.3' } }
       return { status: 200, body: {} }
     })
     await act(async () => { render(<RemoteInstance request={request} host={null} />) })
-    await waitFor(() => expect(screen.getByText('预演')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('检查并安装')).toBeTruthy())
 
-    await act(async () => { screen.getByText('预演').click() })
-    await waitFor(() => expect(screen.getByText('预演（只读，不写对端）')).toBeTruthy())
-    // 预演把引擎门禁与 v1 候选摆出来
+    await act(async () => { screen.getByText('检查并安装').click() })
+    await waitFor(() => expect(screen.getByText('检查结果（只读，不写远程机器）')).toBeTruthy())
     expect(screen.getByText('1.18.32')).toBeTruthy()
-    expect(screen.getAllByText(/不满足 v2 门禁|部署我们 pin 的引擎/).length).toBeGreaterThan(0)
-    // 还没点确认之前，不许有 apply
+    expect(screen.getByText(/推送我们 pin 的 OpenCode/)).toBeTruthy()
     expect(calls.filter((c) => (c.body as { op?: string })?.op === 'apply')).toHaveLength(0)
 
-    await act(async () => { screen.getByText('装机（推运行时 / 引擎 / 应用）').click() })
-    await waitFor(() => expect(screen.getByText('确认装机')).toBeTruthy())
+    await act(async () => { screen.getByText(/安装到远程机器/).click() })
+    await waitFor(() => expect(screen.getByText('确认安装')).toBeTruthy())
     expect(calls.filter((c) => (c.body as { op?: string })?.op === 'apply')).toHaveLength(0)
 
-    await act(async () => { screen.getByText('确认装机').click() })
+    await act(async () => { screen.getByText('确认安装').click() })
     await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'apply')).toBe(true))
     const apply = calls.find((c) => (c.body as { op?: string })?.op === 'apply')
-    expect(apply?.body).toMatchObject({ id: ROW.id, payload: { confirm: true } })
+    expect(apply?.body).toMatchObject({ id: FRESH.id, payload: { confirm: true } })
   })
 
-  it('控制端 service 不可达时如实报，不装成空列表', async () => {
+  it('service 不可达时如实报，不装成空列表', async () => {
     const { request } = fakeRequest(() => ({ status: 502, body: { error: '控制端 service 不可达：connect ECONNREFUSED' } }))
     await act(async () => { render(<RemoteInstance request={request} host={null} />) })
     await waitFor(() => expect(screen.getByText(/控制端 service 不可达/)).toBeTruthy())
   })
 
-  it('默认只露三个主操作；开关在「更多操作」里，点了照样反写当前值（不猜默认）', async () => {
+  it('「更多」按配置/维护分组，默认收起；移除要二次确认', async () => {
     const { request, calls } = fakeRequest((call) => {
-      const body = call.body as { op?: string; payload?: unknown } | undefined
-      if (body?.op === 'list') return { status: 200, body: { instances: [{ ...ROW, reconnect: false }] } }
-      return { status: 200, body: {} }
-    })
-    await act(async () => { render(<RemoteInstance request={request} host={null} />) })
-    await waitFor(() => expect(screen.getByText('预演')).toBeTruthy())
-    // 布局 B 的契约：次要动作默认不在屏上（十二个同权按钮就是"没有层次感"）
-    expect(screen.queryByText('开自动重连')).toBeNull()
-    expect(screen.queryByText('配置差异')).toBeNull()
-    expect(screen.queryByText('删档案')).toBeNull()
-
-    await act(async () => { screen.getByText('更多操作 ▾').click() })
-    await waitFor(() => expect(screen.getByText('开自动重连')).toBeTruthy())
-    await act(async () => { screen.getByText('开自动重连').click() })
-    await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'patch')).toBe(true))
-    const patch = calls.find((c) => (c.body as { op?: string })?.op === 'patch')
-    expect((patch?.body as { payload: { reconnect: boolean } }).payload.reconnect).toBe(true)
-  })
-
-  it('「更多操作」里的每个动作都可达（不允许"功能在但点不到"）', async () => {
-    const { request } = fakeRequest((call) => {
       const body = call.body as { op?: string } | undefined
       if (body?.op === 'list') return { status: 200, body: { instances: [ROW] } }
       return { status: 200, body: {} }
     })
     await act(async () => { render(<RemoteInstance request={request} host={null} />) })
-    await waitFor(() => expect(screen.getByText('更多操作 ▾')).toBeTruthy())
-    await act(async () => { screen.getByText('更多操作 ▾').click() })
-    for (const label of ['编辑', '打开界面', '日志', '配置差异', '查看 UI 密码', '关自动重连', '关重启自恢复', '删档案']) {
-      await waitFor(() => expect(screen.getByText(label)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('EL7 box')).toBeTruthy())
+    // 次要动作默认不在屏上
+    expect(screen.queryByText('配置差异与同步')).toBeNull()
+    expect(screen.queryByText('移除服务器')).toBeNull()
+
+    await act(async () => { screen.getByText('更多 ▾').click() })
+    await waitFor(() => expect(screen.getByText('配置差异与同步')).toBeTruthy())
+    for (const label of ['配置', '维护', '界面密码', '检查并更新', '日志', '编辑', '移除服务器', '自动重连', '服务重启后恢复']) {
+      expect(screen.getByText(label)).toBeTruthy()
     }
-    expect(screen.getByText(/升级到 pin/)).toBeTruthy()
+
+    // 移除：先问一次，确认才真的删
+    await act(async () => { screen.getByText('移除服务器').click() })
+    await waitFor(() => expect(screen.getByText('确认移除')).toBeTruthy())
+    expect(calls.some((c) => (c.body as { op?: string })?.op === 'delete')).toBe(false)
+    await act(async () => { screen.getByText('确认移除').click() })
+    await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'delete')).toBe(true))
   })
 
-  it('出口是「决定」而不是「中继在不在」：直连的对端不显示中继徽标', async () => {
-    const direct = {
-      ...ROW,
-      egress: 'direct' as const,
-      status: { ...ROW.status, egress: { mode: 'direct', relay: false, reason: '策略：强制直连', cached: true } },
-    }
-    const { request } = fakeRequest(() => ({ status: 200, body: { instances: [direct] } }))
+  it('详情里放事实：端口、OpenCode 路径、转发、探测原因；网络只在详情出现第二次', async () => {
+    const { request } = fakeRequest(() => ({ status: 200, body: { instances: [ROW] } }))
     await act(async () => { render(<RemoteInstance request={request} host={null} />) })
-    await waitFor(() => expect(screen.getByText('出口 直连')).toBeTruthy())
-    expect(screen.queryByText(/出网中继/)).toBeNull()
-    // 摘要把决定和原因说清；策略名与探测结果在详情里
-    expect(screen.getByText(/出口：对端直连（策略：强制直连）/)).toBeTruthy()
-    await act(async () => { screen.getByText('详情').click() })
-    await waitFor(() => expect(screen.getByText(/出口：策略 direct：策略：强制直连/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('EL7 box')).toBeTruthy())
+    await act(async () => { screen.getByText('详情 ▾').click() })
+    await waitFor(() => expect(screen.getByText('端口：远程 2610 → 本机 4610（绑定 127.0.0.1）')).toBeTruthy())
+    expect(screen.getByText('OpenCode：/home/demo/.ocrc/remote/engine/opencode')).toBeTruthy()
+    expect(screen.getByText('运行时：node v24.22.0')).toBeTruthy()
+    expect(screen.getByText('本机转发：:4711 → :2711')).toBeTruthy()
+    expect(screen.getByText(/联网方式：auto，探测 none —— 远程机器出不了网/)).toBeTruthy()
   })
 
-  it('生成配对链接：拿到链接后能复制、能重新生成', async () => {
+  it('创建配对链接：拿到链接后能复制、能重新创建', async () => {
     const LINK = 'openchamber://connect?v=2&p=eyJ2IjoyfQ'
     const { request, calls } = fakeRequest((call) => {
       const body = call.body as { op?: string } | undefined
       if (body?.op === 'list') return { status: 200, body: { instances: [ROW] } }
       if (body?.op === 'pairlink') {
-        return { status: 200, body: { ok: true, detail: '配对链接已生成（对端实例在跑）', link: LINK, expiresAt: '2026-10-17T12:00:00Z' } }
+        return { status: 200, body: { ok: true, detail: '配对链接已生成（远程实例在跑）', link: LINK, expiresAt: '2026-10-17T12:00:00Z' } }
       }
       return { status: 200, body: {} }
     })
     const clipboard: string[] = []
     const host = { openUrl: async () => {}, writeClipboard: async (t: string) => { clipboard.push(t) } } as never
     await act(async () => { render(<RemoteInstance request={request} host={host} />) })
-    await waitFor(() => expect(screen.getByText('生成配对链接')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('创建配对链接')).toBeTruthy())
 
-    await act(async () => { screen.getByText('生成配对链接').click() })
+    await act(async () => { screen.getByText('创建配对链接').click() })
     await waitFor(() => expect(screen.getByText(LINK)).toBeTruthy())
-    // 上游那一步要用户点：我们只递链接，并说清它会落在哪个列表里
     expect(screen.getAllByText(/其他 OpenChamber 服务器/).length).toBeGreaterThan(0)
 
     await act(async () => { screen.getByText('复制链接').click() })
     await waitFor(() => expect(clipboard).toContain(LINK))
 
-    await act(async () => { screen.getByText('重新生成').click() })
+    await act(async () => { screen.getByText('重新创建').click() })
     await waitFor(() => expect(calls.filter((c) => (c.body as { op?: string })?.op === 'pairlink')).toHaveLength(2))
   })
 
-  it('配置差异：先看差异，删除要勾选，同步前可预演', async () => {
+  it('配置差异：先看差异，删除要勾选，同步前可试运行', async () => {
     const DIFF = {
       localDir: '/home/u/.config/opencode',
       add: ['skill/new.md'], change: ['opencode.json'], same: [], peerOnly: ['agent/old.md'], unknown: [],
@@ -201,7 +211,7 @@ describe('远程实例页', () => {
         keyDeletes: { requested: [], removed: [] },
         keyDeleteCandidates: [{ collection: 'provider', key: 'acc-provider' }],
         droppedManagedKeys: ['plugin'], secretsReplaced: [], baseUrlRewrites: [], shadowed: [],
-        notes: ['对端独有的 1 个文件不会被动（要删得显式勾选）'],
+        notes: ['远程独有的 1 个文件不会被动（要删得显式勾选）'],
       },
     }
     const { request, calls } = fakeRequest((call) => {
@@ -212,21 +222,19 @@ describe('远程实例页', () => {
       return { status: 200, body: {} }
     })
     await act(async () => { render(<RemoteInstance request={request} host={null} />) })
-    await act(async () => { screen.getByText('更多操作 ▾').click() })
-    await act(async () => { screen.getByText('配置差异').click() })
-    await waitFor(() => expect(screen.getByText(/配置差异（本地 ↔ 对端引擎/)).toBeTruthy())
+    await act(async () => { screen.getByText('更多 ▾').click() })
+    await act(async () => { screen.getByText('配置差异与同步').click() })
+    await waitFor(() => expect(screen.getByText(/配置差异（控制端 ↔ 远程机器/)).toBeTruthy())
     expect(screen.getByText(/\+ skill\/new\.md/)).toBeTruthy()
     expect(screen.getByText('文件 agent/old.md')).toBeTruthy()
     expect(screen.getByText('配置项 provider:acc-provider')).toBeTruthy()
 
-    // 预演先走：dryRun=true，且没勾选任何删除 → 不删东西
-    await act(async () => { screen.getByText('预演（不写对端）').click() })
+    await act(async () => { screen.getByText('试运行（不写远程机器）').click() })
     await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'syncconfig')).toBe(true))
     let last = calls.filter((c) => (c.body as { op?: string })?.op === 'syncconfig').pop()
     expect((last?.body as { payload: { dryRun: boolean; deletes: string[]; keyDeletes: string[] } }).payload)
       .toEqual({ dryRun: true, deletes: [], keyDeletes: [] })
 
-    // 勾一个对端独有的 provider → 同步时带上 keyDeletes
     await act(async () => { screen.getByText('配置项 provider:acc-provider').click() })
     await act(async () => { screen.getByText('同步配置').click() })
     await waitFor(() => expect(calls.filter((c) => (c.body as { op?: string })?.op === 'syncconfig')).toHaveLength(2))
@@ -235,7 +243,7 @@ describe('远程实例页', () => {
       .toMatchObject({ dryRun: false, keyDeletes: ['provider:acc-provider'] })
   })
 
-  it('表单是装机输入：认证档、装机方式、出口策略都在，且派生值只显示不给控件', async () => {
+  it('表单是安装输入：登录方式/安装方式/联网方式都在，自动决定的值只显示不给控件', async () => {
     const { request, calls } = fakeRequest((call) => {
       const body = call.body as { op?: string } | undefined
       if (body?.op === 'list') return { status: 200, body: { instances: [] } }
@@ -243,13 +251,15 @@ describe('远程实例页', () => {
       return { status: 200, body: {} }
     })
     await act(async () => { render(<RemoteInstance request={request} host={null} />) })
-    await act(async () => { screen.getByText('添加对端').click() })
-    await waitFor(() => expect(screen.getByText('添加对端')).toBeTruthy())
-    // 本机端口默认来自 service 的实测空闲值，不是写死的 4610
+    await act(async () => { screen.getByText('添加服务器').click() })
     await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'defaults')).toBe(true))
     expect((screen.getByDisplayValue('4612') as HTMLInputElement).value).toBe('4612')
-    expect(screen.getByText(/档位：由对端 glibc 决定/)).toBeTruthy()
-    expect(screen.getByText(/引擎 pin：opencode 2\.0\.27/)).toBeTruthy()
+    expect(screen.getByText('登录方式')).toBeTruthy()
+    expect(screen.getByText('安装方式')).toBeTruthy()
+    expect(screen.getByText('联网方式')).toBeTruthy()
+    expect(screen.getByText('服务器名称')).toBeTruthy()
+    expect(screen.getByText(/兼容档：按远程机器 glibc 判定/)).toBeTruthy()
+    expect(screen.getByText(/OpenCode pin：2\.0\.27/)).toBeTruthy()
     expect(screen.getByText(/绑定：127\.0\.0\.1/)).toBeTruthy()
     // 默认密钥档：不显示密码框
     expect(screen.queryByText('SSH 密码')).toBeNull()

@@ -116,7 +116,7 @@ describe('引擎 v2 门禁（R12）', () => {
   it('一个都没有时指向「部署引擎」而不是报个空错', () => {
     const pick = pickV2Engine([])
     expect(pick.ok).toBe(false)
-    if (!pick.ok) expect(pick.error).toContain('部署引擎')
+    if (!pick.ok) expect(pick.error).toContain('检查并安装')
   })
 })
 

@@ -8,8 +8,9 @@ can reach. You then pair it and it shows up in the app as **another OpenChamber 
 
 > Status (2026-10-19): the panel path is the product. Verified end to end on two peers —
 > a RHEL7 box with **no outbound network** (relayed through the control side) and an Ubuntu box
-> with its own internet (direct). The earlier Telegram / Web-PWA surfaces are still in the
-> codebase and still work; they are no longer the entry point.
+> with its own internet (direct). The earlier Telegram channel is still in the codebase and still
+> works; it is no longer the entry point. The browser UI this project used to ship is gone (see
+> *Earlier surfaces*).
 
 [![Release](https://img.shields.io/github/v/release/BD7PIL/ocrc?color=10b981)](https://github.com/BD7PIL/ocrc/releases)
 [![License: MIT](https://img.shields.io/github/license/BD7PIL/ocrc?color=10b981)](LICENSE)
@@ -87,31 +88,26 @@ The remote channel is also exposed **to the model**, from any transport
 
 ## Earlier surfaces (still in the codebase)
 
-Telegram (35 commands: sessions, running work, controls, ops) and a token-gated Web PWA that
-streams the same live sessions from the same pipeline — prompts from either surface mirror to
-both, approvals arrive as buttons. They predate the panel path and remain supported; the entry
-point for a new setup is the extension above.
+Telegram (35 commands: sessions, running work, controls, ops) streams live sessions with
+approvals as buttons, and it is the only **user-facing** channel here — see the table below.
 
-Channel status, per transport (checked against `src/transport/*` — outbound vs inbound differ):
+Channel status, per transport (checked against `src/transport/*`):
 
-| Transport | Outbound | Inbound |
-|---|---|---|
-| Telegram | yes | yes (long poll; buttons for approvals) |
-| Web PWA | yes | yes (token-gated) |
-| Lark / Feishu | yes (cards, editable, streaming) | yes (long connection) |
-| WeCom | yes (group-robot webhook, markdown) | **no** — needs a publicly reachable callback URL, which contradicts local-first |
-| DingTalk | yes (markdown via `oToMessages`) | **no** (v1) |
+| Transport | Outbound | Inbound | Notes |
+|---|---|---|---|
+| Telegram | yes | yes (long poll, buttons for approvals) | production channel |
+| Lark / Feishu | yes (cards, editable, streaming) | yes (long connection) | |
+| WeCom | yes (group-robot webhook, markdown) | **no** | inbound needs a publicly reachable callback URL, which contradicts local-first |
+| DingTalk | yes (markdown via `oToMessages`) | **no** | v1 |
+| Web (`OCRC_WEB_ENABLED`) | yes | yes (token-gated) | **HTTP + WS API only** — the browser UI it used to serve is no longer in this repo (the Svelte PWA and the `web-next` shell were both removed), so `ocrc pair` produces a link to a page this repo does not ship. Use it as an API for automation, or bring your own frontend. |
 
 ```bash
 npm i -g @bd7pil/ocrc
 ocrc install            # Telegram bot token + allowed user id
-ocrc start <dir>        # or: OCRC_BACKENDS=opencode OCRC_WEB_ENABLED=true ocrc host
-ocrc pair               # QR + link for a device (works without Telegram)
+ocrc start <dir>        # or: OCRC_BACKENDS=opencode ocrc host
+ocrc pair               # QR + link (needs a UI: see the Web row above)
 ```
 
-<p align="center">
-  <img src="docs/assets/ocrc-web.png" width="760" alt="the Web PWA driving a live opencode session">
-</p>
 
 ## Compatibility
 

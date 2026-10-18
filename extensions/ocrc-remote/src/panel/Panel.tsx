@@ -184,7 +184,11 @@ export function Panel() {
         <RemoteInstance request={request} host={host} />
       </div>
 
-      <div hidden={tab !== 'connect'} className="oc-col">
+      {/* `hidden` alone does NOT hide this one: the author stylesheet's
+          `display: flex` (.oc-col) beats the UA's `[hidden] { display: none }`, so
+          the 连接 block rendered *below* every other tab — that is the "为什么有
+          三个部分" report. An explicit display is what actually hides it. */}
+      <div hidden={tab !== 'connect'} className="oc-col" style={tab === 'connect' ? undefined : { display: 'none' }}>
         <div className="oc-row">
           <strong>ocrc 连接</strong>
           <KitBadge {...tunnelBadge(s)} />

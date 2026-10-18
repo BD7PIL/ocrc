@@ -59,7 +59,7 @@ describe('buildEgressProbeCommand', () => {
     expect(cmd).toContain('$HOME/.ocrc/remote/runtime/node-v')
     expect(cmd).toContain('registry.npmjs.org')
     expect(cmd).toContain('setTimeout')
-    expect(cmd).toContain('6000') // deadline, so a no-egress host answers instead of hanging
+    expect(cmd).toContain('10000') // deadline, so a host that cannot be measured answers instead of hanging
   })
 
   it('accepts a different host and budget', () => {
@@ -110,5 +110,38 @@ describe('instance egress probe (what the running instance actually carries)', (
 
   it('relayProxyUrl is the single source of the injected URL', () => {
     expect(relayProxyUrl(2711)).toBe('http://127.0.0.1:2711')
+  })
+})
+
+/**
+ * The probe's verdict decides whether a peer is routed through us, so a false
+ * "no egress" is expensive: it detours a peer that could get out itself (measured
+ * on Ubuntu — our probe said none while a plain `curl` returned 200). Two causes,
+ * both now pinned here:
+ *   · `dns.lookup` without `{all:true}` could outlive the whole budget, and the
+ *     deadline used to answer **none** — turning "could not measure" into a claim;
+ *   · only one resolved address was tried, so a broken IPv6 route decided alone.
+ */
+describe('egress probe robustness', () => {
+  const cmd = () => buildEgressProbeCommand({ appVersion: '2.3.3' })
+
+  it('resolves every address and prefers IPv4', () => {
+    const script = cmd()
+    expect(script).toContain('{all:true}')
+    expect(script).toContain('x.family-y.family')
+  })
+
+  it('reports "unknown" when the budget runs out, not "no egress"', () => {
+    const script = cmd()
+    expect(script).toContain('unknown')
+    expect(script).not.toContain("done('none')")
+    // `none` may only come from a failed connect to a literal IP.
+    expect(script).toContain("done(viaDns?\"dns-only\":\"none\")")
+  })
+
+  it('races a dead resolver against a short timer instead of waiting on it', () => {
+    const script = cmd()
+    expect(script).toContain('setTimeout(fallback,4000)')
+    expect(script).toContain('1.1.1.1')
   })
 })

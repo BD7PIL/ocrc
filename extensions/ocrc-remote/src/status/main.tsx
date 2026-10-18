@@ -102,17 +102,39 @@ export function StatusMain() {
     return () => clearInterval(t)
   }, [host, poll])
 
+  // The rail acts on ONE peer: the picker's choice, or the only one there is.
+  const [picked, setPicked] = useState('')
+  const selectedRow = rows.find((r) => r.id === picked) ?? rows[0]
   const single = rows.length === 1 ? rows[0]! : undefined
-  const singleUp = single?.status?.state === 'online'
 
-  /** Host-rendered controls. Ids are ours; the host only relays activation. */
+  /** Host-rendered controls. Ids are ours; the host only relays activation.
+   *
+   * With one peer the picker is noise, so it only appears from two on — but the
+   * 启动/停机 buttons are always there. An earlier version declared **no**
+   * controls at all for two or more peers ("the rail cannot guess which one you
+   * mean") and left a dead readout telling the user to go to another tab; that is
+   * exactly the affordance a picker exists to provide, and it read as "这块点不动".
+   */
   const controls = useCallback((): GuestStatusControl[] => {
-    if (!single) return []
-    return [
-      { kind: 'button', id: 'up', label: '启动', disabled: singleUp || busy === 'up' },
-      { kind: 'button', id: 'down', label: '停机', disabled: !singleUp || busy === 'down' },
-    ]
-  }, [single, singleUp, busy])
+    if (rows.length === 0) return []
+    const target = selectedRow
+    const isUp = target?.status?.state === 'online'
+    const out: GuestStatusControl[] = []
+    if (rows.length > 1) {
+      out.push({
+        kind: 'select',
+        id: 'instance',
+        label: '对端',
+        value: target?.id ?? rows[0]!.id,
+        options: rows.map((r) => ({ value: r.id, label: `${r.name ?? r.id}${r.status?.state === 'online' ? '' : '（离线）'}` })),
+      })
+    }
+    out.push(
+      { kind: 'button', id: 'up', label: '启动', disabled: isUp || busy === 'up' },
+      { kind: 'button', id: 'down', label: '停机', disabled: !isUp || busy === 'down' },
+    )
+    return out
+  }, [rows, selectedRow, busy])
 
   // Nothing to declare until the first answer arrives — declaring the controls
   // from the empty initial state would flash a row of disabled buttons.
@@ -133,18 +155,24 @@ export function StatusMain() {
   }, [host, offline, rows])
 
   const act = useCallback(async (event: { id: string; value?: string }) => {
-    if (!host || !single) return
+    if (!host) return
+    if (event.id === 'instance' && event.value) {
+      setPicked(event.value)
+      return
+    }
     if (event.id !== 'up' && event.id !== 'down') return
+    const target = rows.find((r) => r.id === picked) ?? rows[0]
+    if (!target) return
     setBusy(event.id)
     try {
-      await op({ op: event.id, id: single.id })
+      await op({ op: event.id, id: target.id })
       await poll()
     } catch (e) {
       void host.toast({ kind: 'error', message: e instanceof Error ? e.message : String(e), dismiss: true }).catch(() => {})
     } finally {
       setBusy('')
     }
-  }, [host, single, op, poll])
+  }, [host, rows, picked, op, poll])
 
   useEffect(() => {
     if (!host) return
@@ -190,7 +218,7 @@ export function StatusMain() {
         </>
       ) : null}
       {!offline && rows.length > 1 ? (
-        <span className="oc-sdk-muted oc-xs oc-truncate">{`${rows.map((r) => r.name ?? r.id).slice(0, 3).join('、')}${rows.length > 3 ? ' …' : ''}（多台：起停在「远程实例」页操作）`}</span>
+        <span className="oc-sdk-muted oc-xs oc-truncate">{`${rows.map((r) => r.name ?? r.id).slice(0, 3).join('、')}${rows.length > 3 ? ' …' : ''}（上面选一台，右侧按钮直接起停）`}</span>
       ) : null}
     </div>
   )

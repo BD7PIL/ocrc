@@ -156,16 +156,36 @@ export function buildEgressProbeCommand(o: { appVersion: string; host?: string; 
   const p = instancePaths(o.appVersion)
   const host = o.host ?? 'registry.npmjs.org'
   const timeout = o.timeoutMs ?? 3_000
-  const deadline = o.deadlineMs ?? 6_000
+  const deadline = o.deadlineMs ?? 10_000
+  // Two hard-won details, both from a live false negative (Ubuntu reported
+  // "对端无出网" while a plain `curl` returned 200):
+  //   · `dns.lookup` without `{all:true}` can sit on the resolver for longer than
+  //     the whole budget, and the old code answered **none** when the deadline
+  //     fired — i.e. it turned "could not measure" into a claim about the peer.
+  //     The deadline now reports `unknown` (policy: relay, but honestly labelled).
+  //   · every resolved address is tried, **IPv4 first**: a host whose AAAA records
+  //     resolve but whose IPv6 route is broken would otherwise decide the verdict
+  //     on its own.
   const probe = [
     "const dns=require('dns'),net=require('net')",
     `const H=${JSON.stringify(host)},T=${timeout}`,
     'const done=(v)=>{console.log(v);process.exit(0)}',
-    `setTimeout(()=>done('none'),${deadline})`,
-    'const tcp=(h,viaDns)=>net.connect({host:h,port:443,timeout:T},()=>done("direct"))'
-      + '.on("error",()=>done(viaDns?"dns-only":"none"))'
-      + '.on("timeout",()=>done(viaDns?"dns-only":"none"))',
-    `dns.lookup(H,(e,a)=>{e?tcp('1.1.1.1',false):tcp(a,true)})`,
+    `setTimeout(()=>done('unknown'),${deadline})`,
+    'const tryList=(list,viaDns)=>{let i=0;const next=()=>{'
+      + 'if(i>=list.length)return done(viaDns?"dns-only":"none");'
+      + 'const a=list[i++];const s=net.connect({host:a.address,port:443,timeout:T},()=>{s.destroy();done("direct")});'
+      + 's.on("error",()=>{s.destroy();next()});s.on("timeout",()=>{s.destroy();next()})};next()}',
+    // A dead resolver makes `getaddrinfo` sit on its own retry schedule (measured
+    // on the offline EL7: the lookup outlived the whole budget), which would turn
+    // "DNS is dead" into "could not measure". Racing it against a short timer and
+    // falling through to a literal IP keeps the two apart: literal IP unreachable
+    // → `none` (a supported claim), literal IP reachable → `dns-only`.
+    'let answered=false',
+    'const fallback=()=>{if(answered)return;answered=true;tryList([{address:"1.1.1.1",family:4}],false)}',
+    'setTimeout(fallback,4000)',
+    `dns.lookup(H,{all:true},(e,all)=>{if(answered)return;answered=true;`
+      + `if(e||!all||!all.length)return tryList([{address:'1.1.1.1',family:4}],false);`
+      + 'tryList([...all].sort((x,y)=>x.family-y.family),true)})',
   ].join(';')
   return `${p.node} -e ${q(probe)}`
 }

@@ -52,7 +52,7 @@ describe('StatusMain — work status surface', () => {
     expect(await screen.findByText('出口 直连')).toBeTruthy()
   })
 
-  it('offers 启动/停机 for exactly one peer, and nothing for several', async () => {
+  it('always offers a picker + 启动/停机, so the rail is never a dead readout', async () => {
     instanceRoute([INSTANCE()])
     const { StatusMain } = await import('./main.js')
     render(<StatusMain />)
@@ -61,11 +61,35 @@ describe('StatusMain — work status surface', () => {
     expect(controls.find((c) => c.id === 'up')?.disabled).toBe(true)  // already up
     expect(controls.find((c) => c.id === 'down')?.disabled).toBe(false)
 
+    // Two peers: the picker appears so the buttons still have a target. An
+    // earlier version declared no controls at all here and told the user to go to
+    // another tab — it read as "这块点不动".
     instanceRoute([INSTANCE(), INSTANCE({ id: 'ubuntu@100.100.69.3', name: 'Ubuntu', status: { state: 'offline', url: 'http://127.0.0.1:4612' } })])
     const second = await import('./main.js')
     render(<second.StatusMain />)
     await waitFor(() => { expect(screen.getAllByText('在线 1/2').length).toBeGreaterThan(0) })
-    expect(held.host.controls.at(-1) ?? []).toEqual([])
+    await waitFor(() => {
+      expect(held.host.controls.at(-1)?.map((c) => c.id)).toEqual(['instance', 'up', 'down'])
+    })
+  })
+
+  it('the picker decides which peer 启动 acts on', async () => {
+    instanceRoute([
+      INSTANCE(),
+      INSTANCE({ id: 'ubuntu@100.100.69.3', name: 'Ubuntu', status: { state: 'offline', url: 'http://127.0.0.1:4612' } }),
+    ])
+    const { StatusMain } = await import('./main.js')
+    render(<StatusMain />)
+    await waitFor(() => { expect(held.host.controls.at(-1)?.map((c) => c.id)).toEqual(['instance', 'up', 'down']) })
+
+    act(() => { held.host.emitStatusControl({ id: 'instance', value: 'ubuntu@100.100.69.3' }) })
+    await waitFor(() => { expect(held.host.controls.at(-1)?.find((c) => c.id === 'up')?.disabled).toBe(false) })
+
+    act(() => { held.host.emitStatusControl({ id: 'up' }) })
+    await waitFor(() => {
+      const up = held.host.requests.find((r) => (r.body as { op?: string })?.op === 'up')
+      expect((up?.body as { id?: string })?.id).toBe('ubuntu@100.100.69.3')
+    })
   })
 
   it('raises the rail badge for a registered peer that is down, and clears it when all are up', async () => {

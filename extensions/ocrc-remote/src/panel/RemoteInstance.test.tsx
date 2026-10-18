@@ -57,16 +57,24 @@ const PLAN = {
 }
 
 describe('远程实例页', () => {
-  it('列出实例：状态、实例自报的引擎路径/版本、中继端口都在屏上', async () => {
+  it('列出实例：一眼看到状态与出口决定，路径/版本在「详情」里', async () => {
     const { request } = fakeRequest(() => ({ status: 200, body: { instances: [ROW] } }))
     await act(async () => { render(<RemoteInstance request={request} host={null} />) })
     await waitFor(() => expect(screen.getByText('demo@192.168.26.101')).toBeTruthy())
+    // 摘要层：状态、引擎版本、出口决定、中继端口（六个 muted 行挤在一张卡上
+    // 会让每台对端看起来一样重要——这就是"没有层次感"那条反馈）
     expect(screen.getByText('online')).toBeTruthy()
     expect(screen.getByText('引擎 2.0.27')).toBeTruthy()
-    expect(screen.getByText('/home/demo/.ocrc/remote/engine/opencode')).toBeTruthy()
     expect(screen.getByText('出口 经控制端')).toBeTruthy()
     expect(screen.getByText('中继 :4711 → :2711')).toBeTruthy()
-    expect(screen.getByText('node v24.22.0')).toBeTruthy()
+    expect(screen.getByText(/出口：经控制端中继（探测：对端无出网）/)).toBeTruthy()
+    // 明细默认收起
+    expect(screen.queryByText('/home/demo/.ocrc/remote/engine/opencode')).toBeNull()
+
+    await act(async () => { screen.getByText('详情').click() })
+    await waitFor(() => expect(screen.getByText('引擎：/home/demo/.ocrc/remote/engine/opencode')).toBeTruthy())
+    expect(screen.getByText('运行时：node v24.22.0')).toBeTruthy()
+    expect(screen.getByText(/实例端口 2610 → 本机端口 4610/)).toBeTruthy()
   })
 
   it('装机要两步：先预演（只读），再二次确认才 apply', async () => {
@@ -128,7 +136,10 @@ describe('远程实例页', () => {
     await act(async () => { render(<RemoteInstance request={request} host={null} />) })
     await waitFor(() => expect(screen.getByText('出口 直连')).toBeTruthy())
     expect(screen.queryByText(/出网中继/)).toBeNull()
-    expect(screen.getByText(/策略 direct：策略：强制直连/)).toBeTruthy()
+    // 摘要把决定和原因说清；策略名与探测结果在详情里
+    expect(screen.getByText(/出口：对端直连（策略：强制直连）/)).toBeTruthy()
+    await act(async () => { screen.getByText('详情').click() })
+    await waitFor(() => expect(screen.getByText(/出口：策略 direct：策略：强制直连/)).toBeTruthy())
   })
 
   it('生成配对链接：拿到链接后能复制、能重新生成', async () => {

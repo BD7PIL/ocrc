@@ -36,6 +36,8 @@ interface InstanceStatus {
   app?: string
   proxy?: { enabled: boolean; localPort: number; remotePort: number }
   egress?: { mode: string; relay: boolean; reason: string; probe?: string; cached: boolean }
+  /** D7: who holds each forward leg (pid + role), from the manager's markers. */
+  holders?: string[]
   inspected?: { uname?: string; glibc?: string }
 }
 
@@ -187,6 +189,8 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
   const [secretFor, setSecretFor] = useState<{ id: string; url: string; uiPassword: string } | null>(null)
   const [configFor, setConfigFor] = useState<{ id: string; diff: ConfigDiff } | null>(null)
   const [syncResult, setSyncResult] = useState('')
+  /** Which card has its 详情 expanded (one at a time — the point is less noise). */
+  const [detailsFor, setDetailsFor] = useState<string | null>(null)
   /** Deletions are opt-in per item: a peer-only file or key is never removed by
    *  the diff itself (that would be a wipe wearing a sync's clothes). */
   const [checkedDeletes, setCheckedDeletes] = useState<Record<string, boolean>>({})
@@ -477,10 +481,32 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
               </div>
               <span className="oc-muted">{`${row.user ? `${row.user}@` : ''}${row.host}:${row.port}`}</span>
             </div>
+            {/* One summary line stays visible; the rest is behind 详情. Six muted
+                lines per card made every peer look equally important — the "没有
+                层次感" report — while the thing you actually need at a glance is
+                the state and the egress decision, both already badges. */}
             {st?.detail ? <div className="oc-muted">{st.detail}</div> : null}
-            {st?.egress ? <div className="oc-xs oc-muted">{`出口：${st.egress.relay ? '经控制端中继' : '对端直连'}（策略 ${st.egress.mode}${st.egress.probe ? `，探测 ${st.egress.probe}` : ''}：${st.egress.reason}）`}</div> : null}
-            {st?.engine ? <div className="oc-muted oc-sdk-mono">{st.engine.path}</div> : null}
-            {st?.forwardAttempts ? <div className="oc-muted">{`隧道重连 ${st.forwardAttempts} 次`}</div> : null}
+            <div className="oc-row">
+              <KitButton
+                size="xs"
+                variant="ghost"
+                label={detailsFor === row.id ? '收起详情' : '详情'}
+                onClick={() => setDetailsFor(detailsFor === row.id ? null : row.id)}
+              />
+              {st?.egress ? <span className="oc-xs oc-muted">{`出口：${st.egress.relay ? '经控制端中继' : '对端直连'}（${st.egress.reason}）`}</span> : null}
+            </div>
+            {detailsFor === row.id ? (
+              <div className="oc-col">
+                {st?.egress ? <div className="oc-xs oc-muted">{`出口：策略 ${st.egress.mode}${st.egress.probe ? `，探测 ${st.egress.probe}` : ''}：${st.egress.reason}`}</div> : null}
+                {st?.engine ? <div className="oc-xs oc-muted oc-sdk-mono">{`引擎：${st.engine.path}`}</div> : null}
+                {st?.runtime ? <div className="oc-xs oc-muted">{`运行时：node ${st.runtime}`}</div> : null}
+                {st?.app ? <div className="oc-xs oc-muted">{`应用：openchamber ${st.app}`}</div> : null}
+                {st?.inspected ? <div className="oc-xs oc-muted">{`主机：${st.inspected.uname ?? '?'} · glibc ${st.inspected.glibc ?? '?'}`}</div> : null}
+                {st?.forwardAttempts ? <div className="oc-xs oc-muted">{`隧道重连 ${st.forwardAttempts} 次`}</div> : null}
+                {(st?.holders ?? []).map((line) => <div key={line} className="oc-xs oc-muted">{`持有者 ${line}`}</div>)}
+                <div className="oc-xs oc-muted">{`实例端口 ${row.instancePort} → 本机端口 ${row.localPort}（绑定 127.0.0.1）`}</div>
+              </div>
+            ) : null}
 
             <KitSeparator />
             <div className="oc-row">

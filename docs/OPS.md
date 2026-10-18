@@ -237,22 +237,33 @@ tag 不是唯一的版本轴。扩展相反——它只有一个入口 URL，所
   **2026-10-17 之前构建的扩展**（其内嵌的是旧包名）留的兜底；等所有控制端都换成新构建的扩展后再删。
   修剪任务只匹配新前缀，所以它不会被自动清掉。
 
-**装扩展（控制端，2026-10-17 起支持粘 URL）**
+**装扩展（控制端，粘 URL）**
 
-面板 Settings → Extensions 直接粘 URL 即可，**不要**再 clone 仓库走 folder 安装：
+面板 Settings → Extensions 直接粘 URL 即可，**不要** clone 仓库走 folder 安装：
 
 ```
 # 常驻入口（永不变，推荐写进文档）
 https://github.com/BD7PIL/ocrc/releases/download/ocrc-remote-latest/ocrc-remote.zip
 
 # 钉版本（不可变，用于复现"这台机器装的是哪一版"）
-https://github.com/BD7PIL/ocrc/releases/download/ocrc-remote-0.8.0/ocrc-remote.zip
+https://github.com/BD7PIL/ocrc/releases/download/ocrc-remote-0.8.1/ocrc-remote.zip
 ```
 
+**升级 = 把同一个通道 URL 再粘一次**（面板会弹冲突确认，确认后带 `replace:true` 覆盖安装；能力审批与启用状态都会保留）。为什么没有自更新、以及 URL 到底会不会变，见下面三条**源码级**事实：
+
+- **URL 是活的**：`-latest` 那个 tag 每次发布都用 `gh release upload --clobber` 覆盖
+  （`.github/workflows/ocrc-ext.yml:157`），所以同一个 URL 永远指向最新那份 zip。实测：同一 URL 从
+  0.7.0（253,525 B）变成 0.8.0（273,291 B），sha256 也变了。
+- **已装的那份不会自己更新，而且面板连"有新版本"都发现不了**：`checkGuestUpdate` 的第一道判断是
+  `if (!origin?.url) return { available: false, error: 'not-git' }`（`server/lib/guests/updates.js:85`）——
+  zip 装的 guest 没有 git origin，所以"检查更新"对它返回的是 **not-git**（这条路不通），不是"已是最新"。
+- **也不能改成 git 源来自更新**：`parseGitInstallUrl` 只认 `url#ref`、**不支持子目录**
+  （`server/lib/guests/clone.js:163-175`），而 guest 根目录必须有 `package.json`。我们的扩展在 monorepo 的
+  `extensions/ocrc-remote/` 下，git 装会把仓库根当 guest —— 装不上。所以"zip + 手动重粘"是当前唯一可用
+  形态；要自更新得给扩展单独开一个仓库。
+
 - 装完会有**一次 service 能力审批**（扩展要在宿主上跑 `ssh`）——批准。
-- **zip 安装没有自更新**：`checkGuestUpdate` 只在来源是 git（有 `origin.url`）时才比版本。
-  升级 = 用同一个通道 URL 覆盖安装一次（`?replace=true`；不带会返回 `already-installed`）。
-  想看装的是哪一版：面板的扩展卡片，或 Release 资产的 label。
+- 升级后想确认装的是哪一版：看面板的扩展卡片，或 Release 资产的 label（现在是 `ocrc-remote 0.8.1`）。
 - 发布走 [`.github/workflows/ocrc-ext.yml`](../.github/workflows/ocrc-ext.yml)（**只有手动
   dispatch**）：钉 tag 只写一次、通道 tag 按设计覆盖。升级前先提
   `extensions/<name>/package.json` 的 `version`，否则钉 tag 会被跳过。
@@ -275,6 +286,31 @@ https://github.com/BD7PIL/ocrc/releases/download/ocrc-remote-0.8.0/ocrc-remote.z
   它的 `plugin` 由对端自己的 openchamber/面板管，我们不越权；`ocrc-omo-view` 显示的是**面板宿主**的链，
   与对端当前生效的链可能不同——两者都如实标注，不合并成一个数。
 - PRODUCT 的边界没变：**omo-slim 默认不装**（它是可选项，不是我们的 provisioning 义务）。
+
+**出网判定（2.0.0-alpha.8 起）**
+
+判据是 **models.dev**（`https://models.dev/api.json`）——openchamber 自己取 provider/模型目录的地址，
+取不到它 = 面板没 provider = 从面板看就是"没网"。**不是** npm registry：能上 npm 但取不到目录的对端会被
+（有意的）判为需要中继。
+
+方法是一条**地址族感知**的链，因为"一个地址族不等于对端"：
+
+1. `curl -4`（默认吃对端自己的 `http_proxy/HTTPS_PROXY`，所以"对端自己有代理"会被正确判成有网）；
+2. 失败才试 `curl -6`；
+3. 没有 curl 就用 `wget`（同样吃代理 env）；
+4. 都没有才退回我们推过去的 Node（只能测 DNS+TCP，**看不到代理**，最弱的一档）。
+
+每个尝试都套 `timeout 5`：curl 自己的 `--max-time` **打断不了阻塞的 `getaddrinfo`**，实测断网机上
+一个卡住的解析器能让 curl 忙满 glibc 的重试周期（每个地址族约 10s）。被 cap 杀掉不算判定——它会落到
+Node 兜底（自己给解析器设上限），所以"没有路由"和"没有解析器"还能分开。
+
+判定词与动作：`direct` → 直连；`dns-only` / `none` → 经中继；`unknown` → 经中继（保守，且如实说"没测出来"，
+**绝不谎报"没有出网"**）。退出码映射是纯函数 + 单测，其中两条**不猜**：代理错误(5)与 TLS(35) 一律 `unknown`。
+
+代价：能出网的对端约 3-4s；出不了网的要两个族都失败才敢下结论，约 9-13s；结果按实例缓存 5 分钟。
+**出口策略翻面后，实例要重启才会带上新 env**——`up` 会检测这个不一致并自动重启（实测：Ubuntu 从
+"经我们中继"翻成"直连"后，`up` 重启实例，引擎 env 变回它自己的代理）。
+
 
 **配置与凭据从本地同步（C1–C6，2.0.0-alpha.8）**
 

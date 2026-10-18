@@ -56,3 +56,5 @@ coverage/
 
 # 扩展预览构建产物（scripts/preview.mjs 生成，别提交）
 extensions/ocrc/.preview-dist/
+extensions/ocrc/preview/audit/.chrome-profile/
+extensions/ocrc/preview/audit/*.png

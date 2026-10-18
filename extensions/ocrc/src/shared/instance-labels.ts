@@ -36,7 +36,7 @@ export function networkLabel(egress: { relay: boolean } | undefined | null): str
 /** 兼容档是给远程机器 glibc 挑的包，不是版本号——所以给人看的是它的意思。 */
 export function tierLabel(tier: string | undefined): string {
   if (!tier) return '未判定'
-  if (tier === 'legacy-glibc217') return '旧档（glibc 2.17，含重建的 node-pty）'
+  if (tier === 'legacy-glibc217') return '旧档（含重建的 node-pty）'
   if (tier === 'modern') return '常规档'
   return tier
 }

@@ -42,7 +42,12 @@ export function Panel() {
   return (
     <div className="oc-page">
       {err ? <KitBanner tone="error" title="面板没能接上宿主" body={err} /> : null}
-      <RemoteInstance request={request} host={host} />
+      {/* 宿主桥就绪之前不发请求：RemoteInstance 的第一遍渲染拿不到 host，这时发请求
+          只会得到「宿主桥未就绪」——正常情况下它被紧接着的成功应答盖掉，服务慢时
+          却会留在屏幕上。所以"还没接上宿主"这件事由面板自己说。 */}
+      {host
+        ? <RemoteInstance request={request} host={host} />
+        : <span className="oc-muted oc-sm">正在连接宿主…</span>}
     </div>
   )
 }

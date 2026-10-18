@@ -6,7 +6,7 @@
 # 只有经隧道才可能到达。用真内网服务（如 192.168.96.11 的 searxng）当靶子也可以，
 # 但它不可控、不可重复；这个靶子两条都能满足，而且不碰任何生产服务。
 #
-# Usage:  extensions/ocrc-remote/scripts/spike-multi-forward.sh --target user@host[:port]
+# Usage:  extensions/ocrc/scripts/spike-multi-forward.sh --target user@host[:port]
 set -euo pipefail
 
 TARGET=""
@@ -71,7 +71,7 @@ else
 fi
 
 say "2. 起服务（面板侧），档案里带一条转发：127.0.0.1:<动态> → 被控机 127.0.0.1:$TARGET_PORT"
-OCRC_CONNECT_PROFILES="$WS/profiles.json" OCRC_CACHE_DIR="$WS/cache" \
+OCRC_PROFILES="$WS/profiles.json" OCRC_CACHE_DIR="$WS/cache" \
 OPENCHAMBER_SERVICE_PORT=$PORT OPENCHAMBER_SERVICE_TOKEN=$TOK \
   node service/main.js > "$WS/service.log" 2>&1 &
 SRV_PID=$!

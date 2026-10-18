@@ -24,7 +24,7 @@ jobs:
       - name: Install (plugin + extensions)
         run: |
           npm ci
-          npm --prefix extensions/ocrc-remote ci
+          npm --prefix extensions/ocrc ci
           npm --prefix extensions/ocrc-omo-view ci
 
       # src/ imports the vendored workflow engine from vendor/zcode-dwf/dist,
@@ -58,9 +58,9 @@ jobs:
 
       - name: Typecheck + test + build (extensions)
         run: |
-          npm --prefix extensions/ocrc-remote run typecheck
-          npm --prefix extensions/ocrc-remote test
-          npm --prefix extensions/ocrc-remote run build
+          npm --prefix extensions/ocrc run typecheck
+          npm --prefix extensions/ocrc test
+          npm --prefix extensions/ocrc run build
           npm --prefix extensions/ocrc-omo-view run typecheck
           npm --prefix extensions/ocrc-omo-view test
           npm --prefix extensions/ocrc-omo-view run build
@@ -70,7 +70,7 @@ jobs:
       # fails if the committed shape drifted from source.
       - name: Extension dist consistency (staged artifacts match src)
         run: |
-          git diff --exit-code -- extensions/ocrc-remote/panel extensions/ocrc-remote/status extensions/ocrc-remote/service extensions/ocrc-remote/shared
+          git diff --exit-code -- extensions/ocrc/panel extensions/ocrc/status extensions/ocrc/service extensions/ocrc/shared
           git diff --exit-code -- extensions/ocrc-omo-view/panel extensions/ocrc-omo-view/service extensions/ocrc-omo-view/shared
           echo "extension artifacts in sync with src"
 
@@ -86,9 +86,9 @@ jobs:
       - name: Pack ocrc-extensions tarball
         run: |
           mkdir -p pack
-          cp -r extensions/ocrc-remote extensions/ocrc-omo-view pack/
+          cp -r extensions/ocrc extensions/ocrc-omo-view pack/
           rm -rf pack/*/src pack/*/node_modules pack/*/dist pack/*/tests
-          tar czf ocrc-extensions-${{ github.sha }}.tar.gz -C pack ocrc-remote ocrc-omo-view
+          tar czf ocrc-extensions-${{ github.sha }}.tar.gz -C pack ocrc ocrc-omo-view
 
       - name: Upload extension pack
         uses: actions/upload-artifact@v4

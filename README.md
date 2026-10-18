@@ -1,7 +1,7 @@
 # OCRC — remote control for opencode
 
 > **Current shape (2026-10-17):** the control side is the **openchamber desktop app**
-> (Win/Mac) with the **OCRC Remote** extension (`extensions/ocrc-remote`); the controlled
+> (Win/Mac) with the **OCRC Remote** extension (`extensions/ocrc`); the controlled
 > side runs a full openchamber instance provisioned from a CI compat pack. See
 > [AGENTS.md](AGENTS.md) and [docs/PRODUCT.md](docs/PRODUCT.md) for the current
 > architecture; the Telegram/Web sections below describe the earlier surfaces, which

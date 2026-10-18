@@ -1,17 +1,17 @@
-# ocrc-ext — publish the openchamber extension bundles as Release assets.
+# ocrc-extension — publish the openchamber extension bundles as Release assets.
 #
 # A fresh openchamber installs these by pasting a URL (Settings → Extensions
 # accepts a public https `.zip`; verified against 2.3.3's
 # server/lib/guests/install.js, which requires the path to end in `.zip`).
 #
 # Naming, and why:
-#   asset  ocrc-remote.zip / ocrc-omo-view.zip   constant — no version, no kind
+#   asset  ocrc.zip / ocrc-omo-view.zip   constant — no version, no kind
 #                                                token. The container says what
 #                                                it is (.zip = openchamber
 #                                                extension), the tag carries the
 #                                                version.
-#   tag    ocrc-remote-<version>                 immutable pin, created once
-#   tag    ocrc-remote-latest                    channel pointer, overwritten
+#   tag    ocrc-<version>                 immutable pin, created once
+#   tag    ocrc-latest                    channel pointer, overwritten
 #                                                on purpose so the install URL
 #                                                never has to change
 #
@@ -33,7 +33,7 @@
 # The branch is force-pushed every run; the version in the extension's
 # package.json is the update signal for both shapes.
 
-name: ocrc-ext
+name: ocrc-extension
 
 on:
   workflow_dispatch:
@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        ext: [ocrc-remote, ocrc-omo-view]
+        ext: [ocrc, ocrc-omo-view]
     steps:
       - uses: actions/checkout@v4
 
@@ -136,7 +136,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          for EXT in ocrc-remote ocrc-omo-view; do
+          for EXT in ocrc ocrc-omo-view; do
             VER="$(node -p "require('./extensions/$EXT/package.json').version")"
             PIN="$EXT-$VER"
             CHANNEL="$EXT-latest"
@@ -196,10 +196,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          git config user.name "ocrc-ext"
-          git config user.email "ocrc-ext@users.noreply.github.com"
-          for EXT in ocrc-remote ocrc-omo-view; do
-            BRANCH="ext-$EXT"
+          git config user.name "ocrc-extension"
+          git config user.email "ocrc-extension@users.noreply.github.com"
+          for EXT in ocrc ocrc-omo-view; do
+            BRANCH="$EXT"
             git subtree split --prefix="extensions/$EXT" -b "split-$EXT" HEAD >/dev/null
             git push --force "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" \
               "split-$EXT:refs/heads/$BRANCH"

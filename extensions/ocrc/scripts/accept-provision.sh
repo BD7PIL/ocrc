@@ -8,9 +8,9 @@
 # 服务本身在面板侧的临时 HOME 下起，绝不碰真实的 ~/.config/opencode。
 #
 # Usage:
-#   extensions/ocrc-remote/scripts/accept-provision.sh --target user@host[:port]
-#   extensions/ocrc-remote/scripts/accept-provision.sh --target user@host --with-install
-#   extensions/ocrc-remote/scripts/accept-provision.sh --target user@host --with-runtime
+#   extensions/ocrc/scripts/accept-provision.sh --target user@host[:port]
+#   extensions/ocrc/scripts/accept-provision.sh --target user@host --with-install
+#   extensions/ocrc/scripts/accept-provision.sh --target user@host --with-runtime
 #
 # --with-install 会把 fixture registry 的假工件真装进目标机的 ~/.opencode/bin
 # （并验证校验失败不动旧件、幂等重放、卸载）。它要求目标机能访问面板侧端口，
@@ -135,7 +135,7 @@ OCRC_ENGINE_VERSION=2.0.27 \
 OCRC_REGISTRY="http://$REGHOST:$REGPORT" \
 OCRC_CACHE_DIR="$CACHE_DIR" \
 OPENCHAMBER_SERVICE_PORT=$PORT OPENCHAMBER_SERVICE_TOKEN=$TOK \
-OCRC_CONNECT_PROFILES="$WS/profiles.json" \
+OCRC_PROFILES="$WS/profiles.json" \
   node service/main.js > "$WS/service.log" 2>&1 &
 SRV_PID=$!
 for _ in $(seq 1 20); do

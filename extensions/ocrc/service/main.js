@@ -7269,7 +7269,7 @@ function panelAuthPath(env = process.env) {
 import { connect as netConnect } from "node:net";
 var PORT = Number(process.env.OPENCHAMBER_SERVICE_PORT ?? 0);
 var TOKEN = process.env.OPENCHAMBER_SERVICE_TOKEN ?? "";
-var PROFILES_FILE = process.env.OCRC_CONNECT_PROFILES ?? join12(process.env.OPENCHAMBER_DATA_DIR ?? join12(homedir5(), ".config", "openchamber"), "ocrc-connect-profiles.json");
+var PROFILES_FILE = process.env.OCRC_PROFILES ?? join12(process.env.OPENCHAMBER_DATA_DIR ?? join12(homedir5(), ".config", "openchamber"), "ocrc-profiles.json");
 function loadProfiles() {
   try {
     const raw = JSON.parse(readFileSync8(PROFILES_FILE, "utf-8"));
@@ -8009,13 +8009,13 @@ var server = http3.createServer(async (req, res) => {
   }
 });
 if (process.env.OPENCHAMBER_SERVICE_PORT === void 0 || process.env.OPENCHAMBER_SERVICE_PORT === "") {
-  console.error("[ocrc-remote] OPENCHAMBER_SERVICE_PORT missing \u2014 not launched by openchamber?");
+  console.error("[ocrc] OPENCHAMBER_SERVICE_PORT missing \u2014 not launched by openchamber?");
   process.exit(1);
 }
 server.listen(PORT, "127.0.0.1", () => {
   const addr = server.address();
   const bound = addr && typeof addr !== "string" ? addr.port : PORT;
-  console.log(`[ocrc-remote] service listening on 127.0.0.1:${bound}`);
+  console.log(`[ocrc] service listening on 127.0.0.1:${bound}`);
   remoteManager.ensureAll();
 });
 var shuttingDown = false;

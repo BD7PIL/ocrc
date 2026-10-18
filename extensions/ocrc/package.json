@@ -1,21 +1,21 @@
 {
-  "name": "ocrc-remote",
-  "version": "0.8.2",
+  "name": "ocrc",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
-  "description": "OCRC Remote — provision and connect a remote openchamber instance on a controlled Linux host from openchamber",
+  "description": "OCRC — provision and connect a remote openchamber instance on a controlled Linux host from openchamber",
   "openchamber": {
     "apiVersion": 1,
     "contributes": {
       "panel": {
-        "id": "ocrc-remote",
-        "name": "OCRC Remote",
+        "id": "ocrc",
+        "name": "OCRC",
         "icon": "link",
         "entry": "panel/index.html"
       },
       "statusSection": {
         "entry": "status/index.html",
-        "title": "OCRC Remote",
+        "title": "OCRC",
         "height": 96,
         "defaultExpanded": true
       },

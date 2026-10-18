@@ -63,6 +63,6 @@ export async function callOcrcHost(
     signal: AbortSignal.timeout(opts.timeoutMs ?? 30_000),
   })
   const text = await res.text()
-  console.log(`[ocrc-remote] ${method} ${path} → ${res.status}`)
+  console.log(`[ocrc] ${method} ${path} → ${res.status}`)
   return { status: res.status, body: text || '{}' }
 }

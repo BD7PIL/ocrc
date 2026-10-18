@@ -76,7 +76,7 @@ export function appPackTierForGlibc(glibc?: string): AppPackTier {
 }
 
 /** The peer app pack. Named after what is inside it (openchamber), not after the
- *  extension that pushes it: `ocrc-remote` means the extension and only that.
+ *  extension that pushes it: `ocrc` means the extension and only that.
  *  The version stays in the file name because `OCRC_PACK_DIR` is a flat
  *  directory — an offline mirror holds several versions side by side, so the
  *  release tag cannot be the only version axis here. */

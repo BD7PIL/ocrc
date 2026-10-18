@@ -120,7 +120,7 @@ ocrc 的已保存 workflow 是一个机器级 store，没有可搬的文件。am
 > 上游同构参照是 ZCode 的 `detect → deploy → exec → 握手` 管线（被控端只需 sshd + POSIX sh + tar + 可写 `$HOME`）。
 
 - **全链落在面板侧扩展**（D2）：检测 → 取工件 → 推送/联网安装 → 写配置，四步都在
-  `extensions/ocrc-remote`。引擎侧 ocrc 的 provisioning 降为「已装 ocrc 的被控机」辅助路径——
+  `extensions/ocrc`。引擎侧 ocrc 的 provisioning 降为「已装 ocrc 的被控机」辅助路径——
   鸡生蛋：被控机连引擎都没有时，那边没有 ocrc 可驱动。
 - **自动程度固定为「检测全自动、安装与写配置一次显式确认」**（D3）：检测在连接时与手动刷新时自动跑；
   安装/写配置必须一次显式确认，可勾「此主机不再询问」。阶段 2/3 会往被控端装东西，这条门禁不得绕开。

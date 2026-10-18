@@ -5,7 +5,7 @@
 #   browse → read → edit-save(.bak) → diff → stage → commit → status clean
 #   plus the guards: 403 outside allowedRoots, 400 on `..` escapes.
 #
-# Usage: extensions/ocrc-remote/scripts/accept-workspace.sh [--allow-home-writes]
+# Usage: extensions/ocrc/scripts/accept-workspace.sh [--allow-home-writes]
 # Requires: local sshd reachable as $(id -un)@127.0.0.1 with BatchMode keys.
 #
 # --allow-home-writes：omo 那几步（[16]-[20]）会写**目标机 $HOME/.config/opencode/**
@@ -42,7 +42,7 @@ git -C "$ROOT" add -A
 git -C "$ROOT" commit -qm init
 
 OPENCHAMBER_SERVICE_PORT=$PORT OPENCHAMBER_SERVICE_TOKEN=$TOK \
-  OCRC_CONNECT_PROFILES="$WS/profiles.json" node service/main.js > "$LOG" 2>&1 &
+  OCRC_PROFILES="$WS/profiles.json" node service/main.js > "$LOG" 2>&1 &
 SRV_PID=$!
 for _ in $(seq 1 20); do
   curl -s -o /dev/null -H "Authorization: Bearer $TOK" "http://127.0.0.1:$PORT/health" && break
@@ -126,7 +126,7 @@ kill "$SRV_PID" 2>/dev/null || true
 mkdir -p "$WS/panel-cfg"
 echo '{"mcp":{"servers":{"acc":{"type":"local"}}},"agents":{"acc-agent":"md"}}' > "$WS/panel-cfg/opencode.json"
 OPENCHAMBER_SERVICE_PORT=$PORT OPENCHAMBER_SERVICE_TOKEN=$TOK \
-  OCRC_CONNECT_PROFILES="$WS/profiles.json" OPENCODE_CONFIG_DIR="$WS/panel-cfg" node service/main.js >> "$LOG" 2>&1 &
+  OCRC_PROFILES="$WS/profiles.json" OPENCODE_CONFIG_DIR="$WS/panel-cfg" node service/main.js >> "$LOG" 2>&1 &
 SRV_PID=$!
 for _ in $(seq 1 20); do curl -s -o /dev/null -H "Authorization: Bearer $TOK" "http://127.0.0.1:$PORT/health" && break; sleep 0.5; done
 req -X POST "http://127.0.0.1:$PORT/connect" -d '{"profileId":"acc"}' > /dev/null

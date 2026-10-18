@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — 名字收敛到 `ocrc`（2026-10-18）
+
+- 扩展改名 `ocrc-remote` → **`ocrc`**（目录 `extensions/ocrc`、`panel.id`、显示名、资产 `ocrc.zip`、tag `ocrc-<ver>` / `ocrc-latest`、镜像分支 `ocrc`；发布工作流改名 `ocrc-extension.yml`）。**旧安装（id `ocrc-remote`）要卸载重装**；裁决与代价见 `docs/decisions/2026-10-18-rename-to-ocrc.md`。
+- 删掉改名留下的空目录 `extensions/ocrc-connect/`；档案文件 `ocrc-connect-profiles.json` → `ocrc-profiles.json`（env `OCRC_PROFILES`）。
+- 扩展 0.9.0：面板收缩成一个功能（服务器列表），卡片固定三行、主动作随状态推进；状态区改每台一行只读读数；用户可见文案换成上游 zh-CN 词。
+- 扩展可以自更新了：发布时把扩展子树推到 `ocrc` 分支，用 `https://github.com/BD7PIL/ocrc#ocrc` 装即走上游的更新链路（zip 装法仍无自更新）。
+
 ## Unreleased — OCRC 收敛（2026-10-17）
 
 - 扩展 `ocrc-connect` 改名为 **`ocrc-remote`**（`panel.id` 同步；旧安装需卸载重装）。品牌写作 OCRC；CLI 命令与 npm 包名保持小写。

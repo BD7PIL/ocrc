@@ -41,7 +41,7 @@ async function startService(extraEnv: Record<string, string> = {}): Promise<void
       ...process.env,
       OPENCHAMBER_SERVICE_PORT: '0',
       OPENCHAMBER_SERVICE_TOKEN: TOK,
-      OCRC_CONNECT_PROFILES: join(ws, 'profiles.json'),
+      OCRC_PROFILES: join(ws, 'profiles.json'),
       // Keep the service-owned remote-instance store out of the real ~/.ocrc.
       OCRC_HOME: join(ws, 'ocrc-home'),
       ...extraEnv,

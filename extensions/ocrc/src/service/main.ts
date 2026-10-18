@@ -45,8 +45,8 @@ import { connect as netConnect } from 'node:net'
 
 const PORT = Number(process.env.OPENCHAMBER_SERVICE_PORT ?? 0)
 const TOKEN = process.env.OPENCHAMBER_SERVICE_TOKEN ?? ''
-const PROFILES_FILE = process.env.OCRC_CONNECT_PROFILES
-  ?? join(process.env.OPENCHAMBER_DATA_DIR ?? join(homedir(), '.config', 'openchamber'), 'ocrc-connect-profiles.json')
+const PROFILES_FILE = process.env.OCRC_PROFILES
+  ?? join(process.env.OPENCHAMBER_DATA_DIR ?? join(homedir(), '.config', 'openchamber'), 'ocrc-profiles.json')
 
 // Profiles mirror to disk so the service can auto-reconnect the last tunnel
 // after a panel-host restart without any panel interaction.
@@ -741,14 +741,14 @@ const server = http.createServer(async (req, res) => {
 
 // `0` 是合法请求（让内核挑一个空闲端口）：测试用它消除端口碰撞。缺变量才是错。
 if (process.env.OPENCHAMBER_SERVICE_PORT === undefined || process.env.OPENCHAMBER_SERVICE_PORT === '') {
-  console.error('[ocrc-remote] OPENCHAMBER_SERVICE_PORT missing — not launched by openchamber?')
+  console.error('[ocrc] OPENCHAMBER_SERVICE_PORT missing — not launched by openchamber?')
   process.exit(1)
 }
 server.listen(PORT, '127.0.0.1', () => {
   // 报**实际**绑定端口（PORT=0 时就是内核给的那个）：调用方/测试据此决定打哪里。
   const addr = server.address()
   const bound = addr && typeof addr !== 'string' ? addr.port : PORT
-  console.log(`[ocrc-remote] service listening on 127.0.0.1:${bound}`)
+  console.log(`[ocrc] service listening on 127.0.0.1:${bound}`)
   // Restore remote instances in the background; the UI tunnel belongs to the
   // desktop shell, so this only starts the far-side servers and the relay leg.
   remoteManager.ensureAll()

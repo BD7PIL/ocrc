@@ -198,6 +198,10 @@ describe('远程服务器卡片', () => {
 
     await act(async () => { screen.getByText('复制链接').click() })
     await waitFor(() => expect(clipboard).toContain(LINK))
+    // 宿主对 open-url 只放行 http(s)，深链点不动——所以卡片里没有"在 app 里打开"，
+    // 改说清去哪里粘（app 的服务器列表 →「导入链接」）。
+    expect(screen.queryByText('在 app 里打开')).toBeNull()
+    expect(screen.getAllByText(/导入链接/).length).toBeGreaterThan(0)
 
     await act(async () => { screen.getByText('重新创建').click() })
     await waitFor(() => expect(calls.filter((c) => (c.body as { op?: string })?.op === 'pairlink')).toHaveLength(2))

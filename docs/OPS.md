@@ -17,7 +17,7 @@ ocrc remote add --host 192.0.2.10 --user user --ssh-auth key
 Linux x86_64（EL7 / glibc 2.17 是支持下限）。面板扩展的安装与升级见下面「装扩展」一节。
 从源码跑：`npm install && npm run build`，CLI 入口 `node dist/cli/index.js`。
 
-## 远程 openchamber 实例（2.0.0-alpha.12，「对端能力」）
+## 远程 openchamber 实例（2.0.0-alpha.13，「对端能力」）
 
 在被控端跑一个 openchamber 实例，控制端只建转发并打开它——Add project 列的、中栏连的就是对端。
 契约见 [PRODUCT 第零点十条](PRODUCT.md)，设计/证据见

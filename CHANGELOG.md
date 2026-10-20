@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.0-alpha.13 — 组件 pin 跟到已发布版本（2026-10-20）
+
+- `ops/components.json`：reeve `0.1.3`、opencode-deep-memory `0.16.4`（两个包都已由各自 CI 带 provenance 发布）。`--with-components` 的默认取件版本随之更新。
+- 无代码变化；alpha.12 的 bootstrap / 配置去重 / OSS 内容不变。
+
 ## 2.0.0-alpha.12 — 一条命令接管（bootstrap）+ 组件插件去重（2026-10-20）
 
 - **`ocrc remote bootstrap`**：把 `记录 → plan → apply → sync-auth → sync-config → up → pairlink` 串成一条。核心在 `src/core/remote-instance-bootstrap.ts`，CLI 只负责参数、一次确认和汇总。

@@ -40,6 +40,7 @@ export const PEER_AUTH_PATH = '$HOME/.local/share/opencode/auth.json'
 export const INSTANCE_SYNC_ENTRIES = [
   'opencode.json', 'opencode.jsonc', 'AGENTS.md', 'CLAUDE.md',
   'command', 'agent', 'skill', 'agents', 'skills', 'oh-my-opencode-slim.json',
+  'reeve.jsonc',
 ] as const
 
 const CONFIG_CANDIDATES = ['opencode.json', 'opencode.jsonc'] as const
@@ -267,7 +268,11 @@ export interface SyncPlan {
   /** The merged document, ready to serialize. */
   merged?: Record<string, unknown>
   configChanged: boolean
-  /** `plugins`/`plugin` dropped because the peer's own openchamber owns them. */
+  /** The v1 `plugin` key, preserved from the peer (openchamber owns it). */
+  preservedPluginKey: boolean
+  /** v2 `plugins` entries ocrc is responsible for (from component manifests). */
+  managedPlugins: string[]
+  /** Legacy: keys dropped because a peer-owned layer manages them. */
   droppedManagedKeys: string[]
   /** Literal secrets replaced by `{env:VAR}` (MCP environment only). */
   secretsReplaced: Array<{ path: string; env: string }>
@@ -387,6 +392,8 @@ export function planConfigSync(
     /** `provider:acc-provider` / `mcp.servers:acc` — explicit config-key removals. */
     keyDeletes?: readonly string[]
     providerBaseUrl?: Record<string, string>
+    /** v2 `plugins` entries required by the components being installed. */
+    componentPlugins?: readonly string[]
     diff?: ConfigDiff
     /** Write the commented override layer anyway (comments are lost). Off by
      *  default: that file is the user's, and its comments are documentation. */
@@ -406,6 +413,8 @@ export function planConfigSync(
     basename,
     files: [],
     configChanged: false,
+    preservedPluginKey: false,
+    managedPlugins: [...(opts.componentPlugins ?? [])],
     droppedManagedKeys: [],
     secretsReplaced: [],
     deletes: [...(opts.deletes ?? [])].filter((rel) => diff.peerOnly.includes(rel)),
@@ -454,15 +463,26 @@ export function planConfigSync(
       const missed = plan.keyDeletes.requested.filter((spec) => !applied.removed.includes(spec))
       if (missed.length > 0) notes.push(`以下删除请求没有对应项（已忽略）：${missed.join('、')}`)
     }
-    // The peer's own openchamber owns `plugins` (managed layer). Dropping it here
-    // is the difference between "our sync has nothing to say about plugins" and
-    // "our sync silently fought the instance".
-    const managed = new Set<string>()
-    for (const key of ['plugins', 'plugin'] as const) {
-      if (key in merged) { delete merged[key]; managed.add(key) }
-    }
-    plan.droppedManagedKeys = [...managed]
-    if (managed.size > 0) notes.push(`已丢弃 ${[...managed].join('/')}：对端自己的 openchamber 用 opencode.managed.json 管插件层`)
+    // v1 `plugin` belongs to the peer's own openchamber: never push our local
+    // value; carry the peer's through untouched.
+    plan.preservedPluginKey = 'plugin' in peer.effective
+    if (plan.preservedPluginKey) merged.plugin = peer.effective.plugin
+    else delete merged.plugin
+    // v2 `plugins` merges as a UNION across config layers — verified on a real
+    // v2.0.32 engine: two documents each contributed an entry and both loaded.
+    // So this key is merged (peer + local + component-declared), never dropped.
+    const asStrings = (v: unknown): string[] =>
+      Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+    const plugins = [...new Set([
+      ...asStrings(peer.effective.plugins),
+      ...asStrings(local.effective.plugins),
+      ...(opts.componentPlugins ?? []),
+    ])]
+    if (plugins.length > 0) merged.plugins = plugins
+    else delete merged.plugins
+    plan.managedPlugins = [...(opts.componentPlugins ?? [])]
+    if (plan.preservedPluginKey) notes.push('对端的 v1 plugin 键由它自己的 openchamber 管理，原样保留')
+    if (plan.managedPlugins.length > 0) notes.push(`组件插件条目：${plan.managedPlugins.join('、')}`)
     plan.merged = merged
     plan.configChanged = hasChanges(peer.effective, merged)
     if (plan.configChanged) plan.files.unshift(plan.basename)
@@ -474,7 +494,7 @@ export function planConfigSync(
         // Keys we deliberately do not write (the managed plugin layer) are not
         // "shadowed" — naming them would send the user after a non-issue.
         plan.shadowed = findShadowedKeys(jsoncLayer?.parsed ?? {}, merged)
-          .filter((key) => !plan.droppedManagedKeys.includes(key.split('.')[0]!))
+          .filter((key) => key.split('.')[0] !== 'plugin' && key.split('.')[0] !== 'plugins')
         notes.push(`对端 ${peer.targetBasename} 有注释，不重写它（注释是你的文档）；本次写 opencode.json`)
         if (plan.shadowed.length > 0) {
           notes.push(`以下键会被对端 ${peer.targetBasename} 的现值覆盖，同步后不生效：${plan.shadowed.join('、')}——更新或删掉那个文件才生效`)

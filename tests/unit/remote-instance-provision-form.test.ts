@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildPeerPortProbeCommand, parsePortProbe, provisionActions } from '../../src/core/remote-instance.js'
+import { buildPeerPortProbeCommand, parsePortProbe, provisionActions, DEFAULT_ENGINE_PIN } from '../../src/core/remote-instance.js'
 import { createRemoteInstancesStore } from '../../src/core/remote-instances.js'
 
 /**
@@ -21,7 +21,7 @@ describe('provisionActions', () => {
     const lines = provisionActions({ provision: 'push', targetAppVersion: '2.3.3', engineOk: false })
     expect(lines.join('\n')).toContain('推送运行时 node')
     expect(lines.join('\n')).toContain('推送 OpenChamber 2.3.3')
-    expect(lines.join('\n')).toContain('OpenCode 2.0.27')
+    expect(lines.join('\n')).toContain(`OpenCode ${DEFAULT_ENGINE_PIN}`)
   })
 
   it('push mode says when nothing would be written', () => {
@@ -76,7 +76,7 @@ describe('the form fields survive the store', () => {
     try {
       const path = join(dir, 'remote-instances.json')
       const store = createRemoteInstancesStore(path, { flushOnExit: false })
-      const saved = store.upsert({ host: 'peer', user: 'demo', provision: 'reuse', egress: 'direct' })
+      const saved = store.upsert({ host: 'peer', user: 'user', provision: 'reuse', egress: 'direct' })
       expect(saved.provision).toBe('reuse')
       expect(saved.egress).toBe('direct')
       store.flush()

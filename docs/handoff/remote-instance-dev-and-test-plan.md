@@ -146,9 +146,9 @@
 3. `npm install -g --prefix ~/.ocrc/remote/openchamber/2.3.3 @openchamber/web@2.3.3`。
 4. 启动：`<runtime>/bin/node <prefix>/lib/node_modules/@openchamber/web/bin/cli.js serve --hostname 127.0.0.1 --port 2610`，
    `OPENCODE_BINARY=<pin 的 v2 绝对路径>`（**显式路径，不靠 PATH**；默认取被测机上的 v2.0.27，若已按 0 步部署则取我们自己的那份）；日志落 `~/.ocrc/remote/instance-2610.log`。
-5. 控制端建转发：`ssh -N -L 127.0.0.1:4610:127.0.0.1:2610 demo@192.168.26.101`（本地端口避开用户既有隧道 4096）。
+5. 控制端建转发：`ssh -N -L 127.0.0.1:4610:127.0.0.1:2610 user@192.0.2.10`（本地端口避开用户既有隧道 4096）。
 6. 探活：`curl -s http://127.0.0.1:4610/health`、`/api/version`（应含 `capabilities` 与 `compatibility`）、`/api/system/info`（应含 `openchamberVersion: 2.3.3`），并确认实例实际使用的引擎版本 ≥2.0.20。
-7. **交给用户验收**：浏览器打开 `http://127.0.0.1:4610`（**这就是 openchamber 的 UI**）→ Add project 应列出 **EL7** 的目录（如 `/home/demo`）→ 选中 `/home/demo/develop/ate` 建项目 → 中栏发一句话 → 在 EL7 上对应引擎的 `/api/session` 能看到会话。
+7. **交给用户验收**：浏览器打开 `http://127.0.0.1:4610`（**这就是 openchamber 的 UI**）→ Add project 应列出 **EL7** 的目录（如 `/home/user`）→ 选中 `/home/user/develop/ate` 建项目 → 中栏发一句话 → 在 EL7 上对应引擎的 `/api/session` 能看到会话。
 
 ### P2 离线闭环（R6 的"装机"那一半）（0.5 天）
 1. 控制端取件 + 缓存 + 校验（`provision.ts`/`push.ts`）。
@@ -189,12 +189,12 @@ PRODUCT 第零点十条、OPS 运维段、handoff 验收脚本说明；跑 §5 �
 | P1-2 | 解包 | `~/.ocrc/remote/runtime/node-v24.22.0/bin/node --version` → **v24.22.0**；npm 11.19.1；217 MB |
 | P1-3 | 装应用 | `npm install -g --prefix ~/.ocrc/remote/openchamber/2.3.3 @openchamber/web@2.3.3`；`cli.js --version` → **2.3.3**；142 个依赖 |
 | P1-4 | 启动实例 | `serve --hostname 127.0.0.1 --port 2610`（`OPENCODE_BINARY` 显式 pin v2.0.27、`OPENCHAMBER_UI_PASSWORD`、`OPENCHAMBER_RELAY_HOST=off`）；`/health` → **200**；实例 **PID 40447** |
-| P1-4b | 实例自拉引擎 | 日志：`Launching managed server { sourceBinary: '/home/demo/.ocrc-accept/package/bin/opencode', args: ['serve','--hostname','127.0.0.1','--port','36273'] }` → `Detected OpenCode port: 36273`（**未碰用户 4096 上的引擎**） |
-| P1-4c | 引擎兼容性（R12 的产品内体现） | `GET /api/opencode/compatibility` → `{"state":"compatible","version":"2.0.27","installation":"managed","binary":"/home/demo/.ocrc-accept/package/bin/opencode","minimumVersion":"2.0.20"}` |
-| P1-5 | 控制端转发 | `ssh -N -L 127.0.0.1:4610:127.0.0.1:2610 demo@192.168.26.101`；本机 `4610` LISTENING |
+| P1-4b | 实例自拉引擎 | 日志：`Launching managed server { sourceBinary: '/home/user/.ocrc-accept/package/bin/opencode', args: ['serve','--hostname','127.0.0.1','--port','36273'] }` → `Detected OpenCode port: 36273`（**未碰用户 4096 上的引擎**） |
+| P1-4c | 引擎兼容性（R12 的产品内体现） | `GET /api/opencode/compatibility` → `{"state":"compatible","version":"2.0.27","installation":"managed","binary":"/home/user/.ocrc-accept/package/bin/opencode","minimumVersion":"2.0.20"}` |
+| P1-5 | 控制端转发 | `ssh -N -L 127.0.0.1:4610:127.0.0.1:2610 user@192.0.2.10`；本机 `4610` LISTENING |
 | P1-6 | 经转发探活 | `/api/version` → `openchamberVersion 2.3.3`、能力含 **`api.runtime-url.v1`**；`/health` 200；`/` 200（UI 在 serve） |
-| **B1 服务端证据** | 目录来源 = 对端 | 登录 `POST /auth/session` → `{"authenticated":true}`（cookie `oc_ui_session_4610`）；`GET /api/fs/home` → `{"home":"/home/demo"}`；`GET /api/fs/list?path=/home/demo` → **对端家目录条目**（`.TDC_Viewer`、`.Xauthority`、`.agents`、`.bash_history`…） |
-| **B2 服务端证据** | 引擎 = 对端 v2 | `GET /api/session` → 真实会话（`location.directory: /home/demo/develop/opencode-plugin/ocrc`，标题如 `e2-baseline`） |
+| **B1 服务端证据** | 目录来源 = 对端 | 登录 `POST /auth/session` → `{"authenticated":true}`（cookie `oc_ui_session_4610`）；`GET /api/fs/home` → `{"home":"/home/user"}`；`GET /api/fs/list?path=/home/user` → **对端家目录条目**（`.TDC_Viewer`、`.Xauthority`、`.agents`、`.bash_history`…） |
+| **B2 服务端证据** | 引擎 = 对端 v2 | `GET /api/session` → 真实会话（`location.directory: /home/user/develop/opencode-plugin/ocrc`，标题如 `e2-baseline`） |
 | 待用户 | B1/B2 的界面确认 | 见 §6 B1/B2（浏览器打开 `http://127.0.0.1:4610`） |
 
 **副作用与披露（P1 期间新增，全部可撤）**：
@@ -217,8 +217,8 @@ PRODUCT 第零点十条、OPS 运维段、handoff 验收脚本说明；跑 §5 �
 | P2-4 | **零联网（结构性）** | `ocrc remote offline-proof`：6 个远程脚本（runtime/app/engine 的 probe+push）零联网命令（curl/wget/npm/git/… 一个不留） |
 | P2-5 | **零外联（实测）** | 毒代理 env（`http(s)_proxy=http://127.0.0.1:1`、`no_proxy=127.0.0.1,localhost`）下重装三件全过；`strace -f -e trace=connect` 三份输出经 `ocrc remote trace-check` 判定：**0 次非回环 connect()**（只有 nscd/sss 的 AF_UNIX 探测） |
 | P2-6 | 毒代理有效性对照 | 同一环境不加 guard：`registry.npmjs.org` → 200；加 guard → **000**（curl exit 7）。没有这一步，「毒代理下装成功」不成立 |
-| P2-7 | 启动与门禁 | `ocrc remote up` → `online（openchamber 2.3.3，引擎 2.0.27 @ /home/demo/.ocrc/remote/engine/opencode）`；实例自报 `state=compatible`（R12 ③ 用**实例自报的 binary+version**，不是我们「请求它用」的） |
-| P2-8 | 验收脚本 | `bash scripts/accept-remote-instance.sh --target demo@192.168.26.101 --offline-proof` 全绿（[1]–[10]；B1 `/home/demo` 条目来自对端、B2 `/api/session` 50 条来自对端引擎） |
+| P2-7 | 启动与门禁 | `ocrc remote up` → `online（openchamber 2.3.3，引擎 2.0.27 @ /home/user/.ocrc/remote/engine/opencode）`；实例自报 `state=compatible`（R12 ③ 用**实例自报的 binary+version**，不是我们「请求它用」的） |
+| P2-8 | 验收脚本 | `bash scripts/accept-remote-instance.sh --target user@192.0.2.10 --offline-proof` 全绿（[1]–[10]；B1 `/home/user` 条目来自对端、B2 `/api/session` 50 条来自对端引擎） |
 | P2-9 | 无副作用 | 用户既有 `~/.local/bin/opencode` 1.18.32 md5 未变；4096 上的生产引擎未碰 |
 
 **诚实标注**：对端无 root（`sudo -n` 要求密码），**无法 iptables 真断网**，故离线证据 = ①脚本零联网（结构性，单测 + 脚本双断言）②毒代理下实跑（含有效性对照）③strace 零非回环 connect。三者叠加等价于「装机路径没有网络依赖」，但与「内核层断网」仍不是同一件事，如实记在此处。
@@ -261,7 +261,7 @@ PRODUCT 第零点十条、OPS 运维段、handoff 验收脚本说明；跑 §5 �
 
 **机制**（`core/remote-instance-bridge.ts` + `core/remote-instances.ts`）：转发进程带 keepalive（`ServerAliveInterval=15/CountMax=3`），异常退出按 `nextRetryDelay` 退避重连（2s→4s→…→60s）；`ensureAll()` 按持久化档案做启动自恢复；三个开关（`reconnect` / `restoreOnStart` / `replayQueued`，默认 **开/开/关**）落在 `~/.ocrc/remote-instances.json`。新增 `ocrc remote switches <id>`（看/改）与 `ocrc remote supervise`（前台监督，无面板机器用；面板宿主 `ocrc start` 里是同一份实现）。**隧道拥有权分两档**：CLI 的 `up` 用 detached（隧道必须比命令活得久），面板/`supervise` 用受监督（进程内、可重连）。
 
-| # | 证据（真机 `demo@192.168.26.101`） | 结果 |
+| # | 证据（真机 `user@192.0.2.10`） | 结果 |
 |---|---|---|
 | P4-1 | ① 重连 **开**：杀掉隧道进程 | `state=offline — 转发断开，2s 后重连（第 1 次）` → 3 s 后 `$ ssh … -L …:4610 … -R …:2711` → `state=online — 转发已恢复（2.3.3）`；4610 重新 LISTENING |
 | P4-2 | ① 重连 **关**（**运行中**由另一个进程 `remote switches --reconnect off` 改） | `state=offline — 转发退出（reconnect 关）：exit 4294967295`，20 s 内 4610 一直空——**不重连** |
@@ -307,7 +307,7 @@ PRODUCT 第零点十条、OPS 运维段、handoff 验收脚本说明；跑 §5 �
 证据（对端 RHEL 7.9 / glibc 2.17，node-pty 1.2.0-beta.15）：
 
 - 重建产物 396 KB，**GLIBC 上限 2.14、GLIBCXX/CXXABI 引用 0**（静态链接）。
-- `require('node-pty')` → `pty.spawn('/bin/bash', …)` 真起 PTY：输出 `PTY_OK`、`/dev/pts/0`、用户 `demo`，退出码 0。
+- `require('node-pty')` → `pty.spawn('/bin/bash', …)` 真起 PTY：输出 `PTY_OK`、`/dev/pts/0`、用户 `user`，退出码 0。
 - 服务端端到端：`POST /api/terminal/create`（经 4610 转发、带登录 cookie）返回
   `{"status":"running","mode":"interactive"}`，`GET /api/terminal/sessions` 可见该会话，`DELETE` 返回 `{"success":true}`。
 - `--rollback` 还原官方 prebuild 后 `--verify` 如实失败：`符号上限 GLIBC_2.28；GLIBCXX/CXXABI 引用 26`。
@@ -379,11 +379,11 @@ PRODUCT 第零点十条、OPS 运维段、handoff 验收脚本说明；跑 §5 �
 
 **实测（Windows 桌面版 2.4.0 ↔ RHEL7 自装 2.3.3）**
 - 桌面版 per-user 安装（`OpenChamber-2.4.0-win-x64.exe /S`），读取 `~/.config/openchamber/settings.json`。
-- `desktopSshInstances` 写一条：`sshCommand=ssh demo@192.168.26.101`、`remoteOpenchamber.mode=external`、
+- `desktopSshInstances` 写一条：`sshCommand=ssh user@192.0.2.10`、`remoteOpenchamber.mode=external`、
   `preferredPort=2610`、`bindHost=127.0.0.1`；`desktopDefaultHostId` 指向它。
-- 启动后桌面壳自己 spawn：`ssh ... -N -L 127.0.0.1:65410:127.0.0.1:2610 demo@192.168.26.101`。
+- 启动后桌面壳自己 spawn：`ssh ... -N -L 127.0.0.1:65410:127.0.0.1:2610 user@192.0.2.10`。
 - 通过这条隧道：`/api/system/info` → `openchamberVersion 2.3.3, pid 6357`（对端进程）；
-  `/api/fs/list?path=/home/demo` → 对端目录；`/api/session` → 对端引擎会话（含之前的 `pong`，location `/home/demo`）。
+  `/api/fs/list?path=/home/user` → 对端目录；`/api/session` → 对端引擎会话（含之前的 `pong`，location `/home/user`）。
 - external 模式**不安装、不接管**远端服务；版本不等只影响提示，不阻断（只要求 major=2 + `api.runtime-url.v1`）。
 
 **结论修正**：官方 remote 是可行主路之一，不是只能靠浏览器转发。`ocrc remote connect` 仍不自动写列表
@@ -448,10 +448,10 @@ fetch/img/font/style/media，**从不放宽 frame-src**。即使绕过这一层�
 
 ```bash
 # 本轮（P1 手工装机之后）：显式 pin 引擎路径跑一遍
-bash scripts/accept-remote-instance.sh --target demo@192.168.26.101 \
-  --engine-path /home/demo/.ocrc-accept/package/bin/opencode
+bash scripts/accept-remote-instance.sh --target user@192.0.2.10 \
+  --engine-path /home/user/.ocrc-accept/package/bin/opencode
 # 卸载：停实例（保运行时） / 连 ~/.ocrc/remote 一起清
-bash scripts/accept-remote-instance.sh --target demo@192.168.26.101 --teardown [--purge]
+bash scripts/accept-remote-instance.sh --target user@192.0.2.10 --teardown [--purge]
 ```
 
 覆盖：ssh 与既有资产基线 → 运行时/应用版本 → **引擎 v2 门禁（v1 存在但未被选中）** → 实例 `/health` →
@@ -484,7 +484,7 @@ bash scripts/accept-remote-instance.sh --target demo@192.168.26.101 --teardown [
 - [ ] A6 面板/状态里能看到实例所用引擎的**版本 + 来源绝对路径**（≥2.0.20 且 major=2）
 
 **B. 能力条款（本方案的核心）**
-- [ ] B1 **Add project**：浏览器打开转发 URL → 目录浏览器列出的是 **EL7 的目录**（能进 `/home/demo`）→ 选中 `/home/demo/develop/ate` 成功建项目；Files/Git 显示对端内容
+- [ ] B1 **Add project**：浏览器打开转发 URL → 目录浏览器列出的是 **EL7 的目录**（能进 `/home/user`）→ 选中 `/home/user/develop/ate` 成功建项目；Files/Git 显示对端内容
 - [ ] B2 **中栏对端引擎**：在该项目里发一句话 → 在 EL7 上对应引擎的 `/api/session` 能看到这条会话；模型为对端所配
 
 **C. R6 / R10**

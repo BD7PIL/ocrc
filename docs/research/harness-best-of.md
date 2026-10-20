@@ -18,7 +18,7 @@
 |---|---|---|---|
 | 1 | `docs/PRODUCT.md:157-164` | 参照系：六家吸收清单（ZCode / dsh / opencode web / OpenCode-Client / grinev / anomalyco opencode） | ✅ |
 | 2 | `docs/PRODUCT.md:15` + `docs/ARCHITECTURE.md:74-82` | HarnessAdapter seam：opencode 1.18 首个适配器；opencode V2、**omp（原生 ACP）/ pi（经第三方桥 pi-acp）/ gjc** 为后续适配目标（2026-10-12 改判，原裸名「pi」） | ✅ |
-| 3 | `/home/demo/OCWF/docs/ocrc-fork-development-plan.md:44-56` | 参考三角（OCRC fork / zcode bots / dsh-remote-web-ui）+ OmO 迁移闸门 | ❌ **外部本地库**（不在本仓库） |
+| 3 | `/home/user/OCWF/docs/ocrc-fork-development-plan.md:44-56` | 参考三角（OCRC fork / zcode bots / dsh-remote-web-ui）+ OmO 迁移闸门 | ❌ **外部本地库**（不在本仓库） |
 | 4 | `docs/next-phase.md:14-15` | OmO 上游已迁 senpi 自有引擎（v5.1.x 全系） | ✅ |
 | 5 | `NOTICE:20-28` + `web-next/src/styles/theme.css:12` + commit `66ddc0fb` | 落地证据（归属声明 / 寄存器出处 / 最早移植提交） | ✅ |
 

@@ -43,7 +43,7 @@ describe('CONNECT 目标解析', () => {
     expect(isLocalTarget('::1')).toBe(true)
     expect(isLocalTarget('[::1]')).toBe(true)
     expect(isLocalTarget('0.0.0.0')).toBe(true)
-    expect(isLocalTarget('192.168.26.101')).toBe(false)
+    expect(isLocalTarget('192.0.2.10')).toBe(false)
     expect(isLocalTarget('api.anthropic.com')).toBe(false)
   })
 

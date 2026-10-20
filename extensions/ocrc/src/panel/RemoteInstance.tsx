@@ -379,7 +379,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
               <KitField label="服务器名称" value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder="EL7 box（留空则用 用户@主机）" />
             </div>
             <div className="oc-form-cell">
-              <KitField label="主机" value={form.host} mono onChange={(v) => setForm({ ...form, host: v })} placeholder="192.168.26.101 或主机名" />
+              <KitField label="主机" value={form.host} mono onChange={(v) => setForm({ ...form, host: v })} placeholder="192.0.2.10 或主机名" />
             </div>
             <div className="oc-form-cell">
               <KitField label="SSH 端口" value={form.port} mono onChange={(v) => setForm({ ...form, port: v })} />

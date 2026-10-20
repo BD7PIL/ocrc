@@ -39,7 +39,7 @@ guest 帧吃宿主的主题令牌、用宿主的组件套件，视觉语言与�
 | 类型 | `npm run typecheck` + `tsc -p tsconfig.service.json` | 绿 |
 | guest 产物不变量 | `node scripts/check-guest-bundles.mjs` | 3 个 bundle：无 `process.env`、有主题桥、无 `window.prompt`；两份共享层逐字节一致 |
 | CDP 视觉对照 | `node scripts/cdp/guest-ui.mjs` | **48/48**；真 Edge + 真 `sandbox="allow-scripts"` iframe，明暗两套主题各截一张（`/tmp/ocrc-guest-ui/`） |
-| provisioning 验收（真机） | `extensions/ocrc-remote/scripts/accept-provision.sh --target demo@192.168.26.101` | **全过**：探测 RHEL 7.9 / glibc 2.17 → 四档就绪 → 规划（`@opencode/cli-linux-x64@2.0.27` via remote）→ 确认门禁 → 项目级配置写入（密钥改写为 `{env:…}`）→ **全局层 md5 未变** → 幂等 → 粘性合并 → 转发落地 |
+| provisioning 验收（真机） | `extensions/ocrc-remote/scripts/accept-provision.sh --target user@192.0.2.10` | **全过**：探测 RHEL 7.9 / glibc 2.17 → 四档就绪 → 规划（`@opencode/cli-linux-x64@2.0.27` via remote）→ 确认门禁 → 项目级配置写入（密钥改写为 `{env:…}`）→ **全局层 md5 未变** → 幂等 → 粘性合并 → 转发落地 |
 | 安装脚本本体 | 本地起 sh 跑一遍生成的脚本 | 校验 → 解包 → 验版本 → 落盘 → marker 记 sha512；篡改则拒绝且不动旧件 |
 
 **安装段（真把工件装进被控端 `~/.opencode/bin`）默认不跑**，需要 `--with-install` 且只对一次性容器或
@@ -123,7 +123,7 @@ guest 帧吃宿主的主题令牌、用宿主的组件套件，视觉语言与�
 | 类型 | `npx tsc --noEmit` + `tsc -p tsconfig.service.json` | 绿 |
 | guest 产物不变量 | `node scripts/check-guest-bundles.mjs` | 3 bundle / 3 共享文件逐字节一致；**新增清单门禁**：用 SDK 自己的 `parseManifest` 解析 `package.json`（命令名、能力名、入口路径），并钉住「不许有 `contributes.background`」（它会把命令解析抢给隐藏帧）——两条都做过反向验证 |
 | CDP 视觉与动线 | `node scripts/cdp/guest-ui.mjs` | **57/57**：多出「`/ocrc-host` 真解析成 chip」「chip 五字段与机器可读 data」「按钮真建会话（`start-session` 被宿主收到）」 |
-| provisioning 全链验收（真机） | `extensions/ocrc-remote/scripts/accept-provision.sh --target demo@192.168.26.101 --with-install --with-runtime --registry-host 192.168.26.1` | **1–24 步全过**：探测 RHEL 7.9 / glibc 2.17 / node v20.20.2 / npm 10.8.2 → 规划 → 确认门禁 → 项目级配置（密钥改写、全局 md5 未变）→ 幂等 → 粘性合并 → 转发 → **引擎真装（remote 取件）** → **换过字节的工件被拒且旧件未动** → 卸载 → **运行时真装（`npm install` 落到 `~/.ocrc/runtime/ocrc-accept-runtime/1.0.0`，入口 = 包自己的 `.bin` 垫片）** → 幂等短路 → 重盘变 `present` → **npx 改写写进项目配置** → 不存在的包如实报 npm 的错误且不留残渣 → 移除只删我们的槽位 |
+| provisioning 全链验收（真机） | `extensions/ocrc-remote/scripts/accept-provision.sh --target user@192.0.2.10 --with-install --with-runtime --registry-host 192.0.2.1` | **1–24 步全过**：探测 RHEL 7.9 / glibc 2.17 / node v20.20.2 / npm 10.8.2 → 规划 → 确认门禁 → 项目级配置（密钥改写、全局 md5 未变）→ 幂等 → 粘性合并 → 转发 → **引擎真装（remote 取件）** → **换过字节的工件被拒且旧件未动** → 卸载 → **运行时真装（`npm install` 落到 `~/.ocrc/runtime/ocrc-accept-runtime/1.0.0`，入口 = 包自己的 `.bin` 垫片）** → 幂等短路 → 重盘变 `present` → **npx 改写写进项目配置** → 不存在的包如实报 npm 的错误且不留残渣 → 移除只删我们的槽位 |
 
 **这一轮新增的验收开关**：`--with-runtime`（在被控端真跑一次 `npm install`）、
 `--registry-host`（远程靶机时 fixture registry 绑定的面板侧地址；loopback 靶机用默认值）。
@@ -156,7 +156,7 @@ guest 帧吃宿主的主题令牌、用宿主的组件套件，视觉语言与�
 | **air-gap 的运行时推送**（面板缓存 tarball → 推给不出网的被控端） | 引擎工件那条推送路已经跑通（`provision.ts` 的 upload 段可复用），但运行时的入口解析、marker 与「npm 在别处装出来的树」之间还差一层验证。本轮**如实报「装不了」**（`impossible`，理由写「不出网」），不静默降级。 |
 | **非 npm 形态的运行时**（`uv`/`pipx`/二进制分发） | 只做 npm 一种，其余形态在能力清单里如实显示（`kind: path` → 存在即用，不存在就报「ocrc 只装 npm 形态」）。 |
 | 全屏 `contributes.page` 向导、fork 上游改项目菜单、给扩展加 `background.entry` | 动线裁决（见 PRODUCT 第零点九条与 `panel-provisioning-verdict.md` §七）：只用 openchamber 已开放的那几面。 |
-| searxng 那台内网机器的真实确认 | 需要一台能访问 192.168.96.11 的机器；机制已用假靶子（`spike-multi-forward.sh`）验过。 |
+| searxng 那台内网机器的真实确认 | 需要一台能访问 192.0.2.11 的机器；机制已用假靶子（`spike-multi-forward.sh`）验过。 |
 | `ocrc-follow.yml` 的镜像断言 | 同第一轮：CI 里没有面板宿主。 |
 
 ---

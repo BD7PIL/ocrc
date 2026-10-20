@@ -58,7 +58,7 @@
 | 项 | 证据 |
 |---|---|
 | 扩展 service 直接管理实例 | 扩展 326/326；`ocrc-remote` 由桌面壳拉起，远端 `-R` 在听、状态 `online（实测）` |
-| 实例级链路 | `scripts/accept-remote-instance.sh --target demo@192.168.26.101` → ACCEPTANCE OK（含终端 create=running、fs 90、sessions 50） |
+| 实例级链路 | `scripts/accept-remote-instance.sh --target user@192.0.2.10` → ACCEPTANCE OK（含终端 create=running、fs 90、sessions 50） |
 | 兼容包 | `tests/unit/remote-app-pack.test.ts`（8）；modern 53MB / legacy 54MB 本机构建；RHEL7 `apply` 推送后 pty GLIBC 2.14；Ubuntu 26.04/glibc 2.43 全新主机走 modern 档 `ACCEPTANCE OK` |
 | 桌面入口 | `tests/unit/desktop-settings.test.ts`（9）；`--desktop-add` 实测写入且无明文密码 |
 | 内嵌否决 | [../research/embedding-experiment.md](../research/embedding-experiment.md) |
@@ -131,7 +131,7 @@ Node 两种都能解析（实测在真机上 `require.resolve` 命中提升路�
 于是 legacy/modern 两个 job 都在 Linux 上失败——本地 Windows 跑不出来，因为 win32 会跳过 pty 加载。
 三个脚本（`build-app-pack.mjs`、`build-pty-legacy-local.sh`、`remote-node-pty-glibc217.sh`）改成两处都探测。
 
-**真机验证**（EL7 / glibc 2.17，`demo@192.168.26.101`）：把 legacy 包传到目标机 `/tmp` 解包，
+**真机验证**（EL7 / glibc 2.17，`user@192.0.2.10`）：把 legacy 包传到目标机 `/tmp` 解包，
 用目标机自带的 glibc-217 运行时跑：`cli.js --version` → 2.4.0；`pty.node` 的 GLIBC 上限 2.14、
 GLIBCXX/CXXABI 引用 0；`node-pty` 从应用目录内解析到提升路径并 spawn 成功（`PTY_OK | /dev/pts/0`）；
 解包 0 警告。**没有动被管实例**（`~/.ocrc/remote` 仍是 2.3.3，`/api/version` 200），探针目录事后清理。
@@ -215,8 +215,8 @@ Windows 没有 sshpass 且不想让密钥落盘；现在实测原生壳用 `SSH_
 我们只管 `remoteOpenchamber.mode/preferredPort`、`sshCommand`、`portForwards`。新增两个单测
 （保留密码；没有就不凭空造）。`tests/unit/desktop-settings.test.ts` 11 项。
 
-**顺带对齐的形状差异**：原生 UI 写 `sshCommand: "demo@192.168.26.101"` + `sshParsed` 缓存，
-我们写 `"ssh demo@192.168.26.101"`。读壳的 `parseSshCommand` 确认两种都收（`tokens[0] === "ssh"` 时 shift），
+**顺带对齐的形状差异**：原生 UI 写 `sshCommand: "user@192.0.2.10"` + `sshParsed` 缓存，
+我们写 `"ssh user@192.0.2.10"`。读壳的 `parseSshCommand` 确认两种都收（`tokens[0] === "ssh"` 时 shift），
 所以不必改；`sshParsed` 现在会被保留。另记：壳的连接参数用 `StrictHostKeyChecking=accept-new`，
 首连不需要人工确认 host key。
 

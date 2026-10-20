@@ -210,66 +210,27 @@ jobs:
           # the pin statement, not just the artifacts).
           cp ops/v2-pin-manifest.json bundle/pin-manifest.json
 
-      - name: Build ocrc plugin tarball
+      - name: Build ocrc CLI tarball
         run: |
           npm ci
-          npm run build:dwf
           npm run build
           npm pack --pack-destination bundle
 
-      - name: Smoke — pinned engine + plugin consumption face
+      - name: Smoke — pinned engine boots and the CLI tarball is complete
         run: |
-          # Three assertions, all promised in the research verdicts:
-          #  1. ENGINE BOOT — pinned binary starts at the current pin.
-          #  2. E1-4 dual-write regression — install/uninstall never clobber
-          #     an openchamber-owned object-shaped `plugin` key (unit tests
-          #     in tests/unit/cli/plugin-key.test.ts run in the build step;
-          #     here we re-assert the config-level invariant on the pinned
-          #     engine's own config handling).
-          #  3. CONSUMPTION FACE — the ocrc plugin tarball installs into the
-          #     sandbox config and the engine boots with it (release-following
-          #     §7's "ocrc 消费面冒烟").
+          # The engine half of the promise: the pinned binary starts.
           mkdir -p smoke && tar xzf bundle/cli-linux-x64-*.tgz -C smoke
-          SMOKE_HOME=$(mktemp -d)
-          export HOME="$SMOKE_HOME"
           ./smoke/package/bin/opencode --version
-          echo "smoke 1/3: engine boots at pin $OCRC_V2_PIN"
+          echo "smoke 1/2: engine boots at pin $OCRC_V2_PIN"
 
-          # (2) E1-4: object-shaped V1 key + ocrc in V2 array coexist.
-          mkdir -p "$HOME/.config/opencode"
-          cat > "$HOME/.config/opencode/opencode.json" <<JSON
-          { "plugin": { "@openchamber/managed-tools": [{ "tools": ["websearch"] }] },
-            "plugins": ["@bd7pil/ocrc"] }
-          JSON
-          node --input-type=module -e '
-            const fs = await import("node:fs");
-            const cfg = JSON.parse(fs.readFileSync(process.env.HOME + "/.config/opencode/opencode.json", "utf8"));
-            if (!Array.isArray(cfg.plugins) || !cfg.plugins.includes("@bd7pil/ocrc")) throw new Error("E1-4: ocrc missing from plugins array");
-            if (typeof cfg.plugin !== "object" || Array.isArray(cfg.plugin)) throw new Error("E1-4: managed plugin key must stay object-shaped");
-            console.log("smoke 2/3: E1-4 dual-write invariant holds (plugins array + managed object key coexist)");
-          '
-
-          # (3) Install the freshly built ocrc tarball into the sandbox config
-          # (idempotent — already present) and boot the engine once with it.
-          mkdir -p "$SMOKE_HOME/ocrc-pkg"
+          # The CLI half: what npm would publish actually contains the entry
+          # point and the declarations the `exports.types` claim points at.
           TARBALL=$(ls bundle/bd7pil-ocrc-*.tgz | head -1)
-          tar xzf "$TARBALL" -C "$SMOKE_HOME/ocrc-pkg" --strip-components=1
-          if [ ! -f "$SMOKE_HOME/ocrc-pkg/dist/index.js" ]; then
-            echo "::error::ocrc package tarball missing dist/index.js — plugin cannot load"; exit 1
-          fi
-          # Registration-face smoke (e2-verdict): the four ocrc_remote_* tools
-          # must exist in the built bundle (the v2 host reads them via
-          # context.tool.transform; namespace gating is pinned by
-          # tests/unit/plugin-remote-tools.test.ts).
-          # The E2 contract: tools register with their BARE name plus
-          # `options: { namespace: 'ocrc' }` — the engine composes the
-          # model-facing `ocrc_remote_*` name, so the literal never appears in
-          # dist. Assert both halves of that contract.
-          for T in remote_list remote_sync_workspace remote_provision remote_create_session; do
-            grep -rqE "name: *['\"]$T['\"]" "$SMOKE_HOME/ocrc-pkg/dist" || { echo "::error::registration face: $T missing from dist"; exit 1; }
+          mkdir -p smoke-ocrc && tar xzf "$TARBALL" -C smoke-ocrc --strip-components=1
+          for f in dist/index.js dist/index.d.ts dist/cli/index.js; do
+            [ -f "smoke-ocrc/$f" ] || { echo "::error::ocrc tarball missing $f"; exit 1; }
           done
-          grep -rqE "namespace: *['\"]ocrc['\"]" "$SMOKE_HOME/ocrc-pkg/dist" || { echo "::error::registration face: namespace 'ocrc' missing (tools would not reach the model)"; exit 1; }
-          echo "smoke 3/3: ocrc consumption face OK (dist loads, four remote tools present)"
+          echo "smoke 2/2: CLI tarball complete (index + declarations + bin)"
 
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v4

@@ -7,11 +7,11 @@
 # 未实现的能力（P3 代理出网 / P4 重连开关）在这里**显式打印 SKIP**，不用假绿糊过去。
 #
 # Usage:
-#   scripts/accept-remote-instance.sh --target demo@192.168.26.101
-#   scripts/accept-remote-instance.sh --target demo@192.168.26.101 --provision
-#   scripts/accept-remote-instance.sh --target demo@192.168.26.101 --offline-proof   # 断网复验（对端需先能上外网做对照）
-#   scripts/accept-remote-instance.sh --target demo@192.168.26.101 --assume-offline  # 真离线机：断言基线不可达，跳过 200 对照
-#   scripts/accept-remote-instance.sh --target demo@192.168.26.101 --teardown [--purge]
+#   scripts/accept-remote-instance.sh --target user@192.0.2.10
+#   scripts/accept-remote-instance.sh --target user@192.0.2.10 --provision
+#   scripts/accept-remote-instance.sh --target user@192.0.2.10 --offline-proof   # 断网复验（对端需先能上外网做对照）
+#   scripts/accept-remote-instance.sh --target user@192.0.2.10 --assume-offline  # 真离线机：断言基线不可达，跳过 200 对照
+#   scripts/accept-remote-instance.sh --target user@192.0.2.10 --teardown [--purge]
 #
 # --offline-proof 做三件事（对端无 root，无法 iptables 真断网，如实标注）：
 #   ① 结构性：所有远程脚本零联网命令（ocrc remote offline-proof）

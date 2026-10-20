@@ -10,7 +10,7 @@
 ```bash
 npm i -g @bd7pil/ocrc        # 只用 Node 内建模块，零运行时依赖
 ocrc remote list             # 看已登记的远程实例
-ocrc remote add --host 192.168.26.101 --user demo --ssh-auth key
+ocrc remote add --host 192.0.2.10 --user user --ssh-auth key
 ```
 
 要求：Node 20+。**控制端**是装了 openchamber 桌面 app 的那台机器（Win/Mac），**被控端**是
@@ -25,17 +25,17 @@ Linux x86_64（EL7 / glibc 2.17 是支持下限）。面板扩展的安装与升
 
 ```bash
 # 登记一台（生成 UI 密码，只落 ~/.ocrc/remote-instances.json 0600）
-ocrc remote add --host 192.168.26.101 --user demo
+ocrc remote add --host 192.0.2.10 --user user
 
 # 只读预演：ssh/环境/引擎门禁/将要做什么（不写对端）
-ocrc remote plan demo@192.168.26.101
+ocrc remote plan user@192.0.2.10
 
 # 装机：推运行时(node24-glibc217) + 引擎(opencode v2 pin) + 应用(@openchamber/web)
 # 控制端备件 → ssh stdin 推送 → 对端原子落位；对端**零联网命令**
-ocrc remote apply demo@192.168.26.101
+ocrc remote apply user@192.0.2.10
 
 # 起实例 + 转发 + 出网中继，然后打开 http://127.0.0.1:4610
-ocrc remote up demo@192.168.26.101 --open
+ocrc remote up user@192.0.2.10 --open
 ```
 
 | 操作 | 命令 | 说明 |
@@ -66,7 +66,7 @@ ocrc remote up demo@192.168.26.101 --open
 
 1. 装官方桌面版（2.4.0+；Windows 安装包 `OpenChamber-<v>-win-x64.exe`，per-user 安装，不需要管理员）。
 2. 桌面版 → Settings → Remote Instances → 新增：
-   - **SSH command**：`ssh demo@192.168.26.101`（key 或密码都行，见下方凭据政策）
+   - **SSH command**：`ssh user@192.0.2.10`（key 或密码都行，见下方凭据政策）
    - **Mode**：**必须选 `external`**。`managed` 会在对端装**第二套** openchamber 并起它自己的服务
      （走对端的 bun/npm + 公网 registry），与我们推的实例争端口与引擎所有权——同机不得混用。
    - **Remote port**：`2610`；**Bind**：`127.0.0.1`
@@ -422,7 +422,7 @@ ocrc remote sync-auth <id>          # provider 凭据 → 对端 0600
 
 ```
 Host airgapped-01
-    HostName 10.20.0.11
+    HostName 198.51.100.11
     ProxyJump bastion.corp
 ```
 

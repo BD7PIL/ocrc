@@ -5,9 +5,9 @@ import { buildDesktopHandoff, PROXY_DEFAULTS, RECONNECT_DEFAULTS, type RemoteIns
  *  这里量的是「交出的是什么」——尤其是密码只在有档案时出现、在线状态如实说。 */
 
 const base: RemoteInstance = {
-  id: 'demo@10.0.0.5',
+  id: 'user@10.0.0.5',
   host: '10.0.0.5',
-  user: 'demo',
+  user: 'user',
   port: 22,
   instancePort: 2610,
   localPort: 4610,
@@ -22,7 +22,7 @@ const base: RemoteInstance = {
 
 describe('桌面版交接（buildDesktopHandoff）', () => {
   it('在线：给出地址/密码/端口，并说明可以直接打开', () => {
-    const h = buildDesktopHandoff(base, { state: 'online', engine: { path: '/home/demo/.ocrc/remote/engine/opencode', version: '2.0.27' } })
+    const h = buildDesktopHandoff(base, { state: 'online', engine: { path: '/home/user/.ocrc/remote/engine/opencode', version: '2.0.27' } })
     expect(h.url).toBe('http://127.0.0.1:4610')
     expect(h.port).toBe(4610)
     expect(h.instancePort).toBe(2610)
@@ -38,7 +38,7 @@ describe('桌面版交接（buildDesktopHandoff）', () => {
     const h = buildDesktopHandoff(base, { state: 'offline' })
     expect(h.running).toBe(false)
     expect(h.lines.join('\n')).toContain('offline')
-    expect(h.lines.join('\n')).toContain('ocrc remote up demo@10.0.0.5')
+    expect(h.lines.join('\n')).toContain('ocrc remote up user@10.0.0.5')
   })
 
   it('档案没有密码时不留空白行（指向 add），端口缺省来自档案而非猜', () => {

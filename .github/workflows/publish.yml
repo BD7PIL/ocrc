@@ -26,6 +26,26 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Check the tag matches package.json
+        run: |
+          set -euo pipefail
+          V="$(node -p "require('./package.json').version")"
+          test "v$V" = "$GITHUB_REF_NAME" || {
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json v$V"
+            exit 1
+          }
+          echo "this version: $V"
+
+      - name: This version must not be on the registry yet
+        run: |
+          set -euo pipefail
+          V="$(node -p "require('./package.json').version")"
+          if npm view "@bd7pil/ocrc@$V" version >/dev/null 2>&1; then
+            echo "::error::@bd7pil/ocrc@$V already exists; bump package.json first"
+            exit 1
+          fi
+          echo "registry does not have $V yet"
+
       - name: Verify (typecheck + tests + build)
         run: |
           npm run typecheck
@@ -33,7 +53,28 @@ jobs:
           npm test
           npm run build
 
+      - name: Assert the tarball ships the declared entry points
+        run: |
+          set -euo pipefail
+          npm pack --dry-run --json > /tmp/pack.json
+          node -e '
+            const files = JSON.parse(require("fs").readFileSync("/tmp/pack.json"))[0].files.map((f) => f.path);
+            for (const required of ["dist/index.js", "dist/index.d.ts", "dist/cli/index.js", "ops/components.json"]) {
+              if (!files.includes(required)) { console.error("missing " + required); process.exit(1) }
+            }
+            console.log("tarball carries index + declarations + bin + component pins");
+          '
+
       - name: Publish
-        run: npm publish --provenance --access public
+        run: |
+          set -euo pipefail
+          V="$(node -p "require('./package.json').version")"
+          # A prerelease must never become `latest`: 2.0.0-alpha.N goes to `next`.
+          case "$V" in
+            *-*) TAG=next ;;
+            *)   TAG=latest ;;
+          esac
+          echo "publishing $V with dist-tag $TAG"
+          npm publish --provenance --access public --tag "$TAG"
         env:
           NODE_AUTH_TOKEN: "" # Empty string prevents token auth, forces OIDC fallback

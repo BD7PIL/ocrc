@@ -30,6 +30,11 @@ export { createInstanceProxy } from '../core/remote-instance-proxy.js'
 export type { InstanceProxy } from '../core/remote-instance-proxy.js'
 
 export {
+  defaultComponentSources, installPreparedComponent, pluginEntryFor, prepareComponent, registerPeerPlugins,
+} from '../core/components.js'
+export type { ComponentManifest, PreparedComponent } from '../core/components.js'
+
+export {
   appPackManifestUrl, appPackName, appPackPath, appPackTierForGlibc,
   ensureAppPack, ensureAppPayload, ensureAppTree, parseAppPackManifest, provisionOffline, sshRun,
 } from '../core/remote-instance-push.js'

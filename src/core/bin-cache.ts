@@ -120,7 +120,7 @@ export function verifyIntegrity(file: string, integrity: string): boolean {
   return actual === expected
 }
 
-function proxyAwareFetch(url: string, timeoutMs: number): Promise<Response> {
+export function proxyAwareFetch(url: string, timeoutMs: number): Promise<Response> {
   // Node's fetch ignores HTTP(S)_PROXY by default; enterprises route egress
   // through a proxy (PRODUCT 第零点六条). Env var read is enough here — a
   // full proxy agent would add a dependency, and the CI bundle path (the

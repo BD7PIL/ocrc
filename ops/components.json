@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "components": {
+    "reeve": {
+      "version": "0.1.2",
+      "spec": "@bd7pil/reeve@0.1.2"
+    },
+    "opencode-deep-memory": {
+      "version": "0.16.3",
+      "spec": "@bd7pil/opencode-deep-memory@0.16.3"
+    }
+  }
+}

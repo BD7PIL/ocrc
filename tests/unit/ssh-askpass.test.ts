@@ -64,7 +64,7 @@ describe('ssh argv per auth mode', () => {
 
   it('the tunnel authenticates the same way as the probe', () => {
     const args = buildForwardArgs({
-      host: 'peer', port: 22, user: 'demo', sshAuth: 'password', sshPassword: SECRET,
+      host: 'peer', port: 22, user: 'user', sshAuth: 'password', sshPassword: SECRET,
       localPort: 4610, remotePort: 2610,
     })
     expect(args).toContain('BatchMode=no')
@@ -137,7 +137,7 @@ describe('askpass helper', () => {
 
 describe('the password never leaves the store', () => {
   const base: RemoteInstance = {
-    id: 'demo@peer', host: 'peer', port: 22, user: 'demo',
+    id: 'user@peer', host: 'peer', port: 22, user: 'user',
     sshAuth: 'password', sshPassword: SECRET,
     instancePort: 2610, localPort: 4610, appVersion: '2.3.3', uiPassword: 'ui-secret', enabled: true,
   }
@@ -160,7 +160,7 @@ describe('the password never leaves the store', () => {
 
     // Switching back to key mode must delete the credential, not park it: a
     // secret the UI no longer shows is what leaks out of a backup later.
-    store.upsert({ host: 'peer', user: 'demo', sshAuth: 'key' })
+    store.upsert({ host: 'peer', user: 'user', sshAuth: 'key' })
     store.flush()
     const saved = JSON.parse(readFileSync(path, 'utf-8')).instances[0]
     expect(saved.sshPassword).toBeUndefined()
@@ -170,7 +170,7 @@ describe('the password never leaves the store', () => {
   it('the store persists a fresh password-mode record', () => {
     const path = join(tmp(), 'remote-instances.json')
     const store = createRemoteInstancesStore(path, { flushOnExit: false })
-    const saved = store.upsert({ host: 'peer2', user: 'demo', sshAuth: 'password', sshPassword: SECRET })
+    const saved = store.upsert({ host: 'peer2', user: 'user', sshAuth: 'password', sshPassword: SECRET })
     expect(saved.sshAuth).toBe('password')
     expect(saved.sshPassword).toBe(SECRET)
   })

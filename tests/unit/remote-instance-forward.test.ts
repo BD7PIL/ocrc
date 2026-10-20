@@ -11,13 +11,13 @@ import { buildForwardArgs, buildRelayForwardArgs } from '../../src/core/remote-i
 describe('forward argument builders', () => {
   it('self-tunnel carries both directions in one ssh process', () => {
     const args = buildForwardArgs({
-      host: 'h', port: 22, user: 'demo', localPort: 4610, remotePort: 2610,
+      host: 'h', port: 22, user: 'user', localPort: 4610, remotePort: 2610,
       reverse: { remotePort: 2711, localPort: 4711 },
     })
     expect(args).toContain('-L')
     expect(args[args.indexOf('-L') + 1]).toBe('127.0.0.1:4610:127.0.0.1:2610')
     expect(args[args.indexOf('-R') + 1]).toBe('127.0.0.1:2711:127.0.0.1:4711')
-    expect(args[args.length - 1]).toBe('demo@h')
+    expect(args[args.length - 1]).toBe('user@h')
   })
 
   it('self-tunnel without a relay has no -R', () => {
@@ -28,7 +28,7 @@ describe('forward argument builders', () => {
 
   it('relay forward drops -L so the desktop shell keeps the local port', () => {
     const args = buildRelayForwardArgs({
-      host: 'h', port: 22, user: 'demo', localPort: 4610, remotePort: 2610,
+      host: 'h', port: 22, user: 'user', localPort: 4610, remotePort: 2610,
       reverse: { remotePort: 2711, localPort: 4711 },
     })
     expect(args).not.toContain('-L')

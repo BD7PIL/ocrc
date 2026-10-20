@@ -12,7 +12,8 @@ import { mergeSticky, renderConfig, stripLiteralSecrets } from '../../src/core/c
  * C1–C4 — the rules a config sync to a peer has to keep, pinned where they can
  * be checked without a peer:
  *   · the peer's own keys survive (deep merge, never a whole-file overwrite);
- *   · the peer's plugin layer is not ours to write (`plugins` dropped);
+ *   · v2 `plugins` is a union of peer + local + component entries, while the v1
+ *     `plugin` key stays exactly as the peer's own openchamber left it;
  *   · deletions happen only when named, and are reversible (`.ocrc-bak`);
  *   · a hash we could not compute is "cannot tell", never "identical".
  */
@@ -154,15 +155,19 @@ describe('sync plan', () => {
     expect(plan.files[0]).toBe('opencode.json')
   })
 
-  it('drops the plugin keys the peer own openchamber manages, and says so', () => {
+  it('unions v2 plugins (peer + local + component) and preserves the peer v1 plugin key', () => {
+    const managedPlugin = { '@openchamber/managed-tools': [{ tools: ['websearch'] }] }
     const { dir, authPath } = localTree({ 'opencode.json': JSON.stringify({ plugins: ['/ours'], theme: 'dark' }) })
     const local = readLocalConfig({ dir, authPath })
-    const peer = peerRead()
-    const plan = planConfigSync(local, peer)
-    expect(plan.droppedManagedKeys).toEqual(['plugins'])
-    expect((plan.merged as Record<string, unknown>).plugins).toBeUndefined()
-    expect((plan.merged as Record<string, unknown>).theme).toBe('dark')
-    expect(plan.notes.join('\n')).toContain('opencode.managed.json')
+    const peer = peerRead({ json: JSON.stringify({ plugins: ['/peer'], plugin: managedPlugin, model: 'peer-model' }) })
+    const plan = planConfigSync(local, peer, { componentPlugins: ['/component'] })
+    const merged = plan.merged as Record<string, unknown>
+    expect(plan.preservedPluginKey).toBe(true)
+    expect(plan.managedPlugins).toEqual(['/component'])
+    expect(merged.plugins).toEqual(['/peer', '/ours', '/component'])
+    expect(merged.plugin).toEqual(managedPlugin)
+    expect(merged.theme).toBe('dark')
+    expect(plan.notes.join('\n')).toContain('v1 plugin')
   })
 
   it('rewrites MCP env secrets to {env:…} and leaves provider keys alone', () => {

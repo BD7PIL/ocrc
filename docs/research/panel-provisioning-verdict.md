@@ -49,13 +49,13 @@
 - omo-slim（v3.0.4）**有项目层**：`<project>/.opencode/oh-my-opencode-slim.json[c]`，
   用户层为基底逐层覆盖、越近越赢；嵌套深合并、顶层数组整体替换；有 `skills_add`/`skills_remove` 增量。
 
-### 2.3 被控机（`demo@192.168.26.101`，V93000VM / RHEL 7.9 / glibc 2.17）
+### 2.3 被控机（`user@192.0.2.10`，buildhost / RHEL 7.9 / glibc 2.17）
 
 - 出网实测：`api.telegram.org` 302、`registry.npmjs.org` 200、`opencode.ai` 200（连接 ~5ms）——
   **该机有网**，IM 与联网安装都可行。
 - 真实配置 `~/.config/opencode/opencode.jsonc`（8.8KB，符号链接到 VMware 共享目录，
   文件头自述「三端同步：WSL / VMware VM / Windows 原生」）。
-- **4 个 MCP**：`searxng`（local `npx mcp-searxng`，`SEARXNG_URL=http://192.168.96.11:8080` 内网地址）、
+- **4 个 MCP**：`searxng`（local `npx mcp-searxng`，`SEARXNG_URL=http://192.0.2.11:8080` 内网地址）、
   `playwright`（local `npx @playwright/mcp@next --cdp-endpoint http://127.0.0.1:9222` 本机进程）、
   `tavily`（**remote**，URL 内嵌 `tavilyApiKey`）、`codegraph`（local，依赖本机二进制）。
 - 插件：`oh-my-openagent@5.0.0`、`@bd7pil/opencode-deep-memory`、`@ramtinj95/opencode-tokenscope`；

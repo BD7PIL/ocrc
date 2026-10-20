@@ -17,7 +17,7 @@
 #   scripts/remote-node-pty-glibc217.sh <ssh-target> --verify
 #   scripts/remote-node-pty-glibc217.sh <ssh-target> --rollback
 #
-# <ssh-target> 形如 demo@192.168.26.101，需已配好 key 登录。
+# <ssh-target> 形如 user@192.0.2.10，需已配好 key 登录。
 # 前置（对端）：devtoolset-9/10/11/12 之一、rh-python38（或 python3 ≥3.8）、binutils(objdump)。
 # 注意：换 openchamber 版本（ocrc remote apply）会换掉整棵应用树，补丁需重跑。
 set -euo pipefail

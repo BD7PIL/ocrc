@@ -71,6 +71,21 @@ openchamber 的界面、会话、Files/Git 都是它自己的，我们只负责�
 面板只做一条动线：**添加服务器 → 检查并安装 → 启动 → 创建配对链接**（复制 → 到 app 的服务器
 列表「导入链接」粘贴）。状态区只读，一行一台。
 
+## 第零点七条：组件装配（2026-10-20）
+
+**ocrc 是通用执行器，不是组件的上游。** 它只认组件自己带来的安装契约：
+
+- 每个组件（reeve / opencode-deep-memory / 以后新增的）在**自己的仓库根**放 `provision.json`，
+  随 npm 包发布。它声明：引擎插件 spec、离线目录回退、需要预置的二进制（版本 + sha256 + 落点）、
+  openchamber 扩展 zip、需要同步的配置、装完的验证项。
+- ocrc 的流程固定：**读清单 → 取件（控制端）→ 校验 → 推送到对端 → 登记 `plugins`（并集）→
+  装扩展（失败不阻断）→ 逐项验证**。加一个组件 = 加一份清单，不改 ocrc 代码。
+- 版本 pin 在 `ops/components.json`；`OCRC_<NAME>_PIN` 可覆盖。
+- **禁止**：ocrc import 组件源码、vendor 组件、在代码里出现组件内部概念（如 Bifrost）；
+  组件也不得依赖 ocrc 才能运行——它们的 README 必须给出按 `provision.json` 手动安装的等价步骤。
+- 单写者规则不变：`plugins` 由 ocrc 并集写入；`agents.*.model` 与组件自己的链/台账由组件写。
+  对端 v1 `plugin` 键原样保留（openchamber 所有）。
+
 ## 明确不做
 
 - **不给上游的界面打补丁**（不 fork openchamber，不改它的项目菜单/文件面板/git 面板）。

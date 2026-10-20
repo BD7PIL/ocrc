@@ -131,10 +131,10 @@ describe('service main — auth + routing contract', () => {
 
     const added = await req('POST', '/remote-instance', {
       op: 'add',
-      payload: { host: '10.0.0.9', user: 'demo', sshAuth: 'password', sshPassword: 'sekret', name: 'lab' },
+      payload: { host: '10.0.0.9', user: 'user', sshAuth: 'password', sshPassword: 'sekret', name: 'lab' },
     })
     expect(added.status).toBe(200)
-    expect(added.json.instance.id).toBe('demo@10.0.0.9')
+    expect(added.json.instance.id).toBe('user@10.0.0.9')
     expect(added.json.instance.sshPassword).toBeUndefined()
     expect(added.json.instance.hasSshPassword).toBe(true)
 
@@ -142,7 +142,7 @@ describe('service main — auth + routing contract', () => {
     expect(listed.json.instances).toHaveLength(1)
 
     // 写远程机器必须先有一次显式确认。
-    const noConfirm = await req('POST', '/remote-instance', { op: 'apply', id: 'demo@10.0.0.9' })
+    const noConfirm = await req('POST', '/remote-instance', { op: 'apply', id: 'user@10.0.0.9' })
     expect(noConfirm.status).toBe(409)
     expect(noConfirm.json.dryRun).toBe(true)
 

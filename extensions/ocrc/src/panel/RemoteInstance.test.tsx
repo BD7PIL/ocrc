@@ -29,14 +29,14 @@ function fakeRequest(handler: (call: Call) => { status: number; body: unknown })
 const STUB_HOST = { openUrl: async () => {}, writeClipboard: async () => {} } as never
 
 const ROW = {
-  id: 'demo@192.168.26.101', host: '192.168.26.101', user: 'demo', port: 22,
+  id: 'user@192.0.2.10', host: '192.0.2.10', user: 'user', port: 22,
   instancePort: 2610, localPort: 4610, appVersion: '2.3.3', enabled: true, name: 'EL7 box',
   reconnect: true, restoreOnStart: true, hasUiPassword: true,
   sshAuth: 'key' as const, provision: 'push' as const, egress: 'auto' as const,
   status: {
     state: 'online', detail: '远端实例在线；隧道由桌面版持有', url: 'http://127.0.0.1:4610',
     app: '2.3.3',
-    engine: { path: '/home/demo/.ocrc/remote/engine/opencode', version: '2.0.27' },
+    engine: { path: '/home/user/.ocrc/remote/engine/opencode', version: '2.0.27' },
     runtime: 'v24.22.0', proxy: { enabled: true, localPort: 4711, remotePort: 2711 },
     egress: { mode: 'auto', relay: true, reason: '远程机器出不了网', probe: 'none', cached: true },
   },
@@ -61,10 +61,10 @@ const DEFAULTS = {
 
 const PLAN = {
   reachable: true,
-  inspected: { uname: 'Linux x86_64', glibc: '2.17', home: '/home/demo' },
+  inspected: { uname: 'Linux x86_64', glibc: '2.17', home: '/home/user' },
   runtime: 'v24.22.0', app: '2.3.3',
   engine: undefined, engineError: '远程机器上没有找到满足 v2 门禁的 OpenCode',
-  engineCandidates: [{ path: '/home/demo/.local/bin/opencode', raw: '1.18.32' }],
+  engineCandidates: [{ path: '/home/user/.local/bin/opencode', raw: '1.18.32' }],
   actions: ['推送我们 pin 的 OpenCode 2.0.27 到 ~/.ocrc/remote/engine/opencode', '建转发'],
   url: 'http://127.0.0.1:4610',
   egress: { mode: 'auto', relay: true, reason: '远程机器出不了网', probe: 'none' },
@@ -80,11 +80,11 @@ describe('远程服务器卡片', () => {
     await waitFor(() => expect(screen.getByText('EL7 box')).toBeTruthy())
     expect(screen.getByText('在线')).toBeTruthy()
     // 地址：只在第二行出现一次（它曾经既进标题又进第二行）
-    expect(screen.getAllByText(/demo@192\.168\.26\.101:22 · 密钥登录/)).toHaveLength(1)
+    expect(screen.getAllByText(/user@192\.0\.2\.10:22 · 密钥登录/)).toHaveLength(1)
     expect(screen.getByText(/OpenChamber 2\.3\.3 · OpenCode 2\.0\.27 · 经本机转发/)).toBeTruthy()
     // 在线不解释自己；详情默认收起
     expect(screen.queryByText(/隧道由桌面版持有/)).toBeNull()
-    expect(screen.queryByText('/home/demo/.ocrc/remote/engine/opencode')).toBeNull()
+    expect(screen.queryByText('/home/user/.ocrc/remote/engine/opencode')).toBeNull()
   })
 
   it('缺的字段写「未知」，不省字段（两台机器不许显示成两个产品）', async () => {
@@ -171,7 +171,7 @@ describe('远程服务器卡片', () => {
     await waitFor(() => expect(screen.getByText('EL7 box')).toBeTruthy())
     await act(async () => { screen.getByText('详情 ▾').click() })
     await waitFor(() => expect(screen.getByText('端口：远程 2610 → 本机 4610（绑定 127.0.0.1）')).toBeTruthy())
-    expect(screen.getByText('OpenCode：/home/demo/.ocrc/remote/engine/opencode')).toBeTruthy()
+    expect(screen.getByText('OpenCode：/home/user/.ocrc/remote/engine/opencode')).toBeTruthy()
     expect(screen.getByText('运行时：node v24.22.0')).toBeTruthy()
     expect(screen.getByText('本机转发：:4711 → :2711')).toBeTruthy()
     expect(screen.getByText(/联网方式：auto，探测 none —— 远程机器出不了网/)).toBeTruthy()

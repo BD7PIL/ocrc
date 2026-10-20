@@ -3,7 +3,7 @@
 > **已过时（2026-10-19）**：本文件描述的功能/入口属于**已删除的驾驶舱那一代**（Telegram/Web 通道、工作流、日程、技能、子代理、引擎级远程主机）。它们已从本仓库删除，会作为独立的 openchamber 扩展在别的项目里做；保留作为历史记录。当前产品见 [AGENTS.md](../AGENTS.md) 与 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
 
 > 执行日期：2026-10-16 · 执行环境：Windows 面板宿主（`bd7pi@Jared_Laptop`）
-> 被控机：`demo@192.168.26.101`（V93000VM，RHEL 7.9，glibc 2.17，OpenSSH 7.4）
+> 被控机：`user@192.0.2.10`（buildhost，RHEL 7.9，glibc 2.17，OpenSSH 7.4）
 > 依据：`docs/handoff/batch6-windows-testing.md` §0–§3
 >
 > **结论**：§0–§3E **全部通过**；UI 面在修掉两个扩展自身缺陷后**也通过**（§3A 徽标 / §3C-5 / §3D-6
@@ -25,7 +25,7 @@
 | §3A Work Status 徽标 | ✅ **（修后）** | 渲染出 `ocrc 隧道：已连 · 引擎可达`（绿 pill） |
 | §3B 远程工作区（功能） | ✅ | 浏览/读/写(.bak)/git status·diff·stage·commit·log/badge 全链通过 |
 | §3B-2 盘符路径报错 | ⚠️ **UI 触发不了** | 守卫代码在（`Workspace.tsx:143-144`），但入口用 `window.prompt`；见 §二-3 |
-| §3C-5 配置同步 | ✅ **（修后）** | tab 显示 `C:\Users\BD7PI\AppData\Roaming\opencode\opencode.json` + agent/mcp/provider 段名 |
+| §3C-5 配置同步 | ✅ **（修后）** | tab 显示 `C:\Users\<you>\AppData\Roaming\opencode\opencode.json` + agent/mcp/provider 段名 |
 | §3D-6/7 omo 编排 | ✅ **（修后）** | tab 顶部 omo 区块：预设下拉（balanced/fast）、fallback 四控件、per-agent 只读链树；写入落对路径 |
 | §3D-8 omo 编排树 | ⏸ 未执行 | 需要一个真实 omo 多代理任务（被控机未装 omo-slim，见 §四） |
 | §3E 面板宿主重启韧性 | ✅ | 重启后单档案自动重连（`tunnel:up`） |
@@ -34,10 +34,10 @@
 
 ### 1. [前置] 本机公钥未部署到被控机 `authorized_keys`
 
-- **现象**：按 §0-③ 执行 `ssh demo@192.168.26.101 "echo ok"` → `Permission denied (publickey,...)`。
+- **现象**：按 §0-③ 执行 `ssh user@192.0.2.10 "echo ok"` → `Permission denied (publickey,...)`。
   verbose 显示公钥**已送出**（`Offering public key: … SHA256:zFigb/…`），被服务端拒绝；本机私钥/公钥自洽。
 - **期望**：batch2 handoff 记载「`~/.ssh/id_ed25519` 已在被控机 `authorized_keys`」。
-- **处置**：用被控机密码一次性写入 `demo@…:~/.ssh/authorized_keys`，之后全程 BatchMode 密钥登录。
+- **处置**：用被控机密码一次性写入 `user@…:~/.ssh/authorized_keys`，之后全程 BatchMode 密钥登录。
 - **建议**：§0 增加「公钥未授权时的补救」一步，否则 Windows 侧第一条就断在门口。
 
 ### 2. [拓扑] openchamber 2.3.3 硬性要求 OpenCode ≥ 2.0.20，被控机是 1.18.32
@@ -75,7 +75,7 @@
   `createRoot(el).render(...)`；构建产物此前全包**零处 `document.`**，git 历史显示挂载代码从来没写过）。
 - **验证**：修后三个包在真实浏览器独立加载均正常渲染；openchamber 面板里
   Work Status 渲染出 `ocrc 隧道：已连 · 引擎可达`，`ocrc Connect` 面板渲染出三个 tab +
-  两枚绿 pill + 档案行 `EL7 V93000VM demo@192.168.26.101:22 → :4096`。
+  两枚绿 pill + 档案行 `EL7 buildhost user@192.0.2.10:22 → :4096`。
 
 ### 4. [扩展缺陷·待定] `window.prompt` 在 guest 沙箱里被忽略 → 三条 UI 流程不可用
 
@@ -117,10 +117,10 @@
 
 | # | 修复 | 实测证据 |
 |---|---|---|
-| A | 面板宿主配置路径加 `%APPDATA%\opencode`（win32） | 配置同步 tab 显示 `C:\Users\BD7PI\AppData\Roaming\opencode\opencode.json`；`config/source` 返回该路径且 `exists:true`，段名 `agent:[acc-agent] / mcp:[servers] / provider:[acc-provider]`；**tab 不再空白** |
+| A | 面板宿主配置路径加 `%APPDATA%\opencode`（win32） | 配置同步 tab 显示 `C:\Users\<you>\AppData\Roaming\opencode\opencode.json`；`config/source` 返回该路径且 `exists:true`，段名 `agent:[acc-agent] / mcp:[servers] / provider:[acc-provider]`；**tab 不再空白** |
 | B | 工作区「+ 根目录」对 Windows 盘符路径显式报错 | 守卫代码在（`Workspace.tsx:143-144`），service 侧 `normalizeProfile` 同时过滤非 `/` 根（双重防线）。**但 UI 入口被 §二-4 卡住，本轮无法端到端触发** |
-| C | 添加档案支持 `keyPath` | 档案落盘 `keyPath=C:\Users\BD7PI\.ssh\id_ed25519`，隧道经该 key 建立成功。**但 UI 入口同样被 §二-4 卡住**，本轮经 service API 验证 |
-| D | omo 配置远端写入路径（`$HOME` 冻结 bug） | `POST /omo/config {"preset":"fast"}` → 落到 `/home/demo/.config/opencode/oh-my-opencode-slim.json` + `.ocrc-bak`；`ls /home/demo/$HOME` → **不存在**（bug 特征消失） |
+| C | 添加档案支持 `keyPath` | 档案落盘 `keyPath=C:\Users\<you>\.ssh\id_ed25519`，隧道经该 key 建立成功。**但 UI 入口同样被 §二-4 卡住**，本轮经 service API 验证 |
+| D | omo 配置远端写入路径（`$HOME` 冻结 bug） | `POST /omo/config {"preset":"fast"}` → 落到 `/home/user/.config/opencode/oh-my-opencode-slim.json` + `.ocrc-bak`；`ls /home/user/$HOME` → **不存在**（bug 特征消失） |
 
 ## 四、§3B 全链实测明细（经真实 SSH 隧道，非 loopback）
 
@@ -146,18 +146,18 @@
 - 全局安装 `@openchamber/web@2.3.3`；守护进程运行于 `:3000`（UI 密码为验收临时值，不记录）。
   启动 env：`OPENCODE_HOST=http://127.0.0.1:4096`、`OPENCODE_SKIP_START=true`、
   `OPENCODE_SERVER_PASSWORD=<验收引擎密码>`。→ `npm rm -g @openchamber/web` + `openchamber stop` 可撤。
-- 新建 `C:\Users\BD7PI\AppData\Roaming\opencode\opencode.json`（验收用的面板宿主配置，之前不存在）。
+- 新建 `C:\Users\<you>\AppData\Roaming\opencode\opencode.json`（验收用的面板宿主配置，之前不存在）。
 - 新建 `~/.config/openchamber/`（面板数据目录）与 `ocrc-connect-profiles.json`（档案）。
-- 验收截图证据：`C:\Users\BD7PI\ocrc-ui-{1-connect,2-workspace-drive,3-configsync}.png`。
+- 验收截图证据：`C:\Users\<you>\ocrc-ui-{1-connect,2-workspace-drive,3-configsync}.png`。
 - **未改动**本机全局 `opencode-ai@1.18.31`。
 
-**EL7 被控机（`demo@192.168.26.101`）**
+**EL7 被控机（`user@192.0.2.10`）**
 - `~/.ssh/authorized_keys` 追加本机公钥（key 认证所需）。
 - **附加**部署 `~/.ocrc-accept/`（`@opencode/cli-linux-x64@2.0.27` tarball + 解包，约 300 MB）；
   **未覆盖** `~/.local/bin/opencode`（1.18.32 原样）。
 - 新增常驻进程：v2 serve 监听 `127.0.0.1:4096`（PID 29736）。→ `pkill -f "opencode serve --port 4096"` 即撤。
 - `~/.config/opencode/opencode.json`、`oh-my-opencode-slim.json` 被验收写入（各有 `.ocrc-bak` 兜底）。
-- 临时 scratch 仓库 `/home/demo/ocrc-ws-accept` 已删除。
+- 临时 scratch 仓库 `/home/user/ocrc-ws-accept` 已删除。
 - **未改动**：ocrc 0.26.5 安装、`~/.ocrc/` 运行时数据、1.18.32 二进制、`opencode.jsonc`。
 
 **仓库（本次提交前的改动）**

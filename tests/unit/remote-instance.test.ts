@@ -82,33 +82,33 @@ describe('引擎 v2 门禁（R12）', () => {
 
   it('探针输出解析：path<TAB>version，容忍 CRLF 与空版本', () => {
     const stdout = [
-      '/home/demo/.ocrc/remote/engine/opencode\topencode v2.0.27',
-      '/home/demo/.opencode/bin/opencode\t',
+      '/home/user/.ocrc/remote/engine/opencode\topencode v2.0.27',
+      '/home/user/.opencode/bin/opencode\t',
       '',
       'garbage-without-tab',
       '/usr/bin/opencode\t1.18.32\r',
     ].join('\n')
     const parsed = parseEngineProbe(stdout)
     expect(parsed.map((c) => [c.path, c.version])).toEqual([
-      ['/home/demo/.ocrc/remote/engine/opencode', '2.0.27'],
-      ['/home/demo/.opencode/bin/opencode', ''],
+      ['/home/user/.ocrc/remote/engine/opencode', '2.0.27'],
+      ['/home/user/.opencode/bin/opencode', ''],
       ['/usr/bin/opencode', '1.18.32'],
     ])
   })
 
   it('EL7 的真实形态：v1 与 v2 并存时选 v2（与顺序无关）', () => {
-    const v1 = { path: '/home/demo/.local/bin/opencode', version: '1.18.32', raw: '1.18.32' }
-    const v2 = { path: '/home/demo/.ocrc-accept/package/bin/opencode', version: '2.0.27', raw: 'opencode v2.0.27' }
+    const v1 = { path: '/home/user/.local/bin/opencode', version: '1.18.32', raw: '1.18.32' }
+    const v2 = { path: '/home/user/.ocrc-accept/package/bin/opencode', version: '2.0.27', raw: 'opencode v2.0.27' }
     expect(pickV2Engine([v1, v2])).toEqual({ ok: true, candidate: v2 })
     expect(pickV2Engine([v2, v1])).toEqual({ ok: true, candidate: v2 })
   })
 
   it('只有 v1 时是硬拒绝，并把版本与路径都摆出来（不许静默回落）', () => {
-    const pick = pickV2Engine([{ path: '/home/demo/.local/bin/opencode', version: '1.18.32', raw: '1.18.32' }])
+    const pick = pickV2Engine([{ path: '/home/user/.local/bin/opencode', version: '1.18.32', raw: '1.18.32' }])
     expect(pick.ok).toBe(false)
     if (!pick.ok) {
       expect(pick.error).toContain(`≥ ${MIN_ENGINE_VERSION}`)
-      expect(pick.error).toContain('/home/demo/.local/bin/opencode')
+      expect(pick.error).toContain('/home/user/.local/bin/opencode')
       expect(pick.error).toContain('1.18.32')
     }
   })
@@ -145,13 +145,13 @@ describe('启动/停止脚本与 R9 代理注入', () => {
   const base = {
     appVersion: '2.3.3',
     port: 2610,
-    enginePath: '/home/demo/.ocrc/remote/engine/opencode',
+    enginePath: '/home/user/.ocrc/remote/engine/opencode',
     uiPassword: 'pw',
   }
 
   it('引擎与运行时都是绝对路径（R12：不靠 PATH 解析）', () => {
     const line = buildInstanceServeCommand(base)
-    expect(line).toContain("OPENCODE_BINARY='/home/demo/.ocrc/remote/engine/opencode'")
+    expect(line).toContain("OPENCODE_BINARY='/home/user/.ocrc/remote/engine/opencode'")
     expect(line).toContain(`$HOME/.ocrc/remote/runtime/node-v${NODE_RUNTIME.version}/bin/node`)
     expect(line).toContain('serve --hostname 127.0.0.1 --port 2610')
     // 没有 `export PATH=` 这种把 PATH 上 v1 放进来的做法
@@ -165,8 +165,8 @@ describe('启动/停止脚本与 R9 代理注入', () => {
     // 没配 CA 就不出现
     expect(line).not.toContain('NODE_EXTRA_CA_CERTS')
 
-    const withCa = buildInstanceServeCommand({ ...base, proxy: { httpsProxy: 'http://127.0.0.1:7890', caPath: '/home/demo/.ocrc/ca.pem' } })
-    expect(withCa).toContain("NODE_EXTRA_CA_CERTS='/home/demo/.ocrc/ca.pem'")
+    const withCa = buildInstanceServeCommand({ ...base, proxy: { httpsProxy: 'http://127.0.0.1:7890', caPath: '/home/user/.ocrc/ca.pem' } })
+    expect(withCa).toContain("NODE_EXTRA_CA_CERTS='/home/user/.ocrc/ca.pem'")
   })
 
   it('没配代理就一个字都不注入', () => {
@@ -196,12 +196,12 @@ describe('启动/停止脚本与 R9 代理注入', () => {
 
 describe('控制端转发与实例探活', () => {
   it('转发就是一条 -N -L（+ R9 的 -R）：失败要响、掉线要能发现', () => {
-    const args = buildForwardArgs({ host: '192.168.26.101', user: 'demo', port: 22, localPort: 4610, remotePort: 2610 })
+    const args = buildForwardArgs({ host: '192.0.2.10', user: 'user', port: 22, localPort: 4610, remotePort: 2610 })
     expect(args).toContain('-N')
     expect(args.join(' ')).toContain('-L 127.0.0.1:4610:127.0.0.1:2610')
     expect(args).toContain('ExitOnForwardFailure=yes')
     expect(args).toContain('ServerAliveInterval=15')
-    expect(args[args.length - 1]).toBe('demo@192.168.26.101')
+    expect(args[args.length - 1]).toBe('user@192.0.2.10')
     // 本地端口默认 4096 是用户既有隧道——转发必须能换端口
     expect(buildForwardArgs({ host: 'h', port: 22, localPort: 4610, remotePort: 2610 })).toContain('127.0.0.1:4610:127.0.0.1:2610')
   })
@@ -247,17 +247,17 @@ describe('控制端转发与实例探活', () => {
   })
 
   it('引擎兼容性判定（R12 ③）：实例自报的 binary+version 才是证据', () => {
-    const ok = judgeEngineCompat({ state: 'compatible', version: '2.0.27', binary: '/home/demo/.ocrc/remote/engine/opencode' })
+    const ok = judgeEngineCompat({ state: 'compatible', version: '2.0.27', binary: '/home/user/.ocrc/remote/engine/opencode' })
     expect(ok.ok).toBe(true)
     if (ok.ok) {
       expect(ok.version).toBe('2.0.27')
-      expect(ok.binary).toBe('/home/demo/.ocrc/remote/engine/opencode')
+      expect(ok.binary).toBe('/home/user/.ocrc/remote/engine/opencode')
     }
     // 复用到 leftover 实例时，引擎在别处也算数——只要它真的过门禁
-    const adopted = judgeEngineCompat({ state: 'compatible', version: '2.0.27', binary: '/home/demo/.ocrc-accept/package/bin/opencode' })
+    const adopted = judgeEngineCompat({ state: 'compatible', version: '2.0.27', binary: '/home/user/.ocrc-accept/package/bin/opencode' })
     expect(adopted.ok).toBe(true)
 
-    const v1 = judgeEngineCompat({ state: 'compatible', version: '1.18.32', binary: '/home/demo/.local/bin/opencode' })
+    const v1 = judgeEngineCompat({ state: 'compatible', version: '1.18.32', binary: '/home/user/.local/bin/opencode' })
     expect(v1.ok).toBe(false)
     if (!v1.ok) expect(v1.error).toContain('1.18.32')
 
@@ -279,12 +279,12 @@ describe('控制端转发与实例探活', () => {
   })
 
   it('一次性 ssh 执行：无 -N、无转发，命令原样作为单个 argv 传出', () => {
-    const args = buildSshExecArgs({ host: '10.0.0.9', port: 2222, user: 'demo' }, 'echo "hi there"')
+    const args = buildSshExecArgs({ host: '10.0.0.9', port: 2222, user: 'user' }, 'echo "hi there"')
     expect(args).toContain('-p')
     expect(args[args.indexOf('-p') + 1]).toBe('2222')
     expect(args).not.toContain('-N')
     expect(args.some((a) => a.startsWith('-L'))).toBe(false)
-    expect(args).toContain('demo@10.0.0.9')
+    expect(args).toContain('user@10.0.0.9')
     // 命令是最后一个 argv：调用方不经过任何本地 shell，注入面只剩远端自己的 shell
     expect(args[args.length - 1]).toBe('echo "hi there"')
     expect(buildSshExecArgs({ host: 'h' }, 'true')[buildSshExecArgs({ host: 'h' }, 'true').length - 1]).toBe('true')

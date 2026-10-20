@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.0-alpha.10 — 通用组件装配（reeve / deep-memory），Bifrost 交还 reeve（2026-10-20）
+
+- **组件契约**：新增 `provision.json` 读取与执行（`src/core/components.ts`）。`remote apply --component <dir|tgz|spec>` / `--with-components` 读组件清单，推 tarball、解包到 `~/.ocrc/components/<name>/package`、按 sha256 落工件、登记 v2 `plugins`（目录条目，air-gap 可用）、装 openchamber 扩展（失败不阻断）、逐项验证。`ops/components.json` 钉版本；`OCRC_<NAME>_PIN` 覆盖。
+- **配置并集**：`planConfigSync` 不再丢弃 `plugins`；它是 peer + local + 组件条目的并集（真实 v2.0.32 引擎实测：两份文档各贡献一个插件，都加载）。v1 `plugin` 键原样保留（openchamber 所有）。
+- **Bifrost 交还 reeve**：撤销未提交的 `src/core/bifrost.ts` 与 bridge 注入；ocrc 只按清单预置二进制（reeve 的 `ensureBinary` 对校验通过的文件短路，实测 `~/.reeve/proxy/bifrost-http` sha256 命中后不再下载）。
+- **引擎 pin 2.0.27 → 2.0.32**：deep-memory 的 v2 适配器以 2.0.32 为准（其 README 明确 2.0.27 结论已被取代）。
+- **发布卫生**：`declaration: true`（`exports.types` 不再指向不存在的文件）；build 先清 `dist`；publish 校验 tag↔版本、已发布版本、tarball 入口，prerelease 发 `next`；`ocrc-follow` 去掉已删的 `build:dwf` 与旧插件冒烟；`SECURITY.md` 改成 ocrc 自己的边界；公开树清掉内网地址/个人路径/`.omo` 运行态。
+- **测试**：190 项（+10 组件/配置并集），preflight 全绿。T1（Windows 隔离栈）与 T2（EL7 真机）证据见 `docs/research/` 与 `docs/PROGRESS.md`。
+
 ## Unreleased — 清理到只剩一条路（2026-10-19）
 
 - **扩展 0.9.2：上一代三块的服务端也删了。** `extensions/ocrc/src/service/` 只剩 `main.ts`（`/health` + `/remote-instance` 两条路由）与 `remote-instance-ops.ts`：`tunnel`/`tunnels`/`remote-fs`/`config-bridge`/`config-project`/`provision`/`runtime`/`capabilities`/`auth-sync`/`detect`/`artifact`/`install`/`omo-config`/`omo-schema`/`ocrc-host` + 它们的测试 + `shared/protocol.ts` + `shared/provision.ts` 全部删除（服务从 773 行降到 ~100 行，扩展测试 295 → 39 项）。manifest 不再申请 `sessions` 能力（少一次审批）。

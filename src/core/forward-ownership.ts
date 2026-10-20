@@ -49,7 +49,7 @@ export function forwardMarkerDir(home = ocrcHome()): string {
 }
 
 export function forwardMarkerPath(instanceId: string, kind: ForwardKind, home = ocrcHome()): string {
-  // Dots are legal inside a host name (`192.168.26.101`) but a name that is
+  // Dots are legal inside a host name (`192.0.2.10`) but a name that is
   // *only* dots would climb out of the directory — strip leading dots rather
   // than allowlisting a character that can form `..`.
   const safe = instanceId.replace(/[^A-Za-z0-9._@-]/g, '-').replace(/^\.+/, '_') || '_'

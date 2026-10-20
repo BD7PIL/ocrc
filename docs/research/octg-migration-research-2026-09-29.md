@@ -60,7 +60,7 @@
 3. **装插件**：`npm i -g @bd7pil/ocrc && ocrc install`（写 `~/.config/opencode/plugins/ocrc.js`
    + `~/.ocrc/` 配置；A_bot token 与 allowed user 从 octg 归档搬运，值不落文档）；
    生产 env：`OPENCODE_SERVER_PASSWORD` 沿用原值（新 server 仍要密码——0.0.0.0 绑定不能裸奔）。
-4. **启动（守护态，v0.12.0+）**：`nohup ocrc start --watch /home/demo/develop/ate/WLG5144_dev >> ~/.ocrc/prod.log 2>&1 &`
+4. **启动（守护态，v0.12.0+）**：`nohup ocrc start --watch /home/user/develop/ate/WLG5144_dev >> ~/.ocrc/prod.log 2>&1 &`
    看护循环接管 run-4096.sh 语义：adopt-or-spawn、崩溃 5s 自动重启（SIGKILL/OOM/段错误也算崩溃；
    仅 SIGTERM/SIGINT/stop 文件算有意停机）。生命周期：`ocrc start [--watch] / stop / restart / status / restore`。
    开机自恢复可选装：`@reboot sleep 60 && ocrc restore >> ~/.ocrc/prod.log 2>&1`。

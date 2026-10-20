@@ -3,7 +3,7 @@
 > **已过时（2026-10-19）**：本文件描述的功能/入口属于**已删除的驾驶舱那一代**（Telegram/Web 通道、工作流、日程、技能、子代理、引擎级远程主机）。它们已从本仓库删除，会作为独立的 openchamber 扩展在别的项目里做；保留作为历史记录。当前产品见 [AGENTS.md](../AGENTS.md) 与 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
 
 - **日期**：2026-10-15
-- **性质**：三项目深入对比调研。两个外部项目为网络一手调研（GitHub API / raw.githubusercontent / npm registry，非博客转述）；deep-memory 为本地源码盘点（`/home/demo/develop/opencode-plugin/opencode-deep-memory`）。
+- **性质**：三项目深入对比调研。两个外部项目为网络一手调研（GitHub API / raw.githubusercontent / npm registry，非博客转述）；deep-memory 为本地源码盘点（`/home/user/develop/opencode-plugin/opencode-deep-memory`）。
 - **触发**：用户要求「调研 opencode dcp、我们自己开发的 opencode-deepmemory、headroom 这三个项目，深入评估差异和优缺点」。
 
 ## 0. 项目判定
@@ -12,7 +12,7 @@
 |---|---|---|
 | **dcp** | [Tarquinen/opencode-dynamic-context-pruning](https://github.com/Tarquinen/opencode-dynamic-context-pruning)，npm `@tarquinen/opencode-dcp` | **DCP = Dynamic Context Pruning**；4,348★ / 257 fork / 78 open issues；v3.2.0（2026-09-20，"OpenCode V2 support"）；AGPL-3.0-or-later；TS；npm 周下载 9,217；2025-11-20 立项。判定依据：GitHub 搜 `opencode dcp` 18 个仓库绝大多数是其 fork/移植，npm 生态 14 个同名包 repository 字段都指向该仓库。来源：[repo API](https://api.github.com/repos/Tarquinen/opencode-dynamic-context-pruning)、[npm downloads](https://api.npmjs.org/downloads/point/last-week/@tarquinen/opencode-dcp) |
 | **headroom** | [headroomlabs-ai/headroom](https://github.com/headroomlabs-ai/headroom)（原 chopratejas/headroom，301 迁移至组织） | 75,379★ / 5,850 fork；v0.41.0（2026-10-14），共 174 个 release（1-2 天一版）；Apache-2.0；Python≥3.10 + Rust crates（maturin 混合构建）；核心作者 Tejas Chopra（1330 commits）；2026-01-07 立项，日级活跃。来源：[repo API](https://api.github.com/repos/headroomlabs-ai/headroom)、[PyPI](https://pypi.org/pypi/headroom-ai/json)、[docs](https://docs.headroomlabs.ai/docs) |
-| **deep-memory** | 本机 `/home/demo/develop/opencode-plugin/opencode-deep-memory`，npm `@bd7pil/opencode-deep-memory` v0.14.1 | MIT；2026-06-15 首提交至 2026-08-12 最后提交，87 commits / 38 tags / 36 个 npm 版本；src 6,032 行 / tests 5,748 行（46 文件 450 测试全过）；dist/index.js 591KB；Node≥20 |
+| **deep-memory** | 本机 `/home/user/develop/opencode-plugin/opencode-deep-memory`，npm `@bd7pil/opencode-deep-memory` v0.14.1 | MIT；2026-06-15 首提交至 2026-08-12 最后提交，87 commits / 38 tags / 36 个 npm 版本；src 6,032 行 / tests 5,748 行（46 文件 450 测试全过）；dist/index.js 591KB；Node≥20 |
 
 ## 1. 一句话定位（三者不是直接竞品，是三层堆叠）
 

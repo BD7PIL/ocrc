@@ -10,7 +10,8 @@
 | 位置 | 是什么 |
 | --- | --- |
 | `extensions/ocrc/` | **面板扩展**：`panel/`（服务器列表）、`status/`（右侧只读读数）、`service/`（宿主上那个能跑 ssh 的进程，两条路由 `/health` + `/remote-instance`）。产物提交进仓库（零构建 folder 安装）。 |
-| `src/core/` | 实例线核心：`remote-instance*`（arg 构造 / 门禁 / 桥接 / 推送 / 出网代理）、`remote-instances`（store）、`instance-config` + `config-merge`（配置同步）、`forward-ownership`（转发持有者标记）、`ssh-askpass`、`bin-cache`（工件缓存）。 |
+| `src/core/` | 实例线核心：`remote-instance*`（arg 构造 / 门禁 / 桥接 / 推送 / 出网代理）、`remote-instances`（store）、`instance-config` + `config-merge`（配置同步）、`components`（通用组件装配：读 `provision.json`、装插件/工件/扩展）、`forward-ownership`（转发持有者标记）、`ssh-askpass`、`bin-cache`（工件缓存）。 |
+| `ops/components.json` | 组件版本 pin（reeve / opencode-deep-memory）。`ocrc remote apply --with-components` 用它；`OCRC_<NAME>_PIN` 可覆盖。 |
 | `src/cli/remote.ts` | `ocrc remote add\|plan\|apply\|up\|down\|pairlink\|config-diff\|sync-config\|sync-auth\|peerlog\|upgrade\|prepare\|offline-proof` —— 面板的 headless 等价物。 |
 | `extensions/ocrc-omo-view/` | 另一个面板扩展：omo 编排树只读视图。 |
 | `ops/` | 引擎 pin manifest（`ocrc-follow.yml` 跟着上游写，`bin-cache` 读）。 |
@@ -21,7 +22,7 @@
 
 ```bash
 npm install && npm run build          # CLI（tsc）
-npm test                              # 180 项（实例线）
+npm test                              # 190 项（实例线）
 npm run typecheck && npm run typecheck:tests
 npm run preflight                     # 提交前必跑：重建两扩展 + 三处 typecheck + 三套测试 + guest 不变量
 npm --prefix extensions/ocrc test     # 扩展测试（39 项）

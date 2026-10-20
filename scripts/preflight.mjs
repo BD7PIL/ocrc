@@ -4,8 +4,8 @@
  *
  *   npm run preflight
  *
- * 为什么要有它：**扩展的安装产物是提交进仓库的**（`panel/` `status/` `service/`
- * `shared/`，给"不构建直接装"用），所以改了 `src/` 却忘了重建，CI 的
+ * 为什么要有它：**扩展的安装产物是提交进仓库的**（`panel/` `status/` `service/`，
+ * 给"不构建直接装"用），所以改了 `src/` 却忘了重建，CI 的
  * "Extension dist consistency" 就会红——而且这已经是同一类错误第二次发生
  * （共享层 `guest.css` 同步进另一个扩展时最容易漏）。这里把顺序固定下来：
  *
@@ -36,7 +36,7 @@ const steps = [
     // CI 在干净检出上跑 `git diff --exit-code`：那等价于"提交进仓库的产物 == 重新构建的结果"。
     // 本机无法在提交前证明这一点（"忘了重建"和"还没提交"看起来一样），所以这里只保证
     // 构建结果已经进暂存区并列出它们；一致性由 CI 和提交后再跑一次 preflight 兜底。
-    'git add -- extensions/ocrc/panel extensions/ocrc/status extensions/ocrc/service extensions/ocrc/shared extensions/ocrc-omo-view/panel extensions/ocrc-omo-view/service extensions/ocrc-omo-view/shared && git diff --cached --name-only -- extensions/ocrc/panel extensions/ocrc/status extensions/ocrc/service extensions/ocrc/shared extensions/ocrc-omo-view/panel extensions/ocrc-omo-view/service extensions/ocrc-omo-view/shared | sed "s/^/  待提交：/" || true',
+    'git add -- extensions/ocrc/panel extensions/ocrc/status extensions/ocrc/service extensions/ocrc-omo-view/panel && git diff --cached --name-only -- extensions/ocrc/panel extensions/ocrc/status extensions/ocrc/service extensions/ocrc-omo-view/panel | sed "s/^/  待提交：/" || true',
   ],
 ]
 

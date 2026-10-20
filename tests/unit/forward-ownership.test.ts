@@ -39,10 +39,10 @@ describe('forward ownership markers', () => {
   it('round-trips a marker and finds a live holder', () => {
     const home = tmpHome()
     writeForwardMarker({
-      instanceId: 'demo@host', kind: 'ui', pid: process.pid, owner: 'service',
+      instanceId: 'user@host', kind: 'ui', pid: process.pid, owner: 'service',
       localPort: 4610, startedAt: Date.now(), host: 'host',
     }, home)
-    const found = findHolder('demo@host', 'ui', home)
+    const found = findHolder('user@host', 'ui', home)
     expect(found.holder?.pid).toBe(process.pid)
     expect(found.holder?.localPort).toBe(4610)
     expect(found.staleCleared).toBe(false)
@@ -51,13 +51,13 @@ describe('forward ownership markers', () => {
   it('clears a marker whose process is gone instead of treating it as a holder', async () => {
     const home = tmpHome()
     const pid = await deadPid()
-    writeForwardMarker({ instanceId: 'demo@host', kind: 'relay', pid, owner: 'cli', startedAt: Date.now() }, home)
-    const found = findHolder('demo@host', 'relay', home)
+    writeForwardMarker({ instanceId: 'user@host', kind: 'relay', pid, owner: 'cli', startedAt: Date.now() }, home)
+    const found = findHolder('user@host', 'relay', home)
     // A stale marker must never block a restart…
     expect(found.holder).toBeUndefined()
     expect(found.staleCleared).toBe(true)
     // …and it is cleaned up while we are here.
-    expect(existsSync(forwardMarkerPath('demo@host', 'relay', home))).toBe(false)
+    expect(existsSync(forwardMarkerPath('user@host', 'relay', home))).toBe(false)
   })
 
   it('keeps legs apart: a ui holder is not a relay holder', () => {

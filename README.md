@@ -33,6 +33,10 @@ npm `@bd7pil/ocrc` · CLI `ocrc` · state `~/.ocrc/` · extension `extensions/oc
 - **Keeps config and credentials in sync.** Diff this machine's `~/.config/opencode` against the
   remote's, push files, deep-merge the config document, ship `auth.json` over stdin at 0600 —
   with deletions opt-in per item and `.ocrc-bak` backups.
+- **Assembles components it does not know.** `--with-components` reads each component's own
+  `provision.json` (engine plugin, pinned binary, console extension), installs it, and adds its
+  entry to the engine's `plugins` union. Adding reeve or deep-memory is a manifest, not an ocrc
+  change; the versions are pinned in `ops/components.json`.
 - **One name, one repo.** Brand `OCRC`; machine identifiers are just `ocrc` — extension
   directory, `panel.id`, release asset, tags, mirror branch. Why, and what it cost existing
   installs: [`docs/decisions/2026-10-18-rename-to-ocrc.md`](docs/decisions/2026-10-18-rename-to-ocrc.md).
@@ -81,6 +85,8 @@ ocrc remote add --host H [--user U] [--ssh-auth key|password] [--egress auto|rel
 ocrc remote list|status <id>
 ocrc remote plan <id>                # read-only dry run: ssh, environment, engine gate, actions
 ocrc remote apply <id> [--force]     # push runtime + pinned opencode + app
+                        [--with-components | --component <dir|tgz|spec>]
+                                     # + each component's provision.json (plugin/artifacts/console)
 ocrc remote up|down <id>             # start / stop (relay leg + forwards come with it)
 ocrc remote pairlink <id>            # one-time pairing link
 ocrc remote config-diff|sync-config|sync-auth <id>
@@ -93,7 +99,7 @@ ocrc remote offline-proof | trace-check F    # prove an install made no outbound
 
 | | |
 |---|---|
-| opencode | the packed peer engine is **v2** (`2.0.27`); the v2 gate is enforced (`major=2`, `>= 2.0.20`) |
+| opencode | the packed peer engine is **v2** (`2.0.32`); the v2 gate is enforced (`major=2`, `>= 2.0.20`) |
 | controlled side | Linux x86_64; **RHEL7 / glibc 2.17** is a supported floor (CI builds a legacy pack) |
 | control side | Windows / macOS desktop app; the service runs on that host |
 | ssh | system OpenSSH (ProxyJump / `~/.ssh/config` work as-is) |

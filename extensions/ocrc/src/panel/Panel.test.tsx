@@ -13,11 +13,11 @@ vi.mock('@openchamber/sdk', async (original) => {
 })
 
 const ROW = {
-  id: 'demo@192.168.26.101', host: '192.168.26.101', user: 'demo', port: 22,
+  id: 'user@192.0.2.10', host: '192.0.2.10', user: 'user', port: 22,
   instancePort: 2610, localPort: 4610, appVersion: '2.3.3', name: 'EL7 box',
   enabled: true, reconnect: true, restoreOnStart: true, sshAuth: 'key',
   hasSshPassword: false, provision: 'push', egress: 'auto', hasUiPassword: true,
-  status: { state: 'online', url: 'http://127.0.0.1:4610', app: '2.3.3', engine: { path: '/home/demo/.ocrc/remote/engine/opencode', version: '2.0.27' }, egress: { mode: 'auto', relay: true, reason: '远程机器出不了网', cached: true } },
+  status: { state: 'online', url: 'http://127.0.0.1:4610', app: '2.3.3', engine: { path: '/home/user/.ocrc/remote/engine/opencode', version: '2.0.27' }, egress: { mode: 'auto', relay: true, reason: '远程机器出不了网', cached: true } },
 }
 
 beforeEach(() => {

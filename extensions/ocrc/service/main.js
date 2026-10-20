@@ -1,3 +1,546 @@
+var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __esm = (fn, res, err) => function __init() {
+  if (err) throw err[0];
+  try {
+    return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+  } catch (e) {
+    throw err = [e], e;
+  }
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+
+// ../../src/utils/jsonc.ts
+function stripJsonc(text) {
+  let out = "";
+  let i = 0;
+  let inStr = false;
+  let strCh = "";
+  while (i < text.length) {
+    const ch = text[i];
+    const next = text[i + 1];
+    if (inStr) {
+      out += ch;
+      if (ch === "\\") {
+        out += next ?? "";
+        i += 2;
+        continue;
+      }
+      if (ch === strCh) inStr = false;
+      i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inStr = true;
+      strCh = ch;
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch === "/" && next === "/") {
+      while (i < text.length && text[i] !== "\n") i++;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      i += 2;
+      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out.replace(/,(\s*[}\]])/g, "$1");
+}
+function parseConfig(raw) {
+  try {
+    const parsed = JSON.parse(stripJsonc(raw));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false, error: "\u9876\u5C42\u4E0D\u662F\u5BF9\u8C61" };
+    }
+    return { ok: true, parsed };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+var init_jsonc = __esm({
+  "../../src/utils/jsonc.ts"() {
+    "use strict";
+  }
+});
+
+// ../../src/core/config-merge.ts
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+function mergeSticky(remote, incoming) {
+  const out = { ...remote };
+  for (const [key, value] of Object.entries(incoming)) {
+    if (value === void 0) continue;
+    const current = out[key];
+    if (isPlainObject(value) && isPlainObject(current)) {
+      out[key] = mergeSticky(current, value);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+function hasChanges(before, after) {
+  return JSON.stringify(sortKeys(before)) !== JSON.stringify(sortKeys(after));
+}
+function sortKeys(value) {
+  if (Array.isArray(value)) return value.map(sortKeys);
+  if (!isPlainObject(value)) return value;
+  const out = {};
+  for (const key of Object.keys(value).sort()) out[key] = sortKeys(value[key]);
+  return out;
+}
+function stripLiteralSecrets(config) {
+  const next = structuredClone(config);
+  const replaced = [];
+  const servers = next.mcp?.servers;
+  if (!servers) return { config: next, replaced };
+  for (const [name, raw] of Object.entries(servers)) {
+    if (!raw || typeof raw !== "object") continue;
+    const declaration = raw;
+    for (const [key, value] of Object.entries(declaration.environment ?? {})) {
+      if (typeof value !== "string" || /^\{.*\}$/.test(value)) continue;
+      if (!/(key|token|secret|password|passwd|credential|apikey)/i.test(key)) continue;
+      declaration.environment[key] = `{env:${key}}`;
+      replaced.push({ path: `mcp.servers.${name}.environment.${key}`, env: key });
+    }
+  }
+  return { config: next, replaced };
+}
+function renderConfig(doc) {
+  return `${JSON.stringify(doc, null, 2)}
+`;
+}
+var init_config_merge = __esm({
+  "../../src/core/config-merge.ts"() {
+    "use strict";
+    init_jsonc();
+  }
+});
+
+// ../../src/core/instance-config.ts
+var instance_config_exports = {};
+__export(instance_config_exports, {
+  INSTANCE_SYNC_ENTRIES: () => INSTANCE_SYNC_ENTRIES,
+  MANAGED_COLLECTIONS: () => MANAGED_COLLECTIONS,
+  PEER_AUTH_PATH: () => PEER_AUTH_PATH,
+  PEER_CONFIG_DIR: () => PEER_CONFIG_DIR,
+  applyKeyDeletes: () => applyKeyDeletes,
+  buildAuthPushScript: () => buildAuthPushScript,
+  buildConfigApplyScript: () => buildConfigApplyScript,
+  buildPeerConfigReadScript: () => buildPeerConfigReadScript,
+  diffConfig: () => diffConfig,
+  discardStaging: () => discardStaging,
+  findPeerOnlyKeys: () => findPeerOnlyKeys,
+  findShadowedKeys: () => findShadowedKeys,
+  listStaged: () => listStaged,
+  mergeConfigLayers: () => mergeConfigLayers,
+  parsePeerConfigRead: () => parsePeerConfigRead,
+  planConfigSync: () => planConfigSync,
+  readLocalConfig: () => readLocalConfig,
+  stageConfigTree: () => stageConfigTree
+});
+import { cpSync, existsSync as existsSync4, mkdirSync as mkdirSync6, readFileSync as readFileSync4, readdirSync, rmSync as rmSync3, statSync as statSync3, writeFileSync as writeFileSync5 } from "node:fs";
+import { createHash as createHash3 } from "node:crypto";
+import { join as join7, relative, sep } from "node:path";
+function mergeConfigLayers(layers) {
+  let effective = {};
+  const errors = [];
+  for (const layer of layers) {
+    if (layer.parseError) {
+      errors.push(`${layer.basename} \u89E3\u6790\u5931\u8D25\uFF1A${layer.parseError}`);
+      continue;
+    }
+    if (layer.parsed) effective = mergeSticky(effective, layer.parsed);
+  }
+  return { effective, errors };
+}
+function shortHash(data) {
+  return createHash3("sha256").update(data).digest("hex").slice(0, 16);
+}
+function toPosix(p) {
+  return sep === "/" ? p : p.split(sep).join("/");
+}
+function walkEntry(dir, entry, out) {
+  const abs = join7(dir, entry);
+  if (!existsSync4(abs)) return;
+  const st = statSync3(abs);
+  if (st.isFile()) {
+    out.push({ rel: toPosix(entry), hash: shortHash(readFileSync4(abs)) });
+    return;
+  }
+  if (!st.isDirectory()) return;
+  for (const name of readdirSync(abs)) {
+    const child = `${entry}/${name}`;
+    const childAbs = join7(dir, entry, name);
+    const childStat = statSync3(childAbs);
+    if (childStat.isDirectory()) walkEntry(dir, child, out);
+    else if (childStat.isFile()) out.push({ rel: toPosix(child), hash: shortHash(readFileSync4(childAbs)) });
+  }
+}
+function parseLayer(basename2, raw) {
+  const format2 = basename2.endsWith(".jsonc") ? "jsonc" : "json";
+  const file = { basename: basename2, raw };
+  if (format2 === "jsonc" && /(^|\n)\s*(\/\/|\/\*)/.test(raw)) file.commentsWillBeLost = true;
+  const parsed = parseConfig(format2 === "jsonc" ? stripJsonc(raw) : raw);
+  if (parsed.ok) file.parsed = parsed.parsed;
+  else file.parseError = parsed.error;
+  return file;
+}
+function readLocalConfig(opts = {}) {
+  const dir = opts.dir ?? join7(process.env.HOME ?? process.env.USERPROFILE ?? "", ".config", "opencode");
+  const authPath = opts.authPath ?? join7(process.env.HOME ?? process.env.USERPROFILE ?? "", ".local", "share", "opencode", "auth.json");
+  const layers = [];
+  for (const name of CONFIG_CANDIDATES) {
+    const abs = join7(dir, name);
+    if (!existsSync4(abs)) continue;
+    layers.push(parseLayer(name, readFileSync4(abs, "utf-8")));
+  }
+  const { effective, errors } = mergeConfigLayers(layers);
+  const files = [];
+  for (const entry of INSTANCE_SYNC_ENTRIES) walkEntry(dir, entry, files);
+  files.sort((a, b) => a.rel.localeCompare(b.rel));
+  return { dir, authPath, authPresent: existsSync4(authPath), layers, effective, layerErrors: errors, files };
+}
+function buildPeerConfigReadScript() {
+  const list = INSTANCE_SYNC_ENTRIES.join(" ");
+  return [
+    `D="${PEER_CONFIG_DIR}"`,
+    'echo "B64_JSON_BEGIN"',
+    '[ -f "$D/opencode.json" ] && base64 < "$D/opencode.json"',
+    'echo "B64_JSON_END"',
+    'echo "B64_JSONC_BEGIN"',
+    '[ -f "$D/opencode.jsonc" ] && base64 < "$D/opencode.jsonc"',
+    'echo "B64_JSONC_END"',
+    `if [ -f "${PEER_AUTH_PATH}" ]; then echo "AUTH=present"; else echo "AUTH=missing"; fi`,
+    'echo "LIST_BEGIN"',
+    `cd "$D" 2>/dev/null && for e in ${list}; do [ -e "$e" ] || continue; find "$e" -type f 2>/dev/null; done | sort -u | while IFS= read -r rel; do`,
+    '  h=$(sha256sum "$rel" 2>/dev/null | cut -c1-16)',
+    '  echo "${h:-?} $rel"',
+    "done",
+    'echo "LIST_END"'
+  ].join("\n");
+}
+function decodeBlock(stdout, name) {
+  const re = new RegExp(`${name}_BEGIN\\r?\\n([\\s\\S]*?)\\r?\\n${name}_END`);
+  const block = re.exec(stdout);
+  if (!block) return void 0;
+  const body = block[1].replace(/[\r\n]/g, "");
+  if (!body.trim()) return void 0;
+  return Buffer.from(body, "base64").toString("utf-8");
+}
+function parsePeerConfigRead(stdout) {
+  const layers = [];
+  const json2 = decodeBlock(stdout, "B64_JSON");
+  const jsonc = decodeBlock(stdout, "B64_JSONC");
+  if (json2 !== void 0) layers.push(parseLayer("opencode.json", json2));
+  if (jsonc !== void 0) layers.push(parseLayer("opencode.jsonc", jsonc));
+  const { effective, errors } = mergeConfigLayers(layers);
+  const files = [];
+  const list = /LIST_BEGIN\r?\n([\s\S]*?)\r?\nLIST_END/.exec(stdout)?.[1] ?? "";
+  for (const line of list.split("\n")) {
+    const m = /^(\S+) (.+)$/.exec(line.trim());
+    if (m) files.push({ hash: m[1], rel: m[2] });
+  }
+  files.sort((a, b) => a.rel.localeCompare(b.rel));
+  return {
+    layers,
+    effective,
+    layerErrors: errors,
+    // The `.jsonc` wins when it exists (source-verified load order), so that is
+    // where a merged document has to land to actually take effect.
+    targetBasename: jsonc !== void 0 ? "opencode.jsonc" : "opencode.json",
+    authPresent: /^AUTH=present$/m.test(stdout),
+    files
+  };
+}
+function diffConfig(local, peer) {
+  const diff = { add: [], change: [], same: [], peerOnly: [], unknown: [], auth: { local: local.authPresent, peer: peer.authPresent } };
+  const peerMap = new Map(peer.files.map((f) => [f.rel, f.hash]));
+  const localMap = new Map(local.files.map((f) => [f.rel, f.hash]));
+  for (const [rel, hash] of localMap) {
+    const remote = peerMap.get(rel);
+    if (remote === void 0) diff.add.push(rel);
+    else if (remote === "?" || hash === "?") diff.unknown.push(rel);
+    else if (remote !== hash) diff.change.push(rel);
+    else diff.same.push(rel);
+  }
+  for (const rel of peerMap.keys()) if (!localMap.has(rel)) diff.peerOnly.push(rel);
+  diff.add.sort();
+  diff.change.sort();
+  diff.same.sort();
+  diff.peerOnly.sort();
+  diff.unknown.sort();
+  return diff;
+}
+function findPeerOnlyKeys(localEffective, peerEffective) {
+  const out = [];
+  for (const { id, path } of MANAGED_COLLECTIONS) {
+    const at = (doc) => {
+      let node = doc;
+      for (const step of path) {
+        if (!node || typeof node !== "object" || Array.isArray(node)) return void 0;
+        node = node[step];
+      }
+      return node && typeof node === "object" && !Array.isArray(node) ? node : void 0;
+    };
+    const localMap = at(localEffective);
+    const peerMap = at(peerEffective);
+    if (!peerMap) continue;
+    for (const key of Object.keys(peerMap)) {
+      if (!localMap || !(key in localMap)) out.push({ collection: id, key });
+    }
+  }
+  return out.sort((a, b) => `${a.collection}:${a.key}`.localeCompare(`${b.collection}:${b.key}`));
+}
+function applyKeyDeletes(merged, deletes) {
+  const next = structuredClone(merged);
+  const removed = [];
+  for (const spec of deletes) {
+    const [collection, ...rest] = spec.split(":");
+    const key = rest.join(":");
+    const target = MANAGED_COLLECTIONS.find((c) => c.id === collection);
+    if (!target || !key) continue;
+    let node = next;
+    for (const step of target.path) {
+      const child = node?.[step];
+      if (!child || typeof child !== "object" || Array.isArray(child)) {
+        node = void 0;
+        break;
+      }
+      node = child;
+    }
+    if (!node || !(key in node)) continue;
+    delete node[key];
+    removed.push(`${collection}:${key}`);
+  }
+  return { merged: next, removed };
+}
+function findShadowedKeys(higher, merged) {
+  const out = /* @__PURE__ */ new Set();
+  const walk = (node, path) => {
+    if (!node || typeof node !== "object" || Array.isArray(node)) {
+      const current = path.reduce((acc, key) => acc && typeof acc === "object" ? acc[key] : void 0, merged);
+      if (JSON.stringify(current) !== JSON.stringify(node)) out.add(path.slice(0, 2).join("."));
+      return;
+    }
+    for (const [key, value] of Object.entries(node)) walk(value, [...path, key]);
+  };
+  for (const [key, value] of Object.entries(higher)) walk(value, [key]);
+  return [...out].sort();
+}
+function planConfigSync(local, peer, opts = {}) {
+  const diff = opts.diff ?? diffConfig(local, peer);
+  const notes = [];
+  const jsoncLayer = peer.layers.find((l) => l.basename === "opencode.jsonc");
+  const commentedTarget = !!jsoncLayer?.commentsWillBeLost;
+  const basename2 = commentedTarget && !opts.preferCommentedTarget ? "opencode.json" : peer.targetBasename;
+  const plan = {
+    basename: basename2,
+    files: [],
+    configChanged: false,
+    preservedPluginKey: false,
+    managedPlugins: [...opts.componentPlugins ?? []],
+    droppedManagedKeys: [],
+    secretsReplaced: [],
+    deletes: [...opts.deletes ?? []].filter((rel) => diff.peerOnly.includes(rel)),
+    keyDeletes: { requested: [...opts.keyDeletes ?? []], removed: [] },
+    keyDeleteCandidates: findPeerOnlyKeys(local.effective, peer.effective),
+    baseUrlRewrites: [],
+    shadowed: [],
+    notes
+  };
+  for (const err of local.layerErrors) notes.push(`\u672C\u5730 ${err}\u2014\u2014\u8BE5\u5C42\u672A\u53C2\u4E0E\u5408\u5E76`);
+  for (const err of peer.layerErrors) notes.push(`\u5BF9\u7AEF ${err}\u2014\u2014\u8BE5\u5C42\u672A\u53C2\u4E0E\u5408\u5E76`);
+  const otherLayers = CONFIG_CANDIDATES.filter((name) => name !== plan.basename && peer.layers.some((l) => l.basename === name));
+  plan.files = [...diff.add, ...diff.change].filter((rel) => !CONFIG_CANDIDATES.includes(rel));
+  if (otherLayers.length > 0 && !commentedTarget) {
+    notes.push(`\u5BF9\u7AEF\u7684 ${otherLayers.join("/")} \u662F\u4F4E\u4F18\u5148\u7EA7\u5C42\uFF08\u88AB ${plan.basename} \u8986\u76D6\uFF09\uFF0C\u53EA\u53C2\u4E0E\u5408\u5E76\u3001\u4E0D\u5355\u72EC\u63A8`);
+  }
+  let merged;
+  if (Object.keys(local.effective).length > 0) {
+    merged = mergeSticky(peer.effective, local.effective);
+    for (const [provider, url] of Object.entries(opts.providerBaseUrl ?? {})) {
+      const entry = merged.provider?.[provider];
+      if (!entry) continue;
+      const options = entry.options ??= {};
+      const from = typeof options.baseURL === "string" ? options.baseURL : void 0;
+      if (from === url) continue;
+      options.baseURL = url;
+      plan.baseUrlRewrites.push({ provider, from, to: url });
+    }
+    const stripped = stripLiteralSecrets(merged);
+    merged = stripped.config;
+    plan.secretsReplaced = stripped.replaced;
+    if (plan.keyDeletes.requested.length > 0) {
+      const applied = applyKeyDeletes(merged, plan.keyDeletes.requested);
+      merged = applied.merged;
+      plan.keyDeletes.removed = applied.removed;
+      if (applied.removed.length > 0) notes.push(`\u6309\u4F60\u7684\u9009\u62E9\u5220\u9664\uFF1A${applied.removed.join("\u3001")}\uFF08\u65E7\u914D\u7F6E\u5728 .ocrc-bak \u91CC\uFF09`);
+      const missed = plan.keyDeletes.requested.filter((spec) => !applied.removed.includes(spec));
+      if (missed.length > 0) notes.push(`\u4EE5\u4E0B\u5220\u9664\u8BF7\u6C42\u6CA1\u6709\u5BF9\u5E94\u9879\uFF08\u5DF2\u5FFD\u7565\uFF09\uFF1A${missed.join("\u3001")}`);
+    }
+    plan.preservedPluginKey = "plugin" in peer.effective;
+    if (plan.preservedPluginKey) merged.plugin = peer.effective.plugin;
+    else delete merged.plugin;
+    const asStrings = (v) => Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+    const plugins = [.../* @__PURE__ */ new Set([
+      ...asStrings(peer.effective.plugins),
+      ...asStrings(local.effective.plugins),
+      ...opts.componentPlugins ?? []
+    ])];
+    if (plugins.length > 0) merged.plugins = plugins;
+    else delete merged.plugins;
+    plan.managedPlugins = [...opts.componentPlugins ?? []];
+    if (plan.preservedPluginKey) notes.push("\u5BF9\u7AEF\u7684 v1 plugin \u952E\u7531\u5B83\u81EA\u5DF1\u7684 openchamber \u7BA1\u7406\uFF0C\u539F\u6837\u4FDD\u7559");
+    if (plan.managedPlugins.length > 0) notes.push(`\u7EC4\u4EF6\u63D2\u4EF6\u6761\u76EE\uFF1A${plan.managedPlugins.join("\u3001")}`);
+    plan.merged = merged;
+    plan.configChanged = hasChanges(peer.effective, merged);
+    if (plan.configChanged) plan.files.unshift(plan.basename);
+    if (commentedTarget) {
+      if (opts.preferCommentedTarget) {
+        plan.commentsWillBeLost = true;
+        notes.push(`\u5BF9\u7AEF ${peer.targetBasename} \u91CC\u6709\u6CE8\u91CA\uFF0C\u6309\u4F60\u7684\u9009\u62E9\u5199\u56DE\uFF08\u6CE8\u91CA\u4F1A\u4E22\uFF09`);
+      } else {
+        plan.shadowed = findShadowedKeys(jsoncLayer?.parsed ?? {}, merged).filter((key) => key.split(".")[0] !== "plugin" && key.split(".")[0] !== "plugins");
+        notes.push(`\u5BF9\u7AEF ${peer.targetBasename} \u6709\u6CE8\u91CA\uFF0C\u4E0D\u91CD\u5199\u5B83\uFF08\u6CE8\u91CA\u662F\u4F60\u7684\u6587\u6863\uFF09\uFF1B\u672C\u6B21\u5199 opencode.json`);
+        if (plan.shadowed.length > 0) {
+          notes.push(`\u4EE5\u4E0B\u952E\u4F1A\u88AB\u5BF9\u7AEF ${peer.targetBasename} \u7684\u73B0\u503C\u8986\u76D6\uFF0C\u540C\u6B65\u540E\u4E0D\u751F\u6548\uFF1A${plan.shadowed.join("\u3001")}\u2014\u2014\u66F4\u65B0\u6216\u5220\u6389\u90A3\u4E2A\u6587\u4EF6\u624D\u751F\u6548`);
+        }
+      }
+    }
+  } else {
+    notes.push("\u672C\u5730\u6CA1\u6709 opencode.json/jsonc \u2014\u2014 \u53EA\u540C\u6B65\u76EE\u5F55\u7C7B\u6761\u76EE");
+  }
+  if (diff.unknown.length > 0) notes.push(`${diff.unknown.length} \u4E2A\u6587\u4EF6\u5BF9\u7AEF\u7B97\u4E0D\u51FA\u54C8\u5E0C\uFF08\u7F3A sha256sum\uFF09\uFF1A\u6309"\u4E0D\u53EF\u5224\u5B9A"\u5904\u7406\uFF0C\u4E0D\u5F53\u4F5C\u76F8\u540C`);
+  if (diff.peerOnly.length > 0 && plan.deletes.length === 0) {
+    notes.push(`\u5BF9\u7AEF\u72EC\u6709\u7684 ${diff.peerOnly.length} \u4E2A\u6587\u4EF6\u4E0D\u4F1A\u88AB\u52A8\uFF08\u8981\u5220\u5F97\u663E\u5F0F\u52FE\u9009\uFF09`);
+  }
+  if (plan.keyDeleteCandidates.length > 0 && plan.keyDeletes.requested.length === 0) {
+    const list = plan.keyDeleteCandidates.map((c) => `${c.collection}:${c.key}`);
+    notes.push(`\u5BF9\u7AEF\u72EC\u6709\u3001\u672C\u5730\u6CA1\u6709\u7684\u914D\u7F6E\u9879\u4E0D\u4F1A\u88AB\u52A8\uFF08\u8981\u5220\u5F97\u663E\u5F0F\u52FE\u9009\uFF09\uFF1A${list.join("\u3001")}`);
+  }
+  return plan;
+}
+function stageConfigTree(opts) {
+  const entries = opts.entries ?? INSTANCE_SYNC_ENTRIES;
+  const skip = new Set(opts.skipBasenames ?? CONFIG_CANDIDATES);
+  mkdirSync6(opts.destDir, { recursive: true });
+  const staged = [];
+  for (const entry of entries) {
+    if (skip.has(entry)) continue;
+    const src = join7(opts.sourceDir, entry);
+    if (!existsSync4(src)) continue;
+    const dest = join7(opts.destDir, entry);
+    cpSync(src, dest, { recursive: true });
+    staged.push(entry);
+  }
+  if (opts.mergedConfig) {
+    writeFileSync5(join7(opts.destDir, opts.mergedConfig.basename), opts.mergedConfig.content);
+    staged.push(opts.mergedConfig.basename);
+  }
+  return staged;
+}
+function buildConfigApplyScript(deletes = []) {
+  const q2 = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
+  const lines = [
+    "set -e",
+    `D="${PEER_CONFIG_DIR}"`,
+    'S="$D/.ocrc-sync.$$"',
+    'mkdir -p "$S"',
+    'tar -xzf - -C "$S"',
+    'cd "$S"',
+    "find . -type f | sed 's#^\\./##' | while IFS= read -r rel; do",
+    '  tgt="$D/$rel"',
+    '  mkdir -p "$(dirname "$tgt")"',
+    '  if [ -f "$tgt" ]; then',
+    '    cp -p "$tgt" "$tgt.ocrc-bak"',
+    '    echo "backup: $rel"',
+    "  else",
+    '    echo "new: $rel"',
+    "  fi",
+    '  mv "$S/$rel" "$tgt"',
+    "done",
+    'rm -rf "$S"'
+  ];
+  if (deletes.length > 0) {
+    lines.push(
+      `for rel in ${deletes.map(q2).join(" ")}; do`,
+      '  tgt="$D/$rel"',
+      '  if [ -f "$tgt" ]; then cp -p "$tgt" "$tgt.ocrc-bak"; rm -f "$tgt"; echo "deleted: $rel"; fi',
+      "done"
+    );
+  }
+  lines.push('echo "sync-config: applied"');
+  return lines.join("\n");
+}
+function buildAuthPushScript() {
+  return [
+    "set -e",
+    `A="${PEER_AUTH_PATH}"`,
+    'mkdir -p "$(dirname "$A")"',
+    'T="$A.ocrc-tmp.$$"',
+    'cat > "$T"',
+    'chmod 600 "$T"',
+    'if [ -f "$A" ]; then cp -p "$A" "$A.ocrc-bak"; fi',
+    'mv "$T" "$A"',
+    'echo "sync-auth: written 0600"'
+  ].join("\n");
+}
+function discardStaging(dir) {
+  rmSync3(dir, { recursive: true, force: true });
+}
+function listStaged(dir) {
+  const out = [];
+  const walk = (base) => {
+    for (const name of readdirSync(base)) {
+      const abs = join7(base, name);
+      const st = statSync3(abs);
+      if (st.isDirectory()) walk(abs);
+      else if (st.isFile()) out.push(toPosix(relative(dir, abs)));
+    }
+  };
+  if (existsSync4(dir)) walk(dir);
+  return out.sort();
+}
+var PEER_CONFIG_DIR, PEER_AUTH_PATH, INSTANCE_SYNC_ENTRIES, CONFIG_CANDIDATES, MANAGED_COLLECTIONS;
+var init_instance_config = __esm({
+  "../../src/core/instance-config.ts"() {
+    "use strict";
+    init_jsonc();
+    init_config_merge();
+    PEER_CONFIG_DIR = "$HOME/.config/opencode";
+    PEER_AUTH_PATH = "$HOME/.local/share/opencode/auth.json";
+    INSTANCE_SYNC_ENTRIES = [
+      "opencode.json",
+      "opencode.jsonc",
+      "AGENTS.md",
+      "CLAUDE.md",
+      "command",
+      "agent",
+      "skill",
+      "agents",
+      "skills",
+      "oh-my-opencode-slim.json",
+      "reeve.jsonc"
+    ];
+    CONFIG_CANDIDATES = ["opencode.json", "opencode.jsonc"];
+    MANAGED_COLLECTIONS = [
+      { id: "provider", path: ["provider"] },
+      { id: "mcp.servers", path: ["mcp", "servers"] }
+    ];
+  }
+});
+
 // src/service/main.ts
 import http2 from "node:http";
 
@@ -112,7 +655,7 @@ function redactInstance(i) {
 }
 var MIN_ENGINE_VERSION = "2.0.20";
 var ENGINE_MAJOR = 2;
-var DEFAULT_ENGINE_PIN = "2.0.27";
+var DEFAULT_ENGINE_PIN = "2.0.32";
 var NODE_RUNTIME = {
   version: "24.22.0",
   /** Directory name inside the tarball. */
@@ -684,9 +1227,9 @@ function createRemoteInstancesStore(path, opts = {}) {
 // ../../src/core/remote-instance-bridge.ts
 import { spawn as spawn3 } from "node:child_process";
 import net2 from "node:net";
-import { mkdtempSync, openSync, readFileSync as readFileSync6 } from "node:fs";
-import { tmpdir } from "node:os";
-import { join as join9 } from "node:path";
+import { mkdtempSync, openSync, readFileSync as readFileSync7 } from "node:fs";
+import { tmpdir as tmpdir2 } from "node:os";
+import { join as join10 } from "node:path";
 
 // ../../src/core/remote-common.ts
 function parseGlibcVersion(firstLine) {
@@ -1637,484 +2180,451 @@ async function provisionOffline(target, appVersion, opts = {}) {
   return { ok: runtime.ok && engine.ok && app.ok, runtime, engine, app };
 }
 
-// ../../src/core/instance-config.ts
-import { cpSync, existsSync as existsSync4, mkdirSync as mkdirSync6, readFileSync as readFileSync4, readdirSync, rmSync as rmSync3, statSync as statSync3, writeFileSync as writeFileSync5 } from "node:fs";
-import { createHash as createHash3 } from "node:crypto";
-import { join as join7, relative, sep } from "node:path";
+// ../../src/core/remote-instance-bridge.ts
+init_instance_config();
 
-// ../../src/utils/jsonc.ts
-function stripJsonc(text) {
-  let out = "";
-  let i = 0;
-  let inStr = false;
-  let strCh = "";
-  while (i < text.length) {
-    const ch = text[i];
-    const next = text[i + 1];
-    if (inStr) {
-      out += ch;
-      if (ch === "\\") {
-        out += next ?? "";
-        i += 2;
-        continue;
+// ../../src/core/components.ts
+import { execFileSync } from "node:child_process";
+import { createHash as createHash4 } from "node:crypto";
+import { cpSync as cpSync2, existsSync as existsSync5, mkdirSync as mkdirSync7, readFileSync as readFileSync5, readdirSync as readdirSync2, rmSync as rmSync4, statSync as statSync4, writeFileSync as writeFileSync6 } from "node:fs";
+import { homedir as homedir3, tmpdir } from "node:os";
+import { basename, dirname as dirname3, join as join8 } from "node:path";
+import { fileURLToPath } from "node:url";
+var COMPONENT_SCHEMA = 1;
+function fail(source, message) {
+  throw new Error(`${source}: ${message}`);
+}
+function requireString(source, value, field) {
+  if (typeof value !== "string" || value.trim().length === 0) fail(source, `${field} \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32`);
+  return value;
+}
+function parseComponentManifest(raw, source = "provision.json") {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) fail(source, "\u5FC5\u987B\u662F JSON \u5BF9\u8C61");
+  const doc = raw;
+  if (doc.schema !== COMPONENT_SCHEMA) fail(source, `schema \u5FC5\u987B\u662F ${COMPONENT_SCHEMA}\uFF08\u6536\u5230 ${String(doc.schema)}\uFF09`);
+  const manifest = {
+    schema: COMPONENT_SCHEMA,
+    name: requireString(source, doc.name, "name"),
+    version: requireString(source, doc.version, "version")
+  };
+  if (doc.license !== void 0) manifest.license = requireString(source, doc.license, "license");
+  if (doc.host !== void 0) {
+    if (typeof doc.host !== "object" || doc.host === null) fail(source, "host \u5FC5\u987B\u662F\u5BF9\u8C61");
+    const host = doc.host;
+    manifest.host = {
+      node: host.node === void 0 ? void 0 : requireString(source, host.node, "host.node"),
+      os: Array.isArray(host.os) ? host.os.map((v) => requireString(source, v, "host.os[]")) : void 0,
+      arch: Array.isArray(host.arch) ? host.arch.map((v) => requireString(source, v, "host.arch[]")) : void 0
+    };
+  }
+  if (doc.enginePlugin !== void 0) {
+    if (typeof doc.enginePlugin !== "object" || doc.enginePlugin === null) fail(source, "enginePlugin \u5FC5\u987B\u662F\u5BF9\u8C61");
+    const plugin = doc.enginePlugin;
+    const kind = plugin.kind;
+    if (kind !== "package" && kind !== "directory") fail(source, "enginePlugin.kind \u53EA\u8BA4 package | directory");
+    manifest.enginePlugin = {
+      spec: requireString(source, plugin.spec, "enginePlugin.spec"),
+      kind,
+      entry: plugin.entry === void 0 ? void 0 : requireString(source, plugin.entry, "enginePlugin.entry"),
+      requiresPeer: Array.isArray(plugin.requiresPeer) ? plugin.requiresPeer.map((v) => requireString(source, v, "enginePlugin.requiresPeer[]")) : void 0
+    };
+  }
+  if (doc.artifacts !== void 0) {
+    if (!Array.isArray(doc.artifacts)) fail(source, "artifacts \u5FC5\u987B\u662F\u6570\u7EC4");
+    manifest.artifacts = doc.artifacts.map((entry, i) => {
+      if (typeof entry !== "object" || entry === null) fail(source, `artifacts[${i}] \u5FC5\u987B\u662F\u5BF9\u8C61`);
+      const a = entry;
+      const sha256 = requireString(source, a.sha256, `artifacts[${i}].sha256`).toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(sha256)) fail(source, `artifacts[${i}].sha256 \u5FC5\u987B\u662F 64 \u4F4D\u5341\u516D\u8FDB\u5236`);
+      const dest = requireString(source, a.dest, `artifacts[${i}].dest`);
+      if (!dest.startsWith("~/") && !dest.startsWith("/")) fail(source, `artifacts[${i}].dest \u5FC5\u987B\u662F ~/ \u6216\u7EDD\u5BF9\u8DEF\u5F84`);
+      return {
+        id: requireString(source, a.id, `artifacts[${i}].id`),
+        version: requireString(source, a.version, `artifacts[${i}].version`),
+        url: requireString(source, a.url, `artifacts[${i}].url`),
+        sha256,
+        size: typeof a.size === "number" ? a.size : void 0,
+        dest,
+        mode: a.mode === void 0 ? void 0 : requireString(source, a.mode, `artifacts[${i}].mode`)
+      };
+    });
+  }
+  if (doc.extension !== void 0) {
+    if (typeof doc.extension !== "object" || doc.extension === null) fail(source, "extension \u5FC5\u987B\u662F\u5BF9\u8C61");
+    const e = doc.extension;
+    const zip = requireString(source, e.zip, "extension.zip");
+    if (!/^https:\/\//.test(zip) || !zip.endsWith(".zip")) fail(source, "extension.zip \u5FC5\u987B\u662F https .zip URL");
+    manifest.extension = {
+      apiVersion: typeof e.apiVersion === "number" ? e.apiVersion : fail(source, "extension.apiVersion \u5FC5\u987B\u662F\u6570\u5B57"),
+      id: requireString(source, e.id, "extension.id"),
+      zip,
+      tag: e.tag === void 0 ? void 0 : requireString(source, e.tag, "extension.tag"),
+      capabilities: Array.isArray(e.capabilities) ? e.capabilities.map((v) => requireString(source, v, "extension.capabilities[]")) : void 0,
+      filesystem: Array.isArray(e.filesystem) ? e.filesystem.map((v) => requireString(source, v, "extension.filesystem[]")) : void 0
+    };
+  }
+  if (doc.configSync !== void 0) {
+    if (!Array.isArray(doc.configSync)) fail(source, "configSync \u5FC5\u987B\u662F\u6570\u7EC4");
+    manifest.configSync = doc.configSync.map((v) => requireString(source, v, "configSync[]"));
+  }
+  if (doc.verify !== void 0) {
+    if (!Array.isArray(doc.verify)) fail(source, "verify \u5FC5\u987B\u662F\u6570\u7EC4");
+    manifest.verify = doc.verify.map((entry, i) => {
+      if (typeof entry !== "object" || entry === null) fail(source, `verify[${i}] \u5FC5\u987B\u662F\u5BF9\u8C61`);
+      const v = entry;
+      if (v.kind === "file") {
+        const when = v.when === "directory" ? "directory" : void 0;
+        return {
+          kind: "file",
+          path: requireString(source, v.path, `verify[${i}].path`),
+          mode: v.mode === void 0 ? void 0 : requireString(source, v.mode, `verify[${i}].mode`),
+          when
+        };
       }
-      if (ch === strCh) inStr = false;
-      i++;
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      inStr = true;
-      strCh = ch;
-      out += ch;
-      i++;
-      continue;
-    }
-    if (ch === "/" && next === "/") {
-      while (i < text.length && text[i] !== "\n") i++;
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      i += 2;
-      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i++;
-      i += 2;
-      continue;
-    }
-    out += ch;
-    i++;
+      if (v.kind === "engine-plugin-loaded") {
+        return { kind: "engine-plugin-loaded", spec: requireString(source, v.spec, `verify[${i}].spec`) };
+      }
+      if (v.kind === "guest-installed") {
+        return { kind: "guest-installed", id: requireString(source, v.id, `verify[${i}].id`) };
+      }
+      return fail(source, `verify[${i}].kind \u8BA4\u4E0D\u51FA\uFF08${String(v.kind)}\uFF09`);
+    });
   }
-  return out.replace(/,(\s*[}\]])/g, "$1");
+  return manifest;
 }
-function parseConfig(raw) {
+function tarBinary() {
+  return process.platform === "win32" ? join8(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
+}
+function readManifestFromDir(dir) {
+  const file = join8(dir, "provision.json");
+  if (!existsSync5(file)) throw new Error(`${dir}: \u6CA1\u6709 provision.json\uFF08\u7EC4\u4EF6\u5FC5\u987B\u81EA\u5E26\u5B89\u88C5\u5951\u7EA6\uFF09`);
+  return parseComponentManifest(JSON.parse(readFileSync5(file, "utf8")), file);
+}
+function readManifestFromTarball(tarball) {
+  let text;
   try {
-    const parsed = JSON.parse(stripJsonc(raw));
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { ok: false, error: "\u9876\u5C42\u4E0D\u662F\u5BF9\u8C61" };
-    }
-    return { ok: true, parsed };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    text = execFileSync(tarBinary(), ["-xOf", tarball, "package/provision.json"], { encoding: "utf8" });
+  } catch {
+    throw new Error(`${tarball}: \u5305\u91CC\u6CA1\u6709 package/provision.json`);
   }
+  return parseComponentManifest(JSON.parse(text), `${tarball}:package/provision.json`);
 }
-
-// ../../src/core/config-merge.ts
-function isPlainObject(value) {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+function componentCacheDir() {
+  const home = process.env.OCRC_HOME ?? join8(homedir3(), ".ocrc");
+  return join8(home, "component-cache");
 }
-function mergeSticky(remote, incoming) {
-  const out = { ...remote };
-  for (const [key, value] of Object.entries(incoming)) {
-    if (value === void 0) continue;
-    const current = out[key];
-    if (isPlainObject(value) && isPlainObject(current)) {
-      out[key] = mergeSticky(current, value);
-    } else {
-      out[key] = value;
+function sha256File(file) {
+  return createHash4("sha256").update(readFileSync5(file)).digest("hex");
+}
+function packDirectory(dir) {
+  const staging = join8(tmpdir(), `ocrc-component-${process.pid}-${Date.now()}`);
+  const target = join8(staging, "package");
+  mkdirSync7(target, { recursive: true });
+  cpSync2(dir, target, {
+    recursive: true,
+    filter: (src) => {
+      const name = basename(src);
+      return name !== "node_modules" && name !== ".git" && name !== ".zcode";
     }
-  }
+  });
+  const out = `${staging}.tgz`;
+  execFileSync(tarBinary(), ["-czf", out, "-C", staging, "package"]);
+  rmSync4(staging, { recursive: true, force: true });
   return out;
 }
-function hasChanges(before, after) {
-  return JSON.stringify(sortKeys(before)) !== JSON.stringify(sortKeys(after));
+function packNpmSpec(spec) {
+  const dir = join8(tmpdir(), `ocrc-npm-${process.pid}-${Date.now()}`);
+  mkdirSync7(dir, { recursive: true });
+  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  execFileSync(npm, ["pack", spec, "--silent", "--pack-destination", dir], {
+    stdio: ["ignore", "ignore", "pipe"],
+    // Node 24 on Windows refuses to spawn .cmd files without a shell.
+    shell: process.platform === "win32"
+  });
+  const tgz = readdirSync2(dir).find((f) => f.endsWith(".tgz"));
+  if (!tgz) throw new Error(`npm pack ${spec}: \u6CA1\u6709\u4EA7\u51FA tgz`);
+  return join8(dir, tgz);
 }
-function sortKeys(value) {
-  if (Array.isArray(value)) return value.map(sortKeys);
-  if (!isPlainObject(value)) return value;
-  const out = {};
-  for (const key of Object.keys(value).sort()) out[key] = sortKeys(value[key]);
-  return out;
-}
-function stripLiteralSecrets(config) {
-  const next = structuredClone(config);
-  const replaced = [];
-  const servers = next.mcp?.servers;
-  if (!servers) return { config: next, replaced };
-  for (const [name, raw] of Object.entries(servers)) {
-    if (!raw || typeof raw !== "object") continue;
-    const declaration = raw;
-    for (const [key, value] of Object.entries(declaration.environment ?? {})) {
-      if (typeof value !== "string" || /^\{.*\}$/.test(value)) continue;
-      if (!/(key|token|secret|password|passwd|credential|apikey)/i.test(key)) continue;
-      declaration.environment[key] = `{env:${key}}`;
-      replaced.push({ path: `mcp.servers.${name}.environment.${key}`, env: key });
-    }
+async function prepareComponent(source) {
+  let tarball;
+  let directory;
+  let manifest;
+  if (existsSync5(source) && statSync4(source).isDirectory()) {
+    directory = source;
+    manifest = readManifestFromDir(source);
+    tarball = packDirectory(source);
+  } else if (existsSync5(source)) {
+    manifest = readManifestFromTarball(source);
+    tarball = source;
+  } else {
+    const packed = packNpmSpec(source);
+    manifest = readManifestFromTarball(packed);
+    tarball = packed;
   }
-  return { config: next, replaced };
+  const cache = componentCacheDir();
+  mkdirSync7(cache, { recursive: true });
+  const cached = join8(cache, `${manifest.name}-${manifest.version}.tgz`);
+  if (!existsSync5(cached) || sha256File(cached) !== sha256File(tarball)) {
+    writeFileSync6(cached, readFileSync5(tarball), { mode: 420 });
+  }
+  if (directory === void 0) rmSync4(tarball, { force: true });
+  return { manifest, tarball: cached, sha256: sha256File(cached), directory };
 }
-function renderConfig(doc) {
-  return `${JSON.stringify(doc, null, 2)}
-`;
-}
-
-// ../../src/core/instance-config.ts
-var PEER_CONFIG_DIR = "$HOME/.config/opencode";
-var PEER_AUTH_PATH = "$HOME/.local/share/opencode/auth.json";
-var INSTANCE_SYNC_ENTRIES = [
-  "opencode.json",
-  "opencode.jsonc",
-  "AGENTS.md",
-  "CLAUDE.md",
-  "command",
-  "agent",
-  "skill",
-  "agents",
-  "skills",
-  "oh-my-opencode-slim.json"
-];
-var CONFIG_CANDIDATES = ["opencode.json", "opencode.jsonc"];
-function mergeConfigLayers(layers) {
-  let effective = {};
-  const errors = [];
-  for (const layer of layers) {
-    if (layer.parseError) {
-      errors.push(`${layer.basename} \u89E3\u6790\u5931\u8D25\uFF1A${layer.parseError}`);
+function defaultComponentSources(env = process.env) {
+  const pinsFile = fileURLToPath(new URL("../../ops/components.json", import.meta.url));
+  if (!existsSync5(pinsFile)) return [];
+  let pins;
+  try {
+    pins = JSON.parse(readFileSync5(pinsFile, "utf8"));
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const [name, pin] of Object.entries(pins.components ?? {})) {
+    const envKey = `OCRC_${name.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase()}_PIN`;
+    const override = env[envKey]?.trim();
+    if (override) {
+      out.push(override);
       continue;
     }
-    if (layer.parsed) effective = mergeSticky(effective, layer.parsed);
+    if (pin.tarball) out.push(pin.tarball);
+    else if (pin.spec) out.push(pin.spec);
+    else if (pin.version) out.push(`${name}@${pin.version}`);
   }
-  return { effective, errors };
+  return out;
 }
-function shortHash(data) {
-  return createHash3("sha256").update(data).digest("hex").slice(0, 16);
+function componentRemoteDir(manifest) {
+  return `$HOME/.ocrc/components/${manifest.name}`;
 }
-function toPosix(p) {
-  return sep === "/" ? p : p.split(sep).join("/");
+function pluginEntryFor(manifest, remoteHome) {
+  if (!manifest.enginePlugin) return void 0;
+  return manifest.enginePlugin.kind === "directory" ? `${remoteHome}/.ocrc/components/${manifest.name}/package` : manifest.enginePlugin.spec;
 }
-function walkEntry(dir, entry, out) {
-  const abs = join7(dir, entry);
-  if (!existsSync4(abs)) return;
-  const st = statSync3(abs);
-  if (st.isFile()) {
-    out.push({ rel: toPosix(entry), hash: shortHash(readFileSync4(abs)) });
-    return;
-  }
-  if (!st.isDirectory()) return;
-  for (const name of readdirSync(abs)) {
-    const child = `${entry}/${name}`;
-    const childAbs = join7(dir, entry, name);
-    const childStat = statSync3(childAbs);
-    if (childStat.isDirectory()) walkEntry(dir, child, out);
-    else if (childStat.isFile()) out.push({ rel: toPosix(child), hash: shortHash(readFileSync4(childAbs)) });
-  }
-}
-function parseLayer(basename, raw) {
-  const format2 = basename.endsWith(".jsonc") ? "jsonc" : "json";
-  const file = { basename, raw };
-  if (format2 === "jsonc" && /(^|\n)\s*(\/\/|\/\*)/.test(raw)) file.commentsWillBeLost = true;
-  const parsed = parseConfig(format2 === "jsonc" ? stripJsonc(raw) : raw);
-  if (parsed.ok) file.parsed = parsed.parsed;
-  else file.parseError = parsed.error;
-  return file;
-}
-function readLocalConfig(opts = {}) {
-  const dir = opts.dir ?? join7(process.env.HOME ?? process.env.USERPROFILE ?? "", ".config", "opencode");
-  const authPath = opts.authPath ?? join7(process.env.HOME ?? process.env.USERPROFILE ?? "", ".local", "share", "opencode", "auth.json");
-  const layers = [];
-  for (const name of CONFIG_CANDIDATES) {
-    const abs = join7(dir, name);
-    if (!existsSync4(abs)) continue;
-    layers.push(parseLayer(name, readFileSync4(abs, "utf-8")));
-  }
-  const { effective, errors } = mergeConfigLayers(layers);
-  const files = [];
-  for (const entry of INSTANCE_SYNC_ENTRIES) walkEntry(dir, entry, files);
-  files.sort((a, b) => a.rel.localeCompare(b.rel));
-  return { dir, authPath, authPresent: existsSync4(authPath), layers, effective, layerErrors: errors, files };
-}
-function buildPeerConfigReadScript() {
-  const list = INSTANCE_SYNC_ENTRIES.join(" ");
+function buildComponentUnpackScript(manifest, tarballName) {
+  const dir = componentRemoteDir(manifest);
   return [
-    `D="${PEER_CONFIG_DIR}"`,
-    'echo "B64_JSON_BEGIN"',
-    '[ -f "$D/opencode.json" ] && base64 < "$D/opencode.json"',
-    'echo "B64_JSON_END"',
-    'echo "B64_JSONC_BEGIN"',
-    '[ -f "$D/opencode.jsonc" ] && base64 < "$D/opencode.jsonc"',
-    'echo "B64_JSONC_END"',
-    `if [ -f "${PEER_AUTH_PATH}" ]; then echo "AUTH=present"; else echo "AUTH=missing"; fi`,
-    'echo "LIST_BEGIN"',
-    `cd "$D" 2>/dev/null && for e in ${list}; do [ -e "$e" ] || continue; find "$e" -type f 2>/dev/null; done | sort -u | while IFS= read -r rel; do`,
-    '  h=$(sha256sum "$rel" 2>/dev/null | cut -c1-16)',
-    '  echo "${h:-?} $rel"',
-    "done",
-    'echo "LIST_END"'
+    "set -e",
+    `D="${dir}"`,
+    `T="$D/${tarballName}"`,
+    '[ -f "$T" ] || { echo "component tarball missing" >&2; exit 1; }',
+    'rm -rf "$D.next" && mkdir -p "$D.next"',
+    'tar xzf "$T" -C "$D.next"',
+    '[ -f "$D.next/package/package.json" ] || { echo "component tree has no package.json" >&2; exit 1; }',
+    'rm -rf "$D.bak"',
+    'if [ -d "$D" ]; then mv "$D" "$D.bak"; fi',
+    'mv "$D.next" "$D"',
+    "echo component-unpacked"
   ].join("\n");
 }
-function decodeBlock(stdout, name) {
-  const re = new RegExp(`${name}_BEGIN\\r?\\n([\\s\\S]*?)\\r?\\n${name}_END`);
-  const block = re.exec(stdout);
-  if (!block) return void 0;
-  const body = block[1].replace(/[\r\n]/g, "");
-  if (!body.trim()) return void 0;
-  return Buffer.from(body, "base64").toString("utf-8");
+function buildArtifactProbeCommand(dest) {
+  const f = dest.replace(/^~\//, "$HOME/");
+  return `f="${f}"; if [ -f "$f" ]; then sha256sum "$f" | cut -d" " -f1; else echo MISSING; fi`;
 }
-function parsePeerConfigRead(stdout) {
-  const layers = [];
-  const json2 = decodeBlock(stdout, "B64_JSON");
-  const jsonc = decodeBlock(stdout, "B64_JSONC");
-  if (json2 !== void 0) layers.push(parseLayer("opencode.json", json2));
-  if (jsonc !== void 0) layers.push(parseLayer("opencode.jsonc", jsonc));
-  const { effective, errors } = mergeConfigLayers(layers);
-  const files = [];
-  const list = /LIST_BEGIN\r?\n([\s\S]*?)\r?\nLIST_END/.exec(stdout)?.[1] ?? "";
-  for (const line of list.split("\n")) {
-    const m = /^(\S+) (.+)$/.exec(line.trim());
-    if (m) files.push({ hash: m[1], rel: m[2] });
+function buildArtifactPushScript(dest, sha256, mode = "0644") {
+  const f = dest.replace(/^~\//, "$HOME/");
+  return [
+    "set -e",
+    `D="${dirname3(f)}"`,
+    `F="${f}"`,
+    'mkdir -p "$D"',
+    'cat > "$F.part"',
+    `echo "${sha256}  $F.part" | sha256sum -c - >/dev/null`,
+    'if [ -f "$F" ]; then cp -p "$F" "$F.ocrc-bak" 2>/dev/null || true; fi',
+    'mv "$F.part" "$F"',
+    `chmod ${mode} "$F"`,
+    `echo "${sha256}  $F" | sha256sum -c - >/dev/null`,
+    "echo artifact-ok"
+  ].join("\n");
+}
+function buildExtensionInstallScript(o) {
+  const granted = o.capabilities.length > 0 ? o.capabilities.join(",") : "sessions";
+  return [
+    "set -e",
+    'PW="${OPENCHAMBER_UI_PASSWORD:-}"',
+    '[ -n "$PW" ] || { echo "no ui password in env" >&2; exit 1; }',
+    "C=$(mktemp)",
+    `trap 'rm -f "$C"' EXIT`,
+    `curl -fsS -c "$C" -X POST "http://127.0.0.1:${o.port}/auth/session" -H 'Content-Type: application/json' --data-binary "{\\"password\\":\\"$PW\\"}" >/dev/null`,
+    `curl -fsS -b "$C" -X POST "http://127.0.0.1:${o.port}/api/guests" -H 'Content-Type: application/json' --data-binary "{\\"path\\":\\"${o.zipPath}\\"}" >/dev/null`,
+    `curl -fsS -b "$C" -X PUT "http://127.0.0.1:${o.port}/api/guests/${o.id}/capabilities" -H 'Content-Type: application/json' --data-binary '{"granted":[${granted.split(",").map((c) => `"${c}"`).join(",")}]}' >/dev/null`,
+    `curl -fsS -b "$C" "http://127.0.0.1:${o.port}/api/guests" | grep -q '"id":"${o.id}"'`,
+    "echo extension-installed"
+  ].join("\n");
+}
+async function remoteSha(target, dest) {
+  const r = await sshRun(target, buildArtifactProbeCommand(dest), { timeoutMs: 3e4 });
+  return (r.stdout.trim().split("\n").pop() ?? "").trim();
+}
+async function fetchArtifact(artifact) {
+  const cache = join8(componentCacheDir(), "artifacts");
+  mkdirSync7(cache, { recursive: true });
+  const dest = join8(cache, `${artifact.id}-${artifact.version}`);
+  if (existsSync5(dest) && sha256File(dest) === artifact.sha256) return dest;
+  const buf = /^https?:/.test(artifact.url) ? await (async () => {
+    const res = await proxyAwareFetch(artifact.url, 9e5);
+    if (!res.ok || !res.body) throw new Error(`\u4E0B\u8F7D ${artifact.id} \u5931\u8D25\uFF1AHTTP ${res.status}`);
+    return Buffer.from(await res.arrayBuffer());
+  })() : readFileSync5(artifact.url);
+  if (artifact.size !== void 0 && buf.length !== artifact.size) {
+    throw new Error(`${artifact.id} \u5927\u5C0F\u4E0D\u7B26\uFF1A\u671F\u671B ${artifact.size}\uFF0C\u6536\u5230 ${buf.length}`);
   }
-  files.sort((a, b) => a.rel.localeCompare(b.rel));
-  return {
-    layers,
-    effective,
-    layerErrors: errors,
-    // The `.jsonc` wins when it exists (source-verified load order), so that is
-    // where a merged document has to land to actually take effect.
-    targetBasename: jsonc !== void 0 ? "opencode.jsonc" : "opencode.json",
-    authPresent: /^AUTH=present$/m.test(stdout),
-    files
-  };
+  const actual = createHash4("sha256").update(buf).digest("hex");
+  if (actual !== artifact.sha256) throw new Error(`${artifact.id} sha256 \u4E0D\u7B26\uFF1A\u671F\u671B ${artifact.sha256}\uFF0C\u6536\u5230 ${actual}`);
+  writeFileSync6(dest, buf, { mode: 420 });
+  return dest;
 }
-function diffConfig(local, peer) {
-  const diff = { add: [], change: [], same: [], peerOnly: [], unknown: [], auth: { local: local.authPresent, peer: peer.authPresent } };
-  const peerMap = new Map(peer.files.map((f) => [f.rel, f.hash]));
-  const localMap = new Map(local.files.map((f) => [f.rel, f.hash]));
-  for (const [rel, hash] of localMap) {
-    const remote = peerMap.get(rel);
-    if (remote === void 0) diff.add.push(rel);
-    else if (remote === "?" || hash === "?") diff.unknown.push(rel);
-    else if (remote !== hash) diff.change.push(rel);
-    else diff.same.push(rel);
-  }
-  for (const rel of peerMap.keys()) if (!localMap.has(rel)) diff.peerOnly.push(rel);
-  diff.add.sort();
-  diff.change.sort();
-  diff.same.sort();
-  diff.peerOnly.sort();
-  diff.unknown.sort();
-  return diff;
-}
-var MANAGED_COLLECTIONS = [
-  { id: "provider", path: ["provider"] },
-  { id: "mcp.servers", path: ["mcp", "servers"] }
-];
-function findPeerOnlyKeys(localEffective, peerEffective) {
-  const out = [];
-  for (const { id, path } of MANAGED_COLLECTIONS) {
-    const at = (doc) => {
-      let node = doc;
-      for (const step of path) {
-        if (!node || typeof node !== "object" || Array.isArray(node)) return void 0;
-        node = node[step];
-      }
-      return node && typeof node === "object" && !Array.isArray(node) ? node : void 0;
-    };
-    const localMap = at(localEffective);
-    const peerMap = at(peerEffective);
-    if (!peerMap) continue;
-    for (const key of Object.keys(peerMap)) {
-      if (!localMap || !(key in localMap)) out.push({ collection: id, key });
+async function installPreparedComponent(target, component, opts) {
+  const details = [];
+  const plugins = [];
+  const { manifest } = component;
+  const dir = componentRemoteDir(manifest);
+  const tarballName = `${manifest.name}-${manifest.version}.tgz`;
+  mkdirSync7(componentCacheDir(), { recursive: true });
+  const push = await pushFileOverSsh(target, component.tarball, [
+    "set -e",
+    `mkdir -p "${dir}"`,
+    `cat > "${dir}/${tarballName}.part"`,
+    `mv "${dir}/${tarballName}.part" "${dir}/${tarballName}"`,
+    "echo tarball-ok"
+  ].join("\n"), { timeoutMs: 3e5 });
+  if (push.code !== 0) return { ok: false, details: [`${manifest.name}: \u63A8\u9001\u5B89\u88C5\u5305\u5931\u8D25\uFF08${push.stderr.trim() || `exit ${push.code}`}\uFF09`], plugins, extensionInstalled: false };
+  const unpack = await sshRun(target, buildComponentUnpackScript(manifest, tarballName), { timeoutMs: 12e4 });
+  if (unpack.code !== 0) return { ok: false, details: [`${manifest.name}: \u89E3\u5305\u5931\u8D25\uFF08${unpack.stderr.trim() || `exit ${unpack.code}`}\uFF09`], plugins, extensionInstalled: false };
+  details.push(`${manifest.name} ${manifest.version} \u2192 ${dir}/package`);
+  if (manifest.enginePlugin) {
+    const spec = pluginEntryFor(manifest, opts.remoteHome);
+    if (spec) {
+      plugins.push(spec);
+      details.push(`\u63D2\u4EF6\u6761\u76EE\uFF1A${spec}`);
     }
   }
-  return out.sort((a, b) => `${a.collection}:${a.key}`.localeCompare(`${b.collection}:${b.key}`));
-}
-function applyKeyDeletes(merged, deletes) {
-  const next = structuredClone(merged);
-  const removed = [];
-  for (const spec of deletes) {
-    const [collection, ...rest] = spec.split(":");
-    const key = rest.join(":");
-    const target = MANAGED_COLLECTIONS.find((c) => c.id === collection);
-    if (!target || !key) continue;
-    let node = next;
-    for (const step of target.path) {
-      const child = node?.[step];
-      if (!child || typeof child !== "object" || Array.isArray(child)) {
-        node = void 0;
-        break;
-      }
-      node = child;
+  for (const artifact of manifest.artifacts ?? []) {
+    const local = await fetchArtifact(artifact);
+    const want = artifact.sha256;
+    const have = await remoteSha(target, artifact.dest);
+    if (have === want) {
+      details.push(`${artifact.id} ${artifact.version} \u5DF2\u5728\u4F4D\uFF08sha256 \u547D\u4E2D\uFF09`);
+      continue;
     }
-    if (!node || !(key in node)) continue;
-    delete node[key];
-    removed.push(`${collection}:${key}`);
+    const pushed = await pushFileOverSsh(target, local, buildArtifactPushScript(artifact.dest, want, artifact.mode), { timeoutMs: 9e5 });
+    if (pushed.code !== 0) {
+      return { ok: false, details: [...details, `${artifact.id}: \u843D\u4F4D\u5931\u8D25\uFF08${pushed.stderr.trim() || `exit ${pushed.code}`}\uFF09`], plugins, extensionInstalled: false };
+    }
+    details.push(`${artifact.id} ${artifact.version} \u2192 ${artifact.dest}`);
   }
-  return { merged: next, removed };
-}
-function findShadowedKeys(higher, merged) {
-  const out = /* @__PURE__ */ new Set();
-  const walk = (node, path) => {
-    if (!node || typeof node !== "object" || Array.isArray(node)) {
-      const current = path.reduce((acc, key) => acc && typeof acc === "object" ? acc[key] : void 0, merged);
-      if (JSON.stringify(current) !== JSON.stringify(node)) out.add(path.slice(0, 2).join("."));
-      return;
-    }
-    for (const [key, value] of Object.entries(node)) walk(value, [...path, key]);
-  };
-  for (const [key, value] of Object.entries(higher)) walk(value, [key]);
-  return [...out].sort();
-}
-function planConfigSync(local, peer, opts = {}) {
-  const diff = opts.diff ?? diffConfig(local, peer);
-  const notes = [];
-  const jsoncLayer = peer.layers.find((l) => l.basename === "opencode.jsonc");
-  const commentedTarget = !!jsoncLayer?.commentsWillBeLost;
-  const basename = commentedTarget && !opts.preferCommentedTarget ? "opencode.json" : peer.targetBasename;
-  const plan = {
-    basename,
-    files: [],
-    configChanged: false,
-    droppedManagedKeys: [],
-    secretsReplaced: [],
-    deletes: [...opts.deletes ?? []].filter((rel) => diff.peerOnly.includes(rel)),
-    keyDeletes: { requested: [...opts.keyDeletes ?? []], removed: [] },
-    keyDeleteCandidates: findPeerOnlyKeys(local.effective, peer.effective),
-    baseUrlRewrites: [],
-    shadowed: [],
-    notes
-  };
-  for (const err of local.layerErrors) notes.push(`\u672C\u5730 ${err}\u2014\u2014\u8BE5\u5C42\u672A\u53C2\u4E0E\u5408\u5E76`);
-  for (const err of peer.layerErrors) notes.push(`\u5BF9\u7AEF ${err}\u2014\u2014\u8BE5\u5C42\u672A\u53C2\u4E0E\u5408\u5E76`);
-  const otherLayers = CONFIG_CANDIDATES.filter((name) => name !== plan.basename && peer.layers.some((l) => l.basename === name));
-  plan.files = [...diff.add, ...diff.change].filter((rel) => !CONFIG_CANDIDATES.includes(rel));
-  if (otherLayers.length > 0 && !commentedTarget) {
-    notes.push(`\u5BF9\u7AEF\u7684 ${otherLayers.join("/")} \u662F\u4F4E\u4F18\u5148\u7EA7\u5C42\uFF08\u88AB ${plan.basename} \u8986\u76D6\uFF09\uFF0C\u53EA\u53C2\u4E0E\u5408\u5E76\u3001\u4E0D\u5355\u72EC\u63A8`);
-  }
-  let merged;
-  if (Object.keys(local.effective).length > 0) {
-    merged = mergeSticky(peer.effective, local.effective);
-    for (const [provider, url] of Object.entries(opts.providerBaseUrl ?? {})) {
-      const entry = merged.provider?.[provider];
-      if (!entry) continue;
-      const options = entry.options ??= {};
-      const from = typeof options.baseURL === "string" ? options.baseURL : void 0;
-      if (from === url) continue;
-      options.baseURL = url;
-      plan.baseUrlRewrites.push({ provider, from, to: url });
-    }
-    const stripped = stripLiteralSecrets(merged);
-    merged = stripped.config;
-    plan.secretsReplaced = stripped.replaced;
-    if (plan.keyDeletes.requested.length > 0) {
-      const applied = applyKeyDeletes(merged, plan.keyDeletes.requested);
-      merged = applied.merged;
-      plan.keyDeletes.removed = applied.removed;
-      if (applied.removed.length > 0) notes.push(`\u6309\u4F60\u7684\u9009\u62E9\u5220\u9664\uFF1A${applied.removed.join("\u3001")}\uFF08\u65E7\u914D\u7F6E\u5728 .ocrc-bak \u91CC\uFF09`);
-      const missed = plan.keyDeletes.requested.filter((spec) => !applied.removed.includes(spec));
-      if (missed.length > 0) notes.push(`\u4EE5\u4E0B\u5220\u9664\u8BF7\u6C42\u6CA1\u6709\u5BF9\u5E94\u9879\uFF08\u5DF2\u5FFD\u7565\uFF09\uFF1A${missed.join("\u3001")}`);
-    }
-    const managed = /* @__PURE__ */ new Set();
-    for (const key of ["plugins", "plugin"]) {
-      if (key in merged) {
-        delete merged[key];
-        managed.add(key);
+  let extensionInstalled = false;
+  if (manifest.extension) {
+    const ext = manifest.extension;
+    const zipPath = `${dir}/${ext.id}.zip`;
+    const envKey = `OCRC_EXTENSION_ZIP_${ext.id.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`;
+    const source = process.env[envKey] ?? ext.zip;
+    let buf;
+    if (/^https?:/.test(source)) {
+      const res = await proxyAwareFetch(source, 3e5);
+      if (res.ok && res.body) buf = Buffer.from(await res.arrayBuffer());
+      else details.push(`\u6269\u5C55 ${ext.id}\uFF1A\u4E0B\u8F7D\u5931\u8D25 HTTP ${res.status}\uFF08\u4E0D\u963B\u65AD\u5B9E\u4F8B\u542F\u52A8\uFF09`);
+    } else {
+      try {
+        buf = readFileSync5(source);
+      } catch {
+        details.push(`\u6269\u5C55 ${ext.id}\uFF1A\u8BFB\u4E0D\u5230 ${source}\uFF08\u4E0D\u963B\u65AD\u5B9E\u4F8B\u542F\u52A8\uFF09`);
       }
     }
-    plan.droppedManagedKeys = [...managed];
-    if (managed.size > 0) notes.push(`\u5DF2\u4E22\u5F03 ${[...managed].join("/")}\uFF1A\u5BF9\u7AEF\u81EA\u5DF1\u7684 openchamber \u7528 opencode.managed.json \u7BA1\u63D2\u4EF6\u5C42`);
-    plan.merged = merged;
-    plan.configChanged = hasChanges(peer.effective, merged);
-    if (plan.configChanged) plan.files.unshift(plan.basename);
-    if (commentedTarget) {
-      if (opts.preferCommentedTarget) {
-        plan.commentsWillBeLost = true;
-        notes.push(`\u5BF9\u7AEF ${peer.targetBasename} \u91CC\u6709\u6CE8\u91CA\uFF0C\u6309\u4F60\u7684\u9009\u62E9\u5199\u56DE\uFF08\u6CE8\u91CA\u4F1A\u4E22\uFF09`);
+    if (buf) {
+      if (buf.subarray(0, 2).toString() !== "PK") {
+        details.push(`\u6269\u5C55 ${ext.id}\uFF1A\u62FF\u5230\u7684\u4E0D\u662F zip\uFF08\u4E0D\u963B\u65AD\u5B9E\u4F8B\u542F\u52A8\uFF09`);
       } else {
-        plan.shadowed = findShadowedKeys(jsoncLayer?.parsed ?? {}, merged).filter((key) => !plan.droppedManagedKeys.includes(key.split(".")[0]));
-        notes.push(`\u5BF9\u7AEF ${peer.targetBasename} \u6709\u6CE8\u91CA\uFF0C\u4E0D\u91CD\u5199\u5B83\uFF08\u6CE8\u91CA\u662F\u4F60\u7684\u6587\u6863\uFF09\uFF1B\u672C\u6B21\u5199 opencode.json`);
-        if (plan.shadowed.length > 0) {
-          notes.push(`\u4EE5\u4E0B\u952E\u4F1A\u88AB\u5BF9\u7AEF ${peer.targetBasename} \u7684\u73B0\u503C\u8986\u76D6\uFF0C\u540C\u6B65\u540E\u4E0D\u751F\u6548\uFF1A${plan.shadowed.join("\u3001")}\u2014\u2014\u66F4\u65B0\u6216\u5220\u6389\u90A3\u4E2A\u6587\u4EF6\u624D\u751F\u6548`);
+        const zipLocal = join8(componentCacheDir(), `${ext.id}-${manifest.version}.zip`);
+        writeFileSync6(zipLocal, buf);
+        const p = await pushFileOverSsh(target, zipLocal, [
+          "set -e",
+          `cat > "${zipPath}.part"`,
+          `mv "${zipPath}.part" "${zipPath}"`,
+          "echo zip-ok"
+        ].join("\n"), { timeoutMs: 3e5 });
+        if (p.code !== 0) {
+          details.push(`\u6269\u5C55 ${ext.id}\uFF1A\u63A8\u9001\u5931\u8D25\uFF08\u4E0D\u963B\u65AD\u5B9E\u4F8B\u542F\u52A8\uFF09`);
+        } else if (!opts.instanceRunning) {
+          details.push(`\u6269\u5C55 ${ext.id}\uFF1A\u5305\u5DF2\u5C31\u4F4D\uFF08${zipPath}\uFF09\uFF0C\u5B9E\u4F8B\u672A\u8FD0\u884C\uFF0C\u542F\u52A8\u540E\u518D\u88C5`);
+        } else {
+          const cmd = buildExtensionInstallScript({
+            port: opts.instancePort,
+            zipPath,
+            id: ext.id,
+            capabilities: ext.capabilities ?? ["sessions"]
+          });
+          const install = await sshRunWithStdin(
+            target,
+            `export OPENCHAMBER_UI_PASSWORD=${JSON.stringify(opts.uiPassword ?? "")}
+${cmd}`,
+            "",
+            { timeoutMs: 12e4 }
+          );
+          if (install.code === 0 && /extension-installed/.test(install.stdout)) {
+            extensionInstalled = true;
+            details.push(`\u6269\u5C55 ${ext.id} \u5DF2\u5B89\u88C5\u5E76\u6388\u6743\uFF1A${(ext.capabilities ?? ["sessions"]).join("+")}`);
+          } else {
+            details.push(`\u6269\u5C55 ${ext.id}\uFF1A\u5B89\u88C5\u672A\u5B8C\u6210\uFF08${(install.stderr || install.stdout).trim().split("\n").pop() || `exit ${install.code}`}\uFF1B\u4E0D\u963B\u65AD\u5B9E\u4F8B\u542F\u52A8\uFF09`);
+          }
         }
       }
     }
-  } else {
-    notes.push("\u672C\u5730\u6CA1\u6709 opencode.json/jsonc \u2014\u2014 \u53EA\u540C\u6B65\u76EE\u5F55\u7C7B\u6761\u76EE");
   }
-  if (diff.unknown.length > 0) notes.push(`${diff.unknown.length} \u4E2A\u6587\u4EF6\u5BF9\u7AEF\u7B97\u4E0D\u51FA\u54C8\u5E0C\uFF08\u7F3A sha256sum\uFF09\uFF1A\u6309"\u4E0D\u53EF\u5224\u5B9A"\u5904\u7406\uFF0C\u4E0D\u5F53\u4F5C\u76F8\u540C`);
-  if (diff.peerOnly.length > 0 && plan.deletes.length === 0) {
-    notes.push(`\u5BF9\u7AEF\u72EC\u6709\u7684 ${diff.peerOnly.length} \u4E2A\u6587\u4EF6\u4E0D\u4F1A\u88AB\u52A8\uFF08\u8981\u5220\u5F97\u663E\u5F0F\u52FE\u9009\uFF09`);
-  }
-  if (plan.keyDeleteCandidates.length > 0 && plan.keyDeletes.requested.length === 0) {
-    const list = plan.keyDeleteCandidates.map((c) => `${c.collection}:${c.key}`);
-    notes.push(`\u5BF9\u7AEF\u72EC\u6709\u3001\u672C\u5730\u6CA1\u6709\u7684\u914D\u7F6E\u9879\u4E0D\u4F1A\u88AB\u52A8\uFF08\u8981\u5220\u5F97\u663E\u5F0F\u52FE\u9009\uFF09\uFF1A${list.join("\u3001")}`);
-  }
-  return plan;
+  return { ok: true, details, plugins, extensionInstalled };
 }
-function stageConfigTree(opts) {
-  const entries = opts.entries ?? INSTANCE_SYNC_ENTRIES;
-  const skip = new Set(opts.skipBasenames ?? CONFIG_CANDIDATES);
-  mkdirSync6(opts.destDir, { recursive: true });
-  const staged = [];
-  for (const entry of entries) {
-    if (skip.has(entry)) continue;
-    const src = join7(opts.sourceDir, entry);
-    if (!existsSync4(src)) continue;
-    const dest = join7(opts.destDir, entry);
-    cpSync(src, dest, { recursive: true });
-    staged.push(entry);
+async function registerPeerPlugins(target, specs, opts) {
+  const log6 = opts.log ?? (() => {
+  });
+  const { parsePeerConfigRead: parsePeerConfigRead2 } = await Promise.resolve().then(() => (init_instance_config(), instance_config_exports));
+  const read = await sshRun(target, opts.readScript, { timeoutMs: 45e3 });
+  if (read.code !== 0) return { ok: false, detail: `\u8BFB\u53D6\u5BF9\u7AEF\u914D\u7F6E\u5931\u8D25\uFF1A${read.stderr.trim() || `exit ${read.code}`}` };
+  const peer = parsePeerConfigRead2(read.stdout);
+  const file = peer.targetBasename;
+  const layer = peer.layers.find((l) => l.basename === file);
+  const doc = layer ? JSON.parse(JSON.stringify(layer.parsed ?? {})) : { $schema: "https://opencode.ai/config.json" };
+  const current = Array.isArray(doc.plugins) ? doc.plugins.filter((v) => typeof v === "string") : [];
+  const merged = [.../* @__PURE__ */ new Set([...current, ...specs])];
+  if (merged.length === current.length && merged.every((v, i) => v === current[i])) {
+    return { ok: true, detail: `plugins \u5DF2\u662F\u5E76\u96C6\uFF08${merged.length} \u6761\uFF09` };
   }
-  if (opts.mergedConfig) {
-    writeFileSync5(join7(opts.destDir, opts.mergedConfig.basename), opts.mergedConfig.content);
-    staged.push(opts.mergedConfig.basename);
-  }
-  return staged;
-}
-function buildConfigApplyScript(deletes = []) {
-  const q2 = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
-  const lines = [
-    "set -e",
-    `D="${PEER_CONFIG_DIR}"`,
-    'S="$D/.ocrc-sync.$$"',
-    'mkdir -p "$S"',
-    'tar -xzf - -C "$S"',
-    'cd "$S"',
-    "find . -type f | sed 's#^\\./##' | while IFS= read -r rel; do",
-    '  tgt="$D/$rel"',
-    '  mkdir -p "$(dirname "$tgt")"',
-    '  if [ -f "$tgt" ]; then',
-    '    cp -p "$tgt" "$tgt.ocrc-bak"',
-    '    echo "backup: $rel"',
-    "  else",
-    '    echo "new: $rel"',
-    "  fi",
-    '  mv "$S/$rel" "$tgt"',
-    "done",
-    'rm -rf "$S"'
-  ];
-  if (deletes.length > 0) {
-    lines.push(
-      `for rel in ${deletes.map(q2).join(" ")}; do`,
-      '  tgt="$D/$rel"',
-      '  if [ -f "$tgt" ]; then cp -p "$tgt" "$tgt.ocrc-bak"; rm -f "$tgt"; echo "deleted: $rel"; fi',
-      "done"
-    );
-  }
-  lines.push('echo "sync-config: applied"');
-  return lines.join("\n");
-}
-function buildAuthPushScript() {
-  return [
-    "set -e",
-    `A="${PEER_AUTH_PATH}"`,
-    'mkdir -p "$(dirname "$A")"',
-    'T="$A.ocrc-tmp.$$"',
-    'cat > "$T"',
-    'chmod 600 "$T"',
-    'if [ -f "$A" ]; then cp -p "$A" "$A.ocrc-bak"; fi',
-    'mv "$T" "$A"',
-    'echo "sync-auth: written 0600"'
-  ].join("\n");
-}
-function discardStaging(dir) {
-  rmSync3(dir, { recursive: true, force: true });
+  doc.plugins = merged;
+  const text = `${JSON.stringify(doc, null, 2)}
+`;
+  const path = `$HOME/.config/opencode/${file}`;
+  const written2 = await sshRunWithStdin(
+    target,
+    [
+      "set -e",
+      `F="${path}"`,
+      'mkdir -p "$(dirname "$F")"',
+      'cat > "$F.part"',
+      'if [ -f "$F" ]; then cp -p "$F" "$F.ocrc-bak"; fi',
+      'mv "$F.part" "$F"',
+      "echo config-ok"
+    ].join("\n"),
+    text,
+    { timeoutMs: 45e3 }
+  );
+  if (written2.code !== 0) return { ok: false, detail: `\u5199\u5165 ${file} \u5931\u8D25\uFF1A${written2.stderr.trim() || `exit ${written2.code}`}` };
+  log6(`\u5DF2\u767B\u8BB0 ${merged.length} \u4E2A\u63D2\u4EF6\uFF08${file}${file.endsWith(".jsonc") ? "\uFF0C\u6CE8\u91CA\u4F1A\u4E22\u5931\uFF0C\u65E7\u4EF6\u5728 .ocrc-bak" : ""}\uFF09`);
+  return {
+    ok: true,
+    detail: layer ? `plugins \u5DF2\u5E76\u96C6\u5199\u5165 ${file}` : `\u5DF2\u521B\u5EFA ${file} \u5E76\u767B\u8BB0 ${merged.length} \u4E2A\u63D2\u4EF6`
+  };
 }
 
+// ../../src/core/remote-instance-bridge.ts
+init_config_merge();
+
 // ../../src/core/forward-ownership.ts
-import { existsSync as existsSync5, mkdirSync as mkdirSync7, readFileSync as readFileSync5, readdirSync as readdirSync2, rmSync as rmSync4, writeFileSync as writeFileSync6 } from "node:fs";
-import { join as join8 } from "node:path";
+import { existsSync as existsSync6, mkdirSync as mkdirSync8, readFileSync as readFileSync6, readdirSync as readdirSync3, rmSync as rmSync5, writeFileSync as writeFileSync7 } from "node:fs";
+import { join as join9 } from "node:path";
 function forwardMarkerDir(home = ocrcHome()) {
-  return join8(home, "forwards");
+  return join9(home, "forwards");
 }
 function forwardMarkerPath(instanceId, kind, home = ocrcHome()) {
   const safe = instanceId.replace(/[^A-Za-z0-9._@-]/g, "-").replace(/^\.+/, "_") || "_";
-  return join8(forwardMarkerDir(home), `${safe}.${kind}.json`);
+  return join9(forwardMarkerDir(home), `${safe}.${kind}.json`);
 }
 function isAlive(pid) {
   if (!Number.isFinite(pid) || pid <= 0) return false;
@@ -2127,23 +2637,23 @@ function isAlive(pid) {
 }
 function writeForwardMarker(marker, home = ocrcHome()) {
   try {
-    mkdirSync7(forwardMarkerDir(home), { recursive: true });
-    writeFileSync6(forwardMarkerPath(marker.instanceId, marker.kind, home), `${JSON.stringify(marker, null, 2)}
+    mkdirSync8(forwardMarkerDir(home), { recursive: true });
+    writeFileSync7(forwardMarkerPath(marker.instanceId, marker.kind, home), `${JSON.stringify(marker, null, 2)}
 `);
   } catch {
   }
 }
 function clearForwardMarker(instanceId, kind, home = ocrcHome()) {
   try {
-    rmSync4(forwardMarkerPath(instanceId, kind, home), { force: true });
+    rmSync5(forwardMarkerPath(instanceId, kind, home), { force: true });
   } catch {
   }
 }
 function readForwardMarker(instanceId, kind, home = ocrcHome()) {
   const path = forwardMarkerPath(instanceId, kind, home);
-  if (!existsSync5(path)) return void 0;
+  if (!existsSync6(path)) return void 0;
   try {
-    return JSON.parse(readFileSync5(path, "utf-8"));
+    return JSON.parse(readFileSync6(path, "utf-8"));
   } catch {
     return void 0;
   }
@@ -2238,7 +2748,7 @@ function createRemoteInstanceManager(opts) {
   const runtimes = /* @__PURE__ */ new Map();
   const detachedForwards = opts.forwards === "detached";
   const externalTunnel = opts.tunnelOwner === "external";
-  const forwardLogPath = opts.forwardLogPath ?? join9(opts.home ?? ocrcHome(), "remote-forward.log");
+  const forwardLogPath = opts.forwardLogPath ?? join10(opts.home ?? ocrcHome(), "remote-forward.log");
   const rt = (id) => {
     let r = runtimes.get(id);
     if (!r) {
@@ -2406,6 +2916,95 @@ tar: ${err.message}` });
     if (code) return { ok: false, detail: `\u5B9E\u4F8B\u4ECD\u5728 :${instance.instancePort} \u4E0A\u54CD\u5E94\uFF08stop \u672A\u751F\u6548\uFF09` };
     pushLog(instance.id, `$ instance stop :${instance.instancePort}`);
     return { ok: true, detail: r.stdout.trim().split("\n").pop() || "\u5DF2\u505C" };
+  }
+  async function installComponents(instance, sources, onLog) {
+    const log6 = (line) => {
+      pushLog(instance.id, line);
+      onLog?.(line);
+    };
+    const prepared = [];
+    for (const source of sources) {
+      log6(`\u7EC4\u4EF6\uFF1A\u51C6\u5907 ${source}`);
+      prepared.push(await prepareComponent(source));
+    }
+    const home = (await ssh(instance, 'printf %s "$HOME"', 2e4)).stdout.trim();
+    if (!home) return { ok: false, details: ["\u8BFB\u4E0D\u5230\u5BF9\u7AEF\u7684 $HOME"], plugins: [] };
+    const running = await remoteHealth(instance) === "200";
+    const details = [];
+    const plugins = [];
+    let ok = true;
+    let extensionInstalled = false;
+    for (const component of prepared) {
+      log6(`\u7EC4\u4EF6\uFF1A\u5B89\u88C5 ${component.manifest.name} ${component.manifest.version}`);
+      const result = await installPreparedComponent(instance, component, {
+        log: log6,
+        uiPassword: instance.uiPassword,
+        instancePort: instance.instancePort,
+        remoteHome: home,
+        instanceRunning: running
+      });
+      details.push(...result.details);
+      plugins.push(...result.plugins);
+      extensionInstalled = extensionInstalled || result.extensionInstalled;
+      if (!result.ok) ok = false;
+    }
+    if (plugins.length > 0) {
+      const registered = await registerPeerPlugins(instance, plugins, { readScript: buildPeerConfigReadScript(), log: log6 });
+      details.push(registered.detail);
+      if (!registered.ok) ok = false;
+    }
+    for (const component of prepared) {
+      for (const check of component.manifest.verify ?? []) {
+        if (check.kind === "file") {
+          if (check.when === "directory" && component.manifest.enginePlugin?.kind !== "directory") continue;
+          const path = check.path.replace(/^~\//, "$HOME/");
+          const mode = check.mode ? `stat -c %a "$f"` : "echo PRESENT";
+          const r = await ssh(instance, `f="${path}"; if [ ! -f "$f" ]; then echo MISSING; else ${mode}; fi`, 3e4);
+          const out = r.stdout.trim().split("\n").pop() ?? "";
+          if (out === "MISSING") {
+            details.push(`\u9A8C\u8BC1\u5931\u8D25\uFF1A${check.path} \u4E0D\u5B58\u5728`);
+            ok = false;
+          } else if (check.mode && out.replace(/^0+/, "") !== check.mode.replace(/^0+/, "")) {
+            details.push(`\u9A8C\u8BC1\u5931\u8D25\uFF1A${check.path} \u6A21\u5F0F ${out} \u2260 ${check.mode}`);
+            ok = false;
+          } else {
+            details.push(`\u9A8C\u8BC1\u901A\u8FC7\uFF1A${check.path}`);
+          }
+        } else if (check.kind === "engine-plugin-loaded") {
+          const dir = `$HOME/.ocrc/components/${component.manifest.name}/package`;
+          const r = await ssh(instance, `test -f "${dir}/package.json" && { test -e "${dir}/index.js" || test -e "${dir}/server.js"; } && echo ok`, 3e4);
+          if (!/ok/.test(r.stdout)) {
+            details.push(`\u9A8C\u8BC1\u5931\u8D25\uFF1A${component.manifest.name} \u7684\u63D2\u4EF6\u6811\u4E0D\u5728 ${dir}`);
+            ok = false;
+          } else {
+            details.push(`\u9A8C\u8BC1\u901A\u8FC7\uFF1A${component.manifest.name} \u63D2\u4EF6\u6811\u5DF2\u5C31\u4F4D`);
+          }
+        } else if (check.kind === "guest-installed") {
+          details.push(extensionInstalled ? `\u9A8C\u8BC1\u901A\u8FC7\uFF1A\u6269\u5C55 ${check.id} \u5DF2\u5B89\u88C5` : `\u6CE8\u610F\uFF1A\u6269\u5C55 ${check.id} \u672A\u786E\u8BA4\u5B89\u88C5\uFF08\u4E0D\u963B\u65AD\u5B9E\u4F8B\u542F\u52A8\uFF09`);
+        }
+      }
+    }
+    return { ok, details, plugins };
+  }
+  async function installComponentsIfRequested(instance, applyOpts) {
+    const sources = [
+      ...applyOpts.components ?? [],
+      ...applyOpts.componentsFromPins ? defaultComponentSources() : []
+    ];
+    if (sources.length === 0) return void 0;
+    return installComponents(instance, sources, applyOpts.onLog);
+  }
+  async function componentPluginsFor(instance, sources) {
+    if (!sources || sources.length === 0) return [];
+    const home = (await ssh(instance, 'printf %s "$HOME"', 2e4)).stdout.trim();
+    if (!home) throw new Error("\u8BFB\u4E0D\u5230\u5BF9\u7AEF\u7684 $HOME");
+    const out = [];
+    for (const source of sources) {
+      const prepared = await prepareComponent(source);
+      const entry = pluginEntryFor(prepared.manifest, home);
+      if (entry) out.push(entry);
+    }
+    return out;
   }
   const proxies = /* @__PURE__ */ new Map();
   async function egressFor(instance) {
@@ -2933,6 +3532,12 @@ tar: ${err.message}` });
           rt(id).engine = { path: pick.candidate.path, version: pick.candidate.version };
         }
         setState(id, "offline", "\u590D\u7528\u5DF2\u5B89\u88C5\u68C0\u67E5\u901A\u8FC7\uFF08\u672A\u542F\u52A8\uFF09");
+        const components2 = await installComponentsIfRequested(instance, applyOpts);
+        if (components2) {
+          const full2 = `${detail}\uFF1B\u7EC4\u4EF6\uFF1A${components2.details.join("\uFF1B")}`;
+          setState(id, components2.ok ? "offline" : "error", components2.ok ? "\u590D\u7528\u68C0\u67E5 + \u7EC4\u4EF6\u5B89\u88C5\u5B8C\u6210\uFF08\u672A\u542F\u52A8\uFF09" : "\u7EC4\u4EF6\u5B89\u88C5\u672A\u5B8C\u5168\u901A\u8FC7");
+          return { ok: components2.ok, detail: full2 };
+        }
         return { ok: true, detail };
       }
       const inspected = await probeEnv(instance);
@@ -2972,8 +3577,14 @@ tar: ${err.message}` });
       if (result.runtime.ok) rt(id).runtimeVersion = result.runtime.detail.replace(/^已推送 |^已在位 /, "");
       if (result.app.ok) rt(id).appVersion = instance.appVersion;
       const parts = `\u8FD0\u884C\u65F6\uFF1A${result.runtime.detail}\uFF1BOpenCode\uFF1A${result.engine.detail}\uFF1BOpenChamber\uFF1A${result.app.detail}`;
-      setState(id, result.ok ? "offline" : "error", result.ok ? "\u5B89\u88C5\u5B8C\u6210\uFF08\u672A\u542F\u52A8\uFF09" : parts);
-      return { ok: result.ok, detail: parts };
+      if (!result.ok) {
+        setState(id, "error", parts);
+        return { ok: false, detail: parts };
+      }
+      const components = await installComponentsIfRequested(instance, applyOpts);
+      const full = components ? `${parts}\uFF1B\u7EC4\u4EF6\uFF1A${components.details.join("\uFF1B")}` : parts;
+      setState(id, components && !components.ok ? "error" : "offline", components && !components.ok ? "\u7EC4\u4EF6\u5B89\u88C5\u672A\u5B8C\u5168\u901A\u8FC7" : "\u5B89\u88C5\u5B8C\u6210\uFF08\u672A\u542F\u52A8\uFF09");
+      return { ok: components ? components.ok : true, detail: full };
     },
     async up(id, upOpts = {}) {
       const instance = need(id);
@@ -3177,14 +3788,15 @@ tar: ${err.message}` });
       return { mode: instance.egress ?? EGRESS_DEFAULT, ...decision };
     },
     // ── C1–C4: config and credentials for the peer's engine ────────────────────
-    async configDiff(id) {
+    async configDiff(id, diffOpts = {}) {
       const instance = need(id);
       const local = readLocalConfig({ dir: opts.localConfigDir, authPath: opts.localAuthPath });
       const read = await ssh(instance, buildPeerConfigReadScript(), 45e3);
       const peer = parsePeerConfigRead(read.stdout);
       const peerError = read.code === 0 ? void 0 : cleanSshNoise(read.stderr || read.stdout).trim().split("\n").pop();
       const diff = diffConfig(local, peer);
-      const plan = planConfigSync(local, peer, { diff, providerBaseUrl: instance.providerBaseUrl });
+      const componentPlugins = await componentPluginsFor(instance, diffOpts.components);
+      const plan = planConfigSync(local, peer, { diff, providerBaseUrl: instance.providerBaseUrl, componentPlugins });
       const notConfig = (rel) => rel !== "opencode.json" && rel !== "opencode.jsonc";
       return {
         localDir: local.dir,
@@ -3201,6 +3813,7 @@ tar: ${err.message}` });
           deletes: plan.deletes,
           keyDeletes: plan.keyDeletes,
           keyDeleteCandidates: plan.keyDeleteCandidates,
+          managedPlugins: plan.managedPlugins,
           droppedManagedKeys: plan.droppedManagedKeys,
           secretsReplaced: plan.secretsReplaced,
           baseUrlRewrites: plan.baseUrlRewrites,
@@ -3222,12 +3835,14 @@ tar: ${err.message}` });
       }
       const peer = parsePeerConfigRead(read.stdout);
       const diff = diffConfig(local, peer);
+      const componentPlugins = await componentPluginsFor(instance, syncOpts.components);
       const plan = planConfigSync(local, peer, {
         diff,
         deletes: syncOpts.deletes,
         keyDeletes: syncOpts.keyDeletes,
         providerBaseUrl: instance.providerBaseUrl,
-        preferCommentedTarget: syncOpts.preferCommentedTarget
+        preferCommentedTarget: syncOpts.preferCommentedTarget,
+        componentPlugins
       });
       const nothing = plan.files.length === 0 && plan.deletes.length === 0;
       if (nothing) {
@@ -3240,7 +3855,7 @@ tar: ${err.message}` });
           detail: `\u8BD5\u8FD0\u884C\uFF1A\u5C06\u5199 ${plan.files.length} \u4E2A\u6587\u4EF6${plan.deletes.length ? `\u3001\u5220 ${plan.deletes.length} \u4E2A` : ""}\uFF1B${plan.notes.join("\uFF1B")}`
         };
       }
-      const staging = mkdtempSync(join9(tmpdir(), "ocrc-cfgsync-"));
+      const staging = mkdtempSync(join10(tmpdir2(), "ocrc-cfgsync-"));
       try {
         const content = plan.merged && plan.configChanged ? renderConfig(plan.merged) : void 0;
         const topLevel = [...new Set(plan.files.map((rel) => rel.split("/")[0]).filter((e) => e !== plan.basename))];
@@ -3279,7 +3894,7 @@ tar: ${err.message}` });
       if (!local.authPresent) {
         return { ok: false, detail: `\u672C\u673A\u6CA1\u6709 ${local.authPath}\u2014\u2014\u5148\u5728\u672C\u673A\u767B\u5F55 provider\uFF08opencode auth login\uFF09` };
       }
-      const content = readFileSync6(local.authPath);
+      const content = readFileSync7(local.authPath);
       const result = await sshRunWithStdin(instance, buildAuthPushScript(), content, { timeoutMs: 45e3 });
       if (result.code !== 0) {
         const detail = `\u51ED\u636E\u540C\u6B65\u5931\u8D25\uFF08exit ${result.code}\uFF09\uFF1A${cleanSshNoise(result.stderr || result.stdout).trim().split("\n").pop() ?? ""}`;

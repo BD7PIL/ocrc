@@ -3,7 +3,7 @@
 > **已过时（2026-10-19）**：本文件描述的功能/入口属于**已删除的驾驶舱那一代**（Telegram/Web 通道、工作流、日程、技能、子代理、引擎级远程主机）。它们已从本仓库删除，会作为独立的 openchamber 扩展在别的项目里做；保留作为历史记录。当前产品见 [AGENTS.md](../AGENTS.md) 与 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
 
 - **日期**：2026-10-15
-- **性质**：批次 E5 spike 归档。被测对象 = 本地 `opencode-deep-memory` 0.14.1 源码构建（`/home/demo/develop/opencode-plugin/opencode-deep-memory`），宿主 = opencode v2.0.27（`/tmp/e5-lab`，HOME 隔离 + stub LLM :4310 + 引擎 :4398 + 假 TG 凭据；生产 :4096/:4199 零接触）。
+- **性质**：批次 E5 spike 归档。被测对象 = 本地 `opencode-deep-memory` 0.14.1 源码构建（`/home/user/develop/opencode-plugin/opencode-deep-memory`），宿主 = opencode v2.0.27（`/tmp/e5-lab`，HOME 隔离 + stub LLM :4310 + 引擎 :4398 + 假 TG 凭据；生产 :4096/:4199 零接触）。
 - **方法**：探针式 wrapper（`/tmp/e5-lab/dm-probe/index.js`，六轮迭代）逐面取证：加载契约 → hook 注册面 → 注入语义 → compaction 链路 → 缓存行为。stub LLM 记录每轮完整请求体 + SHA-256（`/tmp/e5-lab/reqlog/requests.jsonl`，51 条）。
 
 ## 1. 加载契约（🔴 断裂 → 🟡 可桥接）

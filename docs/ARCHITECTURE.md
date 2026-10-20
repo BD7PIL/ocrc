@@ -17,7 +17,7 @@ openchamber 实例（Linux）。控制端只做三件事：**装**（推运行�
 ┌──────────────────────────────┐                  ┌──────────────────────────────┐
 │ openchamber 桌面 app          │                  │ openchamber（我们装的）        │
 │  ├─ 面板 iframe：extensions/ocrc/panel           │  ├─ UI :2610（回环）           │
-│  ├─ 状态区 iframe：…/status   │   ssh -L/-R      │  ├─ opencode v2（pin 2.0.27）  │
+│  ├─ 状态区 iframe：…/status   │   ssh -L/-R      │  ├─ opencode v2（pin 2.0.32）  │
 │  └─ service 进程：…/service   │◄────────────────►│  └─ ~/.ocrc/remote/…           │
 │       （宿主上唯一能跑 ssh 的）│                  │                                │
 │  ~/.ocrc/remote-instances.json│                  │                                │

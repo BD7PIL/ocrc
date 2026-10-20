@@ -5,6 +5,7 @@ import { createRemoteInstancesStore, redactInstance, remoteInstancesPath } from 
 import { createRemoteInstanceManager, cleanSshNoise, proxyConfig, type InstanceStatus } from '../core/remote-instance-bridge.js'
 import { DEFAULT_APP_VERSION, DEFAULT_INSTANCE_PORT, DEFAULT_LOCAL_PORT, PROXY_DEFAULTS, RECONNECT_DEFAULTS, buildDesktopHandoff, instanceIdFor, type RemoteInstance } from '../core/remote-instance.js'
 import { appPayloadPath, buildOfflineGuardExports, ensureAppPayload, ensureEngineBinary, ensureRuntimePayload, runtimePayloadPath, sha512Base64, sha256Hex, appTreeDir } from '../core/remote-instance-push.js'
+import { defaultComponentSources, prepareComponent } from '../core/components.js'
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs'
 import net from 'node:net'
@@ -77,6 +78,8 @@ USAGE:
   ocrc remote plan <id>            只读预演：ssh/环境/引擎门禁/装机动作，不写对端
   ocrc remote apply <id> [--force] 推运行时 + 引擎(v2 pin) + 应用（控制端备件，对端零联网）
                   [--engine-version V] [--offline-guard] [--trace <远端前缀>]
+                  [--component <dir|tgz|npm-spec>]... [--with-components]
+                                   组件（reeve / deep-memory）：读 provision.json，装插件/工件/扩展
   ocrc remote up <id> [--offline-guard] [--no-proxy] [--open]   启动/复用实例 + 转发 + 出网中继
   ocrc remote relay-status <id>    中继端口与日志尾（R9 证据）
   ocrc remote down <id>            停实例 + 撤转发（保留档案）
@@ -86,8 +89,10 @@ USAGE:
   ocrc remote pairlink <id> [--json] [--open]
                                    向上游要一张配对链接（一次性；换每设备 token，可撤销无过期）
                                    --open：拉起桌面版确认；确认后机器出现在「其他 OpenChamber 服务器」
-  ocrc remote config-diff <id>     本地 vs 对端配置差异（两个方向）+ 一次同步会做什么（只读）
+  ocrc remote config-diff <id> [--component <src>]... [--with-components]
+                                   本地 vs 对端配置差异（两个方向）+ 一次同步会做什么（只读）
   ocrc remote sync-config <id> [--delete a,b] [--delete-key provider:x,mcp.servers:y] [--dry-run]
+                  [--component <src>]... [--with-components]
                   [--prefer-commented-target]
                                    推白名单配置（opencode.json 深合并、只推差异、旧件留 .ocrc-bak）
                                    --delete：对端独有的文件显式删掉（也留 .ocrc-bak）
@@ -105,7 +110,9 @@ USAGE:
   ocrc remote proxy-serve [--port 4711] [--log F]  前台跑出网中继（up 会自动拉起它）
   ocrc remote proxy-log <file>            判读中继日志：对端是否真的走了我们的代理
   ocrc remote prepare [--app-version V] [--engine-version V] [--force]
+                  [--component <dir|tgz|npm-spec>]... [--with-components]
                                    只在控制端取件并备好载荷：运行时 + 应用 + 引擎三件（离线部署前预热）
+                                   加组件时同时把组件的 npm tarball 取进本地缓存
   ocrc remote offline-proof       结构性断言：所有远程脚本零联网命令
   ocrc remote trace-check <file>  判读 strace 输出：安装期间是否真的零外联
   ocrc remote --help              这段文字
@@ -143,6 +150,18 @@ function flagNum(flags: Map<string, string | true>, name: string, fallback: numb
 function flagStr(flags: Map<string, string | true>, name: string): string | undefined {
   const v = flags.get(name)
   return v === undefined || v === true ? undefined : v
+}
+
+/** Every value of a repeatable flag (`--component a --component b`). */
+function flagAll(argv: string[], name: string): string[] {
+  const out: string[] = []
+  for (let i = 0; i < argv.length; i += 1) {
+    if (argv[i] === `--${name}` && argv[i + 1] !== undefined && !argv[i + 1]!.startsWith('--')) {
+      out.push(argv[i + 1]!)
+      i += 1
+    }
+  }
+  return out
 }
 
 /**
@@ -308,6 +327,15 @@ export async function main(argv: string[]): Promise<void> {
     // `apply`, because the peer cannot fetch it (that is the whole point).
     const engine = await ensureEngineBinary({ version: flagStr(flags, 'engine-version'), force, onLog: say })
     console.log(`  engine:  ${engine.file} opencode v${engine.version} ${(engine.bytes / 1e6).toFixed(1)}MB sha256 ${engine.sha.slice(0, 16)}…${engine.prepared ? '（新取件）' : '（缓存命中）'} → ${engine.target}`)
+    const componentSources = [
+      ...flagAll(argv, 'component'),
+      ...(flags.has('with-components') ? defaultComponentSources() : []),
+    ]
+    for (const source of componentSources) {
+      const c = await prepareComponent(source)
+      const size = statSync(c.tarball).size / 1e6
+      console.log(`  component: ${c.manifest.name} ${c.manifest.version} ${size.toFixed(1)}MB sha256 ${c.sha256.slice(0, 16)}… → ${c.tarball}`)
+    }
     console.log('  备件齐了：离线 apply 不会再半路缺件（远程机器全程零联网）。')
     return
   }
@@ -411,6 +439,8 @@ export async function main(argv: string[]): Promise<void> {
       engineVersion: flagStr(flags, 'engine-version'),
       guard: flags.has('offline-guard'),
       trace: flagStr(flags, 'trace'),
+      components: flagAll(argv, 'component'),
+      componentsFromPins: flags.has('with-components'),
       onLog: (line) => console.log(`  ${line}`),
     })
     console.log(`${r.ok ? 'OK' : 'FAIL'}: ${r.detail}`)
@@ -518,7 +548,9 @@ export async function main(argv: string[]): Promise<void> {
     // C5 的终端形态：先把差异摆出来（两个方向），再决定推不推。
     const instance = resolveInstance(args.slice(1), flags)
     const m = manager()
-    const d = await m.configDiff(instance.id)
+    const d = await m.configDiff(instance.id, {
+      components: [...flagAll(argv, 'component'), ...(flags.has('with-components') ? defaultComponentSources() : [])],
+    })
     m.dispose()
     console.log(`本地配置 ${d.localDir}`)
     if (d.peerError) console.error(`  FAIL 读远程机器失败：${d.peerError}`)
@@ -534,6 +566,7 @@ export async function main(argv: string[]): Promise<void> {
       console.log(`  远程机器独有的配置项（要删用 --delete-key）：${d.plan.keyDeleteCandidates.map((c) => c.collection + ':' + c.key).join(', ')}`)
     }
     if (d.plan.shadowed.length > 0) console.log(`  会被远程覆盖层压住的键：${d.plan.shadowed.join('、')}`)
+    if (d.plan.managedPlugins.length > 0) console.log(`  组件插件条目：${d.plan.managedPlugins.join('、')}`)
     for (const n of d.plan.notes) console.log(`  · ${n}`)
     return
   }
@@ -549,6 +582,7 @@ export async function main(argv: string[]): Promise<void> {
       dryRun: flags.has('dry-run'),
       // 显式允许重写带注释的对端配置（注释会丢）——默认不碰用户的文档。
       preferCommentedTarget: flags.has('prefer-commented-target'),
+      components: [...flagAll(argv, 'component'), ...(flags.has('with-components') ? defaultComponentSources() : [])],
     })
     m.dispose()
     console.log(`${r.ok ? 'OK  ' : 'FAIL'} ${r.detail}`)

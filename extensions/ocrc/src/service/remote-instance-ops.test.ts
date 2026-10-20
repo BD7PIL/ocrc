@@ -58,14 +58,14 @@ function makeManager(): RemoteInstanceManager {
     status: (id: string) => ({ id, state: 'online' as const, url: 'http://127.0.0.1:4610', tunnelOwner: 'external' as const, logTail: [] }),
     statusAll: () => [],
     logs: () => ['line 1', 'line 2'],
-    peerLogs: vi.fn(async () => ({ ok: true, instance: ['serve ready'], app: ['http 200'], paths: { instance: '/home/demo/.ocrc/remote/instance.log', app: '/home/demo/.config/openchamber/logs/openchamber-2610.log' } })),
+    peerLogs: vi.fn(async () => ({ ok: true, instance: ['serve ready'], app: ['http 200'], paths: { instance: '/home/user/.ocrc/remote/instance.log', app: '/home/user/.config/openchamber/logs/openchamber-2610.log' } })),
     ensureAll: vi.fn(),
     dispose: vi.fn(),
   } as unknown as RemoteInstanceManager
 }
 
 const instance = (over: Partial<RemoteInstance> = {}): RemoteInstance => ({
-  id: 'demo@h', host: 'h', port: 22, instancePort: 2610, localPort: 4610,
+  id: 'user@h', host: 'h', port: 22, instancePort: 2610, localPort: 4610,
   appVersion: '2.3.3', enabled: true, uiPassword: 'pw-secret', ...over,
 } as RemoteInstance)
 
@@ -103,7 +103,7 @@ describe('remote-instance ops', () => {
   it('rejects an auth mode outside the closed set (a typo must not read as key mode)', async () => {
     const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager: makeManager() })
     expect((await ops.handle({ op: 'add', payload: { host: 'h', sshAuth: 'Password' as never } })).status).toBe(400)
-    expect((await ops.handle({ op: 'patch', id: 'demo@h', payload: { sshAuth: 'passwd' as never } })).status).toBe(400)
+    expect((await ops.handle({ op: 'patch', id: 'user@h', payload: { sshAuth: 'passwd' as never } })).status).toBe(400)
     // The two real modes go through, and the password never comes back.
     const ok = await ops.handle({ op: 'add', payload: { host: 'h', sshAuth: 'password', sshPassword: 'peer-secret' } })
     expect(ok.status).toBe(200)
@@ -115,28 +115,28 @@ describe('remote-instance ops', () => {
   it('long ops return a job and expose the result through polling', async () => {
     const manager = makeManager()
     const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager })
-    const started = await ops.handle({ op: 'plan', id: 'demo@h' })
+    const started = await ops.handle({ op: 'plan', id: 'user@h' })
     expect(started.status).toBe(202)
     const jobId = (started.body as { jobId: string }).jobId
     const job = await waitJob(ops, jobId)
     expect(job.state).toBe('done')
     expect(job.result).toMatchObject({ reachable: true })
-    expect(manager.plan).toHaveBeenCalledWith('demo@h')
+    expect(manager.plan).toHaveBeenCalledWith('user@h')
   })
 
   it('apply without confirm is a dry run; with confirm it runs as a job', async () => {
     const manager = makeManager()
     const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager })
-    const gate = await ops.handle({ op: 'apply', id: 'demo@h', payload: {} })
+    const gate = await ops.handle({ op: 'apply', id: 'user@h', payload: {} })
     expect(gate.status).toBe(409)
     expect(gate.body).toMatchObject({ dryRun: true })
     expect(manager.apply).not.toHaveBeenCalled()
 
-    const started = await ops.handle({ op: 'apply', id: 'demo@h', payload: { confirm: true, force: true } })
+    const started = await ops.handle({ op: 'apply', id: 'user@h', payload: { confirm: true, force: true } })
     expect(started.status).toBe(202)
     const job = await waitJob(ops, (started.body as { jobId: string }).jobId)
     expect(job.state).toBe('done')
-    expect(manager.apply).toHaveBeenCalledWith('demo@h', { force: true })
+    expect(manager.apply).toHaveBeenCalledWith('user@h', { force: true })
   })
 
   it('up/down/probe are jobs; delete stops and removes', async () => {
@@ -144,26 +144,26 @@ describe('remote-instance ops', () => {
     const store = makeStore([instance()])
     const ops = createRemoteInstanceOps({ store, manager })
     for (const op of ['up', 'down', 'probe'] as const) {
-      const started = await ops.handle({ op, id: 'demo@h' })
+      const started = await ops.handle({ op, id: 'user@h' })
       expect(started.status).toBe(202)
       await waitJob(ops, (started.body as { jobId: string }).jobId)
     }
     expect(manager.up).toHaveBeenCalled()
     expect(manager.down).toHaveBeenCalled()
 
-    const del = await ops.handle({ op: 'delete', id: 'demo@h' })
+    const del = await ops.handle({ op: 'delete', id: 'user@h' })
     expect(del.status).toBe(200)
-    expect(store.get('demo@h')).toBeUndefined()
-    expect(manager.down).toHaveBeenCalledWith('demo@h')
+    expect(store.get('user@h')).toBeUndefined()
+    expect(manager.down).toHaveBeenCalledWith('user@h')
   })
 
   it('status merges a live probe so a stale in-memory "online" never lies', async () => {
     const manager = makeManager()
     const store = makeStore([instance()])
     const ops = createRemoteInstanceOps({ store, manager })
-    manager.status = () => ({ id: 'demo@h', state: 'online' as const, url: 'http://127.0.0.1:4610', logTail: [] })
+    manager.status = () => ({ id: 'user@h', state: 'online' as const, url: 'http://127.0.0.1:4610', logTail: [] })
     manager.probe = vi.fn(async () => ({ online: false, detail: '对端实例在跑，但桌面版隧道未连接' }))
-    const reply = await ops.handle({ op: 'status', id: 'demo@h' })
+    const reply = await ops.handle({ op: 'status', id: 'user@h' })
     expect(reply.status).toBe(200)
     const status = (reply.body as { status: { state: string; detail?: string } }).status
     expect(status.state).toBe('offline')
@@ -174,19 +174,19 @@ describe('remote-instance ops', () => {
     const manager = makeManager()
     const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager })
     expect((await ops.handle({ op: 'upgrade', id: 'missing' })).status).toBe(404)
-    const started = await ops.handle({ op: 'upgrade', id: 'demo@h' })
+    const started = await ops.handle({ op: 'upgrade', id: 'user@h' })
     expect(started.status).toBe(202)
     const job = await waitJob(ops, (started.body as { jobId: string }).jobId)
     expect(job.state).toBe('done')
     expect(job.result).toMatchObject({ ok: true, changed: true, from: '2.2.0', to: '2.3.3' })
-    expect(manager.upgrade).toHaveBeenCalledWith('demo@h')
+    expect(manager.upgrade).toHaveBeenCalledWith('user@h')
   })
 
   it('config sync ops are jobs and never imply deletions', async () => {
     const manager = makeManager()
     const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager })
 
-    const diff = await ops.handle({ op: 'configdiff', id: 'demo@h' })
+    const diff = await ops.handle({ op: 'configdiff', id: 'user@h' })
     expect(diff.status).toBe(202)
     const diffJob = await waitJob(ops, (diff.body as { jobId: string }).jobId)
     expect(diffJob.state).toBe('done')
@@ -194,16 +194,16 @@ describe('remote-instance ops', () => {
 
     // No `deletes` in the payload must reach the manager as "delete nothing",
     // not as "delete everything the diff found".
-    const started = await ops.handle({ op: 'syncconfig', id: 'demo@h' })
+    const started = await ops.handle({ op: 'syncconfig', id: 'user@h' })
     expect(started.status).toBe(202)
     await waitJob(ops, (started.body as { jobId: string }).jobId)
-    expect(manager.syncConfig).toHaveBeenCalledWith('demo@h', { deletes: undefined, keyDeletes: undefined, dryRun: false })
+    expect(manager.syncConfig).toHaveBeenCalledWith('user@h', { deletes: undefined, keyDeletes: undefined, dryRun: false })
 
-    const explicit = await ops.handle({ op: 'syncconfig', id: 'demo@h', payload: { deletes: ['agent/old.md'], dryRun: true } })
+    const explicit = await ops.handle({ op: 'syncconfig', id: 'user@h', payload: { deletes: ['agent/old.md'], dryRun: true } })
     await waitJob(ops, (explicit.body as { jobId: string }).jobId)
-    expect(manager.syncConfig).toHaveBeenLastCalledWith('demo@h', { deletes: ['agent/old.md'], keyDeletes: undefined, dryRun: true })
+    expect(manager.syncConfig).toHaveBeenLastCalledWith('user@h', { deletes: ['agent/old.md'], keyDeletes: undefined, dryRun: true })
 
-    expect((await ops.handle({ op: 'syncconfig', id: 'demo@h', payload: { deletes: [1] as never } })).status).toBe(400)
+    expect((await ops.handle({ op: 'syncconfig', id: 'user@h', payload: { deletes: [1] as never } })).status).toBe(400)
     expect((await ops.handle({ op: 'syncauth', id: 'missing' })).status).toBe(404)
   })
 
@@ -217,12 +217,12 @@ describe('remote-instance ops', () => {
   it('pairlink is a job that hands the link back', async () => {    const manager = makeManager()
     const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager })
     expect((await ops.handle({ op: 'pairlink', id: 'missing' })).status).toBe(404)
-    const started = await ops.handle({ op: 'pairlink', id: 'demo@h' })
+    const started = await ops.handle({ op: 'pairlink', id: 'user@h' })
     expect(started.status).toBe(202)
     const job = await waitJob(ops, (started.body as { jobId: string }).jobId)
     expect(job.state).toBe('done')
     expect(job.result).toMatchObject({ ok: true, link: expect.stringContaining('openchamber://connect') })
-    expect(manager.pairLink).toHaveBeenCalledWith('demo@h')
+    expect(manager.pairLink).toHaveBeenCalledWith('user@h')
   })
 
   /**

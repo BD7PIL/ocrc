@@ -332,10 +332,11 @@ export const MIN_ENGINE_VERSION = '2.0.20'
 export const ENGINE_MAJOR = 2
 
 /** Engine version we deploy to a controlled host (R12: a **pin**, never
- *  "latest"). Default = the v2.0.27 that was measured working on EL7
- *  (verdict §二); a bin-cache manifest or `OCRC_V2_PIN` overrides it, and the
- *  CLI can name one explicitly. */
-export const DEFAULT_ENGINE_PIN = '2.0.27'
+ *  "latest"). 2.0.32 is the version the component adapters are verified
+ *  against (deep-memory's v2 gate; opencode-deep-memory README §compatibility).
+ *  A bin-cache manifest or `OCRC_V2_PIN` overrides it, and the CLI can name one
+ *  explicitly. */
+export const DEFAULT_ENGINE_PIN = '2.0.32'
 
 /** The runtime we ship to the controlled host (verdict §二): unofficial
  *  glibc-2.17 build — the ONLY 24.x line variant that runs on EL7. 24.14.0 has

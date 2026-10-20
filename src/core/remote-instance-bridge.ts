@@ -40,6 +40,7 @@ import {
   buildAuthPushScript, buildConfigApplyScript, buildPeerConfigReadScript, diffConfig, discardStaging,
   parsePeerConfigRead, planConfigSync, readLocalConfig, stageConfigTree,
 } from './instance-config.js'
+import { defaultComponentSources, installPreparedComponent, pluginEntryFor, prepareComponent, registerPeerPlugins } from './components.js'
 import { renderConfig } from './config-merge.js'
 import { askpassEnv } from './ssh-askpass.js'
 import { clearForwardMarker, describeHolders, findHolder, writeForwardMarker, type ForwardKind } from './forward-ownership.js'
@@ -134,6 +135,8 @@ export interface InstanceConfigDiff {
     deletes: string[]
     keyDeletes: { requested: string[]; removed: string[] }
     keyDeleteCandidates: Array<{ collection: string; key: string }>
+    /** v2 `plugins` entries the components being installed require. */
+    managedPlugins: string[]
     droppedManagedKeys: string[]
     secretsReplaced: Array<{ path: string; env: string }>
     baseUrlRewrites: Array<{ provider: string; from?: string; to: string }>
@@ -151,7 +154,7 @@ export interface InstanceConfigOutcome { ok: boolean; detail: string }
 export interface RemoteInstanceManager {
   plan(id: string): Promise<InstancePlan>
   /** P2: push runtime + engine + app (offline path) — the engine gate runs first. */
-  apply(id: string, opts?: { force?: boolean; engineVersion?: string; guard?: boolean; trace?: string; onLog?: (line: string) => void; tier?: AppPackTier }): Promise<InstanceOutcome>
+  apply(id: string, opts?: { force?: boolean; engineVersion?: string; guard?: boolean; trace?: string; onLog?: (line: string) => void; tier?: AppPackTier; components?: string[]; componentsFromPins?: boolean }): Promise<InstanceOutcome>
   /** D5: move this peer to the control side's app pin. The version is a **pin,
    *  not a choice** (the user settled that), so the only upgrade question is
    *  "the peer is on an older pin than I am" — this answers it and does the
@@ -177,11 +180,12 @@ export interface RemoteInstanceManager {
    *  cache only — it must not cost an ssh round trip — so a caller that wants a
    *  real answer on a cold process asks for it explicitly. */
   egress(id: string): Promise<{ mode: EgressMode; relay: boolean; reason: string; probe?: EgressProbe }>
-  /** C1: local-vs-peer config diff, both directions. Read-only. */
-  configDiff(id: string): Promise<InstanceConfigDiff>
+  /** C1: local-vs-peer config diff, both directions. Read-only.
+   *  `components` adds their plugin entries to the "what a sync would write" view. */
+  configDiff(id: string, opts?: { components?: string[] }): Promise<InstanceConfigDiff>
   /** C1–C4: one explicit push of the whitelisted config (+ explicit deletions).
    *  `dryRun` computes everything and writes nothing. */
-  syncConfig(id: string, opts?: { deletes?: string[]; keyDeletes?: string[]; dryRun?: boolean; preferCommentedTarget?: boolean }): Promise<InstanceConfigOutcome>
+  syncConfig(id: string, opts?: { deletes?: string[]; keyDeletes?: string[]; dryRun?: boolean; preferCommentedTarget?: boolean; components?: string[] }): Promise<InstanceConfigOutcome>
   /** C3: provider credentials (`auth.json`) over ssh stdin, 0600 on the peer. */
   syncAuth(id: string): Promise<InstanceConfigOutcome>
   logs(id: string): string[]
@@ -557,6 +561,118 @@ export function createRemoteInstanceManager(opts: {
     // probe — not the exit code — is the assertion.
     pushLog(instance.id, `$ instance stop :${instance.instancePort}`)
     return { ok: true, detail: r.stdout.trim().split('\n').pop() || '已停' }
+  }
+
+  // ── components (reeve / deep-memory / anything with provision.json) ─────────
+
+  /**
+   * Install components declared by `provision.json` and register their engine
+   * plugin entries. ocrc knows nothing about what the components do; it only
+   * reads their contract. Every step is idempotent, and the extension install is
+   * explicitly non-blocking (a missing console must not stop the instance).
+   */
+  async function installComponents(
+    instance: RemoteInstance,
+    sources: readonly string[],
+    onLog?: (line: string) => void,
+  ): Promise<{ ok: boolean; details: string[]; plugins: string[] }> {
+    const log = (line: string) => { pushLog(instance.id, line); onLog?.(line) }
+    const prepared = []
+    for (const source of sources) {
+      log(`组件：准备 ${source}`)
+      prepared.push(await prepareComponent(source))
+    }
+    const home = (await ssh(instance, 'printf %s "$HOME"', 20_000)).stdout.trim()
+    if (!home) return { ok: false, details: ['读不到对端的 $HOME'], plugins: [] }
+    const running = (await remoteHealth(instance)) === '200'
+    const details: string[] = []
+    const plugins: string[] = []
+    let ok = true
+    let extensionInstalled = false
+    for (const component of prepared) {
+      log(`组件：安装 ${component.manifest.name} ${component.manifest.version}`)
+      const result = await installPreparedComponent(instance, component, {
+        log,
+        uiPassword: instance.uiPassword,
+        instancePort: instance.instancePort,
+        remoteHome: home,
+        instanceRunning: running,
+      })
+      details.push(...result.details)
+      plugins.push(...result.plugins)
+      extensionInstalled = extensionInstalled || result.extensionInstalled
+      if (!result.ok) ok = false
+    }
+    if (plugins.length > 0) {
+      const registered = await registerPeerPlugins(instance, plugins, {
+        readScript: buildPeerConfigReadScript(),
+        log,
+        componentNames: prepared.map((c) => c.manifest.name),
+      })
+      details.push(registered.detail)
+      if (!registered.ok) ok = false
+    }
+    for (const component of prepared) {
+      for (const check of component.manifest.verify ?? []) {
+        if (check.kind === 'file') {
+          if (check.when === 'directory' && component.manifest.enginePlugin?.kind !== 'directory') continue
+          const path = check.path.replace(/^~\//, '$HOME/')
+          const mode = check.mode ? `stat -c %a "$f"` : 'echo PRESENT'
+          const r = await ssh(instance, `f="${path}"; if [ ! -f "$f" ]; then echo MISSING; else ${mode}; fi`, 30_000)
+          const out = r.stdout.trim().split('\n').pop() ?? ''
+          if (out === 'MISSING') {
+            details.push(`验证失败：${check.path} 不存在`)
+            ok = false
+          } else if (check.mode && out.replace(/^0+/, '') !== check.mode.replace(/^0+/, '')) {
+            details.push(`验证失败：${check.path} 模式 ${out} ≠ ${check.mode}`)
+            ok = false
+          } else {
+            details.push(`验证通过：${check.path}`)
+          }
+        } else if (check.kind === 'engine-plugin-loaded') {
+          const dir = `$HOME/.ocrc/components/${component.manifest.name}/package`
+          const r = await ssh(instance, `test -f "${dir}/package.json" && { test -e "${dir}/index.js" || test -e "${dir}/server.js"; } && echo ok`, 30_000)
+          if (!/ok/.test(r.stdout)) {
+            details.push(`验证失败：${component.manifest.name} 的插件树不在 ${dir}`)
+            ok = false
+          } else {
+            details.push(`验证通过：${component.manifest.name} 插件树已就位`)
+          }
+        } else if (check.kind === 'guest-installed') {
+          // Non-blocking by design: the instance keeps running without its console.
+          details.push(extensionInstalled
+            ? `验证通过：扩展 ${check.id} 已安装`
+            : `注意：扩展 ${check.id} 未确认安装（不阻断实例启动）`)
+        }
+      }
+    }
+    return { ok, details, plugins }
+  }
+
+  async function installComponentsIfRequested(
+    instance: RemoteInstance,
+    applyOpts: { components?: string[]; componentsFromPins?: boolean; onLog?: (line: string) => void },
+  ): Promise<{ ok: boolean; details: string[]; plugins: string[] } | undefined> {
+    const sources = [
+      ...(applyOpts.components ?? []),
+      ...(applyOpts.componentsFromPins ? defaultComponentSources() : []),
+    ]
+    if (sources.length === 0) return undefined
+    return installComponents(instance, sources, applyOpts.onLog)
+  }
+
+  /** Plugin entries for a config-only operation (diff/sync) without installing. */
+  async function componentPluginsFor(instance: RemoteInstance, sources: readonly string[] | undefined): Promise<string[]> {
+    if (!sources || sources.length === 0) return []
+    const home = (await ssh(instance, 'printf %s "$HOME"', 20_000)).stdout.trim()
+    if (!home) throw new Error('读不到对端的 $HOME')
+    const out: string[] = []
+    for (const source of sources) {
+      const prepared = await prepareComponent(source)
+      const entry = pluginEntryFor(prepared.manifest, home, 'directory')
+      if (entry) out.push(entry)
+    }
+    return out
   }
 
   // ── egress relay (R9) ───────────────────────────────────────────────────────
@@ -1177,6 +1293,12 @@ export function createRemoteInstanceManager(opts: {
           rt(id).engine = { path: pick.candidate.path, version: pick.candidate.version }
         }
         setState(id, 'offline', '复用已安装检查通过（未启动）')
+        const components = await installComponentsIfRequested(instance, applyOpts)
+        if (components) {
+          const full = `${detail}；组件：${components.details.join('；')}`
+          setState(id, components.ok ? 'offline' : 'error', components.ok ? '复用检查 + 组件安装完成（未启动）' : '组件安装未完全通过')
+          return { ok: components.ok, detail: full }
+        }
         return { ok: true, detail }
       }
       // The pack tier follows the target's glibc, not the control host's:
@@ -1220,8 +1342,14 @@ export function createRemoteInstanceManager(opts: {
       if (result.runtime.ok) rt(id).runtimeVersion = result.runtime.detail.replace(/^已推送 |^已在位 /, '')
       if (result.app.ok) rt(id).appVersion = instance.appVersion
       const parts = `运行时：${result.runtime.detail}；OpenCode：${result.engine.detail}；OpenChamber：${result.app.detail}`
-      setState(id, result.ok ? 'offline' : 'error', result.ok ? '安装完成（未启动）' : parts)
-      return { ok: result.ok, detail: parts }
+      if (!result.ok) {
+        setState(id, 'error', parts)
+        return { ok: false, detail: parts }
+      }
+      const components = await installComponentsIfRequested(instance, applyOpts)
+      const full = components ? `${parts}；组件：${components.details.join('；')}` : parts
+      setState(id, components && !components.ok ? 'error' : 'offline', components && !components.ok ? '组件安装未完全通过' : '安装完成（未启动）')
+      return { ok: components ? components.ok : true, detail: full }
     },
 
     async up(id, upOpts = {}) {
@@ -1468,14 +1596,15 @@ async probe(id) {
 
     // ── C1–C4: config and credentials for the peer's engine ────────────────────
 
-    async configDiff(id) {
+    async configDiff(id, diffOpts = {}) {
       const instance = need(id)
       const local = readLocalConfig({ dir: opts.localConfigDir, authPath: opts.localAuthPath })
       const read = await ssh(instance, buildPeerConfigReadScript(), 45_000)
       const peer = parsePeerConfigRead(read.stdout)
       const peerError = read.code === 0 ? undefined : cleanSshNoise(read.stderr || read.stdout).trim().split('\n').pop()
       const diff = diffConfig(local, peer)
-      const plan = planConfigSync(local, peer, { diff, providerBaseUrl: instance.providerBaseUrl })
+      const componentPlugins = await componentPluginsFor(instance, diffOpts.components)
+      const plan = planConfigSync(local, peer, { diff, providerBaseUrl: instance.providerBaseUrl, componentPlugins })
       // The config files are merged, not copied: leaving them in the file lists
       // would show "opencode.jsonc 会推过去" for a file we never send.
       const notConfig = (rel: string) => rel !== 'opencode.json' && rel !== 'opencode.jsonc'
@@ -1494,6 +1623,7 @@ async probe(id) {
           deletes: plan.deletes,
           keyDeletes: plan.keyDeletes,
           keyDeleteCandidates: plan.keyDeleteCandidates,
+          managedPlugins: plan.managedPlugins,
           droppedManagedKeys: plan.droppedManagedKeys,
           secretsReplaced: plan.secretsReplaced,
           baseUrlRewrites: plan.baseUrlRewrites,
@@ -1516,12 +1646,14 @@ async probe(id) {
       }
       const peer = parsePeerConfigRead(read.stdout)
       const diff = diffConfig(local, peer)
+      const componentPlugins = await componentPluginsFor(instance, syncOpts.components)
       const plan = planConfigSync(local, peer, {
         diff,
         deletes: syncOpts.deletes,
         keyDeletes: syncOpts.keyDeletes,
         providerBaseUrl: instance.providerBaseUrl,
         preferCommentedTarget: syncOpts.preferCommentedTarget,
+        componentPlugins,
       })
       const nothing = plan.files.length === 0 && plan.deletes.length === 0
       if (nothing) {

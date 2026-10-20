@@ -2347,12 +2347,14 @@ function packNpmSpec(spec) {
 }
 async function prepareComponent(source) {
   let tarball;
+  let temporary;
   let directory;
   let manifest;
   if (existsSync5(source) && statSync4(source).isDirectory()) {
     directory = source;
     manifest = readManifestFromDir(source);
     tarball = packDirectory(source);
+    temporary = tarball;
   } else if (existsSync5(source)) {
     manifest = readManifestFromTarball(source);
     tarball = source;
@@ -2360,6 +2362,7 @@ async function prepareComponent(source) {
     const packed = packNpmSpec(source);
     manifest = readManifestFromTarball(packed);
     tarball = packed;
+    temporary = packed;
   }
   const cache = componentCacheDir();
   mkdirSync7(cache, { recursive: true });
@@ -2367,7 +2370,7 @@ async function prepareComponent(source) {
   if (!existsSync5(cached) || sha256File(cached) !== sha256File(tarball)) {
     writeFileSync6(cached, readFileSync5(tarball), { mode: 420 });
   }
-  if (directory === void 0) rmSync4(tarball, { force: true });
+  if (temporary) rmSync4(temporary, { force: true });
   return { manifest, tarball: cached, sha256: sha256File(cached), directory };
 }
 function defaultComponentSources(env = process.env) {
@@ -2396,9 +2399,9 @@ function defaultComponentSources(env = process.env) {
 function componentRemoteDir(manifest) {
   return `$HOME/.ocrc/components/${manifest.name}`;
 }
-function pluginEntryFor(manifest, remoteHome) {
+function pluginEntryFor(manifest, remoteHome, kind = manifest.enginePlugin?.kind ?? "package") {
   if (!manifest.enginePlugin) return void 0;
-  return manifest.enginePlugin.kind === "directory" ? `${remoteHome}/.ocrc/components/${manifest.name}/package` : manifest.enginePlugin.spec;
+  return kind === "directory" ? `${remoteHome}/.ocrc/components/${manifest.name}/package` : manifest.enginePlugin.spec;
 }
 function buildComponentUnpackScript(manifest, tarballName) {
   const dir = componentRemoteDir(manifest);
@@ -2445,7 +2448,7 @@ function buildExtensionInstallScript(o) {
     "C=$(mktemp)",
     `trap 'rm -f "$C"' EXIT`,
     `curl -fsS -c "$C" -X POST "http://127.0.0.1:${o.port}/auth/session" -H 'Content-Type: application/json' --data-binary "{\\"password\\":\\"$PW\\"}" >/dev/null`,
-    `curl -fsS -b "$C" -X POST "http://127.0.0.1:${o.port}/api/guests" -H 'Content-Type: application/json' --data-binary "{\\"path\\":\\"${o.zipPath}\\"}" >/dev/null`,
+    `curl -fsS -b "$C" -X POST "http://127.0.0.1:${o.port}/api/guests" -H 'Content-Type: application/json' --data-binary "{\\"path\\":\\"${o.zipPath}\\",\\"replace\\":true}" >/dev/null`,
     `curl -fsS -b "$C" -X PUT "http://127.0.0.1:${o.port}/api/guests/${o.id}/capabilities" -H 'Content-Type: application/json' --data-binary '{"granted":[${granted.split(",").map((c) => `"${c}"`).join(",")}]}' >/dev/null`,
     `curl -fsS -b "$C" "http://127.0.0.1:${o.port}/api/guests" | grep -q '"id":"${o.id}"'`,
     "echo extension-installed"
@@ -2492,7 +2495,7 @@ async function installPreparedComponent(target, component, opts) {
   if (unpack.code !== 0) return { ok: false, details: [`${manifest.name}: \u89E3\u5305\u5931\u8D25\uFF08${unpack.stderr.trim() || `exit ${unpack.code}`}\uFF09`], plugins, extensionInstalled: false };
   details.push(`${manifest.name} ${manifest.version} \u2192 ${dir}/package`);
   if (manifest.enginePlugin) {
-    const spec = pluginEntryFor(manifest, opts.remoteHome);
+    const spec = pluginEntryFor(manifest, opts.remoteHome, "directory");
     if (spec) {
       plugins.push(spec);
       details.push(`\u63D2\u4EF6\u6761\u76EE\uFF1A${spec}`);
@@ -2582,7 +2585,9 @@ async function registerPeerPlugins(target, specs, opts) {
   const file = peer.targetBasename;
   const layer = peer.layers.find((l) => l.basename === file);
   const doc = layer ? JSON.parse(JSON.stringify(layer.parsed ?? {})) : { $schema: "https://opencode.ai/config.json" };
-  const current = Array.isArray(doc.plugins) ? doc.plugins.filter((v) => typeof v === "string") : [];
+  const names = opts.componentNames ?? [];
+  const stale = (entry) => names.some((name) => entry.includes(`@bd7pil/${name}`) || entry.includes(`/.ocrc/components/${name}/`));
+  const current = Array.isArray(doc.plugins) ? doc.plugins.filter((v) => typeof v === "string" && !stale(v)) : [];
   const merged = [.../* @__PURE__ */ new Set([...current, ...specs])];
   if (merged.length === current.length && merged.every((v, i) => v === current[i])) {
     return { ok: true, detail: `plugins \u5DF2\u662F\u5E76\u96C6\uFF08${merged.length} \u6761\uFF09` };
@@ -2949,7 +2954,11 @@ tar: ${err.message}` });
       if (!result.ok) ok = false;
     }
     if (plugins.length > 0) {
-      const registered = await registerPeerPlugins(instance, plugins, { readScript: buildPeerConfigReadScript(), log: log6 });
+      const registered = await registerPeerPlugins(instance, plugins, {
+        readScript: buildPeerConfigReadScript(),
+        log: log6,
+        componentNames: prepared.map((c) => c.manifest.name)
+      });
       details.push(registered.detail);
       if (!registered.ok) ok = false;
     }
@@ -3001,7 +3010,7 @@ tar: ${err.message}` });
     const out = [];
     for (const source of sources) {
       const prepared = await prepareComponent(source);
-      const entry = pluginEntryFor(prepared.manifest, home);
+      const entry = pluginEntryFor(prepared.manifest, home, "directory");
       if (entry) out.push(entry);
     }
     return out;

@@ -58,8 +58,9 @@ jobs:
           set -euo pipefail
           T="$(npm pack --silent | tail -1)"
           echo "tarball: $T"
+          tar -tzf "$T" > /tmp/tar-list.txt
           for f in package/dist/index.js package/dist/index.d.ts package/dist/cli/index.js package/ops/components.json; do
-            tar -tzf "$T" | grep -qx "$f" || { echo "::error::missing $f"; exit 1; }
+            grep -qx "$f" /tmp/tar-list.txt || { echo "::error::missing $f"; exit 1; }
           done
           echo "tarball carries index + declarations + bin + component pins"
 

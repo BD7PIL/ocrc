@@ -149,6 +149,15 @@ describe('启动/停止脚本与 R9 代理注入', () => {
     uiPassword: 'pw',
   }
 
+  it('forwards control-side env vars into the serve line (for {env:…} config refs)', () => {
+    const line = buildInstanceServeCommand({ ...base, extraEnv: { TAVILY_API_KEY: 'tvly-dev-test' } })
+    expect(line).toContain("TAVILY_API_KEY='tvly-dev-test'")
+    // Explicit serve vars still win if a passthrough name collides.
+    const collide = buildInstanceServeCommand({ ...base, extraEnv: { OPENCODE_BINARY: '/wrong' } })
+    expect(collide).toContain("OPENCODE_BINARY='/home/user/.ocrc/remote/engine/opencode'")
+    expect(collide).not.toContain('/wrong')
+  })
+
   it('引擎与运行时都是绝对路径（R12：不靠 PATH 解析）', () => {
     const line = buildInstanceServeCommand(base)
     expect(line).toContain("OPENCODE_BINARY='/home/user/.ocrc/remote/engine/opencode'")

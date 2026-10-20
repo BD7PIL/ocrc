@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.0-alpha.11 — 环境变量透传（2026-10-20）
+
+- **`OCRC_INSTANCE_ENV=NAME[,NAME]`**：把控制端进程环境里的这些变量透传进对端实例的 serve 行。对端配置里的 `{env:NAME}` 因此能解析，而密钥仍然只存在于控制端的进程环境（或系统用户环境），不写进任何配置文件。`buildInstanceServeCommand` 新增 `extraEnv`；显式的 serve 变量（`OPENCODE_BINARY` 等）优先于同名透传。
+- 实测：控制端 `TAVILY_API_KEY` + `OCRC_INSTANCE_ENV=TAVILY_API_KEY` → 对端引擎 `/api/mcp` 返回 `tavily: connected`。
+- 单元测试 +1（透传与同名冲突）。
+
 ## 2.0.0-alpha.10 — 通用组件装配（reeve / deep-memory），Bifrost 交还 reeve（2026-10-20）
 
 - **组件契约**：新增 `provision.json` 读取与执行（`src/core/components.ts`）。`remote apply --component <dir|tgz|spec>` / `--with-components` 读组件清单，推 tarball、解包到 `~/.ocrc/components/<name>/package`、按 sha256 落工件、登记 v2 `plugins`（目录条目，air-gap 可用）、装 openchamber 扩展（失败不阻断）、逐项验证。`ops/components.json` 钉版本；`OCRC_<NAME>_PIN` 覆盖。

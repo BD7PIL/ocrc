@@ -755,6 +755,7 @@ function buildInstanceServeCommand(o) {
     NODE_EXTRA_CA_CERTS: o.proxy?.caPath
   });
   const env = `${exports}${renderExports({
+    ...o.extraEnv,
     OPENCODE_BINARY: o.enginePath,
     OPENCHAMBER_UI_PASSWORD: o.uiPassword,
     // Air-gapped hosts: never dial the hosted relay, and make that explicit.
@@ -2754,6 +2755,15 @@ function createRemoteInstanceManager(opts) {
   const detachedForwards = opts.forwards === "detached";
   const externalTunnel = opts.tunnelOwner === "external";
   const forwardLogPath = opts.forwardLogPath ?? join10(opts.home ?? ocrcHome(), "remote-forward.log");
+  const passthroughNames = opts.envPassthrough ?? (process.env.OCRC_INSTANCE_ENV ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const passthroughEnv = () => {
+    const out = {};
+    for (const name of passthroughNames) {
+      const value = process.env[name];
+      if (value !== void 0 && value !== "") out[name] = value;
+    }
+    return out;
+  };
   const rt = (id) => {
     let r = runtimes.get(id);
     if (!r) {
@@ -2894,6 +2904,7 @@ tar: ${err.message}` });
       uiPassword: instance.uiPassword,
       enginePath,
       proxy: relay ? { httpProxy: relay, httpsProxy: relay } : void 0,
+      extraEnv: passthroughEnv(),
       detached: true
     })}`;
     pushLog(instance.id, `$ instance serve :${instance.instancePort}\uFF08engine ${enginePath}\uFF09`);

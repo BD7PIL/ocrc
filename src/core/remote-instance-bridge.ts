@@ -329,6 +329,13 @@ export function createRemoteInstanceManager(opts: {
   /** Extra env prefix for the instance's own serve line (P3 injects the proxy). */
   serveEnvPrefix?: (instance: RemoteInstance) => string
   /**
+   * Control-side env var names to forward into the instance's serve line.
+   * Defaults to `OCRC_INSTANCE_ENV` (comma-separated). This is a **generic**
+   * passthrough: ocrc does not know which var is a credential or what it is
+   * for — it only makes `{env:VAR}` in the peer's config resolvable.
+   */
+  envPassthrough?: readonly string[]
+  /**
    * How the tunnel process is owned:
    *   · `supervised` (default; the panel host) — piped stdio so the log tail is
    *     live, and `dispose()` tears it down;
@@ -364,6 +371,17 @@ export function createRemoteInstanceManager(opts: {
   const detachedForwards = opts.forwards === 'detached'
   const externalTunnel = opts.tunnelOwner === 'external'
   const forwardLogPath = opts.forwardLogPath ?? join(opts.home ?? ocrcHome(), 'remote-forward.log')
+  const passthroughNames = opts.envPassthrough
+    ?? (process.env.OCRC_INSTANCE_ENV ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+  /** Values for the names the *control side* chose; absent vars are dropped. */
+  const passthroughEnv = (): Record<string, string> => {
+    const out: Record<string, string> = {}
+    for (const name of passthroughNames) {
+      const value = process.env[name]
+      if (value !== undefined && value !== '') out[name] = value
+    }
+    return out
+  }
 
   const rt = (id: string): InstanceRuntime => {
     let r = runtimes.get(id)
@@ -527,6 +545,7 @@ export function createRemoteInstanceManager(opts: {
       uiPassword: instance.uiPassword,
       enginePath,
       proxy: relay ? { httpProxy: relay, httpsProxy: relay } : undefined,
+      extraEnv: passthroughEnv(),
       detached: true,
     })}`
     pushLog(instance.id, `$ instance serve :${instance.instancePort}（engine ${enginePath}）`)

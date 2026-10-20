@@ -74,6 +74,9 @@ USAGE:
                   --egress：auto（默认，探测对端）| relay（强制经控制端）| direct（强制直连）
                   --provision：push（默认，推备件）| reuse（不推字节，只检查 + pin 引擎）
                   --provider-baseurl：同步配置时改写这些 provider 的 baseURL（无外网对端经内网网关，C2b）
+  环境变量 OCRC_INSTANCE_ENV=TAVILY_API_KEY[,OTHER]
+                  把控制端的这些变量透传进对端实例的 serve 行（让配置里的 {env:…} 能解析；
+                  密钥仍然只在控制端的进程环境里，不写进任何配置文件）
   ocrc remote list [--json]
   ocrc remote plan <id>            只读预演：ssh/环境/引擎门禁/装机动作，不写对端
   ocrc remote apply <id> [--force] 推运行时 + 引擎(v2 pin) + 应用（控制端备件，对端零联网）

@@ -489,6 +489,11 @@ export interface InstanceServeOptions {
   proxy?: { httpProxy?: string; httpsProxy?: string; noProxy?: string; caPath?: string }
   /** Build the log redirect + background `nohup` wrapper (CLI-style start). */
   detached?: boolean
+  /** Extra env vars to export on the controlled host. The control side picks
+   *  the names and supplies the values (see `OCRC_INSTANCE_ENV`); this is how a
+   *  peer engine gets `{env:VAR}` references resolved without putting a secret
+   *  in its config file. */
+  extraEnv?: Record<string, string>
 }
 
 /** Controlled host: the `serve` line. Engine and runtime are absolute; the
@@ -508,6 +513,7 @@ export function buildInstanceServeCommand(o: InstanceServeOptions): string {
     NODE_EXTRA_CA_CERTS: o.proxy?.caPath,
   })
   const env = `${exports}${renderExports({
+    ...o.extraEnv,
     OPENCODE_BINARY: o.enginePath,
     OPENCHAMBER_UI_PASSWORD: o.uiPassword,
     // Air-gapped hosts: never dial the hosted relay, and make that explicit.

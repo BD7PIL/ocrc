@@ -1,0 +1,28 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "formatter": {
+    "enabled": false
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true
+    }
+  },
+  "files": {
+    "includes": [
+      "src/**",
+      "tests/**",
+      "scripts/**",
+      "extensions/*/src/**",
+      "extensions/*/scripts/**",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/coverage",
+      "!scripts/spikes",
+      "!extensions/*/panel",
+      "!extensions/*/status",
+      "!extensions/*/service"
+    ]
+  }
+}

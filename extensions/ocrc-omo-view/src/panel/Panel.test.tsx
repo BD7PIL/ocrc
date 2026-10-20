@@ -74,7 +74,7 @@ describe('Panel — host integration', () => {
     })
 
     const row = (await screen.findByText('探索任务')).closest('.oc-sdk-row') as HTMLElement
-    expect(row.getAttribute('aria-selected')).toBe('true')
+    expect(row.getAttribute('aria-current')).toBe('true')
   })
 
   it('shows the orchestration expanded, and collapses on demand', async () => {

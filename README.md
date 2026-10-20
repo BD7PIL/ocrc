@@ -92,8 +92,39 @@ ocrc remote pairlink <id>            # one-time pairing link
 ocrc remote config-diff|sync-config|sync-auth <id>
 ocrc remote peerlog <id> | logs <id> | upgrade <id> | remove <id>
 ocrc remote prepare [--app-version V]        # pre-fetch packs on the control side
+ocrc remote bootstrap <id> --with-components --yes   # the whole takeover, in order
 ocrc remote offline-proof | trace-check F    # prove an install made no outbound calls
 ```
+
+## One command from Windows
+
+`ocrc remote bootstrap` is a sequencer over the commands above, not a new capability:
+
+```
+record → plan → apply → sync-auth → sync-config → up → pairlink
+```
+
+```bash
+# first look — read-only, writes nothing to the peer
+ocrc remote bootstrap user@host --with-components --dry-run
+
+# the takeover
+ocrc remote bootstrap user@host --with-components --yes
+```
+
+What it does differently from running the seven commands yourself:
+
+- **Only the fields you named are written.** An existing record keeps its `uiPassword`, pinned
+  engine path, ports and stored ssh password; `--target` registers the host first, then drives it.
+- **Fatal vs warning steps.** A failed `plan`/`apply`/`up` stops the sequence and exits 1. A
+  missing local `auth.json`, a config merge problem, or a failed pairing link is printed as `WARN`
+  and the rest still runs.
+- **No silent writes.** Without `--yes`, a TTY asks `[y/N]`; a non-TTY run refuses (use
+  `--dry-run` to preview).
+
+It does **not** touch an engine the host already adopted (the instance lives under `~/.ocrc`), does
+not install a desktop extension, and cannot make Windows the controlled side — the peer must be
+Linux.
 
 ## Compatibility
 
@@ -108,7 +139,7 @@ ocrc remote offline-proof | trace-check F    # prove an install made no outbound
 
 ```bash
 npm install && npm run build         # CLI (tsc) — no runtime dependencies
-npm test                             # 180 tests (the instance line)
+npm test                             # 205 tests (the instance line)
 npm run typecheck && npm run typecheck:tests
 npm run preflight                    # BEFORE COMMITTING: rebuilds both extensions, typechecks,
                                      # tests, guest-bundle invariants, stages artifacts

@@ -17,7 +17,7 @@ ocrc remote add --host 192.0.2.10 --user user --ssh-auth key
 Linux x86_64（EL7 / glibc 2.17 是支持下限）。面板扩展的安装与升级见下面「装扩展」一节。
 从源码跑：`npm install && npm run build`，CLI 入口 `node dist/cli/index.js`。
 
-## 远程 openchamber 实例（2.0.0-alpha.8，「对端能力」）
+## 远程 openchamber 实例（2.0.0-alpha.12，「对端能力」）
 
 在被控端跑一个 openchamber 实例，控制端只建转发并打开它——Add project 列的、中栏连的就是对端。
 契约见 [PRODUCT 第零点十条](PRODUCT.md)，设计/证据见
@@ -53,6 +53,7 @@ ocrc remote up user@192.0.2.10 --open
 | 删档 | `ocrc remote remove <id>` | 只删档案；对端 `~/.ocrc/remote` 不动（要清跑验收脚本 `--teardown --purge`） |
 | 离线证明 | `ocrc remote offline-proof` / `trace-check <file>` | 结构性零联网断言 / strace 判读 |
 | 预热备件 | `ocrc remote prepare [--app-version V]` | 只在控制端取件+打包（离线部署前预热缓存） |
+| 一键接管 | `ocrc remote bootstrap <id> [--with-components] [--dry-run] [--yes]` | 把 记录 → plan → apply → sync-auth → sync-config → up → pairlink 串成一条。**只覆盖显式给出的字段**（`uiPassword`/端口/引擎 pin/既有密码保留）；`plan`/`apply`/`up` 失败即停（退出 1），`sync-auth`/`sync-config`/`pairlink` 失败只告警（退出 0）；非 TTY 必须显式 `--yes`，否则退出 2 |
 | 监督 | `ocrc remote supervise` | 前台跑 R10 ①②（无面板机器用）；面板宿主 `ocrc start` 里是同一份实现 |
 
 > EL7 终端修复：`bash scripts/remote-node-pty-glibc217.sh <ssh-target> [--verify\|--rollback]`
@@ -61,6 +62,26 @@ ocrc remote up user@192.0.2.10 --open
 **HTTP 面**（面板/自动化）：`GET/POST /api/remote-instance`、`PATCH /api/remote-instance/:id`、
 `:id/plan|apply|up|down|status|logs|url|delete`。`apply` 要 `confirm:true`（否则 409 + dryRun）。
 密码不回显（`hasUiPassword`）。
+
+**一条命令接管（bootstrap）**
+
+```bash
+# 新机器：一条命令登记 + 装机 + 同步 + 起实例 + 出配对链接
+ocrc remote bootstrap --target user@192.0.2.10 --with-components --yes
+
+# 已有档案：只补组件/重跑（记录里没被显式覆盖的字段全部保留）
+ocrc remote bootstrap user@192.0.2.10 --with-components --dry-run   # 先看
+ocrc remote bootstrap user@192.0.2.10 --with-components --yes       # 再做
+```
+
+- 顺序固定：`record → plan → apply → sync-auth → sync-config → up → pairlink`。
+- 致命步骤：`plan`（不可达/门禁）、`apply`、`up`；失败即停，退出 1。
+- 告警步骤：`sync-auth`（本机没有 `auth.json`）、`sync-config`（合并冲突）、`pairlink`（链接没生成）；
+  打印 `WARN` 后继续，终态仍为 0。
+- `--dry-run` 只做本地记录合并 + `plan`，不写远程机器；`--yes` 之外的非交互调用会被拒绝（退出 2）。
+- 不碰对端已 adopt 的引擎：实例、运行时、引擎都在 `~/.ocrc` 下，v1 `:4096` 原样不动。
+- 组件来源：`--component <dir|tgz|npm-spec>` 或 `--with-components`（读 `ops/components.json` 的 pin）。
+  对端插件按**目录条目**注册，控制端配置里的 `@bd7pil/<name>` 包名不会随配置同步过去。
 
 **接进 openchamber 桌面版（多机聚合，2026-10-17 真机实测）**
 
@@ -478,7 +499,7 @@ ocrc remote plan <id>                      # 只读预演：ssh/环境/引擎门
 
 ```bash
 npm install && npm run build      # CLI（tsc）；零运行时依赖
-npm test                          # 180 项（实例线）
+npm test                          # 205 项（实例线）
 npm run typecheck && npm run typecheck:tests
 npm run preflight                 # 提交前必跑（重建两扩展 + 三处 typecheck + 三套测试 + guest 不变量）
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.0-alpha.12 — 一条命令接管（bootstrap）+ 组件插件去重（2026-10-20）
+
+- **`ocrc remote bootstrap`**：把 `记录 → plan → apply → sync-auth → sync-config → up → pairlink` 串成一条。核心在 `src/core/remote-instance-bootstrap.ts`，CLI 只负责参数、一次确认和汇总。
+  - 记录合并只覆盖**显式传入**的字段：二次运行保留 `uiPassword`、`enginePath`、端口与既有 `sshPassword`（不再经过会重置缺省字段的 `add`）。
+  - 失败语义：`plan`/`apply`/`up` 致命（停止，退出 1）；`sync-auth`/`sync-config`/`pairlink` 告警（继续，退出 0）。`--dry-run` 只登记 + 预演；非 TTY 没有 `--yes` 退出 2。
+  - 不碰对端已 adopt 的引擎；组件按目录条目登记。
+- **配置并集修复**：`planConfigSync` 新增 `componentNames`，合并前从本地 `plugins` 剔除 `@bd7pil/<name>` / `@bd7pil/<name>@<ver>` / `/.ocrc/components/<name>/` 条目——对端装的是目录，包名条目在 air-gap 机器上注定加载失败。`syncConfig`/`configDiff` 会把组件清单的 manifest name 传下去。
+- 测试：205 项（+14 bootstrap 序列，+1 组件插件去重）。
+
 ## 2.0.0-alpha.11 — 环境变量透传（2026-10-20）
 
 - **`OCRC_INSTANCE_ENV=NAME[,NAME]`**：把控制端进程环境里的这些变量透传进对端实例的 serve 行。对端配置里的 `{env:NAME}` 因此能解析，而密钥仍然只存在于控制端的进程环境（或系统用户环境），不写进任何配置文件。`buildInstanceServeCommand` 新增 `extraEnv`；显式的 serve 变量（`OPENCODE_BINARY` 等）优先于同名透传。

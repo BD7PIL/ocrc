@@ -30,13 +30,13 @@ function activityLabel(node: SessionNode): string {
 
 /** One tree row. A real `<button>` with the kit's row classes — the host's own
  *  row look with the semantics a clickable `<div>` never had (tab stop, Enter,
- *  `aria-selected`). */
+ *  `aria-current` for the selected row). */
 function TreeRow(props: { depth: number; selected?: boolean; title: string; onClick: () => void; children: ReactNode }) {
   return (
     <button
       type="button"
       className="oc-sdk oc-sdk-row"
-      aria-selected={props.selected ? 'true' : 'false'}
+      aria-current={props.selected ? 'true' : undefined}
       style={{ paddingLeft: 8 + props.depth * 14 }}
       title={props.title}
       onClick={props.onClick}

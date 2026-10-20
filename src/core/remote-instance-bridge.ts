@@ -680,18 +680,25 @@ export function createRemoteInstanceManager(opts: {
     return installComponents(instance, sources, applyOpts.onLog)
   }
 
-  /** Plugin entries for a config-only operation (diff/sync) without installing. */
-  async function componentPluginsFor(instance: RemoteInstance, sources: readonly string[] | undefined): Promise<string[]> {
-    if (!sources || sources.length === 0) return []
+  /** Plugin entries for a config-only operation (diff/sync) without installing.
+   *  Returns the manifest names too: they tell `planConfigSync` which local
+   *  package specs are replaced by the installed directory entries. */
+  async function componentPluginsFor(
+    instance: RemoteInstance,
+    sources: readonly string[] | undefined,
+  ): Promise<{ plugins: string[]; names: string[] }> {
+    if (!sources || sources.length === 0) return { plugins: [], names: [] }
     const home = (await ssh(instance, 'printf %s "$HOME"', 20_000)).stdout.trim()
     if (!home) throw new Error('读不到对端的 $HOME')
-    const out: string[] = []
+    const plugins: string[] = []
+    const names: string[] = []
     for (const source of sources) {
       const prepared = await prepareComponent(source)
       const entry = pluginEntryFor(prepared.manifest, home, 'directory')
-      if (entry) out.push(entry)
+      if (entry) plugins.push(entry)
+      names.push(prepared.manifest.name)
     }
-    return out
+    return { plugins, names }
   }
 
   // ── egress relay (R9) ───────────────────────────────────────────────────────
@@ -1622,8 +1629,13 @@ async probe(id) {
       const peer = parsePeerConfigRead(read.stdout)
       const peerError = read.code === 0 ? undefined : cleanSshNoise(read.stderr || read.stdout).trim().split('\n').pop()
       const diff = diffConfig(local, peer)
-      const componentPlugins = await componentPluginsFor(instance, diffOpts.components)
-      const plan = planConfigSync(local, peer, { diff, providerBaseUrl: instance.providerBaseUrl, componentPlugins })
+      const component = await componentPluginsFor(instance, diffOpts.components)
+      const plan = planConfigSync(local, peer, {
+        diff,
+        providerBaseUrl: instance.providerBaseUrl,
+        componentPlugins: component.plugins,
+        componentNames: component.names,
+      })
       // The config files are merged, not copied: leaving them in the file lists
       // would show "opencode.jsonc 会推过去" for a file we never send.
       const notConfig = (rel: string) => rel !== 'opencode.json' && rel !== 'opencode.jsonc'
@@ -1665,14 +1677,15 @@ async probe(id) {
       }
       const peer = parsePeerConfigRead(read.stdout)
       const diff = diffConfig(local, peer)
-      const componentPlugins = await componentPluginsFor(instance, syncOpts.components)
+      const component = await componentPluginsFor(instance, syncOpts.components)
       const plan = planConfigSync(local, peer, {
         diff,
         deletes: syncOpts.deletes,
         keyDeletes: syncOpts.keyDeletes,
         providerBaseUrl: instance.providerBaseUrl,
         preferCommentedTarget: syncOpts.preferCommentedTarget,
-        componentPlugins,
+        componentPlugins: component.plugins,
+        componentNames: component.names,
       })
       const nothing = plan.files.length === 0 && plan.deletes.length === 0
       if (nothing) {

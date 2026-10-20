@@ -27,6 +27,9 @@ jobs:
           npm --prefix extensions/ocrc ci
           npm --prefix extensions/ocrc-omo-view ci
 
+      - name: Lint (biome, lint-only — formatting is not enforced)
+        run: npm run lint
+
       - name: Typecheck (cli)
         run: npm run typecheck
 

@@ -394,6 +394,9 @@ export function planConfigSync(
     providerBaseUrl?: Record<string, string>
     /** v2 `plugins` entries required by the components being installed. */
     componentPlugins?: readonly string[]
+    /** Component names whose local plugin entries must not travel as package
+     *  specs: the peer loads them from the directory this sync installs. */
+    componentNames?: readonly string[]
     diff?: ConfigDiff
     /** Write the commented override layer anyway (comments are lost). Off by
      *  default: that file is the user's, and its comments are documentation. */
@@ -444,7 +447,8 @@ export function planConfigSync(
     for (const [provider, url] of Object.entries(opts.providerBaseUrl ?? {})) {
       const entry = (merged.provider as Record<string, Record<string, unknown>> | undefined)?.[provider]
       if (!entry) continue
-      const options = (entry.options ??= {}) as Record<string, unknown>
+      if (!entry.options) entry.options = {}
+      const options = entry.options as Record<string, unknown>
       const from = typeof options.baseURL === 'string' ? options.baseURL : undefined
       if (from === url) continue
       options.baseURL = url
@@ -471,11 +475,24 @@ export function planConfigSync(
     // v2 `plugins` merges as a UNION across config layers — verified on a real
     // v2.0.32 engine: two documents each contributed an entry and both loaded.
     // So this key is merged (peer + local + component-declared), never dropped.
+    // The control side may name a component by package (`@bd7pil/reeve@0.1.2`)
+    // while the peer can only load it from the installed directory — copying the
+    // package spec to an air-gapped peer adds a plugin that can never resolve.
     const asStrings = (v: unknown): string[] =>
       Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+    const componentNames = new Set(opts.componentNames ?? [])
+    const localPlugins = asStrings(local.effective.plugins).filter((entry) => {
+      if (componentNames.size === 0) return true
+      for (const name of componentNames) {
+        if (entry === `@bd7pil/${name}`) return false
+        if (entry.split('@').slice(0, -1).join('@') === `@bd7pil/${name}`) return false
+        if (entry.includes(`/.ocrc/components/${name}/`)) return false
+      }
+      return true
+    })
     const plugins = [...new Set([
       ...asStrings(peer.effective.plugins),
-      ...asStrings(local.effective.plugins),
+      ...localPlugins,
       ...(opts.componentPlugins ?? []),
     ])]
     if (plugins.length > 0) merged.plugins = plugins

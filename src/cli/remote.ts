@@ -6,7 +6,7 @@ import { createRemoteInstanceManager, cleanSshNoise, proxyConfig, type InstanceS
 import { DEFAULT_APP_VERSION, DEFAULT_INSTANCE_PORT, DEFAULT_LOCAL_PORT, PROXY_DEFAULTS, RECONNECT_DEFAULTS, buildDesktopHandoff, instanceIdFor, type RemoteInstance } from '../core/remote-instance.js'
 import { appPayloadPath, buildOfflineGuardExports, ensureAppPayload, ensureEngineBinary, ensureRuntimePayload, runtimePayloadPath, sha512Base64, sha256Hex, appTreeDir } from '../core/remote-instance-push.js'
 import { defaultComponentSources, prepareComponent } from '../core/components.js'
-import { execFileSync } from 'node:child_process'
+import { bootstrapRemoteInstance, type BootstrapRecordInput, type BootstrapStep } from '../core/remote-instance-bootstrap.js'
 import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs'
 import net from 'node:net'
 import { spawn } from 'node:child_process'
@@ -116,6 +116,20 @@ USAGE:
                   [--component <dir|tgz|npm-spec>]... [--with-components]
                                    只在控制端取件并备好载荷：运行时 + 应用 + 引擎三件（离线部署前预热）
                                    加组件时同时把组件的 npm tarball 取进本地缓存
+  ocrc remote bootstrap [<id> | --target user@host[:port]]
+                  [--host H --user U] [--port 22] [--name N]
+                  [--ssh-auth key|password] [--ssh-password P]
+                  [--egress auto|relay|direct] [--provision push|reuse]
+                  [--instance-port ${DEFAULT_INSTANCE_PORT}] [--local-port ${DEFAULT_LOCAL_PORT}]
+                  [--app-version V] [--engine-path P]
+                  [--component <dir|tgz|npm-spec>]... [--with-components]
+                  [--no-sync-auth] [--no-sync-config] [--no-pairlink]
+                  [--dry-run] [--yes] [--force] [--open]
+                                   一条命令接管：记录 → plan → apply → sync-auth → sync-config → up → pairlink
+                                   只覆盖你显式给出的字段（uiPassword/端口/引擎 pin/既有密码都保留）；
+                                   告警步骤（sync-auth/sync-config/pairlink）不中断；不动对端已 adopt 的引擎
+                                   --dry-run：只做本地登记 + 预演，不写远程机器
+                                   --yes：非交互执行（没有 TTY 又没给 --yes 会拒绝执行）
   ocrc remote offline-proof       结构性断言：所有远程脚本零联网命令
   ocrc remote trace-check <file>  判读 strace 输出：安装期间是否真的零外联
   ocrc remote --help              这段文字
@@ -286,6 +300,171 @@ function resolveInstance(args: string[], flags: Map<string, string | true>): Rem
   return adhoc
 }
 
+/** A usage mistake (exit 2), as opposed to a step that failed (exit 1). */
+class UsageError extends Error {}
+
+function optNum(flags: Map<string, string | true>, name: string): number | undefined {
+  if (!flags.has(name)) return undefined
+  const v = flags.get(name)
+  if (v === undefined || v === true) throw new UsageError(`--${name} 需要一个数值`)
+  const n = Number(v)
+  if (!Number.isInteger(n) || n < 1 || n > 65535) throw new UsageError(`--${name} 不是合法端口：${v}`)
+  return n
+}
+
+/** TTY confirmation for a command that writes someone else's machine. */
+async function confirmTty(question: string): Promise<boolean> {
+  process.stdout.write(`${question} [y/N] `)
+  const answer = await new Promise<string>((resolve) => {
+    process.stdin.resume()
+    process.stdin.once('data', (chunk) => {
+      process.stdin.pause()
+      resolve(chunk.toString('utf-8').split('\n')[0] ?? '')
+    })
+  })
+  return /^y(es)?$/i.test(answer.trim())
+}
+
+function stepMark(step: BootstrapStep): string {
+  return step.status === 'ok' ? 'OK  '
+    : step.status === 'warn' ? 'WARN'
+      : step.status === 'failed' ? 'FAIL'
+        : '--  '
+}
+
+/**
+ * `ocrc remote bootstrap` — the seven steps a takeover actually needs, in order.
+ *
+ * The core sequence lives in `remote-instance-bootstrap.ts`; this function owns
+ * argument interpretation, the one confirmation, and the terminal summary. The
+ * exit code follows the same split the sequence does: a fatal step = 1, warnings
+ * only = 0, a usage mistake = 2.
+ */
+async function runBootstrap(args: string[], flags: Map<string, string | true>, argv: string[]): Promise<void> {
+  const id = args[0]
+  const input: BootstrapRecordInput = {}
+  if (id) input.id = id
+
+  const target = flagStr(flags, 'target')
+  if (target) {
+    const m = /^(?:([^@]+)@)?([^:]+)(?::(\d+))?$/.exec(target.trim())
+    if (!m) throw new UsageError(`--target 要写成 user@host[:port]（收到 ${target}）`)
+    input.user = m[1]
+    input.host = m[2]
+    if (m[3]) input.port = Number(m[3])
+  }
+  const host = flagStr(flags, 'host')
+  const user = flagStr(flags, 'user')
+  if (host) input.host = host
+  if (user) input.user = user
+  const port = optNum(flags, 'port')
+  if (port !== undefined) input.port = port
+  const instancePort = optNum(flags, 'instance-port')
+  if (instancePort !== undefined) input.instancePort = instancePort
+  const localPort = optNum(flags, 'local-port')
+  if (localPort !== undefined) input.localPort = localPort
+  const name = flagStr(flags, 'name')
+  if (name) input.name = name
+  const appVersion = flagStr(flags, 'app-version')
+  if (appVersion) input.appVersion = appVersion
+  const enginePath = flagStr(flags, 'engine-path')
+  if (enginePath) input.enginePath = enginePath
+  const egress = flagStr(flags, 'egress')
+  if (egress && !['auto', 'relay', 'direct'].includes(egress)) throw new UsageError('--egress 只认 auto / relay / direct')
+  if (egress) input.egress = egress as 'auto' | 'relay' | 'direct'
+  const provision = flagStr(flags, 'provision')
+  if (provision && !['push', 'reuse'].includes(provision)) throw new UsageError('--provision 只认 push / reuse')
+  if (provision) input.provision = provision as 'push' | 'reuse'
+  const sshAuth = flagStr(flags, 'ssh-auth')
+  if (sshAuth && sshAuth !== 'key' && sshAuth !== 'password') throw new UsageError('--ssh-auth 只认 key / password')
+  if (sshAuth === 'password') {
+    input.sshAuth = 'password'
+    input.sshPassword = await readSshPassword(flags)
+  } else if (sshAuth === 'key') {
+    input.sshAuth = 'key'
+  }
+
+  if (!id && !input.host) throw new UsageError('需要实例 id，或 --target user@host[:port] / --host H')
+
+  const dryRun = flags.has('dry-run')
+  const s = store()
+  // Same store object, not a second load: `apply/up` resolve the record through
+  // the manager's store, and a fresh instance would not see the merge this run
+  // just wrote (the write itself is debounced by 100 ms).
+  const m = createRemoteInstanceManager({ store: s, forwards: 'detached' })
+  let planShown = false
+  const showPlan = (plan: NonNullable<Awaited<ReturnType<typeof m.plan>>>): void => {
+    if (planShown) return
+    planShown = true
+    console.log(`将在 ${plan.target} 上执行：`)
+    for (const action of plan.actions) console.log(`  · ${action}`)
+  }
+
+  try {
+    const result = await bootstrapRemoteInstance({
+      store: s,
+      manager: m,
+      input,
+      opts: {
+        components: flagAll(argv, 'component'),
+        componentsFromPins: flags.has('with-components'),
+        syncAuth: !flags.has('no-sync-auth'),
+        syncConfig: !flags.has('no-sync-config'),
+        pairlink: !flags.has('no-pairlink'),
+        force: flags.has('force'),
+        engineVersion: flagStr(flags, 'engine-version'),
+        dryRun,
+        onLog: (line) => console.log(`  · ${line}`),
+        onStep: (step) => console.log(`  ${stepMark(step)} ${step.name}${step.detail ? ` — ${step.detail}` : ''}`),
+        confirm: async (plan) => {
+          showPlan(plan)
+          if (flags.has('yes')) return true
+          if (!process.stdin.isTTY) {
+            throw new UsageError('非交互环境：加 --yes 才会写远程机器（或先用 --dry-run 预演）')
+          }
+          return confirmTty('继续执行？')
+        },
+      },
+    })
+    if (result.plan && (result.dryRun || result.cancelled)) showPlan(result.plan)
+
+    if (result.dryRun) {
+      console.log(result.ok
+        ? `预演通过：${result.id}（只读；加 --yes 才真正执行）`
+        : `预演失败：${result.id}——上面 FAIL 的那一步要先解决`)
+      if (!result.ok) process.exit(1)
+      return
+    }
+    if (result.cancelled) {
+      console.log('已取消（远程机器未改动）。')
+      process.exit(1)
+    }
+    if (!result.ok) {
+      const failed = result.steps.filter((step) => step.status === 'failed').map((step) => step.name)
+      console.error(`FAIL 接管失败：${result.id}${failed.length ? `（${failed.join(', ')}）` : ''}`)
+      process.exit(1)
+    }
+
+    const warnings = result.steps.filter((step) => step.status === 'warn')
+    console.log('')
+    console.log(`完成：${result.id}${warnings.length ? `（${warnings.length} 条告警，见上方 WARN）` : ''}`)
+    if (result.link) {
+      console.log('配对链接（一次性）：')
+      console.log(result.link)
+      if (result.expiresAt) console.log(`有效期至 ${result.expiresAt}`)
+      console.log('（在 openchamber 桌面版里打开它；这台机器会出现在「其他 OpenChamber 服务器」）')
+    }
+    const localUrl = result.record ? `http://127.0.0.1:${result.record.localPort}` : result.url
+    if (localUrl) console.log(`打开：${localUrl}`)
+    if (flags.has('open')) {
+      const toOpen = result.link ?? localUrl
+      if (toOpen) await openUrl(toOpen)
+    }
+  } finally {
+    m.dispose()
+  }
+}
+
 export async function main(argv: string[]): Promise<void> {
   const { _: args, flags } = parseFlags(argv)
   const cmd = args[0] ?? 'help'
@@ -340,6 +519,19 @@ export async function main(argv: string[]): Promise<void> {
       console.log(`  component: ${c.manifest.name} ${c.manifest.version} ${size.toFixed(1)}MB sha256 ${c.sha256.slice(0, 16)}… → ${c.tarball}`)
     }
     console.log('  备件齐了：离线 apply 不会再半路缺件（远程机器全程零联网）。')
+    return
+  }
+
+  if (sub === 'bootstrap') {
+    try {
+      await runBootstrap(args.slice(1), flags, argv)
+    } catch (err) {
+      if (err instanceof UsageError) {
+        console.error(`用法错误：${err.message}`)
+        process.exit(2)
+      }
+      throw err
+    }
     return
   }
 

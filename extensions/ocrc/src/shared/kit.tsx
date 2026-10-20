@@ -23,6 +23,7 @@ function useKit<P>(mount: Mount<P>, props: P) {
   const ref = useRef<HTMLSpanElement | null>(null)
   const handle = useRef<Handle<P> | null>(null)
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount once; later renders go through update
   useEffect(() => {
     const root = ref.current
     if (!root) return

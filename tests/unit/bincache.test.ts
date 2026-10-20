@@ -1,5 +1,5 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, writeFileSync, existsSync, rmSync, readFileSync } from 'node:fs'
+import { describe, expect, it, afterEach } from 'vitest'
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'

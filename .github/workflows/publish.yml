@@ -46,8 +46,9 @@ jobs:
           fi
           echo "registry does not have $V yet"
 
-      - name: Verify (typecheck + tests + build)
+      - name: Verify (lint + typecheck + tests + build)
         run: |
+          npm run lint
           npm run typecheck
           npm run typecheck:tests
           npm test

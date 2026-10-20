@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -168,6 +168,29 @@ describe('sync plan', () => {
     expect(merged.plugin).toEqual(managedPlugin)
     expect(merged.theme).toBe('dark')
     expect(plan.notes.join('\n')).toContain('v1 plugin')
+  })
+
+  it('drops local package specs for components the peer loads from a directory', () => {
+    const { dir, authPath } = localTree({
+      'opencode.json': JSON.stringify({
+        plugins: [
+          '@bd7pil/reeve@0.1.2',
+          '@bd7pil/opencode-deep-memory',
+          '/home/dev/.ocrc/components/reeve/package',
+          '/ours/other',
+        ],
+      }),
+    })
+    const local = readLocalConfig({ dir, authPath })
+    const peer = peerRead({ json: JSON.stringify({ plugins: ['/home/dev/.ocrc/components/reeve/package'] }) })
+    const plan = planConfigSync(local, peer, {
+      componentPlugins: ['/home/dev/.ocrc/components/reeve/package'],
+      componentNames: ['reeve', 'opencode-deep-memory'],
+    })
+    const merged = plan.merged as Record<string, unknown>
+    // The peer can only resolve the directory entry: the package spec would be a
+    // plugin that can never load on an air-gapped machine.
+    expect(merged.plugins).toEqual(['/home/dev/.ocrc/components/reeve/package', '/ours/other'])
   })
 
   it('rewrites MCP env secrets to {env:…} and leaves provider keys alone', () => {

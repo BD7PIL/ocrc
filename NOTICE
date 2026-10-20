@@ -7,26 +7,11 @@ This project is a fork of opencode-remote-control:
   Copyright (c) agentjoey
   https://github.com/agentjoey/opencode-remote-control (MIT License)
 
-Portions of this project are derived from, or will be derived from:
+The fork keeps the remote-instance architecture and the MIT license of that
+project. The Telegram UX layer, the web frontend and the engine-side features
+described in older revisions of this NOTICE were removed from this repository
+on 2026-10-19; nothing from those projects is shipped here anymore.
 
-  @grinev/opencode-telegram-bot (Telegram UX layer: managers, menus,
-  callbacks, i18n — transplanted by the P2b workstream)
-  Copyright (c) 2026 Ruslan Grinev
-  https://github.com/grinev/opencode-telegram-bot (MIT License)
-
-  zai-org/ZCode (web frontend: shell/layout/component design registers —
-  ported per-component into web-next/ under the 0.27 rebuild; Apache-2.0
-  attribution and NOTICE preserved per its LICENSE)
-  Copyright 2026 Z.AI Co., Ltd
-  https://github.com/zai-org/ZCode (Apache License 2.0)
-
-  deepseek-ai/deepseek-harness (design-token layering, global
-  corner-shape/scrollbar/focus sheets, elevation patterns — re-expressed
-  in web-next theme.css)
-  Copyright (c) 2026 deepseek-ai
-  https://github.com/deepseek-ai/deepseek-harness (MIT License)
-
-All upstream MIT license texts are preserved in LICENSE and applies to
-the respective portions. Apache-2.0-covered portions (ZCode) remain under
-Apache-2.0 with the notices above; changes from the upstream projects are
-licensed under the same terms as their sources.
+The published npm package has no runtime dependencies. Development-only
+packages (TypeScript, Vitest, Vite for the extension builds) remain under
+their own licenses and are not redistributed.

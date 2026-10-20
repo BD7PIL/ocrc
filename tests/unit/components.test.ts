@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 
 import {
   buildArtifactProbeCommand, buildArtifactPushScript, buildComponentUnpackScript,
@@ -101,7 +102,14 @@ describe('remote scripts', () => {
 
 describe('component pins', () => {
   it('reads ops/components.json and lets OCRC_<NAME>_PIN win', () => {
-    expect(defaultComponentSources({})).toEqual(['@bd7pil/reeve@0.1.2', '@bd7pil/opencode-deep-memory@0.16.3'])
+    // Derive the expectation from the pin file: bumping a component version
+    // must not require touching this test.
+    const pins = JSON.parse(readFileSync(new URL('../../ops/components.json', import.meta.url), 'utf-8')) as {
+      components: Record<string, { spec: string }>
+    }
+    const expected = Object.values(pins.components).map((pin) => pin.spec)
+    expect(expected.length).toBeGreaterThan(0)
+    expect(defaultComponentSources({})).toEqual(expected)
     expect(defaultComponentSources({ OCRC_REEVE_PIN: '/tmp/reeve.tgz' })[0]).toBe('/tmp/reeve.tgz')
   })
 })

@@ -385,6 +385,12 @@ async function runBootstrap(args: string[], flags: Map<string, string | true>, a
   }
 
   if (!id && !input.host) throw new UsageError('需要实例 id，或 --target user@host[:port] / --host H')
+  // The interactive gate is a usage question, answered before anything runs: a
+  // non-TTY run without --yes is a caller mistake (exit 2), not a step that
+  // failed part-way through.
+  if (!flags.has('dry-run') && !flags.has('yes') && !process.stdin.isTTY) {
+    throw new UsageError('非交互环境：加 --yes 才会写远程机器（或先用 --dry-run 预演）')
+  }
 
   const dryRun = flags.has('dry-run')
   const s = store()
@@ -424,6 +430,8 @@ async function runBootstrap(args: string[], flags: Map<string, string | true>, a
           }
           return confirmTty('继续执行？')
         },
+        // Belt and suspenders: the UsageError above is already rejected at arg
+        // parsing; this copy catches a TTY that vanished between parse and here.
       },
     })
     if (result.plan && (result.dryRun || result.cancelled)) showPlan(result.plan)

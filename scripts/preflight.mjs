@@ -28,6 +28,7 @@ const steps = [
   ['typecheck（ocrc 扩展）', 'npm --prefix extensions/ocrc run typecheck'],
   ['typecheck（omo-view 扩展）', 'npm --prefix extensions/ocrc-omo-view run typecheck'],
   ['测试（cli）', 'npm test'],
+  ['覆盖率门槛（cli）', 'npm run test:coverage && npm run check:coverage'],
   ['测试（ocrc 扩展）', 'npm --prefix extensions/ocrc test'],
   ['测试（omo-view 扩展）', 'npm --prefix extensions/ocrc-omo-view test'],
   ['guest bundle 不变量', 'node scripts/check-guest-bundles.mjs'],

@@ -140,7 +140,11 @@ Linux.
 
 ```bash
 npm install && npm run build         # CLI (tsc) — no runtime dependencies
-npm test                             # 205 tests (the instance line)
+npm test                             # 238 tests (the instance line)
+npm run test:coverage && npm run check:coverage
+                                     # coverage gate: floors pinned in scripts/coverage-baseline.json
+                                     # (global + src/cli/ + the bootstrap sequencer). Only raise a
+                                     # floor together with the tests that raised it — never lower it.
 npm run typecheck && npm run typecheck:tests
 npm run preflight                    # BEFORE COMMITTING: rebuilds both extensions, typechecks,
                                      # tests, guest-bundle invariants, stages artifacts

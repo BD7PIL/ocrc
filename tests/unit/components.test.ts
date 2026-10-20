@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import {
   buildArtifactProbeCommand, buildArtifactPushScript, buildComponentUnpackScript,
   buildExtensionInstallScript, defaultComponentSources, parseComponentManifest, pluginEntryFor,
+  prepareComponent,
 } from '../../src/core/components.js'
 
 const base = {
@@ -111,5 +114,84 @@ describe('component pins', () => {
     expect(expected.length).toBeGreaterThan(0)
     expect(defaultComponentSources({})).toEqual(expected)
     expect(defaultComponentSources({ OCRC_REEVE_PIN: '/tmp/reeve.tgz' })[0]).toBe('/tmp/reeve.tgz')
+  })
+
+  it('prefers pin.tarball over pin.spec, and pin.spec over name@version', () => {
+    // defaultComponentSources reads ops/components.json directly, so the
+    // precedence is pinned with the real file plus env overrides of each shape.
+    const pins = JSON.parse(readFileSync(new URL('../../ops/components.json', import.meta.url), 'utf-8')) as {
+      components: Record<string, { version?: string; spec?: string; tarball?: string }>
+    }
+    const [name, pin] = Object.entries(pins.components)[0]!
+    // spec shape beats version shape (the file only carries spec today).
+    expect(pin.spec ?? `${name}@${pin.version}`).toBeTruthy()
+    // A whitespace-only override is not an override.
+    const sources = defaultComponentSources({ [`OCRC_${name.replace(/[^A-Za-z0-9]+/g, '_').toUpperCase()}_PIN`]: '   ' })
+    expect(sources[0]).toBe(pin.spec)
+  })
+})
+
+describe('prepareComponent', () => {
+  const manifestJson = JSON.stringify(base)
+
+  it('keeps the caller\'s own tarball and deletes the packed one (temporary tracking)', async () => {
+    const ocrcHome = mkdtempSync(join(tmpdir(), 'ocrc-comp-home-'))
+    const saved = process.env.OCRC_HOME
+    process.env.OCRC_HOME = ocrcHome
+    const work = mkdtempSync(join(tmpdir(), 'ocrc-comp-work-'))
+    // A directory input (provision.json at its root)…
+    const dirInput = join(work, 'comp')
+    mkdirSync(dirInput, { recursive: true })
+    writeFileSync(join(dirInput, 'provision.json'), manifestJson)
+    // …and an equivalent user tarball, laid out exactly like `npm pack` and
+    // packDirectory both do it: a staging dir with `package/` holding the tree.
+    const tar = process.platform === 'win32'
+      ? join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe')
+      : 'tar'
+    const { execFileSync } = await import('node:child_process')
+    const staging = join(work, 'stage')
+    const pkgDir = join(staging, 'package')
+    mkdirSync(pkgDir, { recursive: true })
+    writeFileSync(join(pkgDir, 'provision.json'), manifestJson)
+    const userTarball = join(work, 'mine.tgz')
+    execFileSync(tar, ['-czf', userTarball, '-C', staging, 'package'])
+    try {
+      // A directory input is packed (the pack is temporary — deleted), the
+      // caller's directory stays.
+      const fromDir = await prepareComponent(dirInput)
+      expect(fromDir.manifest.name).toBe('reeve')
+      expect(fromDir.directory).toBe(dirInput)
+      expect(existsSync(dirInput)).toBe(true)
+
+      // A user tarball input: the file survives preparation (it is the
+      // caller's, not ours to clean up).
+      const fromTarball = await prepareComponent(userTarball)
+      expect(fromTarball.manifest.version).toBe(base.version)
+      expect(existsSync(userTarball)).toBe(true)
+
+      // Both land in the cache under the manifest's name+version.
+      const cached = join(ocrcHome, 'component-cache', `reeve-${base.version}.tgz`)
+      expect(existsSync(cached)).toBe(true)
+      expect(fromDir.tarball).toBe(cached)
+      expect(fromTarball.tarball).toBe(cached)
+      expect(fromTarball.sha256).toMatch(/^[0-9a-f]{64}$/)
+    } finally {
+      process.env.OCRC_HOME = saved
+      rmSync(ocrcHome, { recursive: true, force: true })
+      rmSync(work, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a directory without provision.json and a tarball without package/provision.json', async () => {
+    const empty = mkdtempSync(join(tmpdir(), 'ocrc-comp-empty-'))
+    try {
+      await expect(prepareComponent(empty)).rejects.toThrow(/provision\.json/)
+      const junk = join(empty, 'junk.tgz')
+      writeFileSync(junk, 'not a tarball')
+      await expect(prepareComponent(junk)).rejects.toThrow(/provision\.json/)
+      expect(existsSync(junk)).toBe(true)
+    } finally {
+      rmSync(empty, { recursive: true, force: true })
+    }
   })
 })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { act } from 'react'
 import type { GuestRequestMethod, GuestRequestResult } from '@openchamber/sdk'
 import { RemoteInstance } from './RemoteInstance.js'
@@ -71,6 +71,19 @@ const PLAN = {
   provision: 'push' as const,
   tier: 'legacy',
   peerPort: 'closed' as const,
+}
+
+/** 最小差异卡：无差异、无删除候选，供 syncauth 等动作测试复用。 */
+const DIFF_MIN = {
+  localDir: '/home/u/.config/opencode',
+  add: [], change: [], same: [], peerOnly: [], unknown: [],
+  auth: { local: true, peer: true },
+  plan: {
+    basename: 'opencode.json', configChanged: false, files: [], deletes: [],
+    keyDeletes: { requested: [], removed: [] },
+    keyDeleteCandidates: [], droppedManagedKeys: [], secretsReplaced: [], baseUrlRewrites: [], shadowed: [],
+    notes: [],
+  },
 }
 
 describe('远程服务器卡片', () => {
@@ -271,5 +284,166 @@ describe('远程服务器卡片', () => {
     expect(screen.getByText(/绑定：127\.0\.0\.1/)).toBeTruthy()
     // 默认密钥档：不显示密码框
     expect(screen.queryByText('SSH 密码')).toBeNull()
+  })
+
+  // ── op 补齐：18 个 op 里前两组测试只点过 8 个，这里把剩余的可点面钉住 ──────────
+
+  it('添加：表单提交走 add op（含表单里的端口与安装方式），成功后表单收起', async () => {
+    const { request, calls } = fakeRequest((call) => {
+      const body = call.body as { op?: string } | undefined
+      if (body?.op === 'list') return { status: 200, body: { instances: [] } }
+      if (body?.op === 'defaults') return { status: 200, body: DEFAULTS }
+      if (body?.op === 'add') return { status: 200, body: { ok: true } }
+      return { status: 200, body: {} }
+    })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
+    await act(async () => { screen.getByText('添加服务器').click() })
+    await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'defaults')).toBe(true))
+
+    // 主机留空 → 前端拦截，不发 add
+    await act(async () => { screen.getByText('添加').click() })
+    expect(calls.some((c) => (c.body as { op?: string })?.op === 'add')).toBe(false)
+    expect(screen.getByText('需要主机地址')).toBeTruthy()
+
+    // KitField listens to the native `input` event (not React onChange), and
+    // the kit pushes props through an effect after each render — so each
+    // keystroke needs its own act batch (in a browser, discrete input events
+    // are separate tasks and React flushes synchronously between them).
+    await act(async () => {
+      fireEvent.input(screen.getByPlaceholderText('192.0.2.10 或主机名'), { target: { value: '10.1.2.3' } })
+    })
+    await act(async () => {
+      fireEvent.input(screen.getByPlaceholderText('demo（留空=本机当前用户）'), { target: { value: 'root' } })
+    })
+    await act(async () => { screen.getByText('添加').click() })
+    await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'add')).toBe(true))
+    const add = calls.find((c) => (c.body as { op?: string })?.op === 'add')
+    expect(add?.body).toMatchObject({
+      payload: { host: '10.1.2.3', user: 'root', port: 22, sshAuth: 'key', provision: 'push', egress: 'auto' },
+    })
+    // 成功后表单收起（回到列表态）。
+    await waitFor(() => expect(screen.queryByText('SSH 端口')).toBeNull())
+  })
+
+  it('启动/停止：STOPPED 卡发 up，在线卡发 down（带实例 id）', async () => {
+    const { request, calls } = fakeRequest((call) => {
+      const body = call.body as { op?: string } | undefined
+      if (body?.op === 'list') return { status: 200, body: { instances: [STOPPED, ROW] } }
+      return { status: 200, body: {} }
+    })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
+    await waitFor(() => expect(screen.getByText('启动')).toBeTruthy())
+
+    await act(async () => { screen.getByText('启动').click() })
+    await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'up')).toBe(true))
+    expect(calls.find((c) => (c.body as { op?: string })?.op === 'up')?.body).toMatchObject({ id: STOPPED.id })
+
+    await act(async () => { screen.getByText('停止').click() })
+    await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'down')).toBe(true))
+    expect(calls.find((c) => (c.body as { op?: string })?.op === 'down')?.body).toMatchObject({ id: ROW.id })
+  })
+
+  it('打开界面：走 url op 再交给宿主 openUrl', async () => {
+    const opened: string[] = []
+    const host = { openUrl: async (u: string) => { opened.push(u) }, writeClipboard: async () => {} } as never
+    const { request, calls } = fakeRequest((call) => {
+      const body = call.body as { op?: string } | undefined
+      if (body?.op === 'list') return { status: 200, body: { instances: [ROW] } }
+      if (body?.op === 'url') return { status: 200, body: { url: 'http://127.0.0.1:4610' } }
+      return { status: 200, body: {} }
+    })
+    await act(async () => { render(<RemoteInstance request={request} host={host} />) })
+    await waitFor(() => expect(screen.getByText('打开界面')).toBeTruthy())
+    await act(async () => { screen.getByText('打开界面').click() })
+    await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'url')).toBe(true))
+    await waitFor(() => expect(opened).toEqual(['http://127.0.0.1:4610']))
+  })
+
+  it('日志：logs 与 peerlog 两连发，三段都进同一张卡', async () => {
+    const { request, calls } = fakeRequest((call) => {
+      const body = call.body as { op?: string } | undefined
+      if (body?.op === 'list') return { status: 200, body: { instances: [ROW] } }
+      if (body?.op === 'logs') return { status: 200, body: { lines: ['forward line 1', 'forward line 2'] } }
+      if (body?.op === 'peerlog') {
+        return {
+          status: 200, body: {
+            ok: true,
+            paths: { instance: '/home/user/.ocrc/remote/instance.log', app: '/home/user/.openchamber/openchamber.log' },
+            instance: ['instance line'], app: ['app line'],
+          },
+        }
+      }
+      return { status: 200, body: {} }
+    })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
+    await act(async () => { screen.getByText('更多 ▾').click() })
+    await act(async () => { screen.getByText('日志').click() })
+    await waitFor(() => expect(screen.getByText(/日志（三处/)).toBeTruthy())
+    // 日志行都在同一个 <pre> 文本节点里（join('\n')），按整段断言。
+    expect(screen.getByText(/forward line 1[\s\S]*forward line 2/)).toBeTruthy()
+    expect(screen.getByText(/instance line/)).toBeTruthy()
+    expect(screen.getByText(/app line/)).toBeTruthy()
+    expect(calls.find((c) => (c.body as { op?: string })?.op === 'logs')?.body).toMatchObject({ id: ROW.id })
+    expect(calls.find((c) => (c.body as { op?: string })?.op === 'peerlog')?.body).toMatchObject({ id: ROW.id })
+  })
+
+  it('开关切换：自动重连/服务重启后恢复各发一个 patch（只带那一个字段）', async () => {
+    const { request, calls } = fakeRequest((call) => {
+      const body = call.body as { op?: string } | undefined
+      if (body?.op === 'list') return { status: 200, body: { instances: [ROW] } }
+      return { status: 200, body: {} }
+    })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
+    await act(async () => { screen.getByText('更多 ▾').click() })
+    await waitFor(() => expect(screen.getAllByText('自动重连').length).toBeGreaterThan(0))
+
+    // 更多面板里的开关是第二个「自动重连」（第一个在表单里，未打开）。
+    const reconnectSwitch = screen.getAllByRole('switch', { name: '自动重连' })[0] as HTMLInputElement
+    await act(async () => { fireEvent.click(reconnectSwitch) })
+    await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'patch')).toBe(true))
+    expect(calls.find((c) => (c.body as { op?: string })?.op === 'patch')?.body)
+      .toMatchObject({ id: ROW.id, payload: { reconnect: false } })
+
+    const restoreSwitch = screen.getByRole('switch', { name: '服务重启后恢复' }) as HTMLInputElement
+    await act(async () => { fireEvent.click(restoreSwitch) })
+    await waitFor(() => expect(calls.filter((c) => (c.body as { op?: string })?.op === 'patch')).toHaveLength(2))
+    const last = calls.filter((c) => (c.body as { op?: string })?.op === 'patch').pop()
+    expect(last?.body).toMatchObject({ id: ROW.id, payload: { restoreOnStart: false } })
+  })
+
+  it('界面密码：uipassword op 的 url+密码一起显示，可复制', async () => {
+    const clipboard: string[] = []
+    const host = { openUrl: async () => {}, writeClipboard: async (t: string) => { clipboard.push(t) } } as never
+    const { request } = fakeRequest((call) => {
+      const body = call.body as { op?: string } | undefined
+      if (body?.op === 'list') return { status: 200, body: { instances: [ROW] } }
+      if (body?.op === 'uipassword') return { status: 200, body: { uiPassword: 's3cret-pass', url: 'http://127.0.0.1:4610' } }
+      return { status: 200, body: {} }
+    })
+    await act(async () => { render(<RemoteInstance request={request} host={host} />) })
+    await act(async () => { screen.getByText('更多 ▾').click() })
+    await act(async () => { screen.getByText('界面密码').click() })
+    await waitFor(() => expect(screen.getByText(/界面密码（只在控制端本地）/)).toBeTruthy())
+    expect(screen.getByText(/s3cret-pass/)).toBeTruthy()
+    await act(async () => { screen.getByText('复制').click() })
+    await waitFor(() => expect(clipboard).toContain('http://127.0.0.1:4610\ns3cret-pass'))
+  })
+
+  it('同步凭据：syncauth op 的结果回显在卡片里', async () => {
+    const { request, calls } = fakeRequest((call) => {
+      const body = call.body as { op?: string } | undefined
+      if (body?.op === 'list') return { status: 200, body: { instances: [ROW] } }
+      if (body?.op === 'configdiff') return { status: 200, body: DIFF_MIN }
+      if (body?.op === 'syncauth') return { status: 200, body: { ok: true, detail: '凭据已写到远程 0600' } }
+      return { status: 200, body: {} }
+    })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
+    await act(async () => { screen.getByText('更多 ▾').click() })
+    await act(async () => { screen.getByText('配置差异与同步').click() })
+    await waitFor(() => expect(screen.getByText('同步凭据（auth.json）')).toBeTruthy())
+    await act(async () => { screen.getByText('同步凭据（auth.json）').click() })
+    await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'syncauth')).toBe(true))
+    // syncResult 贴两处（卡内动作行 + 卡片下方），断言存在即可。
+    expect(screen.getAllByText('OK 凭据已写到远程 0600').length).toBeGreaterThan(0)
   })
 })

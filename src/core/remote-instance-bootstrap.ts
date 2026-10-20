@@ -167,7 +167,17 @@ export async function bootstrapRemoteInstance(args: {
   }
 
   if (opts.confirm) {
-    const yes = await opts.confirm(plan)
+    // A confirm that throws (tty vanished mid-prompt) is a failed terminal, not
+    // a cancellation — and never an exception escaping to the CLI, which would
+    // read it as a usage mistake.
+    let yes: boolean
+    try {
+      yes = await opts.confirm(plan)
+    } catch (err) {
+      record({ name: 'apply', status: 'failed', fatal: true, detail: `确认失败：${(err as Error).message}` })
+      skipRest('sync-auth', '确认失败')
+      return { ok: false, id, record: merged, plan, steps, dryRun }
+    }
     if (!yes) {
       record({ name: 'apply', status: 'skipped', fatal: true, detail: '已取消（未写远程机器）' })
       skipRest('sync-auth', '已取消')

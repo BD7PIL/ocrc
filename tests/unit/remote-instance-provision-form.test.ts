@@ -101,4 +101,59 @@ describe('the form fields survive the store', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  it('update(): patches an existing id, returns undefined for an unknown one, and erases the password when sshAuth leaves password mode', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ocrc-a3-'))
+    try {
+      const store = createRemoteInstancesStore(join(dir, 'remote-instances.json'), { flushOnExit: false })
+      const saved = store.upsert({ host: 'peer', user: 'dev', sshAuth: 'password', sshPassword: 'hunter2' })
+      expect(saved.sshPassword).toBe('hunter2')
+
+      const patched = store.update(saved.id, { name: 'renamed' })
+      expect(patched?.name).toBe('renamed')
+      expect(patched?.sshPassword).toBe('hunter2') // untouched patch keeps the secret
+
+      expect(store.update('no-such-id', { name: 'x' })).toBeUndefined()
+
+      const keyed = store.update(saved.id, { sshAuth: 'key' })
+      expect(keyed?.sshAuth).toBeUndefined()
+      expect(keyed?.sshPassword).toBeUndefined() // A1: mode switch erases, never parks
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('remove(): true for an existing id, false afterwards and for an unknown one', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ocrc-a3-'))
+    try {
+      const store = createRemoteInstancesStore(join(dir, 'remote-instances.json'), { flushOnExit: false })
+      const saved = store.upsert({ host: 'peer' })
+      expect(store.remove(saved.id)).toBe(true)
+      expect(store.get(saved.id)).toBeUndefined()
+      expect(store.remove(saved.id)).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('reload() picks up another process\'s write and get() returns a copy', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ocrc-a3-'))
+    try {
+      const path = join(dir, 'remote-instances.json')
+      const first = createRemoteInstancesStore(path, { flushOnExit: false })
+      first.upsert({ host: 'peer', name: 'from-first' })
+      first.flush()
+
+      const second = createRemoteInstancesStore(path, { flushOnExit: false })
+      expect(second.list()).toHaveLength(1)
+      expect(second.get(first.list()[0]!.id)?.name).toBe('from-first')
+
+      // get() hands out copies: mutating the reply must not touch the store.
+      const got = second.get(first.list()[0]!.id)!
+      got.name = 'mutated'
+      expect(second.get(first.list()[0]!.id)?.name).toBe('from-first')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })

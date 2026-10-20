@@ -43,6 +43,13 @@ jobs:
       - name: Test (cli)
         run: npm test
 
+      # Coverage + hard floor on one matrix leg only — the numbers are
+      # version-sensitive (v8 instrumentation differs across node lines), and
+      # the baseline is pinned to what node 22 reports.
+      - name: Coverage gate (node 22)
+        if: matrix.node-version == 22
+        run: npm run test:coverage && npm run check:coverage
+
       - name: Typecheck + test + build (extensions)
         run: |
           npm --prefix extensions/ocrc run typecheck

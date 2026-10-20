@@ -17,7 +17,9 @@
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
+    "check:coverage": "node scripts/check-coverage.mjs",
     "lint": "biome lint .",
     "preflight": "node scripts/preflight.mjs"
   },
@@ -31,6 +33,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
     "@types/node": "^20.14.0",
+    "@vitest/coverage-v8": "^1.6.1",
     "typescript": "^5.9.0",
     "vitest": "^1.6.0"
   },

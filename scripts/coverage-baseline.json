@@ -1,0 +1,13 @@
+{
+  "_comment": "覆盖率硬门槛基线。只升不降：任何指标低于本文件 => check-coverage.mjs exit 1。提升基线必须连同改进（新测试）一起提交。生成命令：npm run test:coverage（CI 侧数字以 node 22 为准——v8 的分支计数随 node 行略有漂移，若 CI 系统性低一档，把基线改成 node 22 的实测值）。",
+  "_generated": "2026-10-21",
+  "_history": [
+    "2026-10-21 初版：global 50/83/75 + bootstrap 93/82/100（当时 src/cli 零覆盖）。",
+    "2026-10-21 收紧：CLI/core/utils 测试落地后重测。语句 50→65；分支/函数占比下降纯属分母变化（cli/remote.ts 从 0% 起步、bridge 等文件被测到部分路径），不是倒退。"
+  ],
+  "global": { "statements": 65, "branches": 78, "functions": 63 },
+  "paths": {
+    "src/cli/": { "statements": 39, "branches": 58, "functions": 35 },
+    "src/core/remote-instance-bootstrap.ts": { "statements": 93, "branches": 86, "functions": 100 }
+  }
+}

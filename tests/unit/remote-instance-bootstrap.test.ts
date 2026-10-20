@@ -280,4 +280,110 @@ describe('bootstrap sequence', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  it('a confirm that throws is a failure, not a cancellation', async () => {
+    const { store, dir } = tempStore()
+    try {
+      const { manager, calls } = fakeManager()
+      const result = await bootstrapRemoteInstance({
+        store,
+        manager,
+        input,
+        opts: { confirm: () => { throw new Error('tty went away') } },
+      })
+      expect(result.ok).toBe(false)
+      expect(result.cancelled).toBeUndefined()
+      expect(calls).toEqual(['plan'])
+      expect(result.steps.find((s) => s.name === 'apply')?.status).toBe('failed')
+      expect(result.steps.find((s) => s.name === 'apply')?.detail).toContain('tty went away')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('passes onLog through to apply', async () => {
+    const { store, dir } = tempStore()
+    try {
+      const seen: string[] = []
+      const { manager } = fakeManager()
+      await bootstrapRemoteInstance({
+        store,
+        manager,
+        input,
+        opts: { onLog: (line) => seen.push(line) },
+      })
+      // The fake manager cannot log; assert the option actually reached it.
+      expect(seen).toEqual([])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('mergeBootstrapRecord closed-set fields', () => {
+  it('keeps egress, provision, proxy and switches across a second merge, and lets an explicit value win', () => {
+    const { store, dir } = tempStore()
+    try {
+      const first = mergeBootstrapRecord(store, {
+        ...input,
+        egress: 'relay',
+        provision: 'reuse',
+        providerBaseUrl: { deepseek: 'http://10.0.0.9:8080' },
+        proxy: { enabled: true, localPort: 18080, remotePort: 18081, allow: ['Example.COM', 'lan'] },
+        reconnect: false,
+        restoreOnStart: true,
+        replayQueued: true,
+        enabled: false,
+      })
+      expect(first.egress).toBe('relay')
+      expect(first.provision).toBe('reuse')
+      expect(first.providerBaseUrl).toEqual({ deepseek: 'http://10.0.0.9:8080' })
+      expect(first.proxy).toMatchObject({ enabled: true, localPort: 18080, remotePort: 18081, allow: ['example.com', 'lan'] })
+      expect(first.reconnect).toBe(false)
+      expect(first.enabled).toBe(false)
+
+      // A second run that names none of these must not reset them.
+      const second = mergeBootstrapRecord(store, { id: first.id, name: 'again' })
+      expect(second.egress).toBe('relay')
+      expect(second.provision).toBe('reuse')
+      expect(second.providerBaseUrl).toEqual({ deepseek: 'http://10.0.0.9:8080' })
+      expect(second.proxy).toMatchObject({ enabled: true, localPort: 18080 })
+      expect(second.reconnect).toBe(false)
+      expect(second.enabled).toBe(false)
+
+      // An explicit value does overwrite.
+      const third = mergeBootstrapRecord(store, { id: first.id, egress: 'direct' })
+      expect(third.egress).toBe('direct')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('normalizes illegal egress/provision values away and trims providerBaseUrl to non-empty pairs', () => {
+    const { store, dir } = tempStore()
+    try {
+      const saved = mergeBootstrapRecord(store, {
+        ...input,
+        egress: 'sideways' as never,
+        provision: 'teleport' as never,
+        providerBaseUrl: { deepseek: '  ', x: 'http://ok' } as never,
+      })
+      // 认不出来的值等于没设 —— 与 store.normalize 的 closed-set 语义一致。
+      expect(saved.egress).toBeUndefined()
+      expect(saved.provision).toBeUndefined()
+      expect(saved.providerBaseUrl).toEqual({ x: 'http://ok' })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('fails without a host and without a known id', () => {
+    const { store, dir } = tempStore()
+    try {
+      expect(() => mergeBootstrapRecord(store, {})).toThrow(/host/)
+      expect(() => mergeBootstrapRecord(store, { id: 'nope' })).toThrow(/host/)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })

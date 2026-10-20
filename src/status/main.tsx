@@ -80,7 +80,7 @@ export function StatusMain() {
     const ro = new ResizeObserver(report)
     ro.observe(node)
     return () => ro.disconnect()
-  }, [host, rows, offline])
+  }, [host])
 
   return (
     <div ref={wrap} className="oc-rail">

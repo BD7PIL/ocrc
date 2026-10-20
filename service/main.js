@@ -372,7 +372,8 @@ function planConfigSync(local, peer, opts = {}) {
     for (const [provider, url] of Object.entries(opts.providerBaseUrl ?? {})) {
       const entry = merged.provider?.[provider];
       if (!entry) continue;
-      const options = entry.options ??= {};
+      if (!entry.options) entry.options = {};
+      const options = entry.options;
       const from = typeof options.baseURL === "string" ? options.baseURL : void 0;
       if (from === url) continue;
       options.baseURL = url;
@@ -393,9 +394,19 @@ function planConfigSync(local, peer, opts = {}) {
     if (plan.preservedPluginKey) merged.plugin = peer.effective.plugin;
     else delete merged.plugin;
     const asStrings = (v) => Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+    const componentNames = new Set(opts.componentNames ?? []);
+    const localPlugins = asStrings(local.effective.plugins).filter((entry) => {
+      if (componentNames.size === 0) return true;
+      for (const name of componentNames) {
+        if (entry === `@bd7pil/${name}`) return false;
+        if (entry.split("@").slice(0, -1).join("@") === `@bd7pil/${name}`) return false;
+        if (entry.includes(`/.ocrc/components/${name}/`)) return false;
+      }
+      return true;
+    });
     const plugins = [.../* @__PURE__ */ new Set([
       ...asStrings(peer.effective.plugins),
-      ...asStrings(local.effective.plugins),
+      ...localPlugins,
       ...opts.componentPlugins ?? []
     ])];
     if (plugins.length > 0) merged.plugins = plugins;
@@ -3015,16 +3026,18 @@ tar: ${err.message}` });
     return installComponents(instance, sources, applyOpts.onLog);
   }
   async function componentPluginsFor(instance, sources) {
-    if (!sources || sources.length === 0) return [];
+    if (!sources || sources.length === 0) return { plugins: [], names: [] };
     const home = (await ssh(instance, 'printf %s "$HOME"', 2e4)).stdout.trim();
     if (!home) throw new Error("\u8BFB\u4E0D\u5230\u5BF9\u7AEF\u7684 $HOME");
-    const out = [];
+    const plugins = [];
+    const names = [];
     for (const source of sources) {
       const prepared = await prepareComponent(source);
       const entry = pluginEntryFor(prepared.manifest, home, "directory");
-      if (entry) out.push(entry);
+      if (entry) plugins.push(entry);
+      names.push(prepared.manifest.name);
     }
-    return out;
+    return { plugins, names };
   }
   const proxies = /* @__PURE__ */ new Map();
   async function egressFor(instance) {
@@ -3815,8 +3828,13 @@ tar: ${err.message}` });
       const peer = parsePeerConfigRead(read.stdout);
       const peerError = read.code === 0 ? void 0 : cleanSshNoise(read.stderr || read.stdout).trim().split("\n").pop();
       const diff = diffConfig(local, peer);
-      const componentPlugins = await componentPluginsFor(instance, diffOpts.components);
-      const plan = planConfigSync(local, peer, { diff, providerBaseUrl: instance.providerBaseUrl, componentPlugins });
+      const component = await componentPluginsFor(instance, diffOpts.components);
+      const plan = planConfigSync(local, peer, {
+        diff,
+        providerBaseUrl: instance.providerBaseUrl,
+        componentPlugins: component.plugins,
+        componentNames: component.names
+      });
       const notConfig = (rel) => rel !== "opencode.json" && rel !== "opencode.jsonc";
       return {
         localDir: local.dir,
@@ -3855,14 +3873,15 @@ tar: ${err.message}` });
       }
       const peer = parsePeerConfigRead(read.stdout);
       const diff = diffConfig(local, peer);
-      const componentPlugins = await componentPluginsFor(instance, syncOpts.components);
+      const component = await componentPluginsFor(instance, syncOpts.components);
       const plan = planConfigSync(local, peer, {
         diff,
         deletes: syncOpts.deletes,
         keyDeletes: syncOpts.keyDeletes,
         providerBaseUrl: instance.providerBaseUrl,
         preferCommentedTarget: syncOpts.preferCommentedTarget,
-        componentPlugins
+        componentPlugins: component.plugins,
+        componentNames: component.names
       });
       const nothing = plan.files.length === 0 && plan.deletes.length === 0;
       if (nothing) {

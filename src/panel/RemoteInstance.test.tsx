@@ -238,14 +238,16 @@ describe('远程服务器卡片', () => {
     await act(async () => { screen.getByText('试运行（不写远程机器）').click() })
     await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'syncconfig')).toBe(true))
     let last = calls.filter((c) => (c.body as { op?: string })?.op === 'syncconfig').pop()
-    expect((last?.body as { payload: { dryRun: boolean; deletes: string[]; keyDeletes: string[] } }).payload)
+    expect(last).toBeTruthy()
+    expect((last as { body: { payload: { dryRun: boolean; deletes: string[]; keyDeletes: string[] } } }).body.payload)
       .toEqual({ dryRun: true, deletes: [], keyDeletes: [] })
 
     await act(async () => { screen.getByText('配置项 provider:acc-provider').click() })
     await act(async () => { screen.getByText('同步配置').click() })
     await waitFor(() => expect(calls.filter((c) => (c.body as { op?: string })?.op === 'syncconfig')).toHaveLength(2))
     last = calls.filter((c) => (c.body as { op?: string })?.op === 'syncconfig').pop()
-    expect((last?.body as { payload: { dryRun: boolean; keyDeletes: string[] } }).payload)
+    expect(last).toBeTruthy()
+    expect((last as { body: { payload: { dryRun: boolean; keyDeletes: string[] } } }).body.payload)
       .toMatchObject({ dryRun: false, keyDeletes: ['provider:acc-provider'] })
   })
 

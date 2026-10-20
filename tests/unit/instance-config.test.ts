@@ -193,6 +193,25 @@ describe('sync plan', () => {
     expect(merged.plugins).toEqual(['/home/dev/.ocrc/components/reeve/package', '/ours/other'])
   })
 
+  it('without componentNames the local package specs travel untouched (the dedupe is opt-in)', () => {
+    const { dir, authPath } = localTree({
+      'opencode.json': JSON.stringify({ plugins: ['@bd7pil/reeve@0.1.2', '/ours/other'] }),
+    })
+    const local = readLocalConfig({ dir, authPath })
+    const peer = peerRead({ json: JSON.stringify({ plugins: ['/home/dev/.ocrc/components/reeve/package'] }) })
+    const plan = planConfigSync(local, peer, {
+      componentPlugins: ['/home/dev/.ocrc/components/reeve/package'],
+    })
+    const merged = plan.merged as Record<string, unknown>
+    // 名单为空 = 不知道对端会从目录加载什么 → 一个条目都不动。
+    // 过滤必须是调用方显式给的（否则本机自己的包规格会被悄悄丢掉）。
+    expect(merged.plugins).toEqual([
+      '/home/dev/.ocrc/components/reeve/package',
+      '@bd7pil/reeve@0.1.2',
+      '/ours/other',
+    ])
+  })
+
   it('rewrites MCP env secrets to {env:…} and leaves provider keys alone', () => {
     const { dir, authPath } = localTree({
       'opencode.json': JSON.stringify({

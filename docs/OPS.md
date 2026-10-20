@@ -8,7 +8,8 @@
 ## 安装（控制端 CLI）
 
 ```bash
-npm i -g @bd7pil/ocrc        # 只用 Node 内建模块，零运行时依赖
+# 2.0 线目前是 alpha，发布在 next 通道；`latest` 仍是旧的 0.26.x 驾驶舱版
+npm i -g @bd7pil/ocrc@next   # 只用 Node 内建模块，零运行时依赖
 ocrc remote list             # 看已登记的远程实例
 ocrc remote add --host 192.0.2.10 --user user --ssh-auth key
 ```

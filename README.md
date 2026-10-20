@@ -80,6 +80,7 @@ OpenChamber version, and `直连` / `经本机转发`.
 The same library's headless entry — for machines without a panel:
 
 ```bash
+npm i -g @bd7pil/ocrc@next   # the 2.0 line is on the `next` tag (latest is the old 0.26 cockpit)
 ocrc remote add --host H [--user U] [--ssh-auth key|password] [--egress auto|relay|direct]
                         [--provision push|reuse] [--instance-port 2610] [--local-port 4610]
 ocrc remote list|status <id>

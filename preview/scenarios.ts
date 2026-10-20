@@ -35,11 +35,11 @@ const base = {
 
 export const ONLINE: PreviewRow = {
   ...base,
-  id: 'demo@192.168.26.101', host: '192.168.26.101', user: 'demo', name: 'EL7 box',
+  id: 'user@192.0.2.10', host: '192.0.2.10', user: 'user', name: 'EL7 box',
   instancePort: 2610, localPort: 4610,
   status: {
     state: 'online', app: '2.3.3', url: 'http://127.0.0.1:4610',
-    engine: { path: '/home/demo/.ocrc/remote/engine/opencode', version: '2.0.27' },
+    engine: { path: '/home/user/.ocrc/remote/engine/opencode', version: '2.0.27' },
     runtime: 'v24.22.0',
     proxy: { enabled: true, localPort: 4711, remotePort: 2711 },
     egress: { mode: 'auto', relay: true, reason: '探测：远程机器出不了网', probe: 'none', cached: true },
@@ -92,11 +92,11 @@ export const opRoutes = () => ({
   'POST /remote-instance#plan': {
     body: {
       reachable: true,
-      inspected: { uname: 'Linux x86_64', glibc: '2.17', home: '/home/demo' },
+      inspected: { uname: 'Linux x86_64', glibc: '2.17', home: '/home/user' },
       app: '2.3.3',
       engineError: '远程机器上没有找到满足 v2 门禁的 OpenCode（候选：$HOME/.ocrc/remote/engine/opencode, $HOME/.opencode/bin/opencode, $HOME/.local/bin/opencode）——先装一份 v2（面板的「检查并安装」会推我们 pin 的那份）',
       engineCandidates: [
-        { path: '/home/demo/.local/bin/opencode', raw: '1.18.32' },
+        { path: '/home/user/.local/bin/opencode', raw: '1.18.32' },
         { path: '/usr/local/bin/opencode', raw: '（版本未知）' },
       ],
       actions: [
@@ -125,11 +125,11 @@ export const opRoutes = () => ({
   'POST /remote-instance#logs': {
     body: {
       lines: [
-        '[2026-10-18T10:01:02Z] forward: ssh -N -L 127.0.0.1:4610:127.0.0.1:2610 -R 127.0.0.1:2711:127.0.0.1:4711 demo@192.168.26.101',
+        '[2026-10-18T10:01:02Z] forward: ssh -N -L 127.0.0.1:4610:127.0.0.1:2610 -R 127.0.0.1:2711:127.0.0.1:4711 user@192.0.2.10',
         '[2026-10-18T10:01:03Z] forward: connected',
         '[2026-10-18T10:01:05Z] relay: listening on 127.0.0.1:4711',
         '[2026-10-18T10:01:06Z] probe: GET http://127.0.0.1:4610/api/system/info → 200 (openchamber 2.3.3)',
-        '[2026-10-18T10:01:06Z] instance demo@192.168.26.101: online',
+        '[2026-10-18T10:01:06Z] instance user@192.0.2.10: online',
       ],
     },
   },
@@ -138,13 +138,13 @@ export const opRoutes = () => ({
       ok: true,
       instance: [
         '2026-10-18T10:01:04Z serve: listening 127.0.0.1:2610',
-        '2026-10-18T10:01:04Z engine: /home/demo/.ocrc/remote/engine/opencode (2.0.27)',
+        '2026-10-18T10:01:04Z engine: /home/user/.ocrc/remote/engine/opencode (2.0.27)',
       ],
       app: [
         '2026-10-18T10:01:05Z openchamber 2.3.3 started on 127.0.0.1:2610',
         '2026-10-18T10:01:07Z provider: 13 configured, 1 builtin',
       ],
-      paths: { instance: '/home/demo/.ocrc/remote/instance.log', app: '/home/demo/.config/openchamber/logs/openchamber-2610.log' },
+      paths: { instance: '/home/user/.ocrc/remote/instance.log', app: '/home/user/.config/openchamber/logs/openchamber-2610.log' },
     },
   },
   'POST /remote-instance#uipassword': {

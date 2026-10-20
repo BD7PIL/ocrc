@@ -17,7 +17,7 @@ vi.mock('@openchamber/sdk', async (original) => {
  */
 
 const INSTANCE = (over: Record<string, unknown> = {}) => ({
-  id: 'demo@192.168.26.101', name: 'EL7 box', host: '192.168.26.101', user: 'demo', localPort: 4610,
+  id: 'user@192.0.2.10', name: 'EL7 box', host: '192.0.2.10', user: 'user', localPort: 4610,
   status: { state: 'online', app: '2.3.3', url: 'http://127.0.0.1:4610', egress: { relay: true, reason: '远程机器出不了网', cached: true } },
   ...over,
 })

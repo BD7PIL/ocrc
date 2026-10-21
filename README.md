@@ -140,7 +140,7 @@ Linux.
 
 ```bash
 npm install && npm run build         # CLI (tsc) — no runtime dependencies
-npm test                             # 239 tests (the instance line)
+npm test                             # 242 tests (the instance line)
 npm run test:coverage && npm run check:coverage
                                      # coverage gate: floors pinned in scripts/coverage-baseline.json
                                      # (global + src/cli/ + the bootstrap sequencer). Only raise a

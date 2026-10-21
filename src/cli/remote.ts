@@ -766,7 +766,7 @@ export async function main(argv: string[]): Promise<void> {
     console.log(`  凭据 auth.json：控制端 ${d.auth.local ? '有' : '无'}，远程机器 ${d.auth.peer ? '有' : '无'}`)
     console.log(`  一次同步会：写 ${d.plan.files.length} 个文件${d.plan.deletes.length ? `、删 ${d.plan.deletes.length} 个` : ''}；配置 ${d.plan.configChanged ? `会改（写 ${d.plan.basename}）` : '无变化'}`)
     if (d.plan.keyDeleteCandidates.length > 0) {
-      console.log(`  远程机器独有的配置项（要删用 --delete-key）：${d.plan.keyDeleteCandidates.map((c) => c.collection + ':' + c.key).join(', ')}`)
+      console.log(`  远程机器独有的配置项（要删用 --delete-key）：${d.plan.keyDeleteCandidates.map((c) => (c.collection ? `${c.collection}:${c.key}` : c.key)).join(', ')}`)
     }
     if (d.plan.shadowed.length > 0) console.log(`  会被远程覆盖层压住的键：${d.plan.shadowed.join('、')}`)
     if (d.plan.managedPlugins.length > 0) console.log(`  组件插件条目：${d.plan.managedPlugins.join('、')}`)

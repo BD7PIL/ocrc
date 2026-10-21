@@ -280,8 +280,10 @@ export interface SyncPlan {
   deletes: string[]
   /** Keys the caller asked to remove from the merged config (`provider:x`). */
   keyDeletes: { requested: string[]; removed: string[] }
-  /** Peer-only collection keys we did NOT remove — the panel offers them as
-   *  checkboxes, so the list is the choice the user is being offered. */
+  /** Peer-only keys we did NOT remove — the panel offers them as
+   *  checkboxes, so the list is the choice the user is being offered.
+   *  `collection` 是父容器的点路径（'' = 顶层），`--delete-key` 用 `collection:key`
+   *  或 `collection.key` 都收；既有的 `provider:lmuai` / `mcp.servers:acc` 形状不变。 */
   keyDeleteCandidates: Array<{ collection: string; key: string }>
   /** Provider baseURL rewrites applied for this peer (C2b). */
   baseUrlRewrites: Array<{ provider: string; from?: string; to: string }>
@@ -330,11 +332,64 @@ export function findPeerOnlyKeys(
       if (!localMap || !(key in localMap)) out.push({ collection: id, key })
     }
   }
+  // ── 全推送面：把"对端独有键"从两个集合扩到整份文档 ──
+  // 起因（2026-10 实况）：v1 时代留在对端的两枚键（compaction.tail_turns、顶层
+  // subagent_depth）不在任何集合里，于是它们在每一次 sync 里都"看不见"地活着，
+  // 直到有人手工考古。删除仍然**只报告、永远显式**（C2）；这里只是把报告面补齐。
+  //
+  // 深度 ≤ 2：与 findShadowedKeys 同一条可操作性规则 —— `compaction.tail_turns`
+  // 是可以下手的一件事，两三百条叶子路径不是。整棵只在远端存在的容器按"容器本身"
+  // 报告（删它 = 删整块），不再往里数。
+  //
+  // 两个已管理的集合（provider / mcp.servers）在上面按条目报过了，这里跳过它们的
+  // 子树，避免同一件事报两遍；集合内部共享条目的值差异属本地赢的合并语义，不在这里。
+  const inManagedSubtree = (path: string[]) =>
+    MANAGED_COLLECTIONS.some((c) => c.path.length <= path.length && c.path.every((step, i) => path[i] === step))
+  /** 这块子树里有没有"不归已管理集合管"的内容（决定"只在远端的容器"要不要报/下走）。 */
+  const hasOutsideManaged = (node: Record<string, unknown>, path: string[]): boolean => {
+    for (const [key, value] of Object.entries(node)) {
+      const here = [...path, key]
+      if (inManagedSubtree(here)) continue
+      const child = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
+      if (!child || hasOutsideManaged(child, here)) return true
+    }
+    return false
+  }
+  const asRecord = (v: unknown): Record<string, unknown> | undefined =>
+    v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined
+  const walk = (peerNode: Record<string, unknown>, localNode: unknown, path: string[]): void => {
+    for (const [key, value] of Object.entries(peerNode)) {
+      const here = [...path, key]
+      if (inManagedSubtree(here)) continue
+      const localValue = asRecord(localNode)?.[key]
+      if (localValue === undefined) {
+        // 只在远端的容器，若里面全是已管理集合的内容（例如对端有 mcp、本地没有），
+        // 就不报容器本身 —— 集合分支已经按条目报过了，再报一次是纯噪声。
+        if (asRecord(value) && here.length < 2 && !hasOutsideManaged(asRecord(value) as Record<string, unknown>, here)) continue
+        // collection 用父容器的点路径（顶层为 ''）—— 与既有的 `provider:lmuai`
+        // 同一种写法，`--delete-key` 把 `:` 与 `.` 都当路径分隔符。
+        out.push({ collection: path.join('.'), key })
+        continue
+      }
+      if (here.length < 2) {
+        const peerChild = asRecord(value)
+        const localChild = asRecord(localValue)
+        if (peerChild && localChild) walk(peerChild, localChild, here)
+      }
+    }
+  }
+  walk(peerEffective, localEffective, [])
   return out.sort((a, b) => `${a.collection}:${a.key}`.localeCompare(`${b.collection}:${b.key}`))
 }
 
 /** Remove the named keys from a merged document. Unknown/absent keys are ignored
- *  (a stale checkbox must not fail a whole sync). */
+ *  (a stale checkbox must not fail a whole sync).
+ *
+ *  Spec = 一条路径，`:` 与 `.` 都当分隔符：`provider:lmuai`（集合条目，历史写法）、
+ *  `compaction.tail_turns`（全推送面的嵌套键）、`subagent_depth`（顶层键）三种都收。
+ *  删除按路径逐级下走，走到头才删叶子 —— 中间任一步不存在就当"没有对应项"报给调用方
+ *  （绝不因为一次手滑把整个容器删掉）。
+ */
 export function applyKeyDeletes(
   merged: Record<string, unknown>,
   deletes: readonly string[],
@@ -342,19 +397,16 @@ export function applyKeyDeletes(
   const next = structuredClone(merged) as Record<string, unknown>
   const removed: string[] = []
   for (const spec of deletes) {
-    const [collection, ...rest] = spec.split(':')
-    const key = rest.join(':')
-    const target = MANAGED_COLLECTIONS.find((c) => c.id === collection)
-    if (!target || !key) continue
-    let node: Record<string, unknown> | undefined = next
-    for (const step of target.path) {
+    const segments = String(spec).split(/[.:]/).filter((s) => s.length > 0)
+    if (segments.length === 0) continue
+    const parent = segments.slice(0, -1).reduce<Record<string, unknown> | undefined>((node, step) => {
       const child = node?.[step]
-      if (!child || typeof child !== 'object' || Array.isArray(child)) { node = undefined; break }
-      node = child as Record<string, unknown>
-    }
-    if (!node || !(key in node)) continue
-    delete node[key]
-    removed.push(`${collection}:${key}`)
+      return child && typeof child === 'object' && !Array.isArray(child) ? (child as Record<string, unknown>) : undefined
+    }, next)
+    const leaf = segments[segments.length - 1]
+    if (!parent || !(leaf in parent)) continue
+    delete parent[leaf]
+    removed.push(spec)
   }
   return { merged: next, removed }
 }
@@ -526,7 +578,7 @@ export function planConfigSync(
     notes.push(`对端独有的 ${diff.peerOnly.length} 个文件不会被动（要删得显式勾选）`)
   }
   if (plan.keyDeleteCandidates.length > 0 && plan.keyDeletes.requested.length === 0) {
-    const list = plan.keyDeleteCandidates.map((c) => `${c.collection}:${c.key}`)
+    const list = plan.keyDeleteCandidates.map((c) => (c.collection ? `${c.collection}:${c.key}` : c.key))
     notes.push(`对端独有、本地没有的配置项不会被动（要删得显式勾选）：${list.join('、')}`)
   }
   return plan

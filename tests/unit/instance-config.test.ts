@@ -326,6 +326,44 @@ describe('sync plan', () => {
     expect(applied.notes.join('\n')).toContain('没有对应项')
   })
 
+  it('reports peer-only keys across the whole pushed surface, and deletes by any dot path', () => {
+    // 起因（2026-10 实况）：v1 时代留在对端的两枚键（compaction.tail_turns、顶层
+    // subagent_depth）不在任何集合里，于是每次 sync 都"看不见"地活着。报告面补齐到
+    // 整份文档，但删除仍然**只报告、永远显式**（C2 不变）。
+    const { dir, authPath } = localTree({
+      'opencode.json': JSON.stringify({ compaction: { auto: true }, nested: { a: { b: {} } }, theme: 'x' }),
+    })
+    const local = readLocalConfig({ dir, authPath })
+    const peer = peerRead({
+      json: JSON.stringify({
+        compaction: { auto: true, tail_turns: 2 },
+        nested: { a: { b: { c: 1 } } },
+        subagent_depth: 1,
+        peerBlock: { any: { thing: 1 } },
+        theme: 'x',
+      }),
+    })
+    const offered = planConfigSync(local, peer)
+    // 深度 ≤ 2 才报（可操作的粒度）；只在远端的容器按容器本身报（删它 = 删整块）
+    expect(offered.keyDeleteCandidates).toEqual([
+      { collection: '', key: 'peerBlock' },
+      { collection: '', key: 'subagent_depth' },
+      { collection: 'compaction', key: 'tail_turns' },
+    ])
+    expect((offered.merged as Record<string, any>).compaction.tail_turns).toBe(2) // 默认只报告，不自动删
+
+    // 显式点名才删；`:` 与 `.` 都是路径分隔符；没点名的一律留着
+    const applied = planConfigSync(local, peer, {
+      keyDeletes: ['compaction.tail_turns', 'subagent_depth', 'nested.a.b.c', 'nope.nothing'],
+    })
+    expect(applied.keyDeletes.removed).toEqual(['compaction.tail_turns', 'subagent_depth', 'nested.a.b.c'])
+    expect((applied.merged as Record<string, any>).compaction.tail_turns).toBeUndefined()
+    expect((applied.merged as Record<string, any>).compaction.auto).toBe(true) // 兄弟键不动
+    expect((applied.merged as Record<string, any>).subagent_depth).toBeUndefined()
+    expect((applied.merged as Record<string, any>).peerBlock).toBeTruthy() // 未点名 → 留着
+    expect(applied.notes.join('\n')).toContain('没有对应项')
+  })
+
   it('findShadowedKeys reports at a depth a person can act on', () => {
     const higher = { provider: { deepseek: { options: { baseURL: 'a' } }, ollama: {} }, model: 'x' }
     const merged = { provider: { deepseek: { options: { baseURL: 'b' } }, ollama: {} }, model: 'x', theme: 't' }

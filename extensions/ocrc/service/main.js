@@ -300,28 +300,51 @@ function findPeerOnlyKeys(localEffective, peerEffective) {
       if (!localMap || !(key in localMap)) out.push({ collection: id, key });
     }
   }
+  const inManagedSubtree = (path) => MANAGED_COLLECTIONS.some((c) => c.path.length <= path.length && c.path.every((step, i) => path[i] === step));
+  const hasOutsideManaged = (node, path) => {
+    for (const [key, value] of Object.entries(node)) {
+      const here = [...path, key];
+      if (inManagedSubtree(here)) continue;
+      const child = value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+      if (!child || hasOutsideManaged(child, here)) return true;
+    }
+    return false;
+  };
+  const asRecord = (v) => v && typeof v === "object" && !Array.isArray(v) ? v : void 0;
+  const walk = (peerNode, localNode, path) => {
+    for (const [key, value] of Object.entries(peerNode)) {
+      const here = [...path, key];
+      if (inManagedSubtree(here)) continue;
+      const localValue = asRecord(localNode)?.[key];
+      if (localValue === void 0) {
+        if (asRecord(value) && here.length < 2 && !hasOutsideManaged(asRecord(value), here)) continue;
+        out.push({ collection: path.join("."), key });
+        continue;
+      }
+      if (here.length < 2) {
+        const peerChild = asRecord(value);
+        const localChild = asRecord(localValue);
+        if (peerChild && localChild) walk(peerChild, localChild, here);
+      }
+    }
+  };
+  walk(peerEffective, localEffective, []);
   return out.sort((a, b) => `${a.collection}:${a.key}`.localeCompare(`${b.collection}:${b.key}`));
 }
 function applyKeyDeletes(merged, deletes) {
   const next = structuredClone(merged);
   const removed = [];
   for (const spec of deletes) {
-    const [collection, ...rest] = spec.split(":");
-    const key = rest.join(":");
-    const target = MANAGED_COLLECTIONS.find((c) => c.id === collection);
-    if (!target || !key) continue;
-    let node = next;
-    for (const step of target.path) {
+    const segments = String(spec).split(/[.:]/).filter((s) => s.length > 0);
+    if (segments.length === 0) continue;
+    const parent = segments.slice(0, -1).reduce((node, step) => {
       const child = node?.[step];
-      if (!child || typeof child !== "object" || Array.isArray(child)) {
-        node = void 0;
-        break;
-      }
-      node = child;
-    }
-    if (!node || !(key in node)) continue;
-    delete node[key];
-    removed.push(`${collection}:${key}`);
+      return child && typeof child === "object" && !Array.isArray(child) ? child : void 0;
+    }, next);
+    const leaf = segments[segments.length - 1];
+    if (!parent || !(leaf in parent)) continue;
+    delete parent[leaf];
+    removed.push(spec);
   }
   return { merged: next, removed };
 }
@@ -437,7 +460,7 @@ function planConfigSync(local, peer, opts = {}) {
     notes.push(`\u5BF9\u7AEF\u72EC\u6709\u7684 ${diff.peerOnly.length} \u4E2A\u6587\u4EF6\u4E0D\u4F1A\u88AB\u52A8\uFF08\u8981\u5220\u5F97\u663E\u5F0F\u52FE\u9009\uFF09`);
   }
   if (plan.keyDeleteCandidates.length > 0 && plan.keyDeletes.requested.length === 0) {
-    const list = plan.keyDeleteCandidates.map((c) => `${c.collection}:${c.key}`);
+    const list = plan.keyDeleteCandidates.map((c) => c.collection ? `${c.collection}:${c.key}` : c.key);
     notes.push(`\u5BF9\u7AEF\u72EC\u6709\u3001\u672C\u5730\u6CA1\u6709\u7684\u914D\u7F6E\u9879\u4E0D\u4F1A\u88AB\u52A8\uFF08\u8981\u5220\u5F97\u663E\u5F0F\u52FE\u9009\uFF09\uFF1A${list.join("\u3001")}`);
   }
   return plan;

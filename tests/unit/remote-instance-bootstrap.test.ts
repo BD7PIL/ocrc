@@ -301,19 +301,23 @@ describe('bootstrap sequence', () => {
     }
   })
 
-  it('passes onLog through to apply', async () => {
+  it('passes onLog through to apply (the same function, callable on that channel)', async () => {
     const { store, dir } = tempStore()
     try {
-      const seen: string[] = []
-      const { manager } = fakeManager()
+      const logs: string[] = []
+      const onLog = (line: string) => logs.push(line)
+      const { manager, seen } = fakeManager()
       await bootstrapRemoteInstance({
         store,
         manager,
         input,
-        opts: { onLog: (line) => seen.push(line) },
+        opts: { onLog },
       })
-      // The fake manager cannot log; assert the option actually reached it.
-      expect(seen).toEqual([])
+      // 身份断言 + 真调用一次：透传的不是"某个函数"，就是调用方给的这个。
+      const passed = seen.apply?.onLog as ((line: string) => void) | undefined
+      expect(typeof passed).toBe('function')
+      passed?.('装机日志一行')
+      expect(logs).toEqual(['装机日志一行'])
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

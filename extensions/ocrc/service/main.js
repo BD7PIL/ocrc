@@ -2385,15 +2385,7 @@ async function prepareComponent(source) {
   if (temporary) rmSync4(temporary, { force: true });
   return { manifest, tarball: cached, sha256: sha256File(cached), directory };
 }
-function defaultComponentSources(env = process.env) {
-  const pinsFile = fileURLToPath(new URL("../../ops/components.json", import.meta.url));
-  if (!existsSync5(pinsFile)) return [];
-  let pins;
-  try {
-    pins = JSON.parse(readFileSync5(pinsFile, "utf8"));
-  } catch {
-    return [];
-  }
+function sourcesFromPins(pins, env = {}) {
   const out = [];
   for (const [name, pin] of Object.entries(pins.components ?? {})) {
     const envKey = `OCRC_${name.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase()}_PIN`;
@@ -2407,6 +2399,17 @@ function defaultComponentSources(env = process.env) {
     else if (pin.version) out.push(`${name}@${pin.version}`);
   }
   return out;
+}
+function defaultComponentSources(env = process.env) {
+  const pinsFile = fileURLToPath(new URL("../../ops/components.json", import.meta.url));
+  if (!existsSync5(pinsFile)) return [];
+  let pins;
+  try {
+    pins = JSON.parse(readFileSync5(pinsFile, "utf8"));
+  } catch {
+    return [];
+  }
+  return sourcesFromPins(pins, env);
 }
 function componentRemoteDir(manifest) {
   return `$HOME/.ocrc/components/${manifest.name}`;

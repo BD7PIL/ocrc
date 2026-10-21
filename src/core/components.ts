@@ -299,16 +299,8 @@ export async function prepareComponent(source: string): Promise<PreparedComponen
   return { manifest, tarball: cached, sha256: sha256File(cached), directory }
 }
 
-/** Pinned component sources: `OCRC_<NAME>_PIN` wins over `ops/components.json`. */
-export function defaultComponentSources(env: NodeJS.ProcessEnv = process.env): string[] {
-  const pinsFile = fileURLToPath(new URL('../../ops/components.json', import.meta.url))
-  if (!existsSync(pinsFile)) return []
-  let pins: ComponentPins
-  try {
-    pins = JSON.parse(readFileSync(pinsFile, 'utf8')) as ComponentPins
-  } catch {
-    return []
-  }
+/** 把一份 pin 表解释成取件源列表（纯函数，便于逐分支断言优先级）。 */
+export function sourcesFromPins(pins: ComponentPins, env: NodeJS.ProcessEnv = {}): string[] {
   const out: string[] = []
   for (const [name, pin] of Object.entries(pins.components ?? {})) {
     const envKey = `OCRC_${name.replace(/[^A-Za-z0-9]+/g, '_').toUpperCase()}_PIN`
@@ -322,6 +314,19 @@ export function defaultComponentSources(env: NodeJS.ProcessEnv = process.env): s
     else if (pin.version) out.push(`${name}@${pin.version}`)
   }
   return out
+}
+
+/** Pinned component sources: `OCRC_<NAME>_PIN` wins over `ops/components.json`. */
+export function defaultComponentSources(env: NodeJS.ProcessEnv = process.env): string[] {
+  const pinsFile = fileURLToPath(new URL('../../ops/components.json', import.meta.url))
+  if (!existsSync(pinsFile)) return []
+  let pins: ComponentPins
+  try {
+    pins = JSON.parse(readFileSync(pinsFile, 'utf8')) as ComponentPins
+  } catch {
+    return []
+  }
+  return sourcesFromPins(pins, env)
 }
 
 // ── remote install scripts ──────────────────────────────────────────────────

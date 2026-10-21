@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import {
   buildArtifactProbeCommand, buildArtifactPushScript, buildComponentUnpackScript,
   buildExtensionInstallScript, defaultComponentSources, parseComponentManifest, pluginEntryFor,
-  prepareComponent,
+  prepareComponent, sourcesFromPins,
 } from '../../src/core/components.js'
 
 const base = {
@@ -117,17 +117,43 @@ describe('component pins', () => {
   })
 
   it('prefers pin.tarball over pin.spec, and pin.spec over name@version', () => {
-    // defaultComponentSources reads ops/components.json directly, so the
-    // precedence is pinned with the real file plus env overrides of each shape.
-    const pins = JSON.parse(readFileSync(new URL('../../ops/components.json', import.meta.url), 'utf-8')) as {
-      components: Record<string, { version?: string; spec?: string; tarball?: string }>
+    // 优先级逐分支（sourcesFromPins 是 defaultComponentSources 的解释规则本体）：
+    const pins = {
+      components: {
+        mixed: { tarball: '/cache/mixed-1.0.0.tgz', spec: '@bd7pil/mixed@1.0.0' },
+        pkg: { spec: '@bd7pil/pkg@2.0.0' },
+        named: { version: '3.0.0' },
+      },
     }
-    const [name, pin] = Object.entries(pins.components)[0]!
-    // spec shape beats version shape (the file only carries spec today).
-    expect(pin.spec ?? `${name}@${pin.version}`).toBeTruthy()
-    // A whitespace-only override is not an override.
-    const sources = defaultComponentSources({ [`OCRC_${name.replace(/[^A-Za-z0-9]+/g, '_').toUpperCase()}_PIN`]: '   ' })
-    expect(sources[0]).toBe(pin.spec)
+    expect(sourcesFromPins(pins, {})).toEqual([
+      '/cache/mixed-1.0.0.tgz',
+      '@bd7pil/pkg@2.0.0',
+      'named@3.0.0',
+    ])
+  })
+
+  it('reads ops/components.json and lets OCRC_<NAME>_PIN win', () => {
+    // Derive the expectation from the pin file: bumping a component version
+    // must not require touching this test.
+    const pins = JSON.parse(readFileSync(new URL('../../ops/components.json', import.meta.url), 'utf-8')) as {
+      components: Record<string, { spec: string }>
+    }
+    const expected = Object.values(pins.components).map((pin) => pin.spec)
+    expect(expected.length).toBeGreaterThan(0)
+    expect(defaultComponentSources({})).toEqual(expected)
+    expect(defaultComponentSources({ OCRC_REEVE_PIN: '/tmp/reeve.tgz' })[0]).toBe('/tmp/reeve.tgz')
+  })
+
+  it('an env override wins over any pin shape, and a whitespace-only override is not an override', () => {
+    const pins = { components: { mixed: { tarball: '/cache/mixed.tgz' } } }
+    expect(sourcesFromPins(pins, { OCRC_MIXED_PIN: '  /tmp/override.tgz  ' })).toEqual(['/tmp/override.tgz'])
+    expect(sourcesFromPins(pins, { OCRC_MIXED_PIN: '   ' })).toEqual(['/cache/mixed.tgz'])
+  })
+
+  it('a pin with no source at all contributes nothing (not a broken empty entry)', () => {
+    expect(sourcesFromPins({ components: { hollow: {} } }, {})).toEqual([])
+    expect(sourcesFromPins({}, {})).toEqual([])
+    expect(defaultComponentSources({})[0]).toBeTruthy()
   })
 })
 

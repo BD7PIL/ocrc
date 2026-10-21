@@ -11,7 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [20, 22]
+        # 24 = 主线（本机开发机与对端实跑运行时都是 24：peer pin 是
+        # node-v24.22.0）；20 = engines 地线兼容腿（package.json engines >=20），
+        # 只跑单元测试，不锚覆盖率。
+        node-version: [20, 24]
 
     steps:
       - uses: actions/checkout@v4
@@ -43,11 +46,13 @@ jobs:
       - name: Test (cli)
         run: npm test
 
-      # Coverage + hard floor on one matrix leg only — the numbers are
-      # version-sensitive (v8 instrumentation differs across node lines), and
-      # the baseline is pinned to what node 22 reports.
-      - name: Coverage gate (node 22)
-        if: matrix.node-version == 22
+      # Coverage + hard floor on the main line (node 24) only — the numbers are
+      # version-sensitive (v8 instrumentation differs across node lines) and the
+      # baseline is anchored to what node 24 reports: the same line the dev
+      # machine and the packaged peer runtime run, so local measurements and CI
+      # agree. The floor leg (20) stays test-only.
+      - name: Coverage gate (node 24)
+        if: matrix.node-version == 24
         run: npm run test:coverage && npm run check:coverage
 
       - name: Typecheck + test + build (extensions)

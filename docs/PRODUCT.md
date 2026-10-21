@@ -81,7 +81,7 @@ openchamber 的界面、会话、Files/Git 都是它自己的，我们只负责�
 - ocrc 的流程固定：**读清单 → 取件（控制端）→ 校验 → 推送到对端 → 登记 `plugins`（并集）→
   装扩展（失败不阻断）→ 逐项验证**。加一个组件 = 加一份清单，不改 ocrc 代码。
 - 版本 pin 在 `ops/components.json`；`OCRC_<NAME>_PIN` 可覆盖。
-- **禁止**：ocrc import 组件源码、vendor 组件、在代码里出现组件内部概念（如 Bifrost）；
+- **禁止**：ocrc import 组件源码、vendor 组件、在代码里出现组件内部概念（如组件自己代理层的路由规则）；
   组件也不得依赖 ocrc 才能运行——它们的 README 必须给出按 `provision.json` 手动安装的等价步骤。
 - 单写者规则不变：`plugins` 由 ocrc 并集写入；`agents.*.model` 与组件自己的链/台账由组件写。
   对端 v1 `plugin` 键原样保留（openchamber 所有）。

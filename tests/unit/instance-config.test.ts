@@ -242,6 +242,19 @@ describe('sync plan', () => {
     expect(rewritten.baseUrlRewrites).toEqual([{ provider: 'deepseek', from: 'https://public', to: 'http://10.0.0.9:8080' }])
   })
 
+  it('syncs the GATE config directory (~/.config/opencode/reeve/) as a declaration', () => {
+    // 拆 Bifrost 之后，reeve 的链/策略在 ~/.config/opencode/reeve/fallback.jsonc —— 它必须随 sync 走，
+    // 否则对端的 GATE 只能落回打包默认（两端行为不同）。台账/快照在 ~/.reeve/，**不进** sync。
+    const { dir, authPath } = localTree({
+      'reeve/fallback.jsonc': '{ "schema": 1 }',
+      '.reeve/gate.jsonl': '{"ts":"x"}',
+    })
+    const local = readLocalConfig({ dir, authPath })
+    const rels = local.files.map((f) => f.rel).sort()
+    expect(rels).toContain('reeve/fallback.jsonc')
+    expect(rels).not.toContain('.reeve/gate.jsonl')
+  })
+
   it('only deletes peer-only files that were explicitly named', () => {
     const { dir, authPath } = localTree({ 'skill/keep.md': 'k' })
     const local = readLocalConfig({ dir, authPath })

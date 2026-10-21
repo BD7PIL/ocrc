@@ -41,6 +41,9 @@ export const INSTANCE_SYNC_ENTRIES = [
   'opencode.json', 'opencode.jsonc', 'AGENTS.md', 'CLAUDE.md',
   'command', 'agent', 'skill', 'agents', 'skills', 'oh-my-opencode-slim.json',
   'reeve.jsonc',
+  // GATE 代理层配置目录（`~/.config/opencode/reeve/`，里面是 fallback.jsonc）：链/策略/供应商。
+  // 它是两端应当同值的"声明"（面板编辑的就是它）→ 进 sync；台账/快照/pid 那些运行态不进。
+  'reeve',
 ] as const
 
 const CONFIG_CANDIDATES = ['opencode.json', 'opencode.jsonc'] as const

@@ -609,7 +609,10 @@ export function stageConfigTree(opts: {
     const src = join(opts.sourceDir, entry)
     if (!existsSync(src)) continue
     const dest = join(opts.destDir, entry)
-    cpSync(src, dest, { recursive: true })
+    // **穿透链接**（dereference）：本机的配置项可能是 junction/symlink（例如把某目录软链到
+    // 仓库里）。对端是另一台机器，链接目标在那儿根本不存在；照搬链接还会在 Windows 上直接
+    // EPERM（建符号链接要提权）。所以把链接当"目录内容"复制过去 —— 这是唯一能在对端成立的形式。
+    cpSync(src, dest, { recursive: true, dereference: true })
     staged.push(entry)
   }
   if (opts.mergedConfig) {

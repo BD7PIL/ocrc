@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -253,6 +253,26 @@ describe('sync plan', () => {
     const rels = local.files.map((f) => f.rel).sort()
     expect(rels).toContain('reeve/fallback.jsonc')
     expect(rels).not.toContain('.reeve/gate.jsonl')
+  })
+
+  it('stages through links: a junctioned entry travels as real files (dereference)', () => {
+    // 本机把 `reeve/` 软链到仓库（junction）时的形状：对端拿到必须是**真目录** ——
+    // 对端没有这个链接目标，而 Windows 上照搬符号链接还要提权（EPERM，实测踩到）。
+    const { dir, authPath } = localTree({ 'real-reeve/fallback.jsonc': '{ "schema": 1 }' })
+    try {
+      symlinkSync(join(dir, 'real-reeve'), join(dir, 'reeve'), 'junction')
+    } catch (err) {
+      // 少数环境（无权限/容器）建不了链接：跳过而不是红
+      if ((err as NodeJS.ErrnoException).code === 'EPERM') return
+      throw err
+    }
+    const local = readLocalConfig({ dir, authPath })
+    const staging = mkdtempSync(join(tmpdir(), 'ocrc-stage-'))
+    const staged = stageConfigTree({ sourceDir: dir, destDir: staging, entries: ['reeve'] })
+    expect(staged).toEqual(['reeve'])
+    const copied = join(staging, 'reeve', 'fallback.jsonc')
+    expect(existsSync(copied)).toBe(true)
+    expect(readFileSync(copied, 'utf8')).toContain('schema')
   })
 
   it('only deletes peer-only files that were explicitly named', () => {

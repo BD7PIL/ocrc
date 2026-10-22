@@ -2,8 +2,8 @@
   "schema": 1,
   "components": {
     "reeve": {
-      "version": "0.1.8",
-      "spec": "@bd7pil/reeve@0.1.8"
+      "version": "0.1.9",
+      "spec": "@bd7pil/reeve@0.1.9"
     },
     "opencode-deep-memory": {
       "version": "0.16.4",

@@ -2,7 +2,7 @@
 
 > 2026-10-11 · 基线：vendor v3.15.1（aac4755）/ web-next 1.0-rc · 隔离栈 4199 + scratch 引擎 4298
 > 方法：CDP 移动视口探针实测（`web-next/scripts/mobile-audit.mjs`）+ 六组只读深审扇出 + 官方移动壳源码解剖 + 用户真机截图（仅作参照证据，图片不入库）
-> 关联：桌面侧审计见 [frontend-integration-audit.md](frontend-integration-audit.md)；vendor 验收看 [../web-next/vendor/CHECKLIST.md](../web-next/vendor/CHECKLIST.md)
+> 关联：桌面侧审计见 [frontend-integration-audit.md](frontend-integration-audit.md)；vendor 验收看 `web-next/vendor/CHECKLIST.md`（已随 web-next 删除）
 
 ## 0. 结论速览
 

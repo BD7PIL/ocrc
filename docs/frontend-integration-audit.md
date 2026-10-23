@@ -2,8 +2,8 @@
 
 > 口径：vendored ZCode UI **v3.15.1**（tag `aac4755`，Batch 2 于 2026-10-11 再基底）+ ocrc 翻译层
 > （`web-next/src/zcode-services/`、`web-next/src/zcode/`）。基线登记见
-> [web-next/vendor/VENDOR_BASELINE.md](../web-next/vendor/VENDOR_BASELINE.md)；vendor 修改登记见
-> [web-next/vendor/PATCHES.md](../web-next/vendor/PATCHES.md)。
+> `web-next/vendor/VENDOR_BASELINE.md`（已随 web-next 删除）；vendor 修改登记见
+> `web-next/vendor/PATCHES.md`（已随 web-next 删除）。
 > 使命：**每一处差距都有归属**——已修（本轮）/ 已可用 / 需立项 / 明确不做，零无归属条目。
 > 本审计随 Batch 2–4 一次性收敛；后续新增差距在此文件续记。
 

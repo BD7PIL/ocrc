@@ -1,6 +1,6 @@
 # openchamber「不 fork、跟随上游发版」可行性调研
 
-> **已过时（2026-10-19）**：本文件描述的功能/入口属于**已删除的驾驶舱那一代**（Telegram/Web 通道、工作流、日程、技能、子代理、引擎级远程主机）。它们已从本仓库删除，会作为独立的 openchamber 扩展在别的项目里做；保留作为历史记录。当前产品见 [AGENTS.md](../AGENTS.md) 与 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
+> **已过时（2026-10-19）**：本文件描述的功能/入口属于**已删除的驾驶舱那一代**（Telegram/Web 通道、工作流、日程、技能、子代理、引擎级远程主机）。它们已从本仓库删除，会作为独立的 openchamber 扩展在别的项目里做；保留作为历史记录。当前产品见 [AGENTS.md](../../AGENTS.md) 与 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
 
 - **调研日期**：2026-10-14
 - **对象**：https://github.com/openchamber/openchamber（MIT，main @ 2026-10-13）

@@ -41,6 +41,9 @@ jobs:
       - name: Lint (biome, lint-only — formatting is not enforced)
         run: npm run lint
 
+      - name: Public docs links
+        run: npm run check:links
+
       - name: Typecheck (cli)
         run: npm run typecheck
 

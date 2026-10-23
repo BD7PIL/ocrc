@@ -1,6 +1,6 @@
 # omo-slim 配置面：键名、热重载、发现顺序、写路径（批次 5.1 调研归档）
 
-> **已过时（2026-10-19）**：本文件描述的功能/入口属于**已删除的驾驶舱那一代**（Telegram/Web 通道、工作流、日程、技能、子代理、引擎级远程主机）。它们已从本仓库删除，会作为独立的 openchamber 扩展在别的项目里做；保留作为历史记录。当前产品见 [AGENTS.md](../AGENTS.md) 与 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
+> **已过时（2026-10-19）**：本文件描述的功能/入口属于**已删除的驾驶舱那一代**（Telegram/Web 通道、工作流、日程、技能、子代理、引擎级远程主机）。它们已从本仓库删除，会作为独立的 openchamber 扩展在别的项目里做；保留作为历史记录。当前产品见 [AGENTS.md](../../AGENTS.md) 与 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
 
 - **日期**：2026-10-15
 - **性质**：批次 5.1（omo-slim 配置的 UI 控制）的调研 + E4 spike 实证归档。所有结论一手源：omo-slim 3.0.4 包内源码/schema（e1-lab npm 缓存）+ e2-lab 隔离栈实测（HOME=/tmp/e2-lab/home，引擎 4398，stub LLM 4310）。配套实现：`extensions/ocrc-remote` 0.4.0 的 `/omo/config` 端点 + 面板「omo 编排」区块。

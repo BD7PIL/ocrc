@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const steps = [
+  ['文档链接', 'npm run check:links'],
   ['重建 ocrc 扩展', 'npm --prefix extensions/ocrc run build'],
   ['重建 ocrc-omo-view 扩展', 'npm --prefix extensions/ocrc-omo-view run build'],
   ['typecheck（cli）', 'npm run typecheck'],

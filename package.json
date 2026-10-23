@@ -20,6 +20,7 @@
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "check:coverage": "node scripts/check-coverage.mjs",
+    "check:links": "node scripts/check-doc-links.mjs",
     "lint": "biome lint .",
     "preflight": "node scripts/preflight.mjs"
   },

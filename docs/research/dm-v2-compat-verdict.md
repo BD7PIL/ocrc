@@ -1,6 +1,6 @@
 # deep-memory v2 兼容判决（E5 spike，e5-lab 隔离栈）
 
-> **已过时（2026-10-19）**：本文件描述的功能/入口属于**已删除的驾驶舱那一代**（Telegram/Web 通道、工作流、日程、技能、子代理、引擎级远程主机）。它们已从本仓库删除，会作为独立的 openchamber 扩展在别的项目里做；保留作为历史记录。当前产品见 [AGENTS.md](../AGENTS.md) 与 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
+> **已过时（2026-10-19）**：本文件描述的功能/入口属于**已删除的驾驶舱那一代**（Telegram/Web 通道、工作流、日程、技能、子代理、引擎级远程主机）。它们已从本仓库删除，会作为独立的 openchamber 扩展在别的项目里做；保留作为历史记录。当前产品见 [AGENTS.md](../../AGENTS.md) 与 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
 
 - **日期**：2026-10-15
 - **性质**：批次 E5 spike 归档。被测对象 = 本地 `opencode-deep-memory` 0.14.1 源码构建（`/home/user/develop/opencode-plugin/opencode-deep-memory`），宿主 = opencode v2.0.27（`/tmp/e5-lab`，HOME 隔离 + stub LLM :4310 + 引擎 :4398 + 假 TG 凭据；生产 :4096/:4199 零接触）。

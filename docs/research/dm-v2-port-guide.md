@@ -1,6 +1,6 @@
 # deep-memory 0.15.0：opencode v2 适配与共存/缓存指南
 
-> **已过时（2026-10-19）**：本文件描述的功能/入口属于**已删除的驾驶舱那一代**（Telegram/Web 通道、工作流、日程、技能、子代理、引擎级远程主机）。它们已从本仓库删除，会作为独立的 openchamber 扩展在别的项目里做；保留作为历史记录。当前产品见 [AGENTS.md](../AGENTS.md) 与 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
+> **已过时（2026-10-19）**：本文件描述的功能/入口属于**已删除的驾驶舱那一代**（Telegram/Web 通道、工作流、日程、技能、子代理、引擎级远程主机）。它们已从本仓库删除，会作为独立的 openchamber 扩展在别的项目里做；保留作为历史记录。当前产品见 [AGENTS.md](../../AGENTS.md) 与 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
 
 - **日期**：2026-10-15
 - **性质**：批次 D2/D3 交付文档。deep-memory v0.15.0（tag `v0.15.0`，commit 321b545）在自研项目 `opencode-deep-memory` 上落地 opencode v2 原生支持；配套 E5 spike 判决见 [dm-v2-compat-verdict.md](dm-v2-compat-verdict.md)，三项目对比见 [context-managers-dcp-headroom-deepmemory.md](context-managers-dcp-headroom-deepmemory.md)。

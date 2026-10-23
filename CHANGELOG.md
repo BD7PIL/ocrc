@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- 文档链接门：新增 `npm run check:links`（相对路径 + 同仓库 GitHub blob/tree 链接），纳入 CI 与
+  `preflight`；修复 `docs/` 历史记录中 30+ 个 `../AGENTS.md` 相对路径，并移除指向已删除
+  `web-next/` 的失效链接。
+- `docs/OPS.md`：控制端扩展 tag 更正为 `ocrc-<ver>` / `ocrc-latest`。
+
 ## 2.0.0-alpha.14 — 组件 pin / 开源发布清理（2026-10-23）
 
 - `ops/components.json`：reeve `0.1.15`、opencode-deep-memory `0.16.5`（均由各自 CI 带 provenance 发布）。

@@ -134,7 +134,7 @@ ocrc remote bootstrap user@192.0.2.10 --with-components --yes       # 再做
 > **内嵌结论（2026-10-17）**：扩展页面不能 iframe 对端——guest CSP `frame-src 'self' data: blob:` 与对端
 > `frame-ancestors` 双重阻断；guest sandbox 也没有 `allow-popups`，`window.open` 同样被拦。扩展页面的
 > 「打开」必须用 SDK 的 `host.openUrl`（系统浏览器）。证据见
-> [research/embedding-experiment.md](../research/embedding-experiment.md)。
+> [research/embedding-experiment.md](research/embedding-experiment.md)。
 
 > **web 版不能做这件事**：`openchamber --port 3000` 的 Settings 里也有 Remote Instances 页，但 SSH 隧道由
 > Electron 主进程的 `desktop_ssh_*` IPC 提供，浏览器里没有这个桥。`desktopSshInstances` 在 settings registry 里
@@ -149,7 +149,7 @@ ocrc remote bootstrap user@192.0.2.10 --with-components --yes       # 再做
 | 件 | 资产名 | 版本轴 |
 |---|---|---|
 | 对端 openchamber 应用包 | `ocrc-openchamber-pack-<ver>-linux-x64-<tier>.tar.gz` | tag `ocrc-openchamber-pack-<ver>`，同时也在文件名里 |
-| 控制端扩展 | `ocrc.zip` / `ocrc-omo-view.zip` | tag `ocrc-remote-<ver>`（钉）/ `ocrc-latest`（通道） |
+| 控制端扩展 | `ocrc.zip` / `ocrc-omo-view.zip` | tag `ocrc-<ver>`（钉）/ `ocrc-latest`（通道） |
 
 应用包文件名**必须**带版本：`OCRC_PACK_DIR` 是平铺目录，离线镜像会把多个版本放在一起，
 tag 不是唯一的版本轴。扩展相反——它只有一个入口 URL，所以文件名恒定、版本全交给 tag。

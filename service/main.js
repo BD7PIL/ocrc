@@ -393,14 +393,26 @@ function planConfigSync(local, peer, opts = {}) {
   if (Object.keys(local.effective).length > 0) {
     merged = mergeSticky(peer.effective, local.effective);
     for (const [provider, url] of Object.entries(opts.providerBaseUrl ?? {})) {
+      const plural = merged.providers?.[provider];
+      if (plural) {
+        if (!plural.settings || typeof plural.settings !== "object" || Array.isArray(plural.settings)) plural.settings = {};
+        const settings = plural.settings;
+        const from = typeof settings.baseURL === "string" ? settings.baseURL : void 0;
+        if (from !== url) {
+          settings.baseURL = url;
+          plan.baseUrlRewrites.push({ provider, from, to: url });
+        }
+      }
       const entry = merged.provider?.[provider];
-      if (!entry) continue;
-      if (!entry.options) entry.options = {};
-      const options = entry.options;
-      const from = typeof options.baseURL === "string" ? options.baseURL : void 0;
-      if (from === url) continue;
-      options.baseURL = url;
-      plan.baseUrlRewrites.push({ provider, from, to: url });
+      if (entry) {
+        if (!entry.options) entry.options = {};
+        const options = entry.options;
+        const from = typeof options.baseURL === "string" ? options.baseURL : void 0;
+        if (from !== url) {
+          options.baseURL = url;
+          plan.baseUrlRewrites.push({ provider, from, to: url });
+        }
+      }
     }
     const stripped = stripLiteralSecrets(merged);
     merged = stripped.config;
@@ -573,6 +585,9 @@ var init_instance_config = __esm({
     CONFIG_CANDIDATES = ["opencode.json", "opencode.jsonc"];
     MANAGED_COLLECTIONS = [
       { id: "provider", path: ["provider"] },
+      // opencode v2 的复数形状（custom provider 写这里：providers.<id>.settings.baseURL）。
+      // legacy 单数仍在列表里：老配置/老 CLI 还在用它，两边都要纳入"peer-only 报告"。
+      { id: "providers", path: ["providers"] },
       { id: "mcp.servers", path: ["mcp", "servers"] }
     ];
   }

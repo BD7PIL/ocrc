@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.0-alpha.16 — 组件 pin reeve 0.2.1（2026-10-23）
+
+- `ops/components.json`：reeve `0.2.1`（英文档位显示名 + 面板 0.1.10 卡片版式），deep-memory `0.16.5`。
+- 无 CLI 行为变化。
+
 ## 2.0.0-alpha.15 — providers 复数同步 + 链接门（2026-10-23）
 
 - 配置同步支持 opencode v2 的复数 `providers` 形状：`providers.<id>` 纳入 peer-only 报告与

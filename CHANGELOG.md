@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.0-alpha.18 — 组件 pin reeve 0.2.3（2026-10-23）
+
+- `ops/components.json`：reeve `0.2.3`（修复 skill 描述被折叠符 `>` 顶替；面板扩展仍 0.1.12），
+  deep-memory `0.16.5`。
+- 无 CLI 行为变化。
+
 ## 2.0.0-alpha.17 — 组件 pin reeve 0.2.2（2026-10-23）
 
 - `ops/components.json`：reeve `0.2.2`（面板跟随宿主语言 en / zh-CN + 宿主式版式，扩展 0.1.11），

@@ -500,7 +500,7 @@ ocrc remote plan <id>                      # 只读预演：ssh/环境/引擎门
 
 ```bash
 npm install && npm run build      # CLI（tsc）；零运行时依赖
-npm test                          # 245 项（实例线）
+npm test                          # 248 项（实例线）
 npm run typecheck && npm run typecheck:tests
 npm run preflight                 # 提交前必跑（重建两扩展 + 三处 typecheck + 三套测试 + guest 不变量）
 

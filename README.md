@@ -22,10 +22,10 @@ npm `@bd7pil/ocrc@next` · CLI `ocrc` · state `~/.ocrc/` · extension `extensio
 
 | Artifact | Current |
 |---|---|
-| CLI / npm (`next`) | `2.0.0-alpha.14` |
+| CLI / npm (`next`) | `2.0.0-alpha.15` |
 | OpenChamber extension | `0.9.4` |
 | OpenChamber pack | `2.5.0` |
-| Bundled components | reeve `0.1.15`, opencode-deep-memory `0.16.5` |
+| Bundled components | reeve `0.2.0`, opencode-deep-memory `0.16.5` |
 
 ## What it does
 
@@ -149,7 +149,7 @@ Linux.
 
 ```bash
 npm install && npm run build         # CLI (tsc) — no runtime dependencies
-npm test                             # 245 tests (the instance line)
+npm test                             # 248 tests (the instance line)
 npm run test:coverage && npm run check:coverage
                                      # coverage gate: floors pinned in scripts/coverage-baseline.json
                                      # (global + src/cli/ + the bootstrap sequencer). Only raise a

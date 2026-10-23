@@ -243,8 +243,8 @@ jobs:
             echo "repairing the incomplete release $TAG"
           else
             gh release create "$TAG" -R "$GITHUB_REPOSITORY" \
-              --title "OCRC openchamber pack ${TAG#ocrc-openchamber-pack-}" \
-              --notes "App packs for openchamber ${TAG#ocrc-openchamber-pack-} (Linux x64; modern + legacy glibc 2.17)."
+              --title "OCRC openchamber pack ${TAG#ocrc-openchamber-pack-}" --latest=false \
+              --notes "App packs for openchamber ${TAG#ocrc-openchamber-pack-} (Linux x64; modern + legacy glibc 2.17). Changelog: https://github.com/$GITHUB_REPOSITORY/blob/main/CHANGELOG.md"
           fi
           gh release upload "$TAG" pack/* -R "$GITHUB_REPOSITORY" --clobber
 

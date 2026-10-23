@@ -22,7 +22,7 @@
 
 ```bash
 npm install && npm run build          # CLI（tsc）
-npm test                              # 242 项（实例线）
+npm test                              # 245 项（实例线）
 npm run test:coverage && npm run check:coverage   # 覆盖率硬门槛（基线 scripts/coverage-baseline.json，只升不降）
 npm run typecheck && npm run typecheck:tests
 npm run preflight                     # 提交前必跑：重建两扩展 + 三处 typecheck + 三套测试 + 覆盖率门槛 + guest 不变量

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.0-alpha.14 — 组件 pin / 开源发布清理（2026-10-23）
+
+- `ops/components.json`：reeve `0.1.15`、opencode-deep-memory `0.16.5`（均由各自 CI 带 provenance 发布）。
+- `LICENSE` 改为 canonical MIT（Telegram 归属移到 `NOTICE`，与“该层已删除、不再分发”的表述一致）；
+  `NOTICE` 进入 npm tarball，publish 断言存在。
+- README 更新版本/徽章/组件 pin/安装说明，链接 CHANGELOG/CONTRIBUTING/SECURITY/CODE_OF_CONDUCT；
+  修 bug 模板的 opencode v1/Telegram 残留；新增 issue-template config。
+- CI/publish：`contents: write`、concurrency/timeout、npm ci、网络步骤重试、GitHub Release notes、
+  extension/pack release 不再抢 Latest。
+- 无运行时行为变化。
 ## 2.0.0-alpha.13 — 组件 pin 跟到已发布版本（2026-10-20）
 
 - `ops/components.json`：reeve `0.1.3`、opencode-deep-memory `0.16.4`（两个包都已由各自 CI 带 provenance 发布）。`--with-components` 的默认取件版本随之更新。

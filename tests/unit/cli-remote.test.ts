@@ -67,6 +67,17 @@ function tempHome(): string {
 
 const storePath = (home: string) => join(home, 'remote-instances.json')
 
+/** The store debounces writes (~100 ms); a stubbed process.exit never fires the
+ *  flush hook, so wait for the file instead of racing it. */
+async function waitForFile(path: string, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (existsSync(path)) return
+    await new Promise((r) => setTimeout(r, 20))
+  }
+  throw new Error(`timed out waiting for ${path}`)
+}
+
 describe('cli remote — usage errors exit 2 before anything runs', () => {
   afterEach(restore)
 
@@ -124,6 +135,7 @@ describe('cli remote — bootstrap dry run', () => {
       const first = await run(['bootstrap', '--target', 'dev@peer', '--dry-run'])
       expect(first).toBe(1)
       expect(logs.join('\n')).toContain('预演失败')
+      await waitForFile(storePath(home))
       const onDisk = JSON.parse(readFileSync(storePath(home), 'utf-8')) as {
         instances: Array<{ id: string; host: string; uiPassword: string; localPort: number }>
       }
@@ -136,6 +148,7 @@ describe('cli remote — bootstrap dry run', () => {
       // ports must survive — merge-not-overwrite, end to end through the CLI.
       const second = await run(['bootstrap', rec.id, '--dry-run'])
       expect(second).toBe(1)
+      await waitForFile(storePath(home))
       const again = JSON.parse(readFileSync(storePath(home), 'utf-8')) as {
         instances: Array<{ id: string; uiPassword: string; localPort: number }>
       }

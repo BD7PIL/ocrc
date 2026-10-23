@@ -24,7 +24,7 @@ npm test
 npm run typecheck         # src
 npm run typecheck:tests   # tests are typechecked too
 npm run lint              # Biome, lint-only (formatting is not enforced)
-npm test                  # 205 tests
+npm test                  # 245 tests
 npm run preflight         # rebuilds both extensions + typechecks + tests + guest invariants
 ```
 

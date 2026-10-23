@@ -234,9 +234,9 @@ https://github.com/BD7PIL/ocrc/releases/download/ocrc-0.9.0/ocrc.zip
   → `git show FETCH_HEAD:package.json` → 和本地版本比 semver。
 - 本机用 openchamber 自己的安装代码实测（`parseGitInstallUrl` + `cloneGitRepository` +
   `checkGuestUpdate`，装到临时目录，不碰已装的扩展）：
-  `#ocrc` → 解析出 `ref`；克隆根有 `package.json`（`ocrc-remote 0.8.2`）与
+  `#ocrc` → 解析出 `ref`；克隆根有 `package.json`（`ocrc 0.9.2`）与
   `panel/index.html`、`service/main.js`、`status/*`；同版本 → `available:false`；
-  装作旧版本 → `available:true, version 0.8.2, requested:["sessions","service"]`。
+  装作旧版本 → `available:true, version 0.9.2, requested:["sessions","service"]`。
 - 所以**扩展的版本号就是更新信号**：`extensions/<name>/package.json` 的 `version` 不提，
   git 装的副本就看不到更新（与"钉 tag 会被跳过"是同一条规矩）。
 - zip 装法**没有**自更新，而且面板连"有新版本"都发现不了：`checkGuestUpdate` 的第一道判断是
@@ -250,7 +250,7 @@ https://github.com/BD7PIL/ocrc/releases/download/ocrc-0.9.0/ocrc.zip
 
 - 装完会有**一次 service 能力审批**（扩展要在宿主上跑 `ssh`）——批准；git 装法在应用更新后
   会**再问一次**（`requested` 里带着能力清单），这是上游行为，不是回归。
-- 升级后想确认装的是哪一版：看面板的扩展卡片，或 Release 资产的 label（现在是 `ocrc-remote 0.8.2`）。
+- 升级后想确认装的是哪一版：看面板的扩展卡片，或 Release 资产的 label（现在是 `ocrc 0.9.2`）。
 
 **面板与状态区（0.8.2 收缩：一个功能、一条动线）**
 
@@ -500,11 +500,11 @@ ocrc remote plan <id>                      # 只读预演：ssh/环境/引擎门
 
 ```bash
 npm install && npm run build      # CLI（tsc）；零运行时依赖
-npm test                          # 205 项（实例线）
+npm test                          # 245 项（实例线）
 npm run typecheck && npm run typecheck:tests
 npm run preflight                 # 提交前必跑（重建两扩展 + 三处 typecheck + 三套测试 + guest 不变量）
 
-npm --prefix extensions/ocrc test          # 扩展测试（39 项）
+npm --prefix extensions/ocrc test          # 扩展测试（47 项）
 node extensions/ocrc/scripts/audit.mjs     # 逐组件截图（清单见 preview/audit/README.md）
 bash scripts/accept-remote-instance.sh --target user@host   # 真机端到端验收
 ```

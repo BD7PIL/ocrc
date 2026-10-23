@@ -6,17 +6,26 @@ full **openchamber** instance that we install for it — runtime, a pinned openc
 itself — reachable either directly or through the control side, depending on what that machine
 can reach. You then pair it and it shows up in the app as **another OpenChamber server**.
 
-> Status (2026-10-19): this is the whole product. Verified end to end on two peers — a RHEL7 box
+> Status (2026-10-23): this is the whole product. Verified end to end on two peers — a RHEL7 box
 > with **no outbound network** (relayed through the control side) and an Ubuntu box with its own
 > internet (direct). Everything else ocrc used to be — its own Telegram/Web cockpit, workflows,
 > schedules, skills, engine-level remote hosts — was removed from this repo and is being rebuilt
 > as separate openchamber extensions elsewhere (see [AGENTS.md](AGENTS.md) → *已删除*).
 
-[![Release](https://img.shields.io/github/v/release/BD7PIL/ocrc?color=10b981)](https://github.com/BD7PIL/ocrc/releases)
+[![Release (pack)](https://img.shields.io/github/v/release/BD7PIL/ocrc?color=10b981)](https://github.com/BD7PIL/ocrc/releases)
 [![License: MIT](https://img.shields.io/github/license/BD7PIL/ocrc?color=10b981)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/BD7PIL/ocrc/ci.yml?branch=main&label=CI)](https://github.com/BD7PIL/ocrc/actions)
 
-npm `@bd7pil/ocrc` · CLI `ocrc` · state `~/.ocrc/` · extension `extensions/ocrc`
+npm `@bd7pil/ocrc@next` · CLI `ocrc` · state `~/.ocrc/` · extension `extensions/ocrc`
+
+## Versions
+
+| Artifact | Current |
+|---|---|
+| CLI / npm (`next`) | `2.0.0-alpha.14` |
+| OpenChamber extension | `0.9.2` |
+| OpenChamber pack | `2.5.0` |
+| Bundled components | reeve `0.1.15`, opencode-deep-memory `0.16.5` |
 
 ## What it does
 
@@ -34,7 +43,7 @@ npm `@bd7pil/ocrc` · CLI `ocrc` · state `~/.ocrc/` · extension `extensions/oc
   remote's, push files, deep-merge the config document, ship `auth.json` over stdin at 0600 —
   with deletions opt-in per item and `.ocrc-bak` backups.
 - **Assembles components it does not know.** `--with-components` reads each component's own
-  `provision.json` (engine plugin, pinned binary, console extension), installs it, and adds its
+  `provision.json` (engine plugin, optional artifacts, console extension), installs it, and adds its
   entry to the engine's `plugins` union. Adding reeve or deep-memory is a manifest, not an ocrc
   change; the versions are pinned in `ops/components.json`.
 - **One name, one repo.** Brand `OCRC`; machine identifiers are just `ocrc` — extension
@@ -77,7 +86,7 @@ OpenChamber version, and `直连` / `经本机转发`.
 
 ## CLI
 
-The same library's headless entry — for machines without a panel:
+The same library's headless entry — for machines without a panel (Node.js >= 20):
 
 ```bash
 npm i -g @bd7pil/ocrc@next   # the 2.0 line is on the `next` tag (latest is the old 0.26 cockpit)
@@ -140,7 +149,7 @@ Linux.
 
 ```bash
 npm install && npm run build         # CLI (tsc) — no runtime dependencies
-npm test                             # 242 tests (the instance line)
+npm test                             # 245 tests (the instance line)
 npm run test:coverage && npm run check:coverage
                                      # coverage gate: floors pinned in scripts/coverage-baseline.json
                                      # (global + src/cli/ + the bootstrap sequencer). Only raise a
@@ -174,3 +183,8 @@ MIT — see [LICENSE](LICENSE) and [NOTICE](NOTICE). ocrc began as a fork of
 [opencode-remote-control](https://github.com/agentjoey/opencode-remote-control) and has since been
 rebuilt well past that origin; the panel is upstream
 [openchamber](https://github.com/openchamber/openchamber) (used as-is, not forked).
+
+Project links: [CHANGELOG.md](CHANGELOG.md) · [CONTRIBUTING.md](CONTRIBUTING.md) ·
+[SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) ·
+[AGENTS.md](AGENTS.md) · [docs/PRODUCT.md](docs/PRODUCT.md) · [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
+[docs/OPS.md](docs/OPS.md).

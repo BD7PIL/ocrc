@@ -150,8 +150,8 @@ jobs:
             else
               gh release view "$PIN" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
                 gh release create "$PIN" -R "$GITHUB_REPOSITORY" \
-                  --title "$EXT $VER" \
-                  --notes "openchamber extension bundle $EXT $VER. Install: Settings -> Extensions -> paste $URL_BASE/$PIN/$EXT.zip"
+                  --title "$EXT $VER" --latest=false \
+                  --notes "openchamber extension bundle $EXT $VER. Install: Settings -> Extensions -> paste $URL_BASE/$PIN/$EXT.zip"$'\n'"Changelog: https://github.com/$GITHUB_REPOSITORY/blob/main/CHANGELOG.md"
               gh release upload "$PIN" "$EXT.zip#$EXT $VER" -R "$GITHUB_REPOSITORY"
               echo "published $PIN/$EXT.zip"
             fi
@@ -160,7 +160,7 @@ jobs:
             # never changes. Heals a run that failed between the two uploads.
             gh release view "$CHANNEL" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
               gh release create "$CHANNEL" -R "$GITHUB_REPOSITORY" \
-                --title "$EXT (latest)" \
+                --title "$EXT (latest)" --latest=false \
                 --notes "Channel pointer: always the newest $EXT bundle. Stable install URL $URL_BASE/$CHANNEL/$EXT.zip ; pin a version with the $EXT-<version> tag."
             gh release upload "$CHANNEL" "$EXT.zip#$EXT $VER" -R "$GITHUB_REPOSITORY" --clobber
             echo "channel $CHANNEL now serves $EXT $VER"
@@ -186,6 +186,7 @@ jobs:
   # publishing without bumping it means git-installed copies see no update.
   mirror:
     needs: bundle
+    if: inputs.publish
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

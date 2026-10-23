@@ -20,8 +20,9 @@ A clear and concise description of what you expected to happen.
 **Environment**
 - OS: [e.g. macOS 14]
 - Node version: [e.g. 20.11.0]
-- opencode version: [e.g. 1.15.0]
-- Transport: [e.g. telegram]
+- ocrc version: [`ocrc --version`]
+- OpenChamber extension version: [e.g. 0.9.2]
+- Controlled engine: [e.g. opencode 2.0.32]
 
 **Logs**
 ```

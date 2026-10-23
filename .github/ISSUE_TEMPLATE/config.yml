@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security policy
+    url: https://github.com/BD7PIL/ocrc/security/policy
+    about: Report vulnerabilities privately; do not open a public issue.
+  - name: Operations and troubleshooting
+    url: https://github.com/BD7PIL/ocrc/blob/main/docs/OPS.md
+    about: Install, upgrade, relay, and remote-instance troubleshooting.
+  - name: Releases and changelog
+    url: https://github.com/BD7PIL/ocrc/releases
+    about: Check the current version and release notes before filing a bug.

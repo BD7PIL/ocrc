@@ -5,12 +5,18 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write   # GitHub Release notes
+  id-token: write   # OIDC / provenance
+
+concurrency:
+  group: publish-ocrc-npm
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
@@ -21,7 +27,7 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       - name: Upgrade npm (Trusted Publishing requires npm >= 11.5.1)
-        run: npm install -g npm@latest
+        run: npm install -g npm@11.5.1
 
       - name: Install
         run: npm ci
@@ -57,24 +63,51 @@ jobs:
       - name: Assert the tarball ships the declared entry points
         run: |
           set -euo pipefail
-          T="$(npm pack --silent | tail -1)"
+          T="$(npm pack --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);console.log(Array.isArray(j)?j[0].filename:Object.values(j)[0].filename)})')"
           echo "tarball: $T"
           tar -tzf "$T" > /tmp/tar-list.txt
-          for f in package/dist/index.js package/dist/index.d.ts package/dist/cli/index.js package/ops/components.json; do
+          for f in package/dist/index.js package/dist/index.d.ts package/dist/cli/index.js package/ops/components.json package/NOTICE; do
             grep -qx "$f" /tmp/tar-list.txt || { echo "::error::missing $f"; exit 1; }
           done
-          echo "tarball carries index + declarations + bin + component pins"
+          echo "tarball carries index + declarations + bin + component pins + NOTICE"
 
-      - name: Publish
+      - name: Publish (retry-safe)
         run: |
           set -euo pipefail
           V="$(node -p "require('./package.json').version")"
-          # A prerelease must never become `latest`: 2.0.0-alpha.N goes to `next`.
           case "$V" in
             *-*) TAG=next ;;
             *)   TAG=latest ;;
           esac
-          echo "publishing $V with dist-tag $TAG"
-          npm publish --provenance --access public --tag "$TAG"
+          for i in 1 2 3; do
+            if npm publish --provenance --access public --tag "$TAG"; then exit 0; fi
+            if npm view "@bd7pil/ocrc@$V" version >/dev/null 2>&1; then
+              echo "publish landed despite the client error"
+              exit 0
+            fi
+            if [ "$i" -eq 3 ]; then exit 1; fi
+            echo "publish attempt $i failed; sleeping $((i * 15))s"
+            sleep $((i * 15))
+          done
         env:
           NODE_AUTH_TOKEN: "" # Empty string prevents token auth, forces OIDC fallback
+
+      - name: Create GitHub Release from CHANGELOG
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          V="$(node -p "require('./package.json').version")"
+          awk -v v="$V" '
+            $0 ~ "^## " v "([ —-]|$)" { on=1; next }
+            on && /^## / { exit }
+            on { print }
+          ' CHANGELOG.md > /tmp/release-notes.md
+          test -s /tmp/release-notes.md
+          case "$V" in
+            *-*) FLAGS="--prerelease" ;;
+            *)   FLAGS="--latest" ;;
+          esac
+          gh release create "v$V" -R "$GITHUB_REPOSITORY" \
+            --verify-tag $FLAGS \
+            --title "ocrc $V" --notes-file /tmp/release-notes.md

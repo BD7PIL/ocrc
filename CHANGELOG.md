@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.0.0-alpha.15 — providers 复数同步 + 链接门（2026-10-23）
 
 - 配置同步支持 opencode v2 的复数 `providers` 形状：`providers.<id>` 纳入 peer-only 报告与
   `--delete-key`（`providers:x`）；`--provider-baseurl` 同时改写 `providers.<id>.settings.baseURL`
@@ -10,6 +10,7 @@
   `web-next/` 的失效链接。
 - `docs/OPS.md`：控制端扩展 tag 更正为 `ocrc-<ver>` / `ocrc-latest`。
 - `ops/components.json`：reeve `0.2.0`（移除 manual 档位的 breaking 版本）/ opencode-deep-memory `0.16.5`。
+- 扩展 `0.9.4` 不变（core 改动同步进 service 产物，CI dist 一致性已核）。
 
 ## 2.0.0-alpha.14 — 组件 pin / 开源发布清理（2026-10-23）
 

@@ -42,15 +42,18 @@ jobs:
           }
           echo "this version: $V"
 
-      - name: This version must not be on the registry yet
+      - name: Check registry state (retry-safe)
+        id: registry
         run: |
           set -euo pipefail
           V="$(node -p "require('./package.json').version")"
           if npm view "@bd7pil/ocrc@$V" version >/dev/null 2>&1; then
-            echo "::error::@bd7pil/ocrc@$V already exists; bump package.json first"
-            exit 1
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::@bd7pil/ocrc@$V already exists — skipping npm publish, will still ensure the GitHub Release"
+          else
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "registry does not have $V yet"
           fi
-          echo "registry does not have $V yet"
 
       - name: Verify (lint + typecheck + tests + build)
         run: |
@@ -72,6 +75,7 @@ jobs:
           echo "tarball carries index + declarations + bin + component pins + NOTICE"
 
       - name: Publish (retry-safe)
+        if: steps.registry.outputs.published == 'true'
         run: |
           set -euo pipefail
           V="$(node -p "require('./package.json').version")"
@@ -108,6 +112,10 @@ jobs:
             *-*) FLAGS="--prerelease" ;;
             *)   FLAGS="--latest" ;;
           esac
-          gh release create "v$V" -R "$GITHUB_REPOSITORY" \
-            --verify-tag $FLAGS \
-            --title "ocrc $V" --notes-file /tmp/release-notes.md
+          if gh release view "v$V" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "v$V" -R "$GITHUB_REPOSITORY" $FLAGS --title "ocrc $V" --notes-file /tmp/release-notes.md
+          else
+            gh release create "v$V" -R "$GITHUB_REPOSITORY" \
+              --verify-tag $FLAGS \
+              --title "ocrc $V" --notes-file /tmp/release-notes.md
+          fi

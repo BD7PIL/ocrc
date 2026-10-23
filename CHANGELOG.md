@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.0-alpha.19 — 组件 pin reeve 0.2.4（2026-10-24）
+
+- `ops/components.json`：reeve `0.2.4`（档位模型注册推理强度变体 low/medium/high/xhigh/max；
+  面板扩展 `0.1.14`：zh「免费车道」→ 免费模型池 / en Free lane → Free pool）。
+- 打包默认与两端 live 配置退役 `chain_for_model` 的两条 zhipu 直投别名（现行拓扑下永不触发；
+  provider 删除的正确方式是全字段删除，`disabled_providers` 弃用）。
+- 无 CLI 行为变化。
+
 ## 2.0.0-alpha.18 — 组件 pin reeve 0.2.3（2026-10-23）
 
 - `ops/components.json`：reeve `0.2.3`（修复 skill 描述被折叠符 `>` 顶替；面板扩展仍 0.1.12），

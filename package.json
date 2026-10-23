@@ -1,8 +1,19 @@
 {
   "name": "ocrc",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "private": true,
   "type": "module",
+  "license": "MIT",
+  "author": "bd7pil",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BD7PIL/ocrc.git",
+    "directory": "extensions/ocrc"
+  },
+  "homepage": "https://github.com/BD7PIL/ocrc#readme",
+  "bugs": {
+    "url": "https://github.com/BD7PIL/ocrc/issues"
+  },
   "description": "OCRC — provision and connect a remote openchamber instance on a controlled Linux host from openchamber",
   "openchamber": {
     "apiVersion": 1,

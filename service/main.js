@@ -475,7 +475,7 @@ function stageConfigTree(opts) {
     const src = join7(opts.sourceDir, entry);
     if (!existsSync4(src)) continue;
     const dest = join7(opts.destDir, entry);
-    cpSync(src, dest, { recursive: true });
+    cpSync(src, dest, { recursive: true, dereference: true });
     staged.push(entry);
   }
   if (opts.mergedConfig) {
@@ -565,7 +565,10 @@ var init_instance_config = __esm({
       "agents",
       "skills",
       "oh-my-opencode-slim.json",
-      "reeve.jsonc"
+      "reeve.jsonc",
+      // GATE 代理层配置目录（`~/.config/opencode/reeve/`，里面是 fallback.jsonc）：链/策略/供应商。
+      // 它是两端应当同值的"声明"（面板编辑的就是它）→ 进 sync；台账/快照/pid 那些运行态不进。
+      "reeve"
     ];
     CONFIG_CANDIDATES = ["opencode.json", "opencode.jsonc"];
     MANAGED_COLLECTIONS = [

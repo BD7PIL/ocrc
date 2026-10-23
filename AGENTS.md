@@ -26,7 +26,7 @@ npm test                              # 245 项（实例线）
 npm run test:coverage && npm run check:coverage   # 覆盖率硬门槛（基线 scripts/coverage-baseline.json，只升不降）
 npm run typecheck && npm run typecheck:tests
 npm run preflight                     # 提交前必跑：重建两扩展 + 三处 typecheck + 三套测试 + 覆盖率门槛 + guest 不变量
-npm --prefix extensions/ocrc test     # 扩展测试（47 项）
+npm --prefix extensions/ocrc test     # 扩展测试（46 项）
 node extensions/ocrc/scripts/preview.mjs   # 真面板挂假宿主，?scenario= 切状态
 node extensions/ocrc/scripts/audit.mjs     # 逐组件截图（24 项清单见 preview/audit/README.md）
 bash scripts/accept-remote-instance.sh --target user@host   # 真机验收（含真发消息）

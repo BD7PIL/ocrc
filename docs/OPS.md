@@ -504,7 +504,7 @@ npm test                          # 245 项（实例线）
 npm run typecheck && npm run typecheck:tests
 npm run preflight                 # 提交前必跑（重建两扩展 + 三处 typecheck + 三套测试 + guest 不变量）
 
-npm --prefix extensions/ocrc test          # 扩展测试（47 项）
+npm --prefix extensions/ocrc test          # 扩展测试（46 项）
 node extensions/ocrc/scripts/audit.mjs     # 逐组件截图（清单见 preview/audit/README.md）
 bash scripts/accept-remote-instance.sh --target user@host   # 真机端到端验收
 ```

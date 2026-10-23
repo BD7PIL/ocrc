@@ -310,6 +310,9 @@ export interface SyncPlan {
  */
 export const MANAGED_COLLECTIONS = [
   { id: 'provider', path: ['provider'] },
+  // opencode v2 的复数形状（custom provider 写这里：providers.<id>.settings.baseURL）。
+  // legacy 单数仍在列表里：老配置/老 CLI 还在用它，两边都要纳入"peer-only 报告"。
+  { id: 'providers', path: ['providers'] },
   { id: 'mcp.servers', path: ['mcp', 'servers'] },
 ] as const
 
@@ -498,16 +501,29 @@ export function planConfigSync(
   if (Object.keys(local.effective).length > 0) {
     merged = mergeSticky(peer.effective, local.effective)
     // C2b: a peer without egress reaches a provider through the relay/internal
-    // gateway, so the baseURL may have to change for THIS host only.
+    // gateway, so the baseURL may have to change for THIS host only. Both shapes
+    // are rewritten: v2 `providers.<id>.settings.baseURL` and legacy
+    // `provider.<id>.options.baseURL`.
     for (const [provider, url] of Object.entries(opts.providerBaseUrl ?? {})) {
+      const plural = (merged.providers as Record<string, Record<string, unknown>> | undefined)?.[provider]
+      if (plural) {
+        const settings = (plural.settings ??= {}) as Record<string, unknown>
+        const from = typeof settings.baseURL === 'string' ? settings.baseURL : undefined
+        if (from !== url) {
+          settings.baseURL = url
+          plan.baseUrlRewrites.push({ provider, from, to: url })
+        }
+      }
       const entry = (merged.provider as Record<string, Record<string, unknown>> | undefined)?.[provider]
-      if (!entry) continue
-      if (!entry.options) entry.options = {}
-      const options = entry.options as Record<string, unknown>
-      const from = typeof options.baseURL === 'string' ? options.baseURL : undefined
-      if (from === url) continue
-      options.baseURL = url
-      plan.baseUrlRewrites.push({ provider, from, to: url })
+      if (entry) {
+        if (!entry.options) entry.options = {}
+        const options = entry.options as Record<string, unknown>
+        const from = typeof options.baseURL === 'string' ? options.baseURL : undefined
+        if (from !== url) {
+          options.baseURL = url
+          plan.baseUrlRewrites.push({ provider, from, to: url })
+        }
+      }
     }
     const stripped = stripLiteralSecrets(merged)
     merged = stripped.config

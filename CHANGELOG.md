@@ -2,10 +2,14 @@
 
 ## Unreleased
 
+- 配置同步支持 opencode v2 的复数 `providers` 形状：`providers.<id>` 纳入 peer-only 报告与
+  `--delete-key`（`providers:x`）；`--provider-baseurl` 同时改写 `providers.<id>.settings.baseURL`
+  与旧 `provider.<id>.options.baseURL`。新增 plural peer-only / plural rewrite / 双形状同 ID 三组用例。
 - 文档链接门：新增 `npm run check:links`（相对路径 + 同仓库 GitHub blob/tree 链接），纳入 CI 与
   `preflight`；修复 `docs/` 历史记录中 30+ 个 `../AGENTS.md` 相对路径，并移除指向已删除
   `web-next/` 的失效链接。
 - `docs/OPS.md`：控制端扩展 tag 更正为 `ocrc-<ver>` / `ocrc-latest`。
+- `ops/components.json`：reeve `0.2.0`（移除 manual 档位的 breaking 版本）/ opencode-deep-memory `0.16.5`。
 
 ## 2.0.0-alpha.14 — 组件 pin / 开源发布清理（2026-10-23）
 

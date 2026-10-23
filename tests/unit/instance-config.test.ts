@@ -242,6 +242,75 @@ describe('sync plan', () => {
     expect(rewritten.baseUrlRewrites).toEqual([{ provider: 'deepseek', from: 'https://public', to: 'http://10.0.0.9:8080' }])
   })
 
+  it('rewrites the v2 plural shape too: providers.<id>.settings.baseURL (C2b)', () => {
+    const { dir, authPath } = localTree({
+      'opencode.json': JSON.stringify({
+        providers: {
+          reeve: { package: '@ai-sdk/openai-compatible', settings: { baseURL: 'http://127.0.0.1:18080/v1' } },
+          'lmuai-glm': { package: '@ai-sdk/openai-compatible', settings: { baseURL: 'https://api.lmuai.com/v1' } },
+        },
+      }),
+    })
+    const local = readLocalConfig({ dir, authPath })
+    const peer = peerRead()
+
+    // 不点名就不动
+    const untouched = planConfigSync(local, peer)
+    const untouchedProviders = (untouched.merged as Record<string, any>).providers
+    expect(untouchedProviders['lmuai-glm'].settings.baseURL).toBe('https://api.lmuai.com/v1')
+    expect(untouched.baseUrlRewrites).toEqual([])
+
+    // 点名只改指定的那一家，另一家（reeve 的本机回环端点）原样
+    const rewritten = planConfigSync(local, peer, { providerBaseUrl: { 'lmuai-glm': 'http://10.0.0.9:8080/v1' } })
+    const merged = (rewritten.merged as Record<string, any>).providers
+    expect(merged['lmuai-glm'].settings.baseURL).toBe('http://10.0.0.9:8080/v1')
+    expect(merged.reeve.settings.baseURL).toBe('http://127.0.0.1:18080/v1')
+    expect(rewritten.baseUrlRewrites).toEqual([{ provider: 'lmuai-glm', from: 'https://api.lmuai.com/v1', to: 'http://10.0.0.9:8080/v1' }])
+  })
+
+  it('rewrites the same id in both shapes and reports each (mixed legacy + v2)', () => {
+    const { dir, authPath } = localTree({
+      'opencode.json': JSON.stringify({
+        provider: { deepseek: { options: { baseURL: 'https://old.example' } } },
+        providers: { deepseek: { package: '@ai-sdk/openai-compatible', settings: { baseURL: 'https://new.example/v1' } } },
+      }),
+    })
+    const local = readLocalConfig({ dir, authPath })
+    const peer = peerRead()
+    const rewritten = planConfigSync(local, peer, { providerBaseUrl: { deepseek: 'http://10.0.0.9:8080' } })
+    const merged = rewritten.merged as Record<string, any>
+    expect(merged.provider.deepseek.options.baseURL).toBe('http://10.0.0.9:8080')
+    expect(merged.providers.deepseek.settings.baseURL).toBe('http://10.0.0.9:8080')
+    expect(rewritten.baseUrlRewrites).toEqual([
+      { provider: 'deepseek', from: 'https://new.example/v1', to: 'http://10.0.0.9:8080' },
+      { provider: 'deepseek', from: 'https://old.example', to: 'http://10.0.0.9:8080' },
+    ])
+  })
+
+  it('offers peer-only keys in the v2 providers collection for explicit deletion', () => {
+    const { dir, authPath } = localTree({
+      'opencode.json': JSON.stringify({
+        providers: { reeve: { package: '@ai-sdk/openai-compatible', settings: { baseURL: 'http://127.0.0.1:18080/v1' } } },
+      }),
+    })
+    const local = readLocalConfig({ dir, authPath })
+    const peer = peerRead({
+      json: JSON.stringify({
+        provider: { 'lmuai-glm': { options: { baseURL: 'https://api.lmuai.com/v1' } } },
+        providers: { 'stale-relay': { package: '@ai-sdk/openai-compatible', settings: { baseURL: 'http://10.9.9.9:1/v1' } } },
+      }),
+    })
+    const plan = planConfigSync(local, peer)
+    const offered = plan.keyDeleteCandidates.map((c) => `${c.collection}:${c.key}`)
+    expect(offered).toContain('provider:lmuai-glm')
+    expect(offered).toContain('providers:stale-relay')
+
+    // 显式点名才删（C2）；删除后对端不再有这一条
+    const merged = planConfigSync(local, peer, { keyDeletes: ['providers:stale-relay'] }).merged as Record<string, any>
+    expect(merged.providers['stale-relay']).toBeUndefined()
+    expect(merged.providers.reeve).toBeDefined()
+  })
+
   it('syncs the GATE config directory (~/.config/opencode/reeve/) as a declaration', () => {
     // 拆 Bifrost 之后，reeve 的链/策略在 ~/.config/opencode/reeve/fallback.jsonc —— 它必须随 sync 走，
     // 否则对端的 GATE 只能落回打包默认（两端行为不同）。台账/快照在 ~/.reeve/，**不进** sync。

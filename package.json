@@ -1,6 +1,6 @@
 {
   "name": "@bd7pil/ocrc",
-  "version": "2.0.0-alpha.14",
+  "version": "2.0.0-alpha.15",
   "description": "Provision and drive remote openchamber instances over ssh: install openchamber (runtime + pinned opencode + app) on a Linux machine that may have no outbound network, relay its egress when it cannot reach a model catalogue, pair it into the desktop app, and keep its config and credentials in sync.",
   "type": "module",
   "main": "dist/index.js",

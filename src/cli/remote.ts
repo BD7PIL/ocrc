@@ -73,7 +73,8 @@ USAGE:
                   --ssh-auth password：不写 --ssh-password 时从终端（不回显）或 stdin 读一行
                   --egress：auto（默认，探测对端）| relay（强制经控制端）| direct（强制直连）
                   --provision：push（默认，推备件）| reuse（不推字节，只检查 + pin 引擎）
-                  --provider-baseurl：同步配置时改写这些 provider 的 baseURL（无外网对端经内网网关，C2b）
+                  --provider-baseurl：同步配置时改写这些 provider 的 baseURL（无外网对端经内网网关，C2b；
+                                  同时覆盖 v2 的 providers.<id>.settings.baseURL 与旧 provider.<id>.options.baseURL）
   环境变量 OCRC_INSTANCE_ENV=TAVILY_API_KEY[,OTHER]
                   把控制端的这些变量透传进对端实例的 serve 行（让配置里的 {env:…} 能解析；
                   密钥仍然只在控制端的进程环境里，不写进任何配置文件）
@@ -99,7 +100,7 @@ USAGE:
                   [--prefer-commented-target]
                                    推白名单配置（opencode.json 深合并、只推差异、旧件留 .ocrc-bak）
                                    --delete：对端独有的文件显式删掉（也留 .ocrc-bak）
-                                   --delete-key：删对端独有的配置项（provider:x / mcp.servers:y）
+                                   --delete-key：删对端独有的配置项（providers:x / provider:x / mcp.servers:y）
                                    --prefer-commented-target：允许重写带注释的对端配置（注释会丢；默认写 opencode.json）
   ocrc remote sync-auth <id>       把本机 auth.json（provider 凭据）写到对端（0600，不回显）
   ocrc remote upgrade <id>         升到控制端的 app pin（已在 pin 上就什么都不做）

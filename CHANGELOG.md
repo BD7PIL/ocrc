@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.0-alpha.17 — 组件 pin reeve 0.2.2（2026-10-23）
+
+- `ops/components.json`：reeve `0.2.2`（面板跟随宿主语言 en / zh-CN + 宿主式版式，扩展 0.1.11），
+  deep-memory `0.16.5`。
+- 无 CLI 行为变化。
+
 ## 2.0.0-alpha.16 — 组件 pin reeve 0.2.1（2026-10-23）
 
 - `ops/components.json`：reeve `0.2.1`（英文档位显示名 + 面板 0.1.10 卡片版式），deep-memory `0.16.5`。

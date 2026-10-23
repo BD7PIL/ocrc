@@ -22,7 +22,7 @@ npm `@bd7pil/ocrc@next` · CLI `ocrc` · state `~/.ocrc/` · extension `extensio
 
 | Artifact | Current |
 |---|---|
-| CLI / npm (`next`) | `2.0.0-alpha.16` |
+| CLI / npm (`next`) | `2.0.0-alpha.17` |
 | OpenChamber extension | `0.9.4` |
 | OpenChamber pack | `2.5.0` |
 | Bundled components | reeve `0.2.1`, opencode-deep-memory `0.16.5` |

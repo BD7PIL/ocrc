@@ -9,7 +9,7 @@
   修 bug 模板的 opencode v1/Telegram 残留；新增 issue-template config。
 - CI/publish：`contents: write`、concurrency/timeout、npm ci、网络步骤重试、GitHub Release notes、
   extension/pack release 不再抢 Latest。
-- 扩展 `0.9.3`：service 产物重建（symlink dereference + GATE 配置目录同步），与 src 一致。
+- 扩展 `0.9.4`：service 产物重建（symlink dereference + GATE 配置目录同步），zip 内附 LICENSE + sha256，与 src 一致。
 - 无运行时行为变化。
 ## 2.0.0-alpha.13 — 组件 pin 跟到已发布版本（2026-10-20）
 

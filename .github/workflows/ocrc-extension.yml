@@ -66,6 +66,7 @@ jobs:
           rm -rf stage "$EXT.zip"
           mkdir -p "stage/$EXT"
           cp "extensions/$EXT/package.json" "stage/$EXT/"
+          cp LICENSE "stage/$EXT/LICENSE"
           # Ship exactly the directories the manifest points into (panel/, and
           # status//service/ when declared — omo-view has only a panel).
           node --input-type=module -e '
@@ -83,8 +84,10 @@ jobs:
           # Reproducible archive: fixed mtimes, sorted entries, no extra attrs.
           find "stage" -exec touch -t 198001010000 {} +
           ( cd stage && find "$EXT" -type f | LC_ALL=C sort | zip -qX "../$EXT.zip" -@ )
+          sha256sum "$EXT.zip" > "$EXT.zip.sha256"
           echo "--- $EXT.zip ---"
           unzip -l "$EXT.zip"
+          cat "$EXT.zip.sha256"
 
       - name: Assert the install shape
         env:
@@ -114,7 +117,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.ext }}-zip
-          path: ${{ matrix.ext }}.zip
+          path: |
+            ${{ matrix.ext }}.zip
+            ${{ matrix.ext }}.zip.sha256
           if-no-files-found: error
           retention-days: 7
 
@@ -152,7 +157,7 @@ jobs:
                 gh release create "$PIN" -R "$GITHUB_REPOSITORY" \
                   --title "$EXT $VER" --latest=false \
                   --notes "openchamber extension bundle $EXT $VER. Install: Settings -> Extensions -> paste $URL_BASE/$PIN/$EXT.zip"$'\n'"Changelog: https://github.com/$GITHUB_REPOSITORY/blob/main/CHANGELOG.md"
-              gh release upload "$PIN" "$EXT.zip#$EXT $VER" -R "$GITHUB_REPOSITORY"
+              gh release upload "$PIN" "$EXT.zip#$EXT $VER" "$EXT.zip.sha256" -R "$GITHUB_REPOSITORY"
               echo "published $PIN/$EXT.zip"
             fi
 
@@ -162,7 +167,7 @@ jobs:
               gh release create "$CHANNEL" -R "$GITHUB_REPOSITORY" \
                 --title "$EXT (latest)" --latest=false \
                 --notes "Channel pointer: always the newest $EXT bundle. Stable install URL $URL_BASE/$CHANNEL/$EXT.zip ; pin a version with the $EXT-<version> tag."
-            gh release upload "$CHANNEL" "$EXT.zip#$EXT $VER" -R "$GITHUB_REPOSITORY" --clobber
+            gh release upload "$CHANNEL" "$EXT.zip#$EXT $VER" "$EXT.zip.sha256" -R "$GITHUB_REPOSITORY" --clobber
             echo "channel $CHANNEL now serves $EXT $VER"
           done
 

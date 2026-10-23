@@ -44,7 +44,7 @@ jobs:
       min_engine: ${{ steps.compatibility.outputs.min_engine }}
       min_engine_crossed: ${{ steps.compatibility.outputs.crossed }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Resolve upstream openchamber latest
         id: upstream
@@ -128,7 +128,7 @@ jobs:
     if: needs.upstream-check.outputs.min_engine_crossed == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Open pin-bump PR
         run: |
           BRANCH="follow/bump-opencode-${MIN}"
@@ -165,8 +165,8 @@ jobs:
     if: needs.upstream-check.outputs.min_engine_crossed == 'false'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
@@ -233,7 +233,7 @@ jobs:
           echo "smoke 2/2: CLI tarball complete (index + declarations + bin)"
 
       - name: Upload bundle artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ocrc-offline-bundle-${{ env.OCRC_V2_PIN }}
           path: bundle/

@@ -1,6 +1,6 @@
 # P0-1 实测：插件工具注册语义（多 workspace / 重复注册）
 
-> 计划：[workflow 全量落地](../.zcode/plans/) P0 的第一步。P3 的工具面（模型原生调
+> 计划：workflow 全量落地（开发记录，不入公开树）P0 的第一步。P3 的工具面（模型原生调
 > `CreateWorkflow` 等）整个压在「官方 `tool` 钩子注册的工具，在 host 拉起的
 > `opencode serve` 里真的可调用」这个前提上，所以先把它证掉。
 >

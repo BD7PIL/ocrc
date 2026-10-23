@@ -507,7 +507,8 @@ export function planConfigSync(
     for (const [provider, url] of Object.entries(opts.providerBaseUrl ?? {})) {
       const plural = (merged.providers as Record<string, Record<string, unknown>> | undefined)?.[provider]
       if (plural) {
-        const settings = (plural.settings ??= {}) as Record<string, unknown>
+        if (!plural.settings || typeof plural.settings !== 'object' || Array.isArray(plural.settings)) plural.settings = {}
+        const settings = plural.settings as Record<string, unknown>
         const from = typeof settings.baseURL === 'string' ? settings.baseURL : undefined
         if (from !== url) {
           settings.baseURL = url

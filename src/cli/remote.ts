@@ -279,8 +279,8 @@ function printStatus(s: InstanceStatus): void {
   // 凭据漂移：只有探过才说（没探过不是坏消息）；drift 要把修法说出来。
   if (s.auth) {
     const at = new Date(s.auth.at).toLocaleString()
-    if (s.auth.sync === 'drift') console.log(`    凭据    不一致（${s.auth.reason ?? '对端与控制端 auth.json 不同'}）· 上次检查 ${at}——sync-auth 可对齐，同步后要重启实例`)
-    else if (s.auth.sync === 'match') console.log(`    凭据    一致 · 上次检查 ${at}`)
+    if (s.auth.sync === 'drift') console.log(`    凭据    不一致（${s.auth.reason ?? '引擎凭据与控制端不同'}）· 上次检查 ${at}——sync-auth 可对齐，引擎运行时立即生效`)
+    else if (s.auth.sync === 'match') console.log(`    凭据    一致 · 上次检查 ${at}${s.auth.reason ? `（${s.auth.reason}）` : ''}`)
     else console.log(`    凭据    未定（${s.auth.reason ?? '探测失败'}）· 上次检查 ${at}`)
   }
   console.log(`    engine  ${engine}`)

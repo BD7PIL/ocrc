@@ -65,3 +65,16 @@ pin 不可持续。
 - 真机实证（2026-10-24，EL7 legacy 档 + Ubuntu modern 档）：升级前两台 state=incompatible
   快速终判；`ocrc remote upgrade` app no-op + 引擎 2.0.32→2.1.4（bin-cache 首次从 npm 拉包）+
   自动重启后两台 compat=compatible 在线（openchamber 2.5.1 / OpenCode 2.1.4）。
+
+## 附记（同日深夜）：sync-auth v2 与凭据判定纪律
+
+DS key 轮换后「同步了还报错」的完整教训，三条纪律进档：
+
+1. **v2 的凭据真实存储是引擎 DB**（`opencode.db` 的 credential 表，写入面 =
+   `POST /api/credential`）；auth.json 只在全新 DB 首次迁移时被读一次。对已迁移的库
+   只写 auth.json 是死信——sync-auth 必须双写（0.10.3 已落地，EL7 实证热生效：
+   推送后不重启、钉死 deepseek-v4.1-flash-1017 直发即通）。
+2. **链路故障转移会掩盖单 provider 失败**：REEVE standard 链第一目标 lmuai 成功，
+   DeepSeek 的 401 就被吞掉——「整链通了」不等于「每个 provider 都通」。
+3. **判定凭据必须钉死模型直发**（复现用户路径），且 app 会话列表显示的是**旧会话的
+   历史错误残留**，不代表当前状态。

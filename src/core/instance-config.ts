@@ -706,27 +706,230 @@ export type AuthSyncState = 'match' | 'drift' | 'unknown'
 
 export interface AuthFingerprint { sha?: string; mtime?: number }
 
-/** 远端一行：指纹 + mtime；文件不在就 MISSING（那是 drift 的一种：从未同步过）。 */
-export function buildAuthFingerprintCommand(): string {
-  return `A="${PEER_AUTH_PATH}"; if [ -f "$A" ]; then sha256sum "$A" | cut -d' ' -f1; stat -c %Y "$A"; else echo MISSING; fi`
+// ── 引擎凭据（opencode v2 的真实存储；2026-10-24 深夜取证后的 v2 同步）──
+// v2 把 provider key 存在 `~/.local/share/opencode/opencode.db` 的 credential 表
+// （value={type:"key",key}），auth.json 只在 DB 首次初始化时被一次性迁移导入、
+// 之后引擎不再读——所以只写 auth.json 对已迁移的库是死信（EL7 实证：DB 里
+// deepseek=旧key(尾5499)，auth.json=新key，引擎用 DB 的旧 key 被 DS 拒）。
+// 官方写入面 = 引擎 `POST /api/credential`（openchamber renewStoredLogin 同款：
+// 先建新行 activate，再删同 integration 旧行）。读走 GET /api/credential，
+// **明文不出对端**：在对端 node 里就地指纹化，只回传 fp/len/尾4。
+
+export interface EngineCredView { id: string; fp?: string; len?: number; tail4?: string }
+
+export type EnginePresence = 'running' | 'not-running' | 'no-password' | 'runtime-missing' | 'probe-fail'
+
+export interface AuthSyncProbeView {
+  authFile: AuthFingerprint | 'missing' | undefined
+  engine: EnginePresence
+  creds: EngineCredView[]
+  credsParseFail?: boolean
 }
 
-export function parseAuthFingerprint(out: string): AuthFingerprint | 'missing' | undefined {
-  const lines = out.trim().split('\n').map((l) => l.trim()).filter(Boolean)
-  if (lines.some((l) => l === 'MISSING')) return 'missing'
-  const sha = /^[0-9a-f]{64}$/.test(lines[0] ?? '') ? lines[0] : undefined
-  if (!sha) return undefined
-  const mtime = Number(lines[1])
-  return { sha, mtime: Number.isFinite(mtime) && mtime > 0 ? mtime : undefined }
+/** 对端 node 指纹化器（base64 内嵌）：stdin 吃 /api/credential 的 JSON（含明文
+ *  key），只吐 `CRED <id> <fp> <len> <尾4>` 行。秘密不出对端进程。 */
+const PEER_CRED_FINGERPRINTER = `
+let raw = ''
+process.stdin.on('data', (d) => { raw += d })
+process.stdin.on('end', () => {
+  const crypto = require('node:crypto')
+  try {
+    const j = JSON.parse(raw)
+    const rows = Array.isArray(j) ? j : (j.data ?? [])
+    for (const c of rows) {
+      const key = c.value && typeof c.value === 'object' ? (c.value.key ?? c.value.access) : undefined
+      const id = c.integrationID ?? c.integration_id ?? '?'
+      if (typeof key === 'string' && key) {
+        console.log('CRED ' + id + ' ' + crypto.createHash('sha256').update(key).digest('hex').slice(0, 12) + ' ' + key.length + ' ' + key.slice(-4))
+      } else {
+        console.log('CRED ' + id + ' no-key(' + (c.value && c.value.type ? c.value.type : '?') + ')')
+      }
+    }
+  } catch { console.log('CREDS parse-fail') }
+})
+`
+
+/** 一次 ssh 同时取：auth.json 指纹 + 引擎 credential 指纹（引擎没跑也如实说，
+ *  不把「没跑」伪装成 drift）。定位引擎沿用验收脚本的 /proc 手法；密码只进
+ *  对端 shell/env，绝不回传。 */
+export function buildAuthSyncProbeScript(nodeVersion: string): string {
+  const b64 = Buffer.from(PEER_CRED_FINGERPRINTER, 'utf8').toString('base64')
+  return [
+    `A="${PEER_AUTH_PATH}"`,
+    `if [ -f "$A" ]; then printf 'AUTHFILE '; sha256sum "$A" | cut -d' ' -f1; stat -c %Y "$A"; else echo 'AUTHFILE=MISSING'; fi`,
+    `N="$HOME/.ocrc/remote/runtime/node-v${nodeVersion}/bin/node"`,
+    `PID=$(ps -eo pid,args | grep 'engine/opencode serve' | grep -v grep | awk '{print $1}' | head -1)`,
+    `if [ -z "$PID" ]; then echo 'ENGINE=not-running'; exit 0; fi`,
+    `[ -x "$N" ] || { echo 'ENGINE=runtime-missing'; exit 0; }`,
+    `PORT=$(tr '\\0' ' ' < /proc/$PID/cmdline | sed -n 's/.*--port \\([0-9]*\\).*/\\1/p')`,
+    `PW=$(tr '\\0' '\\n' < /proc/$PID/environ 2>/dev/null | sed -n 's/^OPENCODE_SERVER_PASSWORD=//p' | head -1)`,
+    `if [ -z "$PORT" ] || [ -z "$PW" ]; then echo 'ENGINE=no-password'; exit 0; fi`,
+    `echo 'ENGINE=running'`,
+    `curl -s -m 20 -u "opencode:$PW" "http://127.0.0.1:$PORT/api/credential" | "$N" -e "$(echo '${b64}' | base64 -d)" || echo 'CREDS parse-fail'`,
+  ].join('\n')
 }
 
-/** 漂移判定（纯函数）：对端缺件/哈希不等 = drift；本机没件 = unknown（不是对端的错）。 */
-export function decideAuthSync(o: { localSha?: string; peer: AuthFingerprint | 'missing' | undefined }): { sync: AuthSyncState; reason?: string } {
-  if (!o.localSha) return { sync: 'unknown', reason: '本机没有 auth.json（先在本机登录 provider）' }
-  if (o.peer === 'missing') return { sync: 'drift', reason: '对端没有 auth.json（从未同步过凭据）' }
-  if (!o.peer || !o.peer.sha) return { sync: 'unknown', reason: '对端指纹读不出来（探测输出异常）' }
-  if (o.peer.sha !== o.localSha) return { sync: 'drift', reason: '对端是旧凭据（本机 auth.json 在上次同步后改过）' }
-  return { sync: 'match' }
+export function parseAuthSyncProbe(out: string): AuthSyncProbeView {
+  const view: AuthSyncProbeView = { authFile: undefined, engine: 'probe-fail', creds: [] }
+  for (const lineRaw of out.split('\n')) {
+    const line = lineRaw.trim()
+    if (!line) continue
+    if (line === 'AUTHFILE=MISSING') { view.authFile = 'missing'; continue }
+    const af = /^AUTHFILE ([0-9a-f]{64})$/.exec(line)
+    if (af) { view.authFile = { sha: af[1]! }; continue }
+    if (/^\d{10}$/.test(line) && view.authFile && view.authFile !== 'missing') {
+      ;(view.authFile as { mtime?: number }).mtime = Number(line)
+      continue
+    }
+    if (line.startsWith('ENGINE=')) {
+      const v = line.slice('ENGINE='.length)
+      view.engine = (['running', 'not-running', 'no-password', 'runtime-missing', 'probe-fail'] as const).includes(v as never)
+        ? (v as EnginePresence)
+        : 'probe-fail'
+      continue
+    }
+    if (line === 'CREDS parse-fail') { view.credsParseFail = true; continue }
+    const m = /^CRED (\S+)(?: ([0-9a-f]{12}) (\d+) (\S{1,8}))?/.exec(line)
+    if (m) {
+      if (m[2]) view.creds.push({ id: m[1]!, fp: m[2], len: Number(m[3]), tail4: m[4] })
+      else view.creds.push({ id: m[1]! })
+    }
+  }
+  return view
+}
+
+/** v2 漂移判定（引擎真实凭据为准——引擎用哪把算哪把）：
+ *  · 引擎没跑/取不到 → unknown（不是对端的错，也不是 match）；
+ *  · 控制端任一 provider 在引擎里缺行或指纹不等 → drift（点名）；
+ *  · 引擎里多出来的（对端自建）不动也不算 drift，match 时 reason 报备数量。 */
+export function decideAuthSyncV2(o: {
+  local: Array<{ id: string; fp: string }>
+  probe: AuthSyncProbeView
+}): { sync: AuthSyncState; reason?: string } {
+  if (o.probe.engine !== 'running') {
+    const why: Record<Exclude<EnginePresence, 'running'>, string> = {
+      'not-running': '引擎未运行（启动后跑一次检查或同步即可核对）',
+      'no-password': '引擎在跑但取不到它的 API 密码（外部实例？）',
+      'runtime-missing': '对端缺我们的 runtime node（先装机）',
+      'probe-fail': '引擎凭据探测失败（ssh/输出异常）',
+    }
+    return { sync: 'unknown', reason: why[o.probe.engine] }
+  }
+  if (o.probe.credsParseFail) return { sync: 'unknown', reason: '引擎 /api/credential 输出解析失败' }
+  const byId = new Map(o.probe.creds.map((c) => [c.id, c]))
+  const problems: string[] = []
+  for (const want of o.local) {
+    const got = byId.get(want.id)
+    if (!got) problems.push(`${want.id}（引擎里没有）`)
+    else if (!got.fp) problems.push(`${want.id}（引擎存的不是 api key）`)
+    else if (got.fp !== want.fp) problems.push(`${want.id}（旧 key，尾号 ${got.tail4 ?? '?'}）`)
+  }
+  if (problems.length) return { sync: 'drift', reason: `引擎凭据与控制端不一致：${problems.join('、')}` }
+  const extra = o.probe.creds.filter((c) => !o.local.some((l) => l.id === c.id)).length
+  return { sync: 'match', reason: extra ? `引擎另有 ${extra} 个对端自建凭据（不动）` : undefined }
+}
+
+/** 对端 node 推送器（base64 内嵌；凭据 JSON 走 stdin）：renewStoredLogin 同款
+ *  顺序——先 POST 新行（activate），再删同 integration 的旧行；唯一 active
+ *  索引冲突时退「先删后建」。只输出 OK/ERR/WARN 状态行，key 明文不出现在
+ *  任何输出里。 */
+const PEER_CRED_PUSHER = `
+let raw = ''
+process.stdin.on('data', (d) => { raw += d })
+process.stdin.on('end', async () => {
+  let providers
+  try { providers = JSON.parse(raw).providers } catch { console.log('PUSH parse-fail'); return }
+  const auth = 'Basic ' + Buffer.from('opencode:' + process.env.OC_PW).toString('base64')
+  const base = 'http://127.0.0.1:' + process.env.OC_PORT
+  const listRes = await fetch(base + '/api/credential', { headers: { authorization: auth } })
+  if (!listRes.ok) { console.log('PUSH list-HTTP-' + listRes.status); return }
+  const list = await listRes.json()
+  const old = new Map()
+  for (const c of (Array.isArray(list) ? list : (list.data ?? []))) {
+    const k = c.integrationID ?? c.integration_id
+    if (!k) continue
+    if (!old.has(k)) old.set(k, [])
+    old.get(k).push(c.id)
+  }
+  for (const p of providers) {
+    try {
+      const body = JSON.stringify({ integrationID: p.id, label: 'ocrc sync', value: { type: 'key', key: p.key }, activate: true })
+      let made = await fetch(base + '/api/credential', { method: 'POST', headers: { authorization: auth, 'content-type': 'application/json' }, body })
+      if (made.status === 409) {
+        for (const oid of (old.get(p.id) ?? [])) await fetch(base + '/api/credential/' + oid, { method: 'DELETE', headers: { authorization: auth } }).catch(() => {})
+        made = await fetch(base + '/api/credential', { method: 'POST', headers: { authorization: auth, 'content-type': 'application/json' }, body })
+      }
+      if (!made.ok) { console.log('ERR ' + p.id + ' HTTP ' + made.status); continue }
+      const created = await made.json().catch(() => ({}))
+      const newId = (created && created.data && created.data.id) || (created && created.id)
+      for (const oid of (old.get(p.id) ?? [])) {
+        if (oid === newId) continue
+        const del = await fetch(base + '/api/credential/' + oid, { method: 'DELETE', headers: { authorization: auth } }).catch(() => null)
+        if (!del || !del.ok) console.log('WARN ' + p.id + ' 旧行清理失败')
+      }
+      console.log('OK ' + p.id)
+    } catch (e) { console.log('ERR ' + p.id + ' ' + String((e && e.message) || e).slice(0, 80)) }
+  }
+})
+`
+
+/** 推送脚本：stdin 承载 `{providers:[{id,key}]}`（key 不进命令行/ps）。 */
+export function buildEngineCredentialPushScript(nodeVersion: string): string {
+  const b64 = Buffer.from(PEER_CRED_PUSHER, 'utf8').toString('base64')
+  return [
+    `N="$HOME/.ocrc/remote/runtime/node-v${nodeVersion}/bin/node"`,
+    `PID=$(ps -eo pid,args | grep 'engine/opencode serve' | grep -v grep | awk '{print $1}' | head -1)`,
+    `if [ -z "$PID" ]; then echo 'ENGINE=not-running'; exit 0; fi`,
+    `[ -x "$N" ] || { echo 'ENGINE=runtime-missing'; exit 0; }`,
+    `PORT=$(tr '\\0' ' ' < /proc/$PID/cmdline | sed -n 's/.*--port \\([0-9]*\\).*/\\1/p')`,
+    `PW=$(tr '\\0' '\\n' < /proc/$PID/environ 2>/dev/null | sed -n 's/^OPENCODE_SERVER_PASSWORD=//p' | head -1)`,
+    `if [ -z "$PORT" ] || [ -z "$PW" ]; then echo 'ENGINE=no-password'; exit 0; fi`,
+    `echo 'ENGINE=running'`,
+    `OC_PW="$PW" OC_PORT="$PORT" "$N" -e "$(echo '${b64}' | base64 -d)"`,
+  ].join('\n')
+}
+
+export interface EngineCredPushResult {
+  engine: EnginePresence
+  updated: string[]
+  failed: Array<{ id: string; reason: string }>
+}
+
+export function parseEngineCredentialPush(out: string): EngineCredPushResult {
+  const r: EngineCredPushResult = { engine: 'running', updated: [], failed: [] }
+  for (const lineRaw of out.split('\n')) {
+    const line = lineRaw.trim()
+    if (line.startsWith('ENGINE=')) {
+      const v = line.slice('ENGINE='.length)
+      r.engine = (['running', 'not-running', 'no-password', 'runtime-missing', 'probe-fail'] as const).includes(v as never)
+        ? (v as EnginePresence)
+        : 'probe-fail'
+      continue
+    }
+    if (line === 'PUSH parse-fail') { r.failed.push({ id: '(payload)', reason: '推送载荷解析失败' }); continue }
+    if (line.startsWith('PUSH list-HTTP-')) { r.failed.push({ id: '(list)', reason: `引擎凭据列表 HTTP ${line.slice('PUSH list-HTTP-'.length)}` }); continue }
+    if (line.startsWith('OK ')) r.updated.push(line.slice(3).trim())
+    else if (line.startsWith('ERR ')) {
+      const rest = line.slice(4).trim()
+      const sp = rest.indexOf(' ')
+      r.failed.push(sp === -1 ? { id: rest, reason: '未知' } : { id: rest.slice(0, sp), reason: rest.slice(sp + 1) })
+    }
+  }
+  return r
+}
+
+/** 控制端 auth.json → 引擎推送条目（type=api 才推；oauth 机器相关，跳过并点名）。 */
+export function enginePushEntries(authJson: string): { providers: Array<{ id: string; key: string }>; skippedOauth: string[] } {
+  const j = JSON.parse(authJson) as Record<string, { type?: string; key?: string; api_key?: string; apiKey?: string }>
+  const providers: Array<{ id: string; key: string }> = []
+  const skippedOauth: string[] = []
+  for (const [id, v] of Object.entries(j)) {
+    if (!v || typeof v !== 'object') continue
+    const key = v.key ?? v.api_key ?? v.apiKey
+    if (typeof key === 'string' && key && (v.type ?? 'api') === 'api') providers.push({ id, key })
+    else skippedOauth.push(id)
+  }
+  return { providers, skippedOauth }
 }
 
 /** Remove a staging tree (the manager's cleanup, kept here so the temp layout

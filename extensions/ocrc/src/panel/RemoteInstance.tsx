@@ -777,7 +777,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                 「同步完要重启」是实测踩过的坑，不写出来用户会白同步一次。 */}
             {authDrift ? (
               <div className="oc-xs oc-muted">
-                {`凭据与控制端不一致${authDrift.reason ? `（${authDrift.reason}）` : ''}——「同步凭据」可对齐；同步后要重启实例才生效。`}
+                {`凭据与控制端不一致${authDrift.reason ? `（${authDrift.reason}）` : ''}——「同步凭据」可对齐，引擎运行时立即生效。`}
               </div>
             ) : null}
 
@@ -1219,7 +1219,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                     {planFor.reply.auth.sync === 'match'
                       ? '凭据：与控制端一致。'
                       : planFor.reply.auth.sync === 'drift'
-                        ? `凭据：不一致（${planFor.reply.auth.reason ?? '对端是旧凭据'}）——「同步凭据」可对齐，同步后要重启实例才生效。`
+                        ? `凭据：不一致（${planFor.reply.auth.reason ?? '引擎里是旧凭据'}）——「同步凭据」可对齐，引擎运行时立即生效。`
                         : `凭据：未定（${planFor.reply.auth.reason ?? '探测失败'}）。`}
                   </div>
                 ) : null}

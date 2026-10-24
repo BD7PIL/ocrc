@@ -1,7 +1,19 @@
 # Changelog
 
-## 2.0.0-alpha.20 — 检查并更新名副其实 + 操作台 + 面板重设计（2026-10-24，扩展 0.10.0/0.10.1/0.10.2）
+## 2.0.0-alpha.20 — 检查并更新名副其实 + 操作台 + 面板重设计（2026-10-24，扩展 0.10.0/0.10.1/0.10.2/0.10.3）
 
+- **sync-auth v2：对准 opencode v2 的真实凭据路径（扩展 0.10.3）**：源码级取证确认 v2 把
+  provider key 存在引擎 `~/.local/share/opencode/opencode.db` 的 credential 表，`auth.json`
+  只在全新 DB 首次迁移时被读一次——对已迁移的库**只写 auth.json 是死信**（EL7 实证：DB 里
+  deepseek=旧 key 尾 5499，auth.json=新 key，引擎用 DB 的旧 key 被拒）。sync-auth 升级为
+  **双写**：auth.json 照写（全新库迁移路径）+ 控制端 type=api 凭据经引擎
+  `POST /api/credential` 推入（openchamber renewStoredLogin 同款「先建新行 activate 再删
+  旧行」；key 走 ssh stdin，明文不进命令行/日志/回传；对端自建凭据不删只报备；oauth 跳过
+  点名；引擎未运行时如实说「启动后再同步一次」）。**热生效**：推送后不重启即生效（EL7
+  实证——钉死 deepseek-v4.1-flash-1017 直发即通；链路故障转移会掩盖单 provider 失败，
+  判定凭据必须钉死模型直发）。漂移探测同步升级：一次 ssh 取 auth.json 指纹 + 引擎
+  credential 指纹（对端就地指纹化，明文不出对端），**判定以引擎真实凭据为准**（引擎用
+  哪把算哪把）；引擎未运行=unknown 不伪装 drift；match 时报备对端自建凭据数量。
 - **凭据漂移可见化（扩展 0.10.2）**：DS key 轮换后对端还在用旧 key、问题不可见（2026-10-24
   实修实踩）。探测与 egress 同款范式：`sha256sum` 比对控制端与对端 auth.json（**只比哈希，
   凭据内容与哈希都不回传/进面板**），结论三值 match/drift/unknown；「检查」（plan）、
@@ -56,6 +68,7 @@
   收起 chip、深色操作台）。0.10.1 增量：引擎跟随/重试决策表与 npm fixture（registry）、CLI 离线
   路径（空库 list/status、remove 前置拒绝）、面板引擎徽章三态——主仓 283、扩展 57。
   0.10.2 增量：指纹命令/解析/漂移决策三件套 + 面板徽章三态——主仓 286、扩展 58。
+  0.10.3 增量：引擎凭据探测/推送 v2（决策表/解析/脚本构造）——主仓 289、扩展 58。
 
 ## 2.0.0-alpha.19 — 组件 pin reeve 0.2.4（2026-10-24）
 

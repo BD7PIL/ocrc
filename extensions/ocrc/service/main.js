@@ -135,18 +135,21 @@ __export(instance_config_exports, {
   PEER_AUTH_PATH: () => PEER_AUTH_PATH,
   PEER_CONFIG_DIR: () => PEER_CONFIG_DIR,
   applyKeyDeletes: () => applyKeyDeletes,
-  buildAuthFingerprintCommand: () => buildAuthFingerprintCommand,
   buildAuthPushScript: () => buildAuthPushScript,
+  buildAuthSyncProbeScript: () => buildAuthSyncProbeScript,
   buildConfigApplyScript: () => buildConfigApplyScript,
+  buildEngineCredentialPushScript: () => buildEngineCredentialPushScript,
   buildPeerConfigReadScript: () => buildPeerConfigReadScript,
-  decideAuthSync: () => decideAuthSync,
+  decideAuthSyncV2: () => decideAuthSyncV2,
   diffConfig: () => diffConfig,
   discardStaging: () => discardStaging,
+  enginePushEntries: () => enginePushEntries,
   findPeerOnlyKeys: () => findPeerOnlyKeys,
   findShadowedKeys: () => findShadowedKeys,
   listStaged: () => listStaged,
   mergeConfigLayers: () => mergeConfigLayers,
-  parseAuthFingerprint: () => parseAuthFingerprint,
+  parseAuthSyncProbe: () => parseAuthSyncProbe,
+  parseEngineCredentialPush: () => parseEngineCredentialPush,
   parsePeerConfigRead: () => parsePeerConfigRead,
   planConfigSync: () => planConfigSync,
   readLocalConfig: () => readLocalConfig,
@@ -545,23 +548,132 @@ function buildAuthPushScript() {
     'echo "sync-auth: written 0600"'
   ].join("\n");
 }
-function buildAuthFingerprintCommand() {
-  return `A="${PEER_AUTH_PATH}"; if [ -f "$A" ]; then sha256sum "$A" | cut -d' ' -f1; stat -c %Y "$A"; else echo MISSING; fi`;
+function buildAuthSyncProbeScript(nodeVersion) {
+  const b64 = Buffer.from(PEER_CRED_FINGERPRINTER, "utf8").toString("base64");
+  return [
+    `A="${PEER_AUTH_PATH}"`,
+    `if [ -f "$A" ]; then printf 'AUTHFILE '; sha256sum "$A" | cut -d' ' -f1; stat -c %Y "$A"; else echo 'AUTHFILE=MISSING'; fi`,
+    `N="$HOME/.ocrc/remote/runtime/node-v${nodeVersion}/bin/node"`,
+    `PID=$(ps -eo pid,args | grep 'engine/opencode serve' | grep -v grep | awk '{print $1}' | head -1)`,
+    `if [ -z "$PID" ]; then echo 'ENGINE=not-running'; exit 0; fi`,
+    `[ -x "$N" ] || { echo 'ENGINE=runtime-missing'; exit 0; }`,
+    `PORT=$(tr '\\0' ' ' < /proc/$PID/cmdline | sed -n 's/.*--port \\([0-9]*\\).*/\\1/p')`,
+    `PW=$(tr '\\0' '\\n' < /proc/$PID/environ 2>/dev/null | sed -n 's/^OPENCODE_SERVER_PASSWORD=//p' | head -1)`,
+    `if [ -z "$PORT" ] || [ -z "$PW" ]; then echo 'ENGINE=no-password'; exit 0; fi`,
+    `echo 'ENGINE=running'`,
+    `curl -s -m 20 -u "opencode:$PW" "http://127.0.0.1:$PORT/api/credential" | "$N" -e "$(echo '${b64}' | base64 -d)" || echo 'CREDS parse-fail'`
+  ].join("\n");
 }
-function parseAuthFingerprint(out) {
-  const lines = out.trim().split("\n").map((l) => l.trim()).filter(Boolean);
-  if (lines.some((l) => l === "MISSING")) return "missing";
-  const sha = /^[0-9a-f]{64}$/.test(lines[0] ?? "") ? lines[0] : void 0;
-  if (!sha) return void 0;
-  const mtime = Number(lines[1]);
-  return { sha, mtime: Number.isFinite(mtime) && mtime > 0 ? mtime : void 0 };
+function parseAuthSyncProbe(out) {
+  const view = { authFile: void 0, engine: "probe-fail", creds: [] };
+  for (const lineRaw of out.split("\n")) {
+    const line = lineRaw.trim();
+    if (!line) continue;
+    if (line === "AUTHFILE=MISSING") {
+      view.authFile = "missing";
+      continue;
+    }
+    const af = /^AUTHFILE ([0-9a-f]{64})$/.exec(line);
+    if (af) {
+      view.authFile = { sha: af[1] };
+      continue;
+    }
+    if (/^\d{10}$/.test(line) && view.authFile && view.authFile !== "missing") {
+      ;
+      view.authFile.mtime = Number(line);
+      continue;
+    }
+    if (line.startsWith("ENGINE=")) {
+      const v = line.slice("ENGINE=".length);
+      view.engine = ["running", "not-running", "no-password", "runtime-missing", "probe-fail"].includes(v) ? v : "probe-fail";
+      continue;
+    }
+    if (line === "CREDS parse-fail") {
+      view.credsParseFail = true;
+      continue;
+    }
+    const m = /^CRED (\S+)(?: ([0-9a-f]{12}) (\d+) (\S{1,8}))?/.exec(line);
+    if (m) {
+      if (m[2]) view.creds.push({ id: m[1], fp: m[2], len: Number(m[3]), tail4: m[4] });
+      else view.creds.push({ id: m[1] });
+    }
+  }
+  return view;
 }
-function decideAuthSync(o) {
-  if (!o.localSha) return { sync: "unknown", reason: "\u672C\u673A\u6CA1\u6709 auth.json\uFF08\u5148\u5728\u672C\u673A\u767B\u5F55 provider\uFF09" };
-  if (o.peer === "missing") return { sync: "drift", reason: "\u5BF9\u7AEF\u6CA1\u6709 auth.json\uFF08\u4ECE\u672A\u540C\u6B65\u8FC7\u51ED\u636E\uFF09" };
-  if (!o.peer || !o.peer.sha) return { sync: "unknown", reason: "\u5BF9\u7AEF\u6307\u7EB9\u8BFB\u4E0D\u51FA\u6765\uFF08\u63A2\u6D4B\u8F93\u51FA\u5F02\u5E38\uFF09" };
-  if (o.peer.sha !== o.localSha) return { sync: "drift", reason: "\u5BF9\u7AEF\u662F\u65E7\u51ED\u636E\uFF08\u672C\u673A auth.json \u5728\u4E0A\u6B21\u540C\u6B65\u540E\u6539\u8FC7\uFF09" };
-  return { sync: "match" };
+function decideAuthSyncV2(o) {
+  if (o.probe.engine !== "running") {
+    const why = {
+      "not-running": "\u5F15\u64CE\u672A\u8FD0\u884C\uFF08\u542F\u52A8\u540E\u8DD1\u4E00\u6B21\u68C0\u67E5\u6216\u540C\u6B65\u5373\u53EF\u6838\u5BF9\uFF09",
+      "no-password": "\u5F15\u64CE\u5728\u8DD1\u4F46\u53D6\u4E0D\u5230\u5B83\u7684 API \u5BC6\u7801\uFF08\u5916\u90E8\u5B9E\u4F8B\uFF1F\uFF09",
+      "runtime-missing": "\u5BF9\u7AEF\u7F3A\u6211\u4EEC\u7684 runtime node\uFF08\u5148\u88C5\u673A\uFF09",
+      "probe-fail": "\u5F15\u64CE\u51ED\u636E\u63A2\u6D4B\u5931\u8D25\uFF08ssh/\u8F93\u51FA\u5F02\u5E38\uFF09"
+    };
+    return { sync: "unknown", reason: why[o.probe.engine] };
+  }
+  if (o.probe.credsParseFail) return { sync: "unknown", reason: "\u5F15\u64CE /api/credential \u8F93\u51FA\u89E3\u6790\u5931\u8D25" };
+  const byId = new Map(o.probe.creds.map((c) => [c.id, c]));
+  const problems = [];
+  for (const want of o.local) {
+    const got = byId.get(want.id);
+    if (!got) problems.push(`${want.id}\uFF08\u5F15\u64CE\u91CC\u6CA1\u6709\uFF09`);
+    else if (!got.fp) problems.push(`${want.id}\uFF08\u5F15\u64CE\u5B58\u7684\u4E0D\u662F api key\uFF09`);
+    else if (got.fp !== want.fp) problems.push(`${want.id}\uFF08\u65E7 key\uFF0C\u5C3E\u53F7 ${got.tail4 ?? "?"}\uFF09`);
+  }
+  if (problems.length) return { sync: "drift", reason: `\u5F15\u64CE\u51ED\u636E\u4E0E\u63A7\u5236\u7AEF\u4E0D\u4E00\u81F4\uFF1A${problems.join("\u3001")}` };
+  const extra = o.probe.creds.filter((c) => !o.local.some((l) => l.id === c.id)).length;
+  return { sync: "match", reason: extra ? `\u5F15\u64CE\u53E6\u6709 ${extra} \u4E2A\u5BF9\u7AEF\u81EA\u5EFA\u51ED\u636E\uFF08\u4E0D\u52A8\uFF09` : void 0 };
+}
+function buildEngineCredentialPushScript(nodeVersion) {
+  const b64 = Buffer.from(PEER_CRED_PUSHER, "utf8").toString("base64");
+  return [
+    `N="$HOME/.ocrc/remote/runtime/node-v${nodeVersion}/bin/node"`,
+    `PID=$(ps -eo pid,args | grep 'engine/opencode serve' | grep -v grep | awk '{print $1}' | head -1)`,
+    `if [ -z "$PID" ]; then echo 'ENGINE=not-running'; exit 0; fi`,
+    `[ -x "$N" ] || { echo 'ENGINE=runtime-missing'; exit 0; }`,
+    `PORT=$(tr '\\0' ' ' < /proc/$PID/cmdline | sed -n 's/.*--port \\([0-9]*\\).*/\\1/p')`,
+    `PW=$(tr '\\0' '\\n' < /proc/$PID/environ 2>/dev/null | sed -n 's/^OPENCODE_SERVER_PASSWORD=//p' | head -1)`,
+    `if [ -z "$PORT" ] || [ -z "$PW" ]; then echo 'ENGINE=no-password'; exit 0; fi`,
+    `echo 'ENGINE=running'`,
+    `OC_PW="$PW" OC_PORT="$PORT" "$N" -e "$(echo '${b64}' | base64 -d)"`
+  ].join("\n");
+}
+function parseEngineCredentialPush(out) {
+  const r = { engine: "running", updated: [], failed: [] };
+  for (const lineRaw of out.split("\n")) {
+    const line = lineRaw.trim();
+    if (line.startsWith("ENGINE=")) {
+      const v = line.slice("ENGINE=".length);
+      r.engine = ["running", "not-running", "no-password", "runtime-missing", "probe-fail"].includes(v) ? v : "probe-fail";
+      continue;
+    }
+    if (line === "PUSH parse-fail") {
+      r.failed.push({ id: "(payload)", reason: "\u63A8\u9001\u8F7D\u8377\u89E3\u6790\u5931\u8D25" });
+      continue;
+    }
+    if (line.startsWith("PUSH list-HTTP-")) {
+      r.failed.push({ id: "(list)", reason: `\u5F15\u64CE\u51ED\u636E\u5217\u8868 HTTP ${line.slice("PUSH list-HTTP-".length)}` });
+      continue;
+    }
+    if (line.startsWith("OK ")) r.updated.push(line.slice(3).trim());
+    else if (line.startsWith("ERR ")) {
+      const rest = line.slice(4).trim();
+      const sp = rest.indexOf(" ");
+      r.failed.push(sp === -1 ? { id: rest, reason: "\u672A\u77E5" } : { id: rest.slice(0, sp), reason: rest.slice(sp + 1) });
+    }
+  }
+  return r;
+}
+function enginePushEntries(authJson) {
+  const j = JSON.parse(authJson);
+  const providers = [];
+  const skippedOauth = [];
+  for (const [id, v] of Object.entries(j)) {
+    if (!v || typeof v !== "object") continue;
+    const key = v.key ?? v.api_key ?? v.apiKey;
+    if (typeof key === "string" && key && (v.type ?? "api") === "api") providers.push({ id, key });
+    else skippedOauth.push(id);
+  }
+  return { providers, skippedOauth };
 }
 function discardStaging(dir) {
   rmSync3(dir, { recursive: true, force: true });
@@ -579,7 +691,7 @@ function listStaged(dir) {
   if (existsSync5(dir)) walk(dir);
   return out.sort();
 }
-var PEER_CONFIG_DIR, PEER_AUTH_PATH, INSTANCE_SYNC_ENTRIES, CONFIG_CANDIDATES, MANAGED_COLLECTIONS;
+var PEER_CONFIG_DIR, PEER_AUTH_PATH, INSTANCE_SYNC_ENTRIES, CONFIG_CANDIDATES, MANAGED_COLLECTIONS, PEER_CRED_FINGERPRINTER, PEER_CRED_PUSHER;
 var init_instance_config = __esm({
   "../../src/core/instance-config.ts"() {
     "use strict";
@@ -611,6 +723,65 @@ var init_instance_config = __esm({
       { id: "providers", path: ["providers"] },
       { id: "mcp.servers", path: ["mcp", "servers"] }
     ];
+    PEER_CRED_FINGERPRINTER = `
+let raw = ''
+process.stdin.on('data', (d) => { raw += d })
+process.stdin.on('end', () => {
+  const crypto = require('node:crypto')
+  try {
+    const j = JSON.parse(raw)
+    const rows = Array.isArray(j) ? j : (j.data ?? [])
+    for (const c of rows) {
+      const key = c.value && typeof c.value === 'object' ? (c.value.key ?? c.value.access) : undefined
+      const id = c.integrationID ?? c.integration_id ?? '?'
+      if (typeof key === 'string' && key) {
+        console.log('CRED ' + id + ' ' + crypto.createHash('sha256').update(key).digest('hex').slice(0, 12) + ' ' + key.length + ' ' + key.slice(-4))
+      } else {
+        console.log('CRED ' + id + ' no-key(' + (c.value && c.value.type ? c.value.type : '?') + ')')
+      }
+    }
+  } catch { console.log('CREDS parse-fail') }
+})
+`;
+    PEER_CRED_PUSHER = `
+let raw = ''
+process.stdin.on('data', (d) => { raw += d })
+process.stdin.on('end', async () => {
+  let providers
+  try { providers = JSON.parse(raw).providers } catch { console.log('PUSH parse-fail'); return }
+  const auth = 'Basic ' + Buffer.from('opencode:' + process.env.OC_PW).toString('base64')
+  const base = 'http://127.0.0.1:' + process.env.OC_PORT
+  const listRes = await fetch(base + '/api/credential', { headers: { authorization: auth } })
+  if (!listRes.ok) { console.log('PUSH list-HTTP-' + listRes.status); return }
+  const list = await listRes.json()
+  const old = new Map()
+  for (const c of (Array.isArray(list) ? list : (list.data ?? []))) {
+    const k = c.integrationID ?? c.integration_id
+    if (!k) continue
+    if (!old.has(k)) old.set(k, [])
+    old.get(k).push(c.id)
+  }
+  for (const p of providers) {
+    try {
+      const body = JSON.stringify({ integrationID: p.id, label: 'ocrc sync', value: { type: 'key', key: p.key }, activate: true })
+      let made = await fetch(base + '/api/credential', { method: 'POST', headers: { authorization: auth, 'content-type': 'application/json' }, body })
+      if (made.status === 409) {
+        for (const oid of (old.get(p.id) ?? [])) await fetch(base + '/api/credential/' + oid, { method: 'DELETE', headers: { authorization: auth } }).catch(() => {})
+        made = await fetch(base + '/api/credential', { method: 'POST', headers: { authorization: auth, 'content-type': 'application/json' }, body })
+      }
+      if (!made.ok) { console.log('ERR ' + p.id + ' HTTP ' + made.status); continue }
+      const created = await made.json().catch(() => ({}))
+      const newId = (created && created.data && created.data.id) || (created && created.id)
+      for (const oid of (old.get(p.id) ?? [])) {
+        if (oid === newId) continue
+        const del = await fetch(base + '/api/credential/' + oid, { method: 'DELETE', headers: { authorization: auth } }).catch(() => null)
+        if (!del || !del.ok) console.log('WARN ' + p.id + ' \u65E7\u884C\u6E05\u7406\u5931\u8D25')
+      }
+      console.log('OK ' + p.id)
+    } catch (e) { console.log('ERR ' + p.id + ' ' + String((e && e.message) || e).slice(0, 80)) }
+  }
+})
+`;
   }
 });
 
@@ -3287,24 +3458,31 @@ tar: ${err.message}` });
     const r = rt(instance.id);
     if (!probeOpts.bust && r.authSync && Date.now() - r.authSync.at < EGRESS_TTL_MS) return r.authSync;
     const local = readLocalConfig({ dir: opts.localConfigDir, authPath: opts.localAuthPath });
-    const localSha = local.authPresent ? createHash5("sha256").update(readFileSync7(local.authPath)).digest("hex") : void 0;
-    let peer;
-    let sshError;
-    if (localSha) {
+    let localLines;
+    if (local.authPresent) {
+      const raw = readFileSync7(local.authPath, "utf8");
       try {
-        const out = await ssh(instance, buildAuthFingerprintCommand(), 2e4);
-        peer = parseAuthFingerprint(out.stdout);
-      } catch (err) {
-        sshError = err.message;
+        localLines = enginePushEntries(raw).providers.map((p) => ({ id: p.id, fp: createHash5("sha256").update(p.key).digest("hex").slice(0, 12) }));
+      } catch {
       }
     }
-    const verdict = !localSha ? { sync: "unknown", reason: `\u672C\u673A\u6CA1\u6709 ${local.authPath}\u2014\u2014\u5148\u5728\u672C\u673A\u767B\u5F55 provider` } : sshError ? { sync: "unknown", reason: `\u5BF9\u7AEF\u6307\u7EB9\u53D6\u4E0D\u5230\uFF08ssh\uFF1A${sshError}\uFF09` } : decideAuthSync({ localSha, peer });
+    let verdict;
+    if (!localLines) {
+      verdict = { sync: "unknown", reason: `\u672C\u673A\u6CA1\u6709\u53EF\u7528\u7684 auth.json\uFF08${local.authPath}\uFF09\u2014\u2014\u5148\u5728\u672C\u673A\u767B\u5F55 provider` };
+    } else {
+      try {
+        const out = await ssh(instance, buildAuthSyncProbeScript(NODE_RUNTIME.version), 3e4);
+        verdict = decideAuthSyncV2({ local: localLines, probe: parseAuthSyncProbe(out.stdout) });
+      } catch (err) {
+        verdict = { sync: "unknown", reason: `\u63A2\u6D4B\u5931\u8D25\uFF08ssh\uFF1A${err.message}\uFF09` };
+      }
+    }
     const value = { ...verdict, at: Date.now() };
     r.authSync = value;
     opts.store.update(instance.id, {
       observed: { ...instance.observed, auth: { sync: value.sync, at: value.at } }
     });
-    if (value.sync === "drift") pushLog(instance.id, `\u51ED\u636E\u4E0D\u4E00\u81F4\uFF1A${value.reason ?? "\u5BF9\u7AEF\u4E0E\u63A7\u5236\u7AEF auth.json \u4E0D\u540C"}\uFF08sync-auth \u53EF\u5BF9\u9F50\uFF0C\u540C\u6B65\u540E\u8981\u91CD\u542F\u5B9E\u4F8B\uFF09`);
+    if (value.sync === "drift") pushLog(instance.id, `\u51ED\u636E\u4E0D\u4E00\u81F4\uFF1A${value.reason ?? "\u5F15\u64CE\u51ED\u636E\u4E0E\u63A7\u5236\u7AEF\u4E0D\u540C"}\uFF08sync-auth \u53EF\u5BF9\u9F50\uFF09`);
     return value;
   }
   function authView(instance) {
@@ -4245,9 +4423,39 @@ tar: ${err.message}` });
         return { ok: false, detail: detail2 };
       }
       pushLog(id, "sync-auth: \u51ED\u636E\u5DF2\u5199\u5230\u8FDC\u7A0B\u673A\u5668\uFF080600\uFF0C\u65E7\u4EF6\u7559 .ocrc-bak\uFF09");
+      let engineNote;
+      try {
+        const entries = enginePushEntries(content.toString("utf8"));
+        const push = await sshRunWithStdin(
+          instance,
+          buildEngineCredentialPushScript(NODE_RUNTIME.version),
+          JSON.stringify({ providers: entries.providers }),
+          { timeoutMs: 9e4 }
+        );
+        const parsed = parseEngineCredentialPush(push.stdout);
+        if (parsed.engine === "running") {
+          const parts = [`\u5F15\u64CE\u51ED\u636E\uFF1A${parsed.updated.length}/${entries.providers.length} \u4E2A provider \u5DF2\u66F4\u65B0`];
+          if (parsed.failed.length) parts.push(`\u5931\u8D25 ${parsed.failed.map((f) => `${f.id}(${f.reason})`).join("\u3001")}`);
+          if (entries.skippedOauth.length) parts.push(`\u8DF3\u8FC7 oauth \u7C7B\uFF1A${entries.skippedOauth.join("\u3001")}`);
+          engineNote = parts.join("\uFF1B");
+          pushLog(id, `sync-auth: ${engineNote}`);
+        } else {
+          const why = {
+            "not-running": "\u5F15\u64CE\u672A\u8FD0\u884C\u2014\u2014\u5F15\u64CE\u51ED\u636E\u672A\u66F4\u65B0\uFF0C\u542F\u52A8\u540E\u518D\u540C\u6B65\u4E00\u6B21",
+            "no-password": "\u5F15\u64CE\u5728\u8DD1\u4F46\u53D6\u4E0D\u5230\u5176 API \u5BC6\u7801\uFF08\u5916\u90E8\u5B9E\u4F8B\uFF09\u2014\u2014\u5F15\u64CE\u51ED\u636E\u672A\u66F4\u65B0",
+            "runtime-missing": "\u5BF9\u7AEF\u7F3A runtime node\u2014\u2014\u5F15\u64CE\u51ED\u636E\u672A\u66F4\u65B0",
+            "probe-fail": "\u5F15\u64CE\u51ED\u636E\u63A8\u9001\u5F02\u5E38\u2014\u2014\u672A\u66F4\u65B0"
+          };
+          engineNote = why[parsed.engine] ?? "\u5F15\u64CE\u51ED\u636E\u672A\u66F4\u65B0\uFF08\u539F\u56E0\u672A\u77E5\uFF09";
+          pushLog(id, `sync-auth: ${engineNote}`);
+        }
+      } catch (err) {
+        engineNote = `\u5F15\u64CE\u51ED\u636E\u63A8\u9001\u5931\u8D25\uFF08${err.message}\uFF09\u2014\u2014auth.json \u5DF2\u5199\uFF0C\u5F15\u64CE\u4FA7\u672A\u66F4\u65B0`;
+        pushLog(id, `sync-auth: ${engineNote}`);
+      }
       const verified = await authSyncFor(instance, { bust: true });
-      const detail = verified.sync === "match" ? `\u51ED\u636E\u5DF2\u540C\u6B65\uFF08${content.length} \u5B57\u8282 \u2192 \u8FDC\u7A0B\u673A\u5668 0600\uFF09\uFF1B\u6307\u7EB9\u590D\u6838\u4E00\u81F4\u2014\u2014\u540C\u6B65\u540E\u8981\u91CD\u542F\u5B9E\u4F8B\uFF08down/up\uFF09\u624D\u751F\u6548` : `\u51ED\u636E\u5DF2\u540C\u6B65\uFF08${content.length} \u5B57\u8282 \u2192 \u8FDC\u7A0B\u673A\u5668 0600\uFF09\uFF0C\u4F46\u590D\u6838${verified.sync === "drift" ? "\u4ECD\u4E0D\u4E00\u81F4" : "\u672A\u5B9A"}\uFF08${verified.reason ?? "\u539F\u56E0\u672A\u77E5"}\uFF09`;
-      pushLog(id, `sync-auth: ${verified.sync === "match" ? "\u6307\u7EB9\u590D\u6838\u4E00\u81F4" : `\u590D\u6838 ${verified.sync}\uFF08${verified.reason ?? ""}\uFF09`}`);
+      const detail = `\u51ED\u636E\u5DF2\u540C\u6B65\uFF08${content.length} \u5B57\u8282 \u2192 \u8FDC\u7A0B\u673A\u5668 0600\uFF09\uFF1B${engineNote}${verified.sync === "match" ? "\uFF1B\u6307\u7EB9\u590D\u6838\u4E00\u81F4" : `\uFF1B\u590D\u6838 ${verified.sync}\uFF08${verified.reason ?? "\u539F\u56E0\u672A\u77E5"}\uFF09`}`;
+      pushLog(id, `sync-auth: \u590D\u6838 ${verified.sync}${verified.reason ? `\uFF08${verified.reason}\uFF09` : ""}`);
       return { ok: true, detail };
     },
     logs(id) {

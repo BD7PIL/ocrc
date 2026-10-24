@@ -32,6 +32,7 @@ import {
   buildPairLinkCommand, parsePairLink, describePairLink, buildEgressProbeCommand, parseEgressProbe, resolveEgressPolicy,
   EGRESS_DEFAULT, type EgressMode, type EgressProbe, type ProvisionMode,
   decideUpgrade,
+  NODE_RUNTIME,
   buildTerminalProbeCommand, instancePaths, parseTerminalProbe,
   judgeEngineCompat, judgeInstanceVersion, parseEngineProbe, pickV2Engine, withCompatRetry, type EngineCandidate,
   type EngineCompatPayload, type EnginePick, type ForwardSpec, type InstanceProxyConfig,
@@ -40,9 +41,10 @@ import {
 import { appPackTierForGlibc, buildAppProbeCommand, buildOfflineGuardExports, buildRuntimeProbeCommand, provisionOffline, resolveEnginePin, sshRun, sshRunWithStdin, type AppPackTier, type SshResult } from './remote-instance-push.js'
 import { latestPublishedPack, latestEngineVersion, packReleaseAvailable, planUpgradeRun } from './app-pack-registry.js'
 import {
-  buildAuthFingerprintCommand, buildAuthPushScript, buildConfigApplyScript, buildPeerConfigReadScript, decideAuthSync,
-  diffConfig, discardStaging, parseAuthFingerprint, parsePeerConfigRead, planConfigSync, readLocalConfig, stageConfigTree,
-  type AuthFingerprint, type AuthSyncState,
+  buildAuthSyncProbeScript, buildAuthPushScript, buildConfigApplyScript, buildEngineCredentialPushScript, buildPeerConfigReadScript,
+  decideAuthSyncV2, enginePushEntries, parseAuthSyncProbe, parseEngineCredentialPush,
+  diffConfig, discardStaging, parsePeerConfigRead, planConfigSync, readLocalConfig, stageConfigTree,
+  type AuthSyncState,
 } from './instance-config.js'
 import { defaultComponentSources, installPreparedComponent, pluginEntryFor, prepareComponent, registerPeerPlugins } from './components.js'
 import { renderConfig } from './config-merge.js'
@@ -772,39 +774,40 @@ export function createRemoteInstanceManager(opts: {
     return { mode, relay: cached.relay, reason: cached.reason, probe: cached.probe, cached: true }
   }
 
-  /** auth 漂移探测（与 egressFor 同款范式，2026-10-24：key 轮换后对端还在用旧
-   *  key，问题不可见）。本机 auth.json 的 sha256 vs 对端 `sha256sum` 输出——
-   *  **只比哈希**，凭据内容不回传、不进缓存、不进面板。结论双写：rt 缓存
+  /** auth 漂移探测 v2（2026-10-24 深夜取证后）：**引擎真实凭据为准**——opencode
+   *  v2 的 key 存在引擎 DB（credential 表），auth.json 只在全新 DB 首次迁移时被
+   *  读一次。探测一次 ssh 同时取 auth.json 指纹与引擎 credential 指纹（明文在
+   *  对端就地指纹化，不出对端）；判定用 decideAuthSyncV2。结论双写：rt 缓存
    *  （本进程 5 分钟 TTL）+ store.observed（service 重启后徽章仍在）。失败不
-   *  抛错：ssh 不通/输出异常 = unknown，plan 不因它失败。 */
+   *  抛错：引擎没跑/ssh 不通 = unknown，plan 不因它失败。 */
   async function authSyncFor(instance: RemoteInstance, probeOpts: { bust?: boolean } = {}): Promise<{ sync: AuthSyncState; reason?: string; at: number }> {
     const r = rt(instance.id)
     if (!probeOpts.bust && r.authSync && Date.now() - r.authSync.at < EGRESS_TTL_MS) return r.authSync
     const local = readLocalConfig({ dir: opts.localConfigDir, authPath: opts.localAuthPath })
-    const localSha = local.authPresent
-      ? createHash('sha256').update(readFileSync(local.authPath)).digest('hex')
-      : undefined
-    let peer: AuthFingerprint | 'missing' | undefined
-    let sshError: string | undefined
-    if (localSha) {
+    let localLines: Array<{ id: string; fp: string }> | undefined
+    if (local.authPresent) {
+      const raw = readFileSync(local.authPath, 'utf8')
       try {
-        const out = await ssh(instance, buildAuthFingerprintCommand(), 20_000)
-        peer = parseAuthFingerprint(out.stdout)
+        localLines = enginePushEntries(raw).providers.map((p) => ({ id: p.id, fp: createHash('sha256').update(p.key).digest('hex').slice(0, 12) }))
+      } catch { /* 控制端 auth.json 解析失败 → unknown */ }
+    }
+    let verdict: { sync: AuthSyncState; reason?: string } | undefined
+    if (!localLines) {
+      verdict = { sync: 'unknown', reason: `本机没有可用的 auth.json（${local.authPath}）——先在本机登录 provider` }
+    } else {
+      try {
+        const out = await ssh(instance, buildAuthSyncProbeScript(NODE_RUNTIME.version), 30_000)
+        verdict = decideAuthSyncV2({ local: localLines, probe: parseAuthSyncProbe(out.stdout) })
       } catch (err) {
-        sshError = (err as Error).message
+        verdict = { sync: 'unknown', reason: `探测失败（ssh：${(err as Error).message}）` }
       }
     }
-    const verdict = !localSha
-      ? { sync: 'unknown' as AuthSyncState, reason: `本机没有 ${local.authPath}——先在本机登录 provider` }
-      : sshError
-        ? { sync: 'unknown' as AuthSyncState, reason: `对端指纹取不到（ssh：${sshError}）` }
-        : decideAuthSync({ localSha, peer })
     const value = { ...verdict, at: Date.now() }
     r.authSync = value
     opts.store.update(instance.id, {
       observed: { ...instance.observed, auth: { sync: value.sync, at: value.at } },
     })
-    if (value.sync === 'drift') pushLog(instance.id, `凭据不一致：${value.reason ?? '对端与控制端 auth.json 不同'}（sync-auth 可对齐，同步后要重启实例）`)
+    if (value.sync === 'drift') pushLog(instance.id, `凭据不一致：${value.reason ?? '引擎凭据与控制端不同'}（sync-auth 可对齐）`)
     return value
   }
 
@@ -1897,13 +1900,46 @@ async probe(id) {
       // Never log the content, and never echo it: the log says what happened,
       // not what was copied.
       pushLog(id, 'sync-auth: 凭据已写到远程机器（0600，旧件留 .ocrc-bak）')
-      // 同步完自证 match（bust 绕过缓存）：刚推的就是控制端这份，结论应当立刻
-      // 转绿——而不是等下一次「检查」。**提醒重启**：引擎起时读凭据，热文件不生效。
+
+      // v2 的真实存储是引擎 DB（credential 表）：auth.json 只服务全新库的首次
+      // 迁移，对已迁移的库是死信——所以第二写走引擎 /api/credential（面板保存
+      // key 的同一条官方路），renewStoredLogin 同款「先建新行再删旧行」。
+      // key 经 ssh stdin 承载，明文不出现在任何命令行/日志/回传里。
+      let engineNote: string
+      try {
+        const entries = enginePushEntries(content.toString('utf8'))
+        const push = await sshRunWithStdin(
+          instance,
+          buildEngineCredentialPushScript(NODE_RUNTIME.version),
+          JSON.stringify({ providers: entries.providers }),
+          { timeoutMs: 90_000 },
+        )
+        const parsed = parseEngineCredentialPush(push.stdout)
+        if (parsed.engine === 'running') {
+          const parts = [`引擎凭据：${parsed.updated.length}/${entries.providers.length} 个 provider 已更新`]
+          if (parsed.failed.length) parts.push(`失败 ${parsed.failed.map((f) => `${f.id}(${f.reason})`).join('、')}`)
+          if (entries.skippedOauth.length) parts.push(`跳过 oauth 类：${entries.skippedOauth.join('、')}`)
+          engineNote = parts.join('；')
+          pushLog(id, `sync-auth: ${engineNote}`)
+        } else {
+          const why: Record<string, string> = {
+            'not-running': '引擎未运行——引擎凭据未更新，启动后再同步一次',
+            'no-password': '引擎在跑但取不到其 API 密码（外部实例）——引擎凭据未更新',
+            'runtime-missing': '对端缺 runtime node——引擎凭据未更新',
+            'probe-fail': '引擎凭据推送异常——未更新',
+          }
+          engineNote = why[parsed.engine] ?? '引擎凭据未更新（原因未知）'
+          pushLog(id, `sync-auth: ${engineNote}`)
+        }
+      } catch (err) {
+        engineNote = `引擎凭据推送失败（${(err as Error).message}）——auth.json 已写，引擎侧未更新`
+        pushLog(id, `sync-auth: ${engineNote}`)
+      }
+
+      // 同步完自证（bust 绕过缓存）：以引擎真实凭据为判定源。
       const verified = await authSyncFor(instance, { bust: true })
-      const detail = verified.sync === 'match'
-        ? `凭据已同步（${content.length} 字节 → 远程机器 0600）；指纹复核一致——同步后要重启实例（down/up）才生效`
-        : `凭据已同步（${content.length} 字节 → 远程机器 0600），但复核${verified.sync === 'drift' ? '仍不一致' : '未定'}（${verified.reason ?? '原因未知'}）`
-      pushLog(id, `sync-auth: ${verified.sync === 'match' ? '指纹复核一致' : `复核 ${verified.sync}（${verified.reason ?? ''}）`}`)
+      const detail = `凭据已同步（${content.length} 字节 → 远程机器 0600）；${engineNote}${verified.sync === 'match' ? '；指纹复核一致' : `；复核 ${verified.sync}（${verified.reason ?? '原因未知'}）`}`
+      pushLog(id, `sync-auth: 复核 ${verified.sync}${verified.reason ? `（${verified.reason}）` : ''}`)
       return { ok: true, detail }
     },
 

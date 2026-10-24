@@ -46,7 +46,7 @@ ocrc remote up user@192.0.2.10 --open
 | 装机方式 | `ocrc remote add … --provision push\|reuse` | `push`（默认）推控制端备件；`reuse` **一个字节都不推**，只检查运行时/应用/引擎并把引擎 pin 下来，缺件就明确失败 |
 | 认证档 | `ocrc remote add … --ssh-auth key\|password` | `key`（默认）用本机 `~/.ssh` 与 agent；`password` 经 askpass 喂密码并**禁用公钥**（否则带口令的私钥会先被试，报的错与密码无关）。密码只落 0600 档案、接口不回显；省略 `--ssh-password` 时从终端（不回显）或 stdin 读 |
 | 日志 | `ocrc remote logs <id>` | 本端隧道/重连日志尾（受监督时同屏） |
-| 凭据 | 实例卡「同步凭据」/ `bootstrap` 串的 sync-auth | **点时拷贝**：把本机 `auth.json` 整体写到对端 0600（旧件留 `.ocrc-bak`）。**key 轮换后要重跑**，同步后**要重启实例**（引擎起时读凭据，热文件不生效）。漂移可见（0.10.2）：「检查」顺带 sha256 比对（只比哈希，凭据内容不回传），不一致亮「凭据不一致」徽章；`ocrc remote status` 打「凭据」行；结论存 store（service 重启仍可见） |
+| 凭据 | 实例卡「同步凭据」/ `bootstrap` 串的 sync-auth | **双写**（0.10.3）：① auth.json 整体写到对端 0600（服务全新库的首次迁移）；② 控制端 type=api 凭据经引擎 `POST /api/credential` 推入 **opencode v2 的真实存储（`~/.local/share/opencode/opencode.db` 的 credential 表）**——v2 只在全新 DB 初始化时读一次 auth.json，对已迁移的库只写 auth.json 无效（EL7 实证）。**热生效**：引擎运行时推送后立即生效，无需重启；引擎未运行则如实提示启动后再同步。对端自建凭据不删只报备。漂移可见：检查/同步自证时比对引擎真实凭据（对端就地指纹化，明文不出对端），不一致亮「凭据不一致」徽章；`ocrc remote status` 打「凭据」行 |
 | 开关 | `ocrc remote switches <id> [--reconnect on\|off] [--restore on\|off] [--replay on\|off]` | R10 三级；**改完立刻对运行中的监督生效** |
 | 出网 | `ocrc remote proxy <id> on\|off` / `relay-status <id>` / `proxy-log <file>` | R9；中继日志 `~/.ocrc/remote-relay.log` 记每次 CONNECT |
 | 白名单 | `ocrc remote proxy <id> allow api.deepseek.com,openai.com` / `allow-clear` | 点边界后缀匹配；**空 = 只拒回环**。收紧后必须同时放行模型 provider 与引擎基础设施域名（`models.opencode.ai` 等），否则引擎能起不能用；改完要 `down`/`up` 重启中继 |
@@ -67,11 +67,11 @@ ocrc remote up user@192.0.2.10 --open
 `confirm:true`，否则 409 + dryRun；`upgrade` 在面板走二次确认块，CLI 显式命令即确认）。
 `op:job` 轮询带 `logTail`（操作台的日志流）。密码不回显（`hasUiPassword`）。
 
-**面板 0.10.2 速览**：「检查更新」= plan 预演 + 升级入口（徽章「可升级 X」+「OpenCode 可升级 X」
+**面板 0.10.3 速览**：「检查更新」= plan 预演 + 升级入口（徽章「可升级 X」+「OpenCode 可升级 X」
 → 写盘确认，确认文案含「引擎将跟随渠道到 X（只升不降）」→ 升级 job）；**凭据不一致亮 warning
-徽章**（检查/sync-auth 后的 sha256 比对结论；hint 连着说修法与「同步后要重启」）；长操作运行时
-卡片内自动展开**操作台**（阶段轨道 + 实时日志，失败自动展开、成功 3 秒收起成结果 chip）；版本行
-显示 `实测版（pin X）`——实测来自实例自报（`store.observed`，service 重启后仍可见）；「日志」打开
+徽章**（引擎真实凭据比对结论；hint 说修法与「引擎运行时立即生效」）；长操作运行时卡片内自动
+展开**操作台**（阶段轨道 + 实时日志，失败自动展开、成功 3 秒收起成结果 chip）；版本行显示
+`实测版（pin X）`——实测来自实例自报（`store.observed`，service 重启后仍可见）；「日志」打开
 期间 5 秒自动轮询。视觉全部走宿主令牌（令牌表与规则见
 [design/panel-tokens-2026-10-24.md](design/panel-tokens-2026-10-24.md)）。
 
@@ -261,7 +261,7 @@ https://github.com/BD7PIL/ocrc/releases/download/ocrc-0.9.0/ocrc.zip
 
 - 装完会有**一次 service 能力审批**（扩展要在宿主上跑 `ssh`）——批准；git 装法在应用更新后
   会**再问一次**（`requested` 里带着能力清单），这是上游行为，不是回归。
-- 升级后想确认装的是哪一版：看面板的扩展卡片，或 Release 资产的 label（现在是 `ocrc 0.10.2`）。
+- 升级后想确认装的是哪一版：看面板的扩展卡片，或 Release 资产的 label（现在是 `ocrc 0.10.3`）。
 
 **面板与状态区（0.8.2 收缩：一个功能、一条动线）**
 

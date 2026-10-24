@@ -43,7 +43,7 @@ node extensions/ocrc/scripts/audit.mjs --no-serve # 复用已在跑的预览
 | 24 | 操作台 · 成功收起 | pass | 绿色结果 chip「✓ 启动：online：…」，点开回看 |
 | 25 | 操作台 · 失败（深色） | pass | 轨道/日志/横幅深色对比足够 |
 | 26–30 | 状态区 · 2 台 / 1 台 / 未添加 / 服务未运行 / 深色 | pass | 一行一机只读；服务未运行如实说 |
-| 31 | 凭据不一致（0.10.2） | pass | warning 徽章 + 修法 hint（含「同步后要重启」）；sha 比对验证 |
+| 31 | 凭据不一致（0.10.2/0.10.3） | pass | warning 徽章 + 修法 hint（引擎凭据走 /api/credential，热生效）；sha 比对验证 |
 
 ## 这一轮（第三轮）抓到并修掉的
 

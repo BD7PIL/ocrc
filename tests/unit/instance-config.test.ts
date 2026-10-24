@@ -3,8 +3,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFil
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  buildAuthFingerprintCommand, buildAuthPushScript, buildConfigApplyScript, buildPeerConfigReadScript, decideAuthSync,
-  diffConfig, parseAuthFingerprint, parsePeerConfigRead,
+  buildAuthSyncProbeScript, buildAuthPushScript, buildConfigApplyScript, buildEngineCredentialPushScript, buildPeerConfigReadScript,
+  decideAuthSyncV2, enginePushEntries, parseAuthSyncProbe, parseEngineCredentialPush, parsePeerConfigRead,
+  diffConfig,
   findShadowedKeys, planConfigSync, readLocalConfig, stageConfigTree,
 } from '../../src/core/instance-config.js'
 import { mergeSticky, renderConfig, stripLiteralSecrets } from '../../src/core/config-merge.js'
@@ -533,39 +534,99 @@ describe('staging and the peer-side scripts', () => {
   })
 })
 
-describe('auth 漂移探测（只比哈希，凭据内容不回传）', () => {
-  const SHA = 'a'.repeat(64)
-  const SHA2 = 'b'.repeat(64)
+describe('auth 漂移探测 v2（引擎 DB 凭据为准，明文不出对端）', () => {
+  const FP = 'a'.repeat(12)
+  const FP2 = 'b'.repeat(12)
 
-  it('指纹命令只输出哈希与 mtime；文件不在输出 MISSING', () => {
-    const cmd = buildAuthFingerprintCommand()
-    expect(cmd).toContain('sha256sum')
-    expect(cmd).toContain('MISSING')
-    // 不许出现 cat/回显内容——凭据纪律
-    expect(cmd).not.toContain('cat ')
+  it('探测脚本：定位引擎走 /proc；密码只进对端 env；指纹化 node 脚本 base64 内嵌', () => {
+    const s = buildAuthSyncProbeScript('24.22.0')
+    expect(s).toContain('engine/opencode serve')
+    expect(s).toContain('/proc/$PID/environ')
+    expect(s).toContain('OPENCODE_SERVER_PASSWORD')
+    expect(s).toContain('api/credential')
+    // 引擎没跑/没密码/缺 runtime 都要如实报，不许伪装成 drift
+    expect(s).toContain("echo 'ENGINE=not-running'")
+    expect(s).toContain("echo 'ENGINE=no-password'")
+    expect(s).toContain("echo 'ENGINE=runtime-missing'")
+    // 明文 key 绝不回传：curl 输出直管道给对端 node，脚本里没有 cat auth.json
+    expect(s).toContain('| "$N" -e')
+    expect(s).not.toContain(`cat "$A"`)
   })
 
-  it('解析：sha+mtime / MISSING / 垃圾输入', () => {
-    expect(parseAuthFingerprint(`${SHA}\n1770000000\n`)).toEqual({ sha: SHA, mtime: 1770000000 })
-    expect(parseAuthFingerprint(`${SHA}\n`)).toEqual({ sha: SHA, mtime: undefined })
-    expect(parseAuthFingerprint('MISSING')).toBe('missing')
-    expect(parseAuthFingerprint('')).toBeUndefined()
-    expect(parseAuthFingerprint('not-a-hash\n')).toBeUndefined()
-    expect(parseAuthFingerprint(`${SHA}\nmtime-garbage`)).toEqual({ sha: SHA, mtime: undefined })
+  it('推送脚本：凭据走 stdin（不进命令行/ps）；推送器 base64 内嵌', () => {
+    const s = buildEngineCredentialPushScript('24.22.0')
+    expect(s).not.toMatch(/apiKey|sk-/) // 命令行里不该出现 key 形态
+    // node 推送器经 env 拿端口与密码，本体 base64 内嵌（含 api/credential 调用）
+    expect(s).toContain('OC_PW=')
+    expect(s).toContain('OC_PORT=')
+    expect(s).toContain('base64 -d')
   })
 
-  it('决策表：match / 哈希不等 drift / 对端缺件 drift / 本机缺件 unknown / 输出异常 unknown', () => {
-    expect(decideAuthSync({ localSha: SHA, peer: { sha: SHA } })).toEqual({ sync: 'match' })
-    const stale = decideAuthSync({ localSha: SHA, peer: { sha: SHA2 } })
+  it('探测输出解析：AUTHFILE/ENGINE/CRED 三类行 + 容错', () => {
+    const view = parseAuthSyncProbe([
+      'AUTHFILE 5a3f43f632ab' + '0'.repeat(52),
+      '1770000000',
+      'ENGINE=running',
+      `CRED deepseek ${FP} 35 5499`,
+      `CRED lmuai-glm ${FP2} 67 0a9c`,
+      'CRED wechat no-key(oauth)',
+    ].join('\n'))
+    expect(view.authFile && view.authFile !== 'missing' ? view.authFile.sha : undefined).toHaveLength(64)
+    expect(view.engine).toBe('running')
+    expect(view.creds).toEqual([
+      { id: 'deepseek', fp: FP, len: 35, tail4: '5499' },
+      { id: 'lmuai-glm', fp: FP2, len: 67, tail4: '0a9c' },
+      { id: 'wechat' },
+    ])
+    const downView = parseAuthSyncProbe('AUTHFILE=MISSING\nENGINE=not-running')
+    expect(downView.authFile).toBe('missing')
+    expect(downView.engine).toBe('not-running')
+    expect(parseAuthSyncProbe('ENGINE=running\nCREDS parse-fail').credsParseFail).toBe(true)
+    expect(parseAuthSyncProbe('').engine).toBe('probe-fail')
+  })
+
+  it('推送输出解析：OK/ERR/WARN/ENGINE 状态', () => {
+    const r = parseEngineCredentialPush('ENGINE=running\nOK deepseek\nOK lmuai-glm\nERR wawapi HTTP 500\nPUSH parse-fail')
+    expect(r.engine).toBe('running')
+    expect(r.updated).toEqual(['deepseek', 'lmuai-glm'])
+    expect(r.failed).toContainEqual({ id: 'wawapi', reason: 'HTTP 500' })
+    expect(r.failed).toContainEqual({ id: '(payload)', reason: '推送载荷解析失败' })
+    expect(parseEngineCredentialPush('ENGINE=not-running').engine).toBe('not-running')
+  })
+
+  it('v2 决策表：引擎没跑=unknown；旧 key/缺行=drift 点名；全等=match；对端多出不动', () => {
+    const running = (creds: Array<{ id: string; fp?: string; len?: number; tail4?: string }>) => ({ authFile: undefined, engine: 'running' as const, creds })
+    // 引擎没跑：不是 drift 也不是 match
+    for (const engine of ['not-running', 'no-password', 'runtime-missing', 'probe-fail'] as const) {
+      const v = decideAuthSyncV2({ local: [{ id: 'deepseek', fp: FP }], probe: { authFile: undefined, engine, creds: [] } })
+      expect(v.sync).toBe('unknown')
+    }
+    expect(decideAuthSyncV2({ local: [{ id: 'deepseek', fp: FP }], probe: { authFile: undefined, engine: 'running', creds: [], credsParseFail: true } }).sync).toBe('unknown')
+    // 旧 key（EL7 实证形态）：fp 不等 → drift 且点名带尾号
+    const stale = decideAuthSyncV2({ local: [{ id: 'deepseek', fp: FP }], probe: running([{ id: 'deepseek', fp: FP2, len: 35, tail4: '5499' }]) })
     expect(stale.sync).toBe('drift')
-    if (stale.sync === 'drift') expect(stale.reason).toContain('旧凭据')
-    const never = decideAuthSync({ localSha: SHA, peer: 'missing' })
-    expect(never.sync).toBe('drift')
-    if (never.sync === 'drift') expect(never.reason).toContain('从未同步')
-    const noLocal = decideAuthSync({ localSha: undefined, peer: { sha: SHA } })
-    expect(noLocal.sync).toBe('unknown')
-    if (noLocal.sync === 'unknown') expect(noLocal.reason).toContain('本机没有')
-    expect(decideAuthSync({ localSha: SHA, peer: undefined }).sync).toBe('unknown')
+    expect(stale.reason).toContain('deepseek')
+    expect(stale.reason).toContain('5499')
+    // 引擎里没有该 provider → drift
+    const missing = decideAuthSyncV2({ local: [{ id: 'deepseek', fp: FP }], probe: running([{ id: 'other', fp: FP }]) })
+    expect(missing.sync).toBe('drift')
+    expect(missing.reason).toContain('引擎里没有')
+    // 全等 → match；引擎里多出的（对端自建）不算 drift，reason 报备
+    const ok = decideAuthSyncV2({ local: [{ id: 'deepseek', fp: FP }], probe: running([{ id: 'deepseek', fp: FP }, { id: 'wawapi-glm', fp: FP2 }]) })
+    expect(ok.sync).toBe('match')
+    expect(ok.reason).toContain('1 个对端自建')
+  })
+
+  it('enginePushEntries：type=api 才推，oauth 跳过点名', () => {
+    const raw = JSON.stringify({
+      deepseek: { type: 'api', key: 'k1' },
+      github: { type: 'oauth', access: 'x', refresh: 'y' },
+      nokey: { type: 'api' },
+    })
+    const { providers, skippedOauth } = enginePushEntries(raw)
+    expect(providers).toEqual([{ id: 'deepseek', key: 'k1' }])
+    expect(skippedOauth).toEqual(['github', 'nokey'])
+    expect(() => enginePushEntries('not-json')).toThrow()
   })
 })
 

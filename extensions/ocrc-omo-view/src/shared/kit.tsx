@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react'
 import {
-  mountBadge, mountBanner, mountButton, mountCheckbox, mountEmpty, mountList, mountSelect,
+  mountBadge, mountBanner, mountButton, mountCheckbox, mountEmpty, mountList, mountMenu, mountSelect,
   mountSeparator, mountSpinner, mountSwitch, mountTextField,
   type BadgeProps, type BannerProps, type ButtonProps, type CheckboxProps, type EmptyProps,
-  type Handle, type ListProps, type SelectProps, type SeparatorProps, type SpinnerProps,
+  type Handle, type ListProps, type MenuProps, type SelectProps, type SeparatorProps, type SpinnerProps,
   type TextFieldProps,
 } from '@openchamber/sdk/ui'
 
@@ -84,4 +84,29 @@ export function KitSeparator(props: SeparatorProps) {
 
 export function KitList(props: ListProps) {
   return <span ref={useKit(mountList, props)} className="oc-kit" />
+}
+
+export function KitMenu(props: MenuProps) {
+  return <span ref={useKit(mountMenu, props)} className="oc-kit" />
+}
+
+/**
+ * SDK 图标（Remixicon outlines）。SDK 的 `icon()` 没有从 `@openchamber/sdk/ui`
+ * 出口导出（kit 控件内部自用），这里按 `icons.js` 的原 path 复刻——同一套图标
+ * 体系，不引入第二种视觉语言。颜色跟 `currentColor`（宿主令牌）。
+ */
+const ICON_PATHS = {
+  chevron: 'M12 13.172l4.95-4.95 1.414 1.414L12 16 5.636 9.636 7.05 8.222z',
+  check: 'M10 15.172l9.192-9.193 1.415 1.414L10 18l-6.364-6.364 1.414-1.414z',
+  close: 'M12 10.586l4.95-4.95 1.414 1.414-4.95 4.95 4.95 4.95-1.414 1.414-4.95-4.95-4.95 4.95-1.414-1.414 4.95-4.95-4.95-4.95L7.05 5.636z',
+} as const
+
+export type KitIconName = keyof typeof ICON_PATHS
+
+export function KitIcon({ name, size = 12 }: { name: KitIconName; size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" aria-hidden="true" className="oc-icon">
+      <path d={ICON_PATHS[name]} />
+    </svg>
+  )
 }

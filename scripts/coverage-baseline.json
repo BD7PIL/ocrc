@@ -1,11 +1,12 @@
 {
   "_comment": "覆盖率硬门槛基线。只升不降：任何指标低于本文件 => check-coverage.mjs exit 1。提升基线必须连同改进（新测试）一起提交。生成命令：npm run test:coverage。口径统一：门槛腿与本机开发机都是 node 24（三仓同一条主线；20 只是 engines 地线兼容腿，不锚覆盖率），数字不再跨 node 行漂。",
-  "_generated": "2026-10-21",
+  "_generated": "2026-10-24",
   "_history": [
     "2026-10-21 初版：global 50/83/75 + bootstrap 93/82/100（当时 src/cli 零覆盖）。",
-    "2026-10-21 收紧：CLI/core/utils 测试落地后重测。语句 50→65；分支/函数占比下降纯属分母变化（cli/remote.ts 从 0% 起步、bridge 等文件被测到部分路径），不是倒退。"
+    "2026-10-21 收紧：CLI/core/utils 测试落地后重测。语句 50→65；分支/函数占比下降纯属分母变化（cli/remote.ts 从 0% 起步、bridge 等文件被测到部分路径），不是倒退。",
+    "2026-10-24 收紧：升级链路（app-pack-registry + decideUpgrade）测试落地。实测 66.08/79.36/64.82 → 基线 65→66 / 78→79 / 63→64。"
   ],
-  "global": { "statements": 65, "branches": 78, "functions": 63 },
+  "global": { "statements": 66, "branches": 79, "functions": 64 },
   "paths": {
     "src/cli/": { "statements": 39, "branches": 58, "functions": 35 },
     "src/core/remote-instance-bootstrap.ts": { "statements": 93, "branches": 86, "functions": 100 }

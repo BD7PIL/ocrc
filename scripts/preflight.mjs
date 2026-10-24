@@ -33,6 +33,7 @@ const steps = [
   ['测试（ocrc 扩展）', 'npm --prefix extensions/ocrc test'],
   ['测试（omo-view 扩展）', 'npm --prefix extensions/ocrc-omo-view test'],
   ['guest bundle 不变量', 'node scripts/check-guest-bundles.mjs'],
+  ['样式令牌门禁', 'node scripts/check-style-tokens.mjs'],
   [
     '产物重建并暂存',
     // CI 在干净检出上跑 `git diff --exit-code`：那等价于"提交进仓库的产物 == 重新构建的结果"。

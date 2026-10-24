@@ -39,3 +39,8 @@ export {
   ensureAppPack, ensureAppPayload, ensureAppTree, parseAppPackManifest, provisionOffline, sshRun,
 } from '../core/remote-instance-push.js'
 export type { AppPackManifest, AppPackTier } from '../core/remote-instance-push.js'
+
+export {
+  latestPublishedPack, packReleaseAvailable, packReleaseAssets, parsePackReleases, compareSemver,
+} from '../core/app-pack-registry.js'
+export type { LatestPackResult, PublishedPack } from '../core/app-pack-registry.js'

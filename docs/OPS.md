@@ -49,6 +49,7 @@ ocrc remote up user@192.0.2.10 --open
 | 开关 | `ocrc remote switches <id> [--reconnect on\|off] [--restore on\|off] [--replay on\|off]` | R10 三级；**改完立刻对运行中的监督生效** |
 | 出网 | `ocrc remote proxy <id> on\|off` / `relay-status <id>` / `proxy-log <file>` | R9；中继日志 `~/.ocrc/remote-relay.log` 记每次 CONNECT |
 | 白名单 | `ocrc remote proxy <id> allow api.deepseek.com,openai.com` / `allow-clear` | 点边界后缀匹配；**空 = 只拒回环**。收紧后必须同时放行模型 provider 与引擎基础设施域名（`models.opencode.ai` 等），否则引擎能起不能用；改完要 `down`/`up` 重启中继 |
+| 升级 | `ocrc remote upgrade <id> [--to <ver>]` | 目标 = **渠道最新已发布的 pack**（`ocrc-openchamber-pack-<semver>` 七资产齐全的最新 release；裁决见 decisions/2026-10-24）。`--to` 钉死指定版；渠道查不到/目标没包/已是目标都**不写任何东西**并说明原因。升级前在线的实例升级后自动重启装载新版；旧版本目录留着（回滚 = 把 pin 改回去）。镜像/代理：`OCRC_PACK_API_BASE`（API）与 `OCRC_PACK_BASE`（下载） |
 | 一键 external | `ocrc remote connect <id> [--json] [--open]` | 桌面版 Remote Instances 要的地址/密码/端口一次给出；`--open` 直接开浏览器那档。桌面版 external 模式已实测可用（2.4.0 连自装 2.3.3）；列表由桌面外壳独占，**不自动写**（人工合并见下） |
 | 停机 | `ocrc remote down <id>` | 停实例 + 撤转发（保留档案） |
 | 删档 | `ocrc remote remove <id>` | 只删档案；对端 `~/.ocrc/remote` 不动（要清跑验收脚本 `--teardown --purge`） |
@@ -61,8 +62,15 @@ ocrc remote up user@192.0.2.10 --open
 > —— 按宿主 glibc 重建 node-pty（见「排障」最后一条）。
 
 **HTTP 面**（面板/自动化）：`GET/POST /api/remote-instance`、`PATCH /api/remote-instance/:id`、
-`:id/plan|apply|up|down|status|logs|url|delete`。`apply` 要 `confirm:true`（否则 409 + dryRun）。
-密码不回显（`hasUiPassword`）。
+`:id/plan|apply|up|down|status|logs|url|delete`。`apply`/`upgrade` 要确认（`apply` 是
+`confirm:true`，否则 409 + dryRun；`upgrade` 在面板走二次确认块，CLI 显式命令即确认）。
+`op:job` 轮询带 `logTail`（操作台的日志流）。密码不回显（`hasUiPassword`）。
+
+**面板 0.10.0 速览**：「检查更新」= plan 预演 + 升级入口（徽章「可升级 X」→ 写盘确认 →
+升级 job）；长操作运行时卡片内自动展开**操作台**（阶段轨道 + 实时日志，失败自动展开、
+成功 3 秒收起成结果 chip）；版本行显示 `实测版（pin X）`——实测来自实例自报
+（`store.observed`，service 重启后仍可见）；「日志」打开期间 5 秒自动轮询。视觉全部走
+宿主令牌（令牌表与规则见 [design/panel-tokens-2026-10-24.md](design/panel-tokens-2026-10-24.md)）。
 
 **一条命令接管（bootstrap）**
 
@@ -250,7 +258,7 @@ https://github.com/BD7PIL/ocrc/releases/download/ocrc-0.9.0/ocrc.zip
 
 - 装完会有**一次 service 能力审批**（扩展要在宿主上跑 `ssh`）——批准；git 装法在应用更新后
   会**再问一次**（`requested` 里带着能力清单），这是上游行为，不是回归。
-- 升级后想确认装的是哪一版：看面板的扩展卡片，或 Release 资产的 label（现在是 `ocrc 0.9.4`）。
+- 升级后想确认装的是哪一版：看面板的扩展卡片，或 Release 资产的 label（现在是 `ocrc 0.10.0`）。
 
 **面板与状态区（0.8.2 收缩：一个功能、一条动线）**
 

@@ -46,6 +46,9 @@ export interface RemoteInstance extends SshAuthSpec {
   engineVersion?: string
   /** openchamber version pinned to the control side's (mirror, never "latest"). */
   appVersion: string
+  /** 最近一次**实测**到的运行版本（GET /api/version）与时间。与 pin 并存：
+   *  pin 说"我们装的是哪棵树"，observed 说"现在跑的是哪个版本"。 */
+  observed?: { app?: string; at?: number }
   enabled: boolean
   /** R10 switches. Defaults: reconnect/resume on, restart-restore on, replay off. */
   reconnect?: boolean
@@ -299,8 +302,39 @@ export const RECONNECT_DEFAULTS = { reconnect: true, restoreOnStart: true, repla
 
 /** openchamber version we pin the instance to — a **mirror of what the control
  *  side runs**, never "latest" (the two ends must speak the same API; a panel
- *  and an instance on different majors is the failure this pin removes). */
+ *  and an instance on different majors is the failure this pin removes).
+ *  裁决 2026-10-24：这是**下限与离线兜底**——新增/升级的缺省目标改为「渠道
+ *  最新已发布的 pack」（app-pack-registry），常量不再决定升级能到哪一版。 */
 export const DEFAULT_APP_VERSION = '2.3.3'
+
+/** 升级目标的纯决策（裁决 2026-10-24）。三道闸任何一道不过都不写远程机器：
+ *  版本串不合法 / 渠道查不到 / 已是目标版。 */
+export type UpgradeDecision =
+  | { action: 'upgrade'; to: string }
+  | { action: 'noop'; to: string; detail: string }
+  | { action: 'refuse'; to: string; detail: string }
+
+export function decideUpgrade(o: {
+  from: string
+  /** 显式钉死的版本（--to / payload.to）；空 = 取渠道最新。 */
+  to?: string
+  /** 渠道最新发现结果；`to` 已显式给出时不查、不需要。 */
+  latest?: { version: string } | { error: string }
+}): UpgradeDecision {
+  const to = o.to?.trim()
+  if (to && !/^\d+\.\d+\.\d+$/.test(to)) {
+    return { action: 'refuse', to: o.from, detail: `目标版本不合法：${to}（要 x.y.z）` }
+  }
+  const target = to ?? (o.latest && 'version' in o.latest ? o.latest.version : undefined)
+  if (!target) {
+    const reason = o.latest && 'error' in o.latest ? o.latest.error : '没有渠道信息'
+    return { action: 'refuse', to: o.from, detail: `查不到渠道最新包（${reason}）——不写任何东西；可显式指定版本` }
+  }
+  if (o.from === target) {
+    return { action: 'noop', to: target, detail: `已经是这一版：${target}` }
+  }
+  return { action: 'upgrade', to: target }
+}
 /** Instance port on the controlled host; 2610 keeps clear of a user-run 4096. */
 export const DEFAULT_INSTANCE_PORT = 2610
 /** Local forward port on the control side; 4610 keeps clear of the user's own

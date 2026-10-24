@@ -11,6 +11,7 @@ import {
   buildInstanceStopCommand,
   buildSshExecArgs,
   buildTerminalProbeCommand,
+  decideUpgrade,
   instancePaths,
   judgeEngineCompat,
   isSupportedEngineVersion,
@@ -323,5 +324,36 @@ describe('控制端转发与实例探活', () => {
     const noise = parseTerminalProbe('some other failure\n')
     expect(noise.ok).toBe(false)
     if (!noise.ok) expect(noise.reason).toBe('some other failure')
+  })
+})
+
+describe('升级目标决策（裁决 2026-10-24：渠道最新）', () => {
+  it('缺省取渠道最新；from ≠ target 就是 upgrade', () => {
+    const d = decideUpgrade({ from: '2.3.3', latest: { version: '2.5.0' } })
+    expect(d).toEqual({ action: 'upgrade', to: '2.5.0' })
+  })
+
+  it('已是渠道最新 → noop，不许"重装同一版"制造噪音', () => {
+    const d = decideUpgrade({ from: '2.5.0', latest: { version: '2.5.0' } })
+    expect(d.action).toBe('noop')
+    if (d.action === 'noop') expect(d.detail).toContain('2.5.0')
+  })
+
+  it('渠道查不到 → refuse 且不写任何东西（诚实错误，不猜版本）', () => {
+    const d = decideUpgrade({ from: '2.3.3', latest: { error: 'HTTP 403' } })
+    expect(d.action).toBe('refuse')
+    if (d.action === 'refuse') expect(d.detail).toContain('HTTP 403')
+  })
+
+  it('显式 to 钉死：不查渠道也能决策；版本串不合法直接 refuse', () => {
+    expect(decideUpgrade({ from: '2.3.3', to: '2.4.0' })).toEqual({ action: 'upgrade', to: '2.4.0' })
+    const bad = decideUpgrade({ from: '2.3.3', to: 'latest' })
+    expect(bad.action).toBe('refuse')
+    const same = decideUpgrade({ from: '2.4.0', to: '2.4.0' })
+    expect(same.action).toBe('noop')
+  })
+
+  it('既没 to 也没渠道信息 → refuse', () => {
+    expect(decideUpgrade({ from: '2.3.3' }).action).toBe('refuse')
   })
 })

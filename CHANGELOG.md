@@ -1,5 +1,34 @@
 # Changelog
 
+## 2.0.0-alpha.20 — 检查并更新名副其实 + 操作台 + 面板重设计（2026-10-24，扩展 0.10.0）
+
+- **升级链路（裁决 2026-10-24：渠道最新）**：新增 `src/core/app-pack-registry.ts`——升级目标改为
+  「我们供给渠道里最新已发布的 pack」（`ocrc-openchamber-pack-<semver>` 七资产齐全的 release，
+  `OCRC_PACK_API_BASE` 可换镜像）。`ocrc remote upgrade <id> [--to <ver>]`；面板的「检查更新」
+  现在真的能升级（徽章「可升级 X」+ 主按钮 + 写盘确认 + `payload.to`）。三道诚实闸：渠道查不到
+  / 目标没包 / 已是目标——任何一道不过都不写远程机器。升级前在线的实例升级后自动 down+up 装载
+  新版（不许「在线但跑旧版」）；旧版本目录不删（回滚路径）。`DEFAULT_APP_VERSION` 降位为离线
+  兜底，add 的缺省 pin 在面板路径取渠道最新。
+- **操作台（zcode 时序 × 宿主材质）**：plan/apply/upgrade/up/down 运行时卡片自动展开实时控制台——
+  阶段轨道（面板每秒 tick **实测**到的状态迁移，✓/⟳/✗/○ + 时间戳）+ 默认折叠的等宽日志流
+  （`op:job` 带 `logTail`，失败自动展开、贴底 ≤2px 才自动跟随、展开给复制）；成功 3 秒收起成
+  结果 chip（点开回看），失败保持展开 + 双横幅。不透传 ssh 原始命令/stdout（凭据纪律）。
+- **面板重设计（视觉 100% 宿主令牌）**：标题进字阶（14px/600），动作行唯一主按钮（default）+
+  outline 次级 + ghost 文字级，低频动作收进 `KitMenu`（destructive 项），开关移入「详情」；
+  「日志」按钮打开期间 5 秒自动轮询（标注「实时刷新中」）。guest.css 重写为纯布局层，全部数值
+  `var(--令牌, fallback)`（令牌表实测自 openchamber 2.5.1 web-dist），删除体系外的 11px 字号；
+  不再依赖宿主未文档化类（`.oc-stack/.oc-muted` 本地令牌化定义）。**样式令牌门禁**
+  （`scripts/check-style-tokens.mjs`）进 preflight：裸 hex / 令牌外 font-size / 内联 fontSize 一律红。
+- **诚实化**：实例「正在跑的版本」实测写回（plan/probe/up 的 `GET /api/version` →
+  `store.observed`，service 重启后仍可见）；版本行 `实测版（pin X）` 并排显示；`status` 的 app
+  字段加 store 回退（修「服务重启后显示未知」）；plan 完成徽章不再回「未检查」。
+- **反馈 bug 修复**：busy 改 per-row map（修并发操作互抹 spinner 的「点了没反应」）；apply/up/down
+  的 `ok:false` detail 落卡内横幅（原来被静默丢弃）；run 只清本 scope 错误；defaults 拉取失败不再
+  全静默。
+- 测试：主仓 263（新增 pack 发现 fixture/升级决策 15 项）、扩展 54（新增操作台/升级确认/ok:false
+  横幅/per-row busy 等 8 项）；audit 清单重写为 30 项（新增升级发现/确认、操作台运行中/失败/
+  收起 chip、深色操作台）。
+
 ## 2.0.0-alpha.19 — 组件 pin reeve 0.2.4（2026-10-24）
 
 - `ops/components.json`：reeve `0.2.4`（档位模型注册推理强度变体 low/medium/high/xhigh/max；

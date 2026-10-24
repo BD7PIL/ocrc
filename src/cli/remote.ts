@@ -838,10 +838,13 @@ export async function main(argv: string[]): Promise<void> {
   }
 
   if (sub === 'upgrade') {
-    // D5：版本是 pin 不是选项，所以只有这一个升级动作——对端落后于控制端的 pin 时才动。
+    // 裁决 2026-10-24：目标 = 渠道最新已发布的 pack；--to 钉死指定版本。
+    // 显式命令即确认（面板路径才要二次确认）。
     const instance = resolveInstance(args.slice(1), flags)
+    const to = flagStr(flags, 'to')
     const m = manager()
-    const r = await m.upgrade(instance.id)
+    console.log(`升级 ${instance.id}：${instance.appVersion} → ${to || '渠道最新'}`)
+    const r = await m.upgrade(instance.id, to ? { to } : {})
     m.dispose()
     console.log(`${r.ok ? 'OK  ' : 'FAIL'} ${r.detail}`)
     if (!r.ok) process.exit(1)

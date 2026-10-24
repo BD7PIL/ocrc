@@ -24,18 +24,20 @@ import { createLogger } from '../utils/logger.js'
 import { parseGlibcVersion, nextRetryDelay } from './remote-common.js'
 import { createInstanceProxy, type InstanceProxy } from './remote-instance-proxy.js'
 import {
-  DEFAULT_APP_VERSION, DEFAULT_ENGINE_CANDIDATES, DEFAULT_ENGINE_PIN, PROXY_DEFAULTS, buildEngineProbeCommand,
+  DEFAULT_ENGINE_CANDIDATES, DEFAULT_ENGINE_PIN, PROXY_DEFAULTS, buildEngineProbeCommand,
   buildForwardArgs, buildRelayForwardArgs, buildInstanceServeCommand, buildInstanceStopCommand, buildRemotePortProbeCommand, buildSshExecArgs,
   buildPeerPortProbeCommand, parsePortProbe, provisionActions, buildPeerLogCommand, parsePeerLogs, type PeerLogs,
   buildInstanceProxyProbeCommand, parseInstanceProxyProbe, relayProxyUrl,
   buildPairLinkCommand, parsePairLink, describePairLink, buildEgressProbeCommand, parseEgressProbe, resolveEgressPolicy,
   EGRESS_DEFAULT, type EgressMode, type EgressProbe, type ProvisionMode,
+  decideUpgrade,
   buildTerminalProbeCommand, instancePaths, parseTerminalProbe,
   judgeEngineCompat, judgeInstanceVersion, parseEngineProbe, pickV2Engine, type EngineCandidate,
   type EngineCompatPayload, type EnginePick, type ForwardSpec, type InstanceProxyConfig,
   type RemoteInstance, type SshTargetRef,
 } from './remote-instance.js'
 import { appPackTierForGlibc, buildAppProbeCommand, buildOfflineGuardExports, buildRuntimeProbeCommand, provisionOffline, sshRun, sshRunWithStdin, type AppPackTier, type SshResult } from './remote-instance-push.js'
+import { latestPublishedPack, packReleaseAvailable } from './app-pack-registry.js'
 import {
   buildAuthPushScript, buildConfigApplyScript, buildPeerConfigReadScript, diffConfig, discardStaging,
   parsePeerConfigRead, planConfigSync, readLocalConfig, stageConfigTree,
@@ -73,6 +75,8 @@ export interface InstanceStatus {
   engine?: { path: string; version: string }
   runtime?: string
   app?: string
+  /** 正在跑的实例自报的 openchamber 版本（GET /api/version 实测）。 */
+  liveApp?: string
   inspected?: InstanceInspection
   /** P6: 终端能不能用（node-pty 的 GLIBCXX 依赖在 EL7 上是硬伤）；未修就如实标注。 */
   terminal?: { ok: boolean; reason?: string }
@@ -103,6 +107,10 @@ export interface InstancePlan {
   engineCandidates: EngineCandidate[]
   actions: string[]
   url: string
+  /** 正在跑的实例自报的版本（实测，可能与 pin 不同——对端被人手动升级过时就是）。 */
+  liveApp?: string
+  /** 渠道最新已发布的 pack（升级目标候选）；查不到时是 error，面板如实说。 */
+  latestPack?: { version: string } | { error: string }
   /** A3: the effective egress policy, probed while planning when the mode is
    *  `auto` — "auto" is only a choice, the user still has to see what it picked. */
   egress?: { mode: EgressMode; relay: boolean; reason: string; probe?: EgressProbe }
@@ -155,11 +163,10 @@ export interface RemoteInstanceManager {
   plan(id: string): Promise<InstancePlan>
   /** P2: push runtime + engine + app (offline path) — the engine gate runs first. */
   apply(id: string, opts?: { force?: boolean; engineVersion?: string; guard?: boolean; trace?: string; onLog?: (line: string) => void; tier?: AppPackTier; components?: string[]; componentsFromPins?: boolean }): Promise<InstanceOutcome>
-  /** D5: move this peer to the control side's app pin. The version is a **pin,
-   *  not a choice** (the user settled that), so the only upgrade question is
-   *  "the peer is on an older pin than I am" — this answers it and does the
-   *  apply in one step. */
-  upgrade(id: string): Promise<InstanceOutcome & { from: string; to: string; changed: boolean }>
+  /** D5 + 裁决 2026-10-24：把这台服务器挪到**渠道最新已发布的 pack**
+   *  （`--to`/`payload.to` 可钉死指定版本）。目标没有包就明说，不写任何东西；
+   *  升级前在线的实例升级后自动重启装载新版。 */
+  upgrade(id: string, opts?: { to?: string }): Promise<InstanceOutcome & { from: string; to: string; changed: boolean }>
   /** Ensure the instance is serving on the far side and the tunnel is up.
    *  `guard` starts it under the poisoned-egress env (§5.3 offline proof). */
   up(id: string, opts?: { guard?: boolean }): Promise<InstanceOutcome>
@@ -281,7 +288,11 @@ interface InstanceRuntime {
   inspected?: InstanceInspection
   terminal?: { ok: boolean; reason?: string }
   runtimeVersion?: string
+  /** 我们 pin 的那棵树的实测版本（plan/apply 探测写入）。 */
   appVersion?: string
+  /** **正在跑的实例**自己报的版本（GET /api/version 实测）。与 pin 不一致时
+   *  面板必须两个都说，不许拿 pin 冒充实况。 */
+  liveApp?: string
   engine?: { path: string; version: string }
   forward?: ChildProcess
   forwardPid?: number
@@ -406,6 +417,15 @@ export function createRemoteInstanceManager(opts: {
     r.detail = detail
     r.since = Date.now()
     log.info(`instance ${id}: ${state}${detail ? ` — ${detail}` : ''}`)
+  }
+
+  /** 实测到的运行版本写两处：内存表（status 立刻可见）+ store.observed（service
+   *  重启后仍可见）。没有实测就什么都不写——"未知"是诚实的，猜一个不是。 */
+  const noteLiveApp = (id: string, app?: string) => {
+    if (!app) return
+    rt(id).liveApp = app
+    const prev = opts.store.get(id)
+    if (prev) opts.store.update(id, { observed: { app, at: Date.now() } })
   }
 
   const need = (id: string): RemoteInstance => {
@@ -1262,9 +1282,18 @@ export function createRemoteInstanceManager(opts: {
       const peerPort = parsePortProbe(portOut.stdout)
       if (peerPort === 'open') actions.push(`注意：实例端口 ${instance.instancePort} 在远程机器已被占用——换个实例端口，或确认那是上一次的实例（启动会复用）`)
       if (peerPort === 'unknown') actions.push(`实例端口 ${instance.instancePort}：远程机器既没有我们的运行时也没有 ss/netstat，占用情况无法判定（启动时才会知道）`)
-      setState(id, 'unknown')
+      // 在跑实例的实况版本：本地转发活着就读一次（只读 HTTP）。pin 与实况不一致
+      // 是面板必须两个都说的真相，不是这里该抹平的。
+      const live = await probeThroughForward(instance).catch(() => ({ ok: false as const, error: '转发未起' }))
+      noteLiveApp(id, live.ok ? live.version : undefined)
+      // 检查完徽章不许再回「未检查」：查过了就说查过的结论（在线态保持，隧道
+      // 活着是更强的真相）。
+      if (rt(id).state !== 'online') setState(id, 'offline', '已检查（未启动）')
+      const latest = await latestPublishedPack()
       return {
         id, target, reachable: true, inspected: env, runtime, app,
+        liveApp: live.ok ? live.version : undefined,
+        latestPack: latest.ok ? { version: latest.pack.version } : { error: latest.error },
         engine: pick.ok ? { path: pick.candidate.path, version: pick.candidate.version } : undefined,
         engineError: pick.ok ? undefined : pick.error,
         engineCandidates: candidates,
@@ -1278,24 +1307,40 @@ export function createRemoteInstanceManager(opts: {
     },
 
     /**
-     * D5: one step from "the peer is on an older pin" to "the peer is on my pin".
-     *
-     * The app version is deliberately **not** a form field (the user settled that
-     * pins are derived, not chosen), so the only meaningful upgrade action is this
-     * one: compare the record against the control side's pin, and if they differ,
-     * move the record and run the normal apply. Nothing happens when they already
-     * match — an "upgrade" that reinstalls the same version is noise.
+     * D5 + 裁决 2026-10-24：升级目标 = 渠道最新已发布的 pack（`ocrc-pack.yml`
+     * 七资产齐全的 release），不再跟随构建期常量——常量会烂在旧扩展里，渠道
+     * 不会。`to` 可显式钉死。三道诚实闸：查不到渠道说不查到、目标没包说没包、
+     * 同版本说同版本；任何一道不过都不写远程机器。
      */
-    async upgrade(id) {
+    async upgrade(id, upgradeOpts = {}) {
       const instance = need(id)
       const from = instance.appVersion
-      const to = DEFAULT_APP_VERSION
-      if (from === to) {
-        return { ok: true, changed: false, from, to, detail: `已经是远程机器该有的那一份：${to}（pin 来自控制端）` }
+      const explicit = upgradeOpts.to?.trim()
+      const latest = explicit ? undefined : await latestPublishedPack()
+      const decision = decideUpgrade({
+        from,
+        to: explicit,
+        latest: latest ? (latest.ok ? { version: latest.pack.version } : { error: latest.error }) : undefined,
+      })
+      if (decision.action !== 'upgrade') {
+        return { ok: decision.action === 'noop', changed: false, from, to: decision.to, detail: decision.detail }
       }
+      const to = decision.to
+      if (!(await packReleaseAvailable(to))) {
+        return { ok: false, changed: false, from, to, detail: `${to} 的包还没发布（ocrc-openchamber-pack-${to} 缺失或不完整）——不写任何东西` }
+      }
+      const wasOnline = rt(id).state === 'online'
       pushLog(id, `升级：${from} → ${to}（旧树留 .ocrc-bak，一份就够）`)
       opts.store.update(id, { appVersion: to })
       const result = await manager.apply(id, { force: false })
+      if (!result.ok) return { ...result, changed: false, from, to }
+      if (wasOnline) {
+        // 升级前在线 → 必须重启装载新版；"在线但跑旧版"就是撒谎（PRODUCT 零点四）。
+        pushLog(id, '实例原先在线——重启装载新版本')
+        await manager.down(id).catch(() => { /* 停不下来也得试着起回来 */ })
+        const restarted = await manager.up(id)
+        return { ok: restarted.ok, changed: true, from, to, detail: `${result.detail}；重启装载：${restarted.detail}` }
+      }
       return { ...result, changed: true, from, to }
     },
 
@@ -1462,6 +1507,7 @@ export function createRemoteInstanceManager(opts: {
         const r = rt(id)
         r.forwardAttempts = 0
         r.engine = { path: verified.compat.binary, version: verified.compat.version }
+        noteLiveApp(id, verified.version)
         setState(id, 'online', `openchamber ${verified.version}（OpenCode ${verified.compat.version} @ ${verified.compat.binary}；转发由桌面应用持有）`)
         return { ok: true, detail: `远端实例在线；转发由桌面应用持有（${instanceUrl(instance.localPort)}；openchamber ${verified.version}，OpenCode ${verified.compat.version} @ ${verified.compat.binary}）` }
       }
@@ -1502,6 +1548,7 @@ export function createRemoteInstanceManager(opts: {
       const r = rt(id)
       r.forwardAttempts = 0
       r.engine = { path: compat.binary, version: compat.version }
+      noteLiveApp(id, probe.version)
       setState(id, 'online', `openchamber ${probe.version}（OpenCode ${compat.version} @ ${compat.binary}）`)
       return { ok: true, detail: `online：${instanceUrl(instance.localPort)}（openchamber ${probe.version}，OpenCode ${compat.version} @ ${compat.binary}）` }
     },
@@ -1549,6 +1596,7 @@ async probe(id) {
         const probe = await withTempForward(instance, (temp) => probeThroughForward(temp))
           .catch(() => ({ ok: false as const, error: '临时转发失败' }))
         const version = probe.ok ? probe.version : undefined
+        noteLiveApp(id, version)
         const ui = (await isListening(instance.localPort)) ? `；本地转发 :${instance.localPort} 也在听` : '；转发由桌面应用持有'
         if (r.state !== 'online') setState(id, 'online', version ? `openchamber ${version}（远端实测）` : `远程机器就绪${ui}`)
         return { online: true, version, detail: `远程实例在线${ui}` }
@@ -1557,6 +1605,7 @@ async probe(id) {
       if (probe.ok) {
         // 顺手把本进程的状态也对齐（拥有隧道的进程里 status 立刻变 online）
         const r = rt(id)
+        noteLiveApp(id, probe.version)
         if (r.state !== 'online') setState(id, 'online', `openchamber ${probe.version}（实测）`)
         return { online: true, version: probe.version }
       }
@@ -1597,7 +1646,10 @@ async probe(id) {
         holders: describeHolders(instance.id, opts.home),
         engine: r?.engine ?? (instance.enginePath ? { path: instance.enginePath, version: instance.engineVersion ?? "" } : undefined),
         runtime: r?.runtimeVersion,
-        app: r?.appVersion,
+        /** pin 那棵树的实测版本；service 重启后内存表空了回退 store 的 pin。 */
+        app: r?.appVersion ?? instance.appVersion,
+        /** 正在跑的实例自报的版本（实测持久化在 store.observed，重启可见）。 */
+        liveApp: r?.liveApp ?? instance.observed?.app,
         inspected: r?.inspected,
         terminal: r?.terminal,
         proxy: {

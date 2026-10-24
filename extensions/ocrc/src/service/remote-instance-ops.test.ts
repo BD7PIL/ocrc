@@ -179,7 +179,45 @@ describe('remote-instance ops', () => {
     const job = await waitJob(ops, (started.body as { jobId: string }).jobId)
     expect(job.state).toBe('done')
     expect(job.result).toMatchObject({ ok: true, changed: true, from: '2.2.0', to: '2.3.3' })
-    expect(manager.upgrade).toHaveBeenCalledWith('user@h')
+    expect(manager.upgrade).toHaveBeenCalledWith('user@h', {})
+  })
+
+  it('upgrade takes an explicit target and refuses a malformed one', async () => {
+    const manager = makeManager()
+    const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager })
+    expect((await ops.handle({ op: 'upgrade', id: 'user@h', payload: { to: 'latest' } })).status).toBe(400)
+    expect(manager.upgrade).not.toHaveBeenCalled()
+    const started = await ops.handle({ op: 'upgrade', id: 'user@h', payload: { to: '2.5.0' } })
+    expect(started.status).toBe(202)
+    await waitJob(ops, (started.body as { jobId: string }).jobId)
+    expect(manager.upgrade).toHaveBeenCalledWith('user@h', { to: '2.5.0' })
+  })
+
+  it('op:job streams the instance log tail (the operation console feed)', async () => {
+    const manager = makeManager()
+    const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager })
+    const started = await ops.handle({ op: 'up', id: 'user@h' })
+    const jobId = (started.body as { jobId: string }).jobId
+    const reply = await ops.handle({ op: 'job', jobId })
+    const body = reply.body as { job: { state: string }; logTail?: string[] }
+    expect(body.job.state).toBe('done')
+    expect(body.logTail).toEqual(['line 1', 'line 2'])
+  })
+
+  it('defaults exposes the channel-latest pack (or its honest error)', async () => {
+    const ok = createRemoteInstanceOps({
+      store: makeStore(), manager: makeManager(),
+      latestPack: async () => ({ ok: true, pack: { version: '2.5.0', tag: 'ocrc-openchamber-pack-2.5.0' } }),
+    })
+    const body = (await ok.handle({ op: 'defaults' })).body as { latestPack: { version?: string; error?: string } }
+    expect(body.latestPack).toEqual({ version: '2.5.0' })
+
+    const down = createRemoteInstanceOps({
+      store: makeStore(), manager: makeManager(),
+      latestPack: async () => ({ ok: false, error: 'HTTP 403' }),
+    })
+    const body2 = (await down.handle({ op: 'defaults' })).body as { latestPack: { version?: string; error?: string } }
+    expect(body2.latestPack).toEqual({ error: 'HTTP 403' })
   })
 
   it('config sync ops are jobs and never imply deletions', async () => {
@@ -239,7 +277,10 @@ describe('remote-instance ops', () => {
       configdiff: true, syncconfig: true, syncauth: true, pairlink: true,
       delete: true, job: true,
     }
-    const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager: makeManager() })
+    const ops = createRemoteInstanceOps({
+      store: makeStore([instance()]), manager: makeManager(),
+      latestPack: async () => ({ ok: false, error: 'tests do not touch the network' }),
+    })
     for (const name of Object.keys(everyOp) as Array<RemoteInstanceOp['op']>) {
       const reply = await ops.handle({ op: name } as never)
       const body = JSON.stringify(reply.body ?? {})

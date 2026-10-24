@@ -152,7 +152,7 @@ describe('远程服务器卡片', () => {
     await waitFor(() => expect(screen.getByText(/控制端 service 不可达/)).toBeTruthy())
   })
 
-  it('「更多」按配置/维护分组，默认收起；移除要二次确认', async () => {
+  it('「更多」菜单收低频动作（配置/密码/编辑/移除）；检查更新与日志是可见按钮', async () => {
     const { request, calls } = fakeRequest((call) => {
       const body = call.body as { op?: string } | undefined
       if (body?.op === 'list') return { status: 200, body: { instances: [ROW] } }
@@ -160,13 +160,15 @@ describe('远程服务器卡片', () => {
     })
     await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
     await waitFor(() => expect(screen.getByText('EL7 box')).toBeTruthy())
-    // 次要动作默认不在屏上
+    // 日志不再藏在折叠里（「检查更新」只出现在未在线的机器，由升级链路用例断言）
+    expect(screen.getByText('日志')).toBeTruthy()
+    // 低频动作默认不在屏上
     expect(screen.queryByText('配置差异与同步')).toBeNull()
     expect(screen.queryByText('移除服务器')).toBeNull()
 
-    await act(async () => { screen.getByText('更多 ▾').click() })
+    await act(async () => { screen.getByText('更多').click() })
     await waitFor(() => expect(screen.getByText('配置差异与同步')).toBeTruthy())
-    for (const label of ['配置', '维护', '界面密码', '检查并更新', '日志', '编辑', '移除服务器', '自动重连', '服务重启后恢复']) {
+    for (const label of ['配置差异与同步', '界面密码', '编辑', '移除服务器']) {
       expect(screen.getByText(label)).toBeTruthy()
     }
 
@@ -241,7 +243,7 @@ describe('远程服务器卡片', () => {
       return { status: 200, body: {} }
     })
     await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
-    await act(async () => { screen.getByText('更多 ▾').click() })
+    await act(async () => { screen.getByText('更多').click() })
     await act(async () => { screen.getByText('配置差异与同步').click() })
     await waitFor(() => expect(screen.getByText(/配置差异（控制端 ↔ 远程机器/)).toBeTruthy())
     expect(screen.getByText(/\+ skill\/new\.md/)).toBeTruthy()
@@ -376,9 +378,9 @@ describe('远程服务器卡片', () => {
       return { status: 200, body: {} }
     })
     await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
-    await act(async () => { screen.getByText('更多 ▾').click() })
     await act(async () => { screen.getByText('日志').click() })
     await waitFor(() => expect(screen.getByText(/日志（三处/)).toBeTruthy())
+    expect(screen.getByText(/实时刷新中 · 每 5 秒/)).toBeTruthy()
     // 日志行都在同一个 <pre> 文本节点里（join('\n')），按整段断言。
     expect(screen.getByText(/forward line 1[\s\S]*forward line 2/)).toBeTruthy()
     expect(screen.getByText(/instance line/)).toBeTruthy()
@@ -387,18 +389,17 @@ describe('远程服务器卡片', () => {
     expect(calls.find((c) => (c.body as { op?: string })?.op === 'peerlog')?.body).toMatchObject({ id: ROW.id })
   })
 
-  it('开关切换：自动重连/服务重启后恢复各发一个 patch（只带那一个字段）', async () => {
+  it('开关在详情里：自动重连/服务重启后恢复各发一个 patch（只带那一个字段）', async () => {
     const { request, calls } = fakeRequest((call) => {
       const body = call.body as { op?: string } | undefined
       if (body?.op === 'list') return { status: 200, body: { instances: [ROW] } }
       return { status: 200, body: {} }
     })
     await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
-    await act(async () => { screen.getByText('更多 ▾').click() })
+    await act(async () => { screen.getByText('详情 ▾').click() })
     await waitFor(() => expect(screen.getAllByText('自动重连').length).toBeGreaterThan(0))
 
-    // 更多面板里的开关是第二个「自动重连」（第一个在表单里，未打开）。
-    const reconnectSwitch = screen.getAllByRole('switch', { name: '自动重连' })[0] as HTMLInputElement
+    const reconnectSwitch = screen.getByRole('switch', { name: '自动重连' }) as HTMLInputElement
     await act(async () => { fireEvent.click(reconnectSwitch) })
     await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'patch')).toBe(true))
     expect(calls.find((c) => (c.body as { op?: string })?.op === 'patch')?.body)
@@ -421,7 +422,7 @@ describe('远程服务器卡片', () => {
       return { status: 200, body: {} }
     })
     await act(async () => { render(<RemoteInstance request={request} host={host} />) })
-    await act(async () => { screen.getByText('更多 ▾').click() })
+    await act(async () => { screen.getByText('更多').click() })
     await act(async () => { screen.getByText('界面密码').click() })
     await waitFor(() => expect(screen.getByText(/界面密码（只在控制端本地）/)).toBeTruthy())
     expect(screen.getByText(/s3cret-pass/)).toBeTruthy()
@@ -438,12 +439,122 @@ describe('远程服务器卡片', () => {
       return { status: 200, body: {} }
     })
     await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
-    await act(async () => { screen.getByText('更多 ▾').click() })
+    await act(async () => { screen.getByText('更多').click() })
     await act(async () => { screen.getByText('配置差异与同步').click() })
     await waitFor(() => expect(screen.getByText('同步凭据（auth.json）')).toBeTruthy())
     await act(async () => { screen.getByText('同步凭据（auth.json）').click() })
     await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'syncauth')).toBe(true))
     // syncResult 贴两处（卡内动作行 + 卡片下方），断言存在即可。
     expect(screen.getAllByText('OK 凭据已写到远程 0600').length).toBeGreaterThan(0)
+  })
+})
+
+describe('升级链路与操作台（0.10.0）', () => {
+  it('渠道有新版：徽章「可升级 X」，已停机器主按钮变「升级到 X」、启动降为次级，确认后发 upgrade payload.to', async () => {
+    const { request, calls } = fakeRequest((call) => {
+      const body = call.body as { op?: string } | undefined
+      if (body?.op === 'list') return { status: 200, body: { instances: [STOPPED] } }
+      if (body?.op === 'defaults') return { status: 200, body: { ...DEFAULTS, latestPack: { version: '2.5.0' } } }
+      if (body?.op === 'upgrade') return { status: 200, body: { ok: true, changed: true, from: '2.3.3', to: '2.5.0', detail: '升级完成；重启装载：online' } }
+      return { status: 200, body: {} }
+    })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
+    await waitFor(() => expect(screen.getByText('可升级 2.5.0')).toBeTruthy())
+    expect(screen.getByText('升级到 2.5.0')).toBeTruthy()
+    // 启动仍在（降为 outline），检查更新也在
+    expect(screen.getByText('启动')).toBeTruthy()
+    expect(screen.getByText('检查更新')).toBeTruthy()
+
+    await act(async () => { screen.getByText('升级到 2.5.0').click() })
+    await waitFor(() => expect(screen.getByText('确认升级到 2.5.0')).toBeTruthy())
+    expect(calls.some((c) => (c.body as { op?: string })?.op === 'upgrade')).toBe(false)
+    await act(async () => { screen.getByText('确认升级到 2.5.0').click() })
+    await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'upgrade')).toBe(true))
+    const upgrade = calls.find((c) => (c.body as { op?: string })?.op === 'upgrade')
+    expect(upgrade?.body).toMatchObject({ id: STOPPED.id, payload: { to: '2.5.0' } })
+  })
+
+  it('操作台：job 运行时自动展开、实时日志流、成功收起成结果 chip', { timeout: 20_000 }, async () => {
+    // 'up' 先回 202 + jobId；job 轮询第一次 running（带 logTail），第二次 done。
+    let jobCalls = 0
+    const { request } = fakeRequest((call) => {
+      const body = call.body as { op?: string } | undefined
+      if (body?.op === 'list') return { status: 200, body: { instances: [STOPPED] } }
+      if (body?.op === 'up') return { status: 200, body: { jobId: 'job-up-1' } }
+      if (body?.op === 'job') {
+        jobCalls += 1
+        if (jobCalls === 1) return { status: 200, body: { job: { state: 'running' }, logTail: ['instance serve :2610'] } }
+        return { status: 200, body: { job: { state: 'done', result: { ok: true, detail: 'online：http://127.0.0.1:4610' } }, logTail: ['instance serve :2610', 'forward up'] } }
+      }
+      return { status: 200, body: {} }
+    })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
+    await waitFor(() => expect(screen.getByText('启动')).toBeTruthy())
+    await act(async () => { screen.getByText('启动').click() })
+    // 操作台自动展开：标题 + 连接日志折叠器（行数随轮询变，别锁具体数字）
+    await waitFor(() => expect(screen.getByText('启动', { selector: '.oc-card-title' })).toBeTruthy(), { timeout: 4000 })
+    await waitFor(() => expect(screen.getByText(/连接日志（\d+）/)).toBeTruthy())
+    await act(async () => { screen.getByText(/连接日志（\d+）/).click() })
+    await waitFor(() => expect(screen.getByText(/instance serve :2610/)).toBeTruthy())
+    // done 之后 3 秒收起成结果 chip（chip 上带结果摘要）
+    await waitFor(() => expect(screen.getByText(/online：http:\/\/127\.0\.0\.1:4610/)).toBeTruthy(), { timeout: 6000 })
+  })
+
+  it('操作台：job 失败保持展开并给出错误横幅', { timeout: 20_000 }, async () => {
+    let jobCalls = 0
+    const { request } = fakeRequest((call) => {
+      const body = call.body as { op?: string } | undefined
+      if (body?.op === 'list') return { status: 200, body: { instances: [STOPPED] } }
+      if (body?.op === 'up') return { status: 200, body: { jobId: 'job-up-2' } }
+      if (body?.op === 'job') {
+        jobCalls += 1
+        if (jobCalls >= 2) return { status: 200, body: { job: { state: 'error', error: '转发探活失败：connection refused' } } }
+        return { status: 200, body: { job: { state: 'running' }, logTail: ['starting'] } }
+      }
+      return { status: 200, body: {} }
+    })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
+    await act(async () => { screen.getByText('启动').click() })
+    await waitFor(() => expect(screen.getByText('启动失败')).toBeTruthy(), { timeout: 4000 })
+    // 错误原文会出现两处（操作台横幅 + 卡片错误横幅）——都要在，不许静默
+    expect(screen.getAllByText(/转发探活失败/).length).toBeGreaterThan(0)
+    // 失败的操作台不许收走：没有「收起成 chip」的自动行为（3 秒后仍展开）
+    await new Promise((r) => setTimeout(r, 3500))
+    expect(screen.getByText('启动失败')).toBeTruthy()
+  })
+
+  it('apply 的 ok:false 不再被静默丢弃——落成这张卡的错误横幅', async () => {
+    const { request, calls } = fakeRequest((call) => {
+      const body = call.body as { op?: string } | undefined
+      if (body?.op === 'list') return { status: 200, body: { instances: [FRESH] } }
+      if (body?.op === 'plan') return { status: 200, body: PLAN }
+      if (body?.op === 'apply') return { status: 200, body: { ok: false, detail: '复用已安装检查未通过：运行时缺失' } }
+      return { status: 200, body: {} }
+    })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
+    await act(async () => { screen.getByText('检查并安装').click() })
+    await waitFor(() => expect(screen.getByText(/安装到远程机器/)).toBeTruthy())
+    await act(async () => { screen.getByText(/安装到远程机器/).click() })
+    await act(async () => { screen.getByText('确认安装').click() })
+    await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'apply')).toBe(true))
+    await waitFor(() => expect(screen.getByText(/复用已安装检查未通过/)).toBeTruthy())
+  })
+
+  it('两台机器的操作互不抹按钮状态（per-row busy）', async () => {
+    // STOPPED 的 up 是长 job（一直 running）；ROW（在线）的「打开界面」不该被它带进 loading。
+    const { request } = fakeRequest((call) => {
+      const body = call.body as { op?: string } | undefined
+      if (body?.op === 'list') return { status: 200, body: { instances: [STOPPED, ROW] } }
+      if (body?.op === 'up') return { status: 200, body: { jobId: 'job-slow' } }
+      if (body?.op === 'job') return { status: 200, body: { job: { state: 'running' } } }
+      if (body?.op === 'url') return { status: 200, body: { url: 'http://127.0.0.1:4610' } }
+      return { status: 200, body: {} }
+    })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
+    await act(async () => { screen.getByRole('button', { name: '启动' }).click() })
+    // 启动按钮进入 loading（aria-busy 由 kit button 的 loading 设置）
+    await waitFor(() => expect(screen.getByRole('button', { name: '启动' }).getAttribute('aria-busy')).toBe('true'))
+    // 在线那台的「打开界面」没被抹成 busy
+    expect(screen.getByRole('button', { name: '打开界面' }).getAttribute('aria-busy')).not.toBe('true')
   })
 })

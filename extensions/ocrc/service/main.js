@@ -149,9 +149,9 @@ __export(instance_config_exports, {
   readLocalConfig: () => readLocalConfig,
   stageConfigTree: () => stageConfigTree
 });
-import { cpSync, existsSync as existsSync4, mkdirSync as mkdirSync6, readFileSync as readFileSync4, readdirSync, rmSync as rmSync3, statSync as statSync3, writeFileSync as writeFileSync5 } from "node:fs";
+import { cpSync, existsSync as existsSync5, mkdirSync as mkdirSync6, readFileSync as readFileSync4, readdirSync, rmSync as rmSync3, statSync as statSync3, writeFileSync as writeFileSync5 } from "node:fs";
 import { createHash as createHash3 } from "node:crypto";
-import { join as join7, relative, sep } from "node:path";
+import { join as join8, relative, sep } from "node:path";
 function mergeConfigLayers(layers) {
   let effective = {};
   const errors = [];
@@ -171,8 +171,8 @@ function toPosix(p) {
   return sep === "/" ? p : p.split(sep).join("/");
 }
 function walkEntry(dir, entry, out) {
-  const abs = join7(dir, entry);
-  if (!existsSync4(abs)) return;
+  const abs = join8(dir, entry);
+  if (!existsSync5(abs)) return;
   const st = statSync3(abs);
   if (st.isFile()) {
     out.push({ rel: toPosix(entry), hash: shortHash(readFileSync4(abs)) });
@@ -181,7 +181,7 @@ function walkEntry(dir, entry, out) {
   if (!st.isDirectory()) return;
   for (const name of readdirSync(abs)) {
     const child = `${entry}/${name}`;
-    const childAbs = join7(dir, entry, name);
+    const childAbs = join8(dir, entry, name);
     const childStat = statSync3(childAbs);
     if (childStat.isDirectory()) walkEntry(dir, child, out);
     else if (childStat.isFile()) out.push({ rel: toPosix(child), hash: shortHash(readFileSync4(childAbs)) });
@@ -197,19 +197,19 @@ function parseLayer(basename2, raw) {
   return file;
 }
 function readLocalConfig(opts = {}) {
-  const dir = opts.dir ?? join7(process.env.HOME ?? process.env.USERPROFILE ?? "", ".config", "opencode");
-  const authPath = opts.authPath ?? join7(process.env.HOME ?? process.env.USERPROFILE ?? "", ".local", "share", "opencode", "auth.json");
+  const dir = opts.dir ?? join8(process.env.HOME ?? process.env.USERPROFILE ?? "", ".config", "opencode");
+  const authPath = opts.authPath ?? join8(process.env.HOME ?? process.env.USERPROFILE ?? "", ".local", "share", "opencode", "auth.json");
   const layers = [];
   for (const name of CONFIG_CANDIDATES) {
-    const abs = join7(dir, name);
-    if (!existsSync4(abs)) continue;
+    const abs = join8(dir, name);
+    if (!existsSync5(abs)) continue;
     layers.push(parseLayer(name, readFileSync4(abs, "utf-8")));
   }
   const { effective, errors } = mergeConfigLayers(layers);
   const files = [];
   for (const entry of INSTANCE_SYNC_ENTRIES) walkEntry(dir, entry, files);
   files.sort((a, b) => a.rel.localeCompare(b.rel));
-  return { dir, authPath, authPresent: existsSync4(authPath), layers, effective, layerErrors: errors, files };
+  return { dir, authPath, authPresent: existsSync5(authPath), layers, effective, layerErrors: errors, files };
 }
 function buildPeerConfigReadScript() {
   const list = INSTANCE_SYNC_ENTRIES.join(" ");
@@ -484,14 +484,14 @@ function stageConfigTree(opts) {
   const staged = [];
   for (const entry of entries) {
     if (skip.has(entry)) continue;
-    const src = join7(opts.sourceDir, entry);
-    if (!existsSync4(src)) continue;
-    const dest = join7(opts.destDir, entry);
+    const src = join8(opts.sourceDir, entry);
+    if (!existsSync5(src)) continue;
+    const dest = join8(opts.destDir, entry);
     cpSync(src, dest, { recursive: true, dereference: true });
     staged.push(entry);
   }
   if (opts.mergedConfig) {
-    writeFileSync5(join7(opts.destDir, opts.mergedConfig.basename), opts.mergedConfig.content);
+    writeFileSync5(join8(opts.destDir, opts.mergedConfig.basename), opts.mergedConfig.content);
     staged.push(opts.mergedConfig.basename);
   }
   return staged;
@@ -549,13 +549,13 @@ function listStaged(dir) {
   const out = [];
   const walk = (base) => {
     for (const name of readdirSync(base)) {
-      const abs = join7(base, name);
+      const abs = join8(base, name);
       const st = statSync3(abs);
       if (st.isDirectory()) walk(abs);
       else if (st.isFile()) out.push(toPosix(relative(dir, abs)));
     }
   };
-  if (existsSync4(dir)) walk(dir);
+  if (existsSync5(dir)) walk(dir);
   return out.sort();
 }
 var PEER_CONFIG_DIR, PEER_AUTH_PATH, INSTANCE_SYNC_ENTRIES, CONFIG_CANDIDATES, MANAGED_COLLECTIONS;
@@ -695,6 +695,21 @@ function resolveEgressPolicy(o) {
 }
 var RECONNECT_DEFAULTS = { reconnect: true, restoreOnStart: true, replayQueued: false };
 var DEFAULT_APP_VERSION = "2.3.3";
+function decideUpgrade(o) {
+  const to = o.to?.trim();
+  if (to && !/^\d+\.\d+\.\d+$/.test(to)) {
+    return { action: "refuse", to: o.from, detail: `\u76EE\u6807\u7248\u672C\u4E0D\u5408\u6CD5\uFF1A${to}\uFF08\u8981 x.y.z\uFF09` };
+  }
+  const target = to ?? (o.latest && "version" in o.latest ? o.latest.version : void 0);
+  if (!target) {
+    const reason = o.latest && "error" in o.latest ? o.latest.error : "\u6CA1\u6709\u6E20\u9053\u4FE1\u606F";
+    return { action: "refuse", to: o.from, detail: `\u67E5\u4E0D\u5230\u6E20\u9053\u6700\u65B0\u5305\uFF08${reason}\uFF09\u2014\u2014\u4E0D\u5199\u4EFB\u4F55\u4E1C\u897F\uFF1B\u53EF\u663E\u5F0F\u6307\u5B9A\u7248\u672C` };
+  }
+  if (o.from === target) {
+    return { action: "noop", to: target, detail: `\u5DF2\u7ECF\u662F\u8FD9\u4E00\u7248\uFF1A${target}` };
+  }
+  return { action: "upgrade", to: target };
+}
 var DEFAULT_INSTANCE_PORT = 2610;
 var DEFAULT_LOCAL_PORT = 4610;
 function instanceIdFor(target) {
@@ -1282,7 +1297,7 @@ import { spawn as spawn3 } from "node:child_process";
 import net2 from "node:net";
 import { mkdtempSync, openSync, readFileSync as readFileSync7 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
-import { join as join10 } from "node:path";
+import { join as join11 } from "node:path";
 
 // ../../src/core/remote-common.ts
 function parseGlibcVersion(firstLine) {
@@ -2233,15 +2248,98 @@ async function provisionOffline(target, appVersion, opts = {}) {
   return { ok: runtime.ok && engine.ok && app.ok, runtime, engine, app };
 }
 
+// ../../src/core/app-pack-registry.ts
+import { existsSync as existsSync4 } from "node:fs";
+import { join as join7 } from "node:path";
+var PACK_TAG = /^ocrc-openchamber-pack-(\d+\.\d+\.\d+)$/;
+var TIERS = ["modern", "legacy-glibc217"];
+function packReleaseAssets(version) {
+  const out = [];
+  for (const tier of TIERS) {
+    const base = appPackName(version, tier);
+    out.push(base, `${base}.sha512`, `${base}.json`);
+  }
+  out.push("ocrc-openchamber-pack-manifest.json");
+  return out;
+}
+function compareSemver(a, b) {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i += 1) {
+    if (pa[i] !== pb[i]) return (pa[i] ?? 0) < (pb[i] ?? 0) ? -1 : 1;
+  }
+  return 0;
+}
+function parsePackReleases(raw) {
+  if (!Array.isArray(raw)) return [];
+  const found = [];
+  for (const rel of raw) {
+    const tag = rel?.tag_name;
+    if (typeof tag !== "string") continue;
+    const m = PACK_TAG.exec(tag);
+    if (!m) continue;
+    const assets = Array.isArray(rel.assets) ? rel.assets.map((a) => a?.name).filter((n) => typeof n === "string") : [];
+    const need = packReleaseAssets(m[1]);
+    if (!need.every((n) => assets.includes(n))) continue;
+    found.push({ version: m[1], tag });
+  }
+  return found.sort((a, b) => compareSemver(a.version, b.version));
+}
+var cache;
+var CACHE_TTL_MS = 6e4;
+async function latestPublishedPack(opts = {}) {
+  const now = opts.now?.() ?? Date.now();
+  if (!opts.bust && !opts.fetchImpl && cache && now - cache.at < (opts.ttlMs ?? CACHE_TTL_MS)) return cache.value;
+  const api = (process.env.OCRC_PACK_API_BASE ?? "https://api.github.com/repos/BD7PIL/ocrc").replace(/\/+$/, "");
+  let value;
+  try {
+    const res = await (opts.fetchImpl ?? fetch)(`${api}/releases?per_page=100`, {
+      signal: AbortSignal.timeout(15e3),
+      headers: { accept: "application/vnd.github+json" }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const packs = parsePackReleases(await res.json());
+    if (!packs.length) throw new Error("\u6E20\u9053\u91CC\u6CA1\u6709\u5B8C\u6574\u7684 ocrc-openchamber-pack release");
+    value = { ok: true, pack: packs[packs.length - 1] };
+  } catch (err) {
+    value = { ok: false, error: err.message };
+  }
+  if (!opts.fetchImpl) cache = { at: now, value };
+  return value;
+}
+async function packReleaseAvailable(version, opts = {}) {
+  for (const dir of [opts.packDir, process.env.OCRC_PACK_DIR].filter((d) => !!d?.trim())) {
+    for (const tier of TIERS) {
+      if (existsSync4(join7(dir, appPackName(version, tier)))) return true;
+    }
+  }
+  for (const tier of TIERS) {
+    const file = appPackPath(version, tier);
+    if (existsSync4(file) && existsSync4(`${file}.sha512`)) return true;
+  }
+  try {
+    const url = appPackManifestUrl(version);
+    const res = await (opts.fetchImpl ?? fetch)(url, { signal: AbortSignal.timeout(15e3) });
+    if (!res.ok) return false;
+    const raw = await res.json();
+    for (const tier of TIERS) {
+      if (parseAppPackManifest(raw, tier)) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 // ../../src/core/remote-instance-bridge.ts
 init_instance_config();
 
 // ../../src/core/components.ts
 import { execFileSync } from "node:child_process";
 import { createHash as createHash4 } from "node:crypto";
-import { cpSync as cpSync2, existsSync as existsSync5, mkdirSync as mkdirSync7, readFileSync as readFileSync5, readdirSync as readdirSync2, rmSync as rmSync4, statSync as statSync4, writeFileSync as writeFileSync6 } from "node:fs";
+import { cpSync as cpSync2, existsSync as existsSync6, mkdirSync as mkdirSync7, readFileSync as readFileSync5, readdirSync as readdirSync2, rmSync as rmSync4, statSync as statSync4, writeFileSync as writeFileSync6 } from "node:fs";
 import { homedir as homedir3, tmpdir } from "node:os";
-import { basename, dirname as dirname3, join as join8 } from "node:path";
+import { basename, dirname as dirname3, join as join9 } from "node:path";
 import { fileURLToPath } from "node:url";
 var COMPONENT_SCHEMA = 1;
 function fail(source, message) {
@@ -2346,11 +2444,11 @@ function parseComponentManifest(raw, source = "provision.json") {
   return manifest;
 }
 function tarBinary() {
-  return process.platform === "win32" ? join8(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
+  return process.platform === "win32" ? join9(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
 }
 function readManifestFromDir(dir) {
-  const file = join8(dir, "provision.json");
-  if (!existsSync5(file)) throw new Error(`${dir}: \u6CA1\u6709 provision.json\uFF08\u7EC4\u4EF6\u5FC5\u987B\u81EA\u5E26\u5B89\u88C5\u5951\u7EA6\uFF09`);
+  const file = join9(dir, "provision.json");
+  if (!existsSync6(file)) throw new Error(`${dir}: \u6CA1\u6709 provision.json\uFF08\u7EC4\u4EF6\u5FC5\u987B\u81EA\u5E26\u5B89\u88C5\u5951\u7EA6\uFF09`);
   return parseComponentManifest(JSON.parse(readFileSync5(file, "utf8")), file);
 }
 function readManifestFromTarball(tarball) {
@@ -2363,15 +2461,15 @@ function readManifestFromTarball(tarball) {
   return parseComponentManifest(JSON.parse(text), `${tarball}:package/provision.json`);
 }
 function componentCacheDir() {
-  const home = process.env.OCRC_HOME ?? join8(homedir3(), ".ocrc");
-  return join8(home, "component-cache");
+  const home = process.env.OCRC_HOME ?? join9(homedir3(), ".ocrc");
+  return join9(home, "component-cache");
 }
 function sha256File(file) {
   return createHash4("sha256").update(readFileSync5(file)).digest("hex");
 }
 function packDirectory(dir) {
-  const staging = join8(tmpdir(), `ocrc-component-${process.pid}-${Date.now()}`);
-  const target = join8(staging, "package");
+  const staging = join9(tmpdir(), `ocrc-component-${process.pid}-${Date.now()}`);
+  const target = join9(staging, "package");
   mkdirSync7(target, { recursive: true });
   cpSync2(dir, target, {
     recursive: true,
@@ -2386,7 +2484,7 @@ function packDirectory(dir) {
   return out;
 }
 function packNpmSpec(spec) {
-  const dir = join8(tmpdir(), `ocrc-npm-${process.pid}-${Date.now()}`);
+  const dir = join9(tmpdir(), `ocrc-npm-${process.pid}-${Date.now()}`);
   mkdirSync7(dir, { recursive: true });
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   execFileSync(npm, ["pack", spec, "--silent", "--pack-destination", dir], {
@@ -2396,19 +2494,19 @@ function packNpmSpec(spec) {
   });
   const tgz = readdirSync2(dir).find((f) => f.endsWith(".tgz"));
   if (!tgz) throw new Error(`npm pack ${spec}: \u6CA1\u6709\u4EA7\u51FA tgz`);
-  return join8(dir, tgz);
+  return join9(dir, tgz);
 }
 async function prepareComponent(source) {
   let tarball;
   let temporary;
   let directory;
   let manifest;
-  if (existsSync5(source) && statSync4(source).isDirectory()) {
+  if (existsSync6(source) && statSync4(source).isDirectory()) {
     directory = source;
     manifest = readManifestFromDir(source);
     tarball = packDirectory(source);
     temporary = tarball;
-  } else if (existsSync5(source)) {
+  } else if (existsSync6(source)) {
     manifest = readManifestFromTarball(source);
     tarball = source;
   } else {
@@ -2417,10 +2515,10 @@ async function prepareComponent(source) {
     tarball = packed;
     temporary = packed;
   }
-  const cache = componentCacheDir();
-  mkdirSync7(cache, { recursive: true });
-  const cached = join8(cache, `${manifest.name}-${manifest.version}.tgz`);
-  if (!existsSync5(cached) || sha256File(cached) !== sha256File(tarball)) {
+  const cache2 = componentCacheDir();
+  mkdirSync7(cache2, { recursive: true });
+  const cached = join9(cache2, `${manifest.name}-${manifest.version}.tgz`);
+  if (!existsSync6(cached) || sha256File(cached) !== sha256File(tarball)) {
     writeFileSync6(cached, readFileSync5(tarball), { mode: 420 });
   }
   if (temporary) rmSync4(temporary, { force: true });
@@ -2443,7 +2541,7 @@ function sourcesFromPins(pins, env = {}) {
 }
 function defaultComponentSources(env = process.env) {
   const pinsFile = fileURLToPath(new URL("../../ops/components.json", import.meta.url));
-  if (!existsSync5(pinsFile)) return [];
+  if (!existsSync6(pinsFile)) return [];
   let pins;
   try {
     pins = JSON.parse(readFileSync5(pinsFile, "utf8"));
@@ -2515,10 +2613,10 @@ async function remoteSha(target, dest) {
   return (r.stdout.trim().split("\n").pop() ?? "").trim();
 }
 async function fetchArtifact(artifact) {
-  const cache = join8(componentCacheDir(), "artifacts");
-  mkdirSync7(cache, { recursive: true });
-  const dest = join8(cache, `${artifact.id}-${artifact.version}`);
-  if (existsSync5(dest) && sha256File(dest) === artifact.sha256) return dest;
+  const cache2 = join9(componentCacheDir(), "artifacts");
+  mkdirSync7(cache2, { recursive: true });
+  const dest = join9(cache2, `${artifact.id}-${artifact.version}`);
+  if (existsSync6(dest) && sha256File(dest) === artifact.sha256) return dest;
   const buf = /^https?:/.test(artifact.url) ? await (async () => {
     const res = await proxyAwareFetch(artifact.url, 9e5);
     if (!res.ok || !res.body) throw new Error(`\u4E0B\u8F7D ${artifact.id} \u5931\u8D25\uFF1AHTTP ${res.status}`);
@@ -2593,7 +2691,7 @@ async function installPreparedComponent(target, component, opts) {
       if (buf.subarray(0, 2).toString() !== "PK") {
         details.push(`\u6269\u5C55 ${ext.id}\uFF1A\u62FF\u5230\u7684\u4E0D\u662F zip\uFF08\u4E0D\u963B\u65AD\u5B9E\u4F8B\u542F\u52A8\uFF09`);
       } else {
-        const zipLocal = join8(componentCacheDir(), `${ext.id}-${manifest.version}.zip`);
+        const zipLocal = join9(componentCacheDir(), `${ext.id}-${manifest.version}.zip`);
         writeFileSync6(zipLocal, buf);
         const p = await pushFileOverSsh(target, zipLocal, [
           "set -e",
@@ -2678,14 +2776,14 @@ async function registerPeerPlugins(target, specs, opts) {
 init_config_merge();
 
 // ../../src/core/forward-ownership.ts
-import { existsSync as existsSync6, mkdirSync as mkdirSync8, readFileSync as readFileSync6, readdirSync as readdirSync3, rmSync as rmSync5, writeFileSync as writeFileSync7 } from "node:fs";
-import { join as join9 } from "node:path";
+import { existsSync as existsSync7, mkdirSync as mkdirSync8, readFileSync as readFileSync6, readdirSync as readdirSync3, rmSync as rmSync5, writeFileSync as writeFileSync7 } from "node:fs";
+import { join as join10 } from "node:path";
 function forwardMarkerDir(home = ocrcHome()) {
-  return join9(home, "forwards");
+  return join10(home, "forwards");
 }
 function forwardMarkerPath(instanceId, kind, home = ocrcHome()) {
   const safe = instanceId.replace(/[^A-Za-z0-9._@-]/g, "-").replace(/^\.+/, "_") || "_";
-  return join9(forwardMarkerDir(home), `${safe}.${kind}.json`);
+  return join10(forwardMarkerDir(home), `${safe}.${kind}.json`);
 }
 function isAlive(pid) {
   if (!Number.isFinite(pid) || pid <= 0) return false;
@@ -2712,7 +2810,7 @@ function clearForwardMarker(instanceId, kind, home = ocrcHome()) {
 }
 function readForwardMarker(instanceId, kind, home = ocrcHome()) {
   const path = forwardMarkerPath(instanceId, kind, home);
-  if (!existsSync6(path)) return void 0;
+  if (!existsSync7(path)) return void 0;
   try {
     return JSON.parse(readFileSync6(path, "utf-8"));
   } catch {
@@ -2809,7 +2907,7 @@ function createRemoteInstanceManager(opts) {
   const runtimes = /* @__PURE__ */ new Map();
   const detachedForwards = opts.forwards === "detached";
   const externalTunnel = opts.tunnelOwner === "external";
-  const forwardLogPath = opts.forwardLogPath ?? join10(opts.home ?? ocrcHome(), "remote-forward.log");
+  const forwardLogPath = opts.forwardLogPath ?? join11(opts.home ?? ocrcHome(), "remote-forward.log");
   const passthroughNames = opts.envPassthrough ?? (process.env.OCRC_INSTANCE_ENV ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const passthroughEnv = () => {
     const out = {};
@@ -2840,6 +2938,12 @@ function createRemoteInstanceManager(opts) {
     r.detail = detail;
     r.since = Date.now();
     log5.info(`instance ${id}: ${state}${detail ? ` \u2014 ${detail}` : ""}`);
+  };
+  const noteLiveApp = (id, app) => {
+    if (!app) return;
+    rt(id).liveApp = app;
+    const prev = opts.store.get(id);
+    if (prev) opts.store.update(id, { observed: { app, at: Date.now() } });
   };
   const need = (id) => {
     const instance = opts.store.get(id);
@@ -3551,7 +3655,10 @@ tar: ${err.message}` });
       const peerPort = parsePortProbe(portOut.stdout);
       if (peerPort === "open") actions.push(`\u6CE8\u610F\uFF1A\u5B9E\u4F8B\u7AEF\u53E3 ${instance.instancePort} \u5728\u8FDC\u7A0B\u673A\u5668\u5DF2\u88AB\u5360\u7528\u2014\u2014\u6362\u4E2A\u5B9E\u4F8B\u7AEF\u53E3\uFF0C\u6216\u786E\u8BA4\u90A3\u662F\u4E0A\u4E00\u6B21\u7684\u5B9E\u4F8B\uFF08\u542F\u52A8\u4F1A\u590D\u7528\uFF09`);
       if (peerPort === "unknown") actions.push(`\u5B9E\u4F8B\u7AEF\u53E3 ${instance.instancePort}\uFF1A\u8FDC\u7A0B\u673A\u5668\u65E2\u6CA1\u6709\u6211\u4EEC\u7684\u8FD0\u884C\u65F6\u4E5F\u6CA1\u6709 ss/netstat\uFF0C\u5360\u7528\u60C5\u51B5\u65E0\u6CD5\u5224\u5B9A\uFF08\u542F\u52A8\u65F6\u624D\u4F1A\u77E5\u9053\uFF09`);
-      setState(id, "unknown");
+      const live = await probeThroughForward(instance).catch(() => ({ ok: false, error: "\u8F6C\u53D1\u672A\u8D77" }));
+      noteLiveApp(id, live.ok ? live.version : void 0);
+      if (rt(id).state !== "online") setState(id, "offline", "\u5DF2\u68C0\u67E5\uFF08\u672A\u542F\u52A8\uFF09");
+      const latest = await latestPublishedPack();
       return {
         id,
         target,
@@ -3559,6 +3666,8 @@ tar: ${err.message}` });
         inspected: env,
         runtime,
         app,
+        liveApp: live.ok ? live.version : void 0,
+        latestPack: latest.ok ? { version: latest.pack.version } : { error: latest.error },
         engine: pick.ok ? { path: pick.candidate.path, version: pick.candidate.version } : void 0,
         engineError: pick.ok ? void 0 : pick.error,
         engineCandidates: candidates,
@@ -3571,24 +3680,40 @@ tar: ${err.message}` });
       };
     },
     /**
-     * D5: one step from "the peer is on an older pin" to "the peer is on my pin".
-     *
-     * The app version is deliberately **not** a form field (the user settled that
-     * pins are derived, not chosen), so the only meaningful upgrade action is this
-     * one: compare the record against the control side's pin, and if they differ,
-     * move the record and run the normal apply. Nothing happens when they already
-     * match — an "upgrade" that reinstalls the same version is noise.
+     * D5 + 裁决 2026-10-24：升级目标 = 渠道最新已发布的 pack（`ocrc-pack.yml`
+     * 七资产齐全的 release），不再跟随构建期常量——常量会烂在旧扩展里，渠道
+     * 不会。`to` 可显式钉死。三道诚实闸：查不到渠道说不查到、目标没包说没包、
+     * 同版本说同版本；任何一道不过都不写远程机器。
      */
-    async upgrade(id) {
+    async upgrade(id, upgradeOpts = {}) {
       const instance = need(id);
       const from = instance.appVersion;
-      const to = DEFAULT_APP_VERSION;
-      if (from === to) {
-        return { ok: true, changed: false, from, to, detail: `\u5DF2\u7ECF\u662F\u8FDC\u7A0B\u673A\u5668\u8BE5\u6709\u7684\u90A3\u4E00\u4EFD\uFF1A${to}\uFF08pin \u6765\u81EA\u63A7\u5236\u7AEF\uFF09` };
+      const explicit = upgradeOpts.to?.trim();
+      const latest = explicit ? void 0 : await latestPublishedPack();
+      const decision = decideUpgrade({
+        from,
+        to: explicit,
+        latest: latest ? latest.ok ? { version: latest.pack.version } : { error: latest.error } : void 0
+      });
+      if (decision.action !== "upgrade") {
+        return { ok: decision.action === "noop", changed: false, from, to: decision.to, detail: decision.detail };
       }
+      const to = decision.to;
+      if (!await packReleaseAvailable(to)) {
+        return { ok: false, changed: false, from, to, detail: `${to} \u7684\u5305\u8FD8\u6CA1\u53D1\u5E03\uFF08ocrc-openchamber-pack-${to} \u7F3A\u5931\u6216\u4E0D\u5B8C\u6574\uFF09\u2014\u2014\u4E0D\u5199\u4EFB\u4F55\u4E1C\u897F` };
+      }
+      const wasOnline = rt(id).state === "online";
       pushLog(id, `\u5347\u7EA7\uFF1A${from} \u2192 ${to}\uFF08\u65E7\u6811\u7559 .ocrc-bak\uFF0C\u4E00\u4EFD\u5C31\u591F\uFF09`);
       opts.store.update(id, { appVersion: to });
       const result = await manager.apply(id, { force: false });
+      if (!result.ok) return { ...result, changed: false, from, to };
+      if (wasOnline) {
+        pushLog(id, "\u5B9E\u4F8B\u539F\u5148\u5728\u7EBF\u2014\u2014\u91CD\u542F\u88C5\u8F7D\u65B0\u7248\u672C");
+        await manager.down(id).catch(() => {
+        });
+        const restarted = await manager.up(id);
+        return { ok: restarted.ok, changed: true, from, to, detail: `${result.detail}\uFF1B\u91CD\u542F\u88C5\u8F7D\uFF1A${restarted.detail}` };
+      }
       return { ...result, changed: true, from, to };
     },
     async apply(id, applyOpts = {}) {
@@ -3736,6 +3861,7 @@ tar: ${err.message}` });
         const r2 = rt(id);
         r2.forwardAttempts = 0;
         r2.engine = { path: verified.compat.binary, version: verified.compat.version };
+        noteLiveApp(id, verified.version);
         setState(id, "online", `openchamber ${verified.version}\uFF08OpenCode ${verified.compat.version} @ ${verified.compat.binary}\uFF1B\u8F6C\u53D1\u7531\u684C\u9762\u5E94\u7528\u6301\u6709\uFF09`);
         return { ok: true, detail: `\u8FDC\u7AEF\u5B9E\u4F8B\u5728\u7EBF\uFF1B\u8F6C\u53D1\u7531\u684C\u9762\u5E94\u7528\u6301\u6709\uFF08${instanceUrl(instance.localPort)}\uFF1Bopenchamber ${verified.version}\uFF0COpenCode ${verified.compat.version} @ ${verified.compat.binary}\uFF09` };
       }
@@ -3768,6 +3894,7 @@ tar: ${err.message}` });
       const r = rt(id);
       r.forwardAttempts = 0;
       r.engine = { path: compat.binary, version: compat.version };
+      noteLiveApp(id, probe.version);
       setState(id, "online", `openchamber ${probe.version}\uFF08OpenCode ${compat.version} @ ${compat.binary}\uFF09`);
       return { ok: true, detail: `online\uFF1A${instanceUrl(instance.localPort)}\uFF08openchamber ${probe.version}\uFF0COpenCode ${compat.version} @ ${compat.binary}\uFF09` };
     },
@@ -3802,6 +3929,7 @@ tar: ${err.message}` });
         const r = rt(id);
         const probe2 = await withTempForward(instance, (temp) => probeThroughForward(temp)).catch(() => ({ ok: false, error: "\u4E34\u65F6\u8F6C\u53D1\u5931\u8D25" }));
         const version = probe2.ok ? probe2.version : void 0;
+        noteLiveApp(id, version);
         const ui = await isListening(instance.localPort) ? `\uFF1B\u672C\u5730\u8F6C\u53D1 :${instance.localPort} \u4E5F\u5728\u542C` : "\uFF1B\u8F6C\u53D1\u7531\u684C\u9762\u5E94\u7528\u6301\u6709";
         if (r.state !== "online") setState(id, "online", version ? `openchamber ${version}\uFF08\u8FDC\u7AEF\u5B9E\u6D4B\uFF09` : `\u8FDC\u7A0B\u673A\u5668\u5C31\u7EEA${ui}`);
         return { online: true, version, detail: `\u8FDC\u7A0B\u5B9E\u4F8B\u5728\u7EBF${ui}` };
@@ -3809,6 +3937,7 @@ tar: ${err.message}` });
       const probe = await probeThroughForward(instance);
       if (probe.ok) {
         const r = rt(id);
+        noteLiveApp(id, probe.version);
         if (r.state !== "online") setState(id, "online", `openchamber ${probe.version}\uFF08\u5B9E\u6D4B\uFF09`);
         return { online: true, version: probe.version };
       }
@@ -3844,7 +3973,10 @@ tar: ${err.message}` });
         holders: describeHolders(instance.id, opts.home),
         engine: r?.engine ?? (instance.enginePath ? { path: instance.enginePath, version: instance.engineVersion ?? "" } : void 0),
         runtime: r?.runtimeVersion,
-        app: r?.appVersion,
+        /** pin 那棵树的实测版本；service 重启后内存表空了回退 store 的 pin。 */
+        app: r?.appVersion ?? instance.appVersion,
+        /** 正在跑的实例自报的版本（实测持久化在 store.observed，重启可见）。 */
+        liveApp: r?.liveApp ?? instance.observed?.app,
         inspected: r?.inspected,
         terminal: r?.terminal,
         proxy: {
@@ -3938,7 +4070,7 @@ tar: ${err.message}` });
           detail: `\u8BD5\u8FD0\u884C\uFF1A\u5C06\u5199 ${plan.files.length} \u4E2A\u6587\u4EF6${plan.deletes.length ? `\u3001\u5220 ${plan.deletes.length} \u4E2A` : ""}\uFF1B${plan.notes.join("\uFF1B")}`
         };
       }
-      const staging = mkdtempSync(join10(tmpdir2(), "ocrc-cfgsync-"));
+      const staging = mkdtempSync(join11(tmpdir2(), "ocrc-cfgsync-"));
       try {
         const content = plan.merged && plan.configChanged ? renderConfig(plan.merged) : void 0;
         const topLevel = [...new Set(plan.files.map((rel) => rel.split("/")[0]).filter((e) => e !== plan.basename))];
@@ -4077,7 +4209,8 @@ var withStatus = (manager) => (i) => ({
 function createRemoteInstanceOps({
   store,
   manager,
-  jobTtlMs = 10 * 6e4
+  jobTtlMs = 10 * 6e4,
+  latestPack = () => latestPublishedPack()
 }) {
   const jobs = /* @__PURE__ */ new Map();
   const prune = () => {
@@ -4092,10 +4225,10 @@ function createRemoteInstanceOps({
       }
     }
   };
-  const start = (fn) => {
+  const start = (fn, instanceId) => {
     prune();
     const jobId = randomUUID();
-    const job = { state: "running", startedAt: Date.now() };
+    const job = { state: "running", startedAt: Date.now(), instanceId };
     jobs.set(jobId, job);
     void fn().then((result) => {
       job.state = "done";
@@ -4141,7 +4274,7 @@ function createRemoteInstanceOps({
         }
         case "plan": {
           if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
-          return start(() => manager.plan(op.id));
+          return start(() => manager.plan(op.id), op.id);
         }
         case "apply": {
           if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
@@ -4152,17 +4285,21 @@ function createRemoteInstanceOps({
         }
         case "upgrade": {
           if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
-          return start(() => manager.upgrade(op.id));
+          const to = typeof op.payload?.to === "string" ? op.payload.to.trim() : "";
+          if (to && !/^\d+\.\d+\.\d+$/.test(to)) {
+            return { status: 400, body: { error: `to \u4E0D\u5408\u6CD5\uFF1A${to}\uFF08\u8981 x.y.z\uFF09` } };
+          }
+          return start(() => manager.upgrade(op.id, to ? { to } : {}), op.id);
         }
         case "up":
           if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
-          return start(() => manager.up(op.id));
+          return start(() => manager.up(op.id), op.id);
         case "down":
           if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
-          return start(() => manager.down(op.id));
+          return start(() => manager.down(op.id), op.id);
         case "probe":
           if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
-          return start(() => manager.probe(op.id));
+          return start(() => manager.probe(op.id), op.id);
         case "status": {
           if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
           const status = statusFor(op.id);
@@ -4199,7 +4336,7 @@ function createRemoteInstanceOps({
         }
         case "peerlog": {
           if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
-          return start(() => manager.peerLogs(op.id, { lines: op.lines }));
+          return start(() => manager.peerLogs(op.id, { lines: op.lines }), op.id);
         }
         case "url": {
           const instance = store.get(op.id);
@@ -4211,16 +4348,18 @@ function createRemoteInstanceOps({
         }
         case "pairlink": {
           if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
-          return start(() => manager.pairLink(op.id));
+          return start(() => manager.pairLink(op.id), op.id);
         }
         case "defaults": {
           const localPort = await firstFreeLocalPort();
+          const latest = await latestPack();
           return {
             status: 200,
             body: {
               localPort,
               instancePort: DEFAULT_INSTANCE_PORT,
               appVersion: DEFAULT_APP_VERSION,
+              latestPack: latest.ok ? { version: latest.pack.version } : { error: latest.error },
               enginePin: DEFAULT_ENGINE_PIN,
               nodeRuntime: NODE_RUNTIME.version,
               bind: "127.0.0.1",
@@ -4238,7 +4377,7 @@ function createRemoteInstanceOps({
         }
         case "configdiff": {
           if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
-          return start(() => manager.configDiff(op.id));
+          return start(() => manager.configDiff(op.id), op.id);
         }
         case "syncconfig": {
           if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
@@ -4252,11 +4391,11 @@ function createRemoteInstanceOps({
             deletes: op.payload?.deletes,
             keyDeletes: op.payload?.keyDeletes,
             dryRun: op.payload?.dryRun === true
-          }));
+          }), op.id);
         }
         case "syncauth": {
           if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
-          return start(() => manager.syncAuth(op.id));
+          return start(() => manager.syncAuth(op.id), op.id);
         }
         case "job": {
           const job = jobs.get(op.jobId);
@@ -4264,7 +4403,12 @@ function createRemoteInstanceOps({
           return {
             status: 200,
             body: {
-              job: { state: job.state, result: job.result, error: job.error, startedAt: job.startedAt }
+              job: { state: job.state, result: job.result, error: job.error, startedAt: job.startedAt },
+              // The operation console stream: the instance's control-side log while
+              // the job runs (and once more on the final poll). This is the same
+              // log `op:logs` serves — milestones the manager itself wrote, never
+              // raw ssh output.
+              logTail: job.instanceId ? manager.logs(job.instanceId).slice(-120) : void 0
             }
           };
         }

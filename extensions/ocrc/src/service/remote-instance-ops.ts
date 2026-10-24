@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto'
 import net from 'node:net'
 import {
   DEFAULT_APP_VERSION, DEFAULT_ENGINE_PIN, DEFAULT_INSTANCE_PORT, DEFAULT_LOCAL_PORT, NODE_RUNTIME,
-  redactInstance,
+  latestPublishedPack, redactInstance,
   type InstanceStatus, type RemoteInstance, type RemoteInstanceManager, type RemoteInstancesStore,
 } from '../../../../src/remote-instance/index.js'
 
@@ -48,8 +48,8 @@ export type RemoteInstanceOp =
   | { op: 'patch'; id: string; payload: Partial<RemoteInstance> }
   | { op: 'plan'; id: string }
   | { op: 'apply'; id: string; payload?: { confirm?: boolean; force?: boolean } }
-  /** D5: move the peer to the control side's app pin (a no-op when it already is). */
-  | { op: 'upgrade'; id: string }
+  /** 升级到渠道最新（payload.to 钉死指定版本）；写被控端，面板必须先确认。 */
+  | { op: 'upgrade'; id: string; payload?: { to?: string } }
   | { op: 'up'; id: string }
   | { op: 'down'; id: string }
   | { op: 'probe'; id: string }
@@ -116,6 +116,9 @@ interface Job {
   result?: unknown
   error?: string
   startedAt: number
+  /** Which instance this job operates on — `op:job` uses it to stream that
+   *  instance's control-side log tail while the job runs (the operation console). */
+  instanceId?: string
 }
 
 export interface RemoteInstanceOps {
@@ -132,10 +135,13 @@ export function createRemoteInstanceOps({
   store,
   manager,
   jobTtlMs = 10 * 60_000,
+  latestPack = () => latestPublishedPack(),
 }: {
   store: RemoteInstancesStore
   manager: RemoteInstanceManager
   jobTtlMs?: number
+  /** Injectable so tests never touch the network; production uses the registry. */
+  latestPack?: () => Promise<{ ok: true; pack: { version: string; tag: string } } | { ok: false; error: string }>
 }): RemoteInstanceOps {
   const jobs = new Map<string, Job>()
 
@@ -153,10 +159,10 @@ export function createRemoteInstanceOps({
     }
   }
 
-  const start = (fn: () => Promise<unknown>): OpsReply => {
+  const start = (fn: () => Promise<unknown>, instanceId?: string): OpsReply => {
     prune()
     const jobId = randomUUID()
-    const job: Job = { state: 'running', startedAt: Date.now() }
+    const job: Job = { state: 'running', startedAt: Date.now(), instanceId }
     jobs.set(jobId, job)
     void fn()
       .then((result) => {
@@ -209,7 +215,7 @@ export function createRemoteInstanceOps({
 
         case 'plan': {
           if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
-          return start(() => manager.plan(op.id))
+          return start(() => manager.plan(op.id), op.id)
         }
 
         case 'apply': {
@@ -222,22 +228,26 @@ export function createRemoteInstanceOps({
 
         case 'upgrade': {
           if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
+          const to = typeof op.payload?.to === 'string' ? op.payload.to.trim() : ''
+          if (to && !/^\d+\.\d+\.\d+$/.test(to)) {
+            return { status: 400, body: { error: `to 不合法：${to}（要 x.y.z）` } }
+          }
           // Same write-to-the-peer semantics as `apply`, so the same job pattern
           // (and the same "the panel must say it is writing" rule).
-          return start(() => manager.upgrade(op.id))
+          return start(() => manager.upgrade(op.id, to ? { to } : {}), op.id)
         }
 
         case 'up':
           if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
-          return start(() => manager.up(op.id))
+          return start(() => manager.up(op.id), op.id)
 
         case 'down':
           if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
-          return start(() => manager.down(op.id))
+          return start(() => manager.down(op.id), op.id)
 
         case 'probe':
           if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
-          return start(() => manager.probe(op.id))
+          return start(() => manager.probe(op.id), op.id)
 
         case 'status': {
           if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
@@ -279,7 +289,7 @@ export function createRemoteInstanceOps({
 
         case 'peerlog': {
           if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
-          return start(() => manager.peerLogs(op.id, { lines: op.lines }))
+          return start(() => manager.peerLogs(op.id, { lines: op.lines }), op.id)
         }
 
         case 'url': {
@@ -293,17 +303,21 @@ export function createRemoteInstanceOps({
 
         case 'pairlink': {
           if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
-          return start(() => manager.pairLink(op.id))
+          return start(() => manager.pairLink(op.id), op.id)
         }
 
         case 'defaults': {
           const localPort = await firstFreeLocalPort()
+          // 渠道最新（add 表单的默认 pin 与「可升级」徽章都从这里来）。查不到就
+          // 原样带 error，面板写「未知」而不是猜。
+          const latest = await latestPack()
           return {
             status: 200,
             body: {
               localPort,
               instancePort: DEFAULT_INSTANCE_PORT,
               appVersion: DEFAULT_APP_VERSION,
+              latestPack: latest.ok ? { version: latest.pack.version } : { error: latest.error },
               enginePin: DEFAULT_ENGINE_PIN,
               nodeRuntime: NODE_RUNTIME.version,
               bind: '127.0.0.1',
@@ -323,7 +337,7 @@ export function createRemoteInstanceOps({
 
         case 'configdiff': {
           if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
-          return start(() => manager.configDiff(op.id))
+          return start(() => manager.configDiff(op.id), op.id)
         }
 
         case 'syncconfig': {
@@ -338,12 +352,12 @@ export function createRemoteInstanceOps({
             deletes: op.payload?.deletes,
             keyDeletes: op.payload?.keyDeletes,
             dryRun: op.payload?.dryRun === true,
-          }))
+          }), op.id)
         }
 
         case 'syncauth': {
           if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
-          return start(() => manager.syncAuth(op.id))
+          return start(() => manager.syncAuth(op.id), op.id)
         }
 
         case 'job': {
@@ -353,6 +367,11 @@ export function createRemoteInstanceOps({
             status: 200,
             body: {
               job: { state: job.state, result: job.result, error: job.error, startedAt: job.startedAt },
+              // The operation console stream: the instance's control-side log while
+              // the job runs (and once more on the final poll). This is the same
+              // log `op:logs` serves — milestones the manager itself wrote, never
+              // raw ssh output.
+              logTail: job.instanceId ? manager.logs(job.instanceId).slice(-120) : undefined,
             },
           }
         }

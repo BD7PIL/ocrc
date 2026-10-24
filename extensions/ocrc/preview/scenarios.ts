@@ -76,6 +76,14 @@ export const SCENARIOS: Record<string, PreviewRow[]> = {
   fresh: [FRESH],
   /** 升级发现：已停机器 + 渠道有 2.5.0（defaults 由 sdk-shim 注入 latestPack）。 */
   upgrade: [STOPPED],
+  /** 凭据漂移：status.auth = drift → 「凭据不一致」徽章 + 修法 hint（2026-10-24）。 */
+  authdrift: [{
+    ...STOPPED,
+    status: {
+      ...STOPPED.status,
+      auth: { sync: 'drift' as const, reason: '对端是旧凭据（本机 auth.json 在上次同步后改过）', at: Date.parse('2026-10-24T21:30:00+08:00') },
+    },
+  }],
 }
 
 export const rows = (scenario: string): PreviewRow[] =>

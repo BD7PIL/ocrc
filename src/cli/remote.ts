@@ -276,6 +276,13 @@ function printStatus(s: InstanceStatus): void {
   for (const line of s.holders ?? []) console.log(`    持有者  ${line}`)
   if (s.runtime) console.log(`    runtime ${s.runtime}`)
   if (s.app) console.log(`    app     ${s.app}`)
+  // 凭据漂移：只有探过才说（没探过不是坏消息）；drift 要把修法说出来。
+  if (s.auth) {
+    const at = new Date(s.auth.at).toLocaleString()
+    if (s.auth.sync === 'drift') console.log(`    凭据    不一致（${s.auth.reason ?? '对端与控制端 auth.json 不同'}）· 上次检查 ${at}——sync-auth 可对齐，同步后要重启实例`)
+    else if (s.auth.sync === 'match') console.log(`    凭据    一致 · 上次检查 ${at}`)
+    else console.log(`    凭据    未定（${s.auth.reason ?? '探测失败'}）· 上次检查 ${at}`)
+  }
   console.log(`    engine  ${engine}`)
   if (s.inspected) console.log(`    host    ${s.inspected.uname ?? '?'} glibc ${s.inspected.glibc ?? '?'}`)
   // D1: the decision, not just the relay config. "直连" for a peer with its own
@@ -725,6 +732,8 @@ export async function main(argv: string[]): Promise<void> {
       // 出口是"决定"，不是内存里的开关：冷进程里先把它探出来，否则状态页永远
       // 显示"尚未探测"，用户看不到自己要的那句"直连/经控制端"。
       await m.egress(id).catch(() => { /* 探测失败不改状态结论，照旧由 status 说 */ })
+      // 凭据漂移同款：一次性 CLI 进程缓存恒空，这里直接探（一次 ssh 指纹）。
+      await m.authSyncState(id).catch(() => { /* 失败 = unknown，由 printStatus 如实说 */ })
       const live = await m.probe(id)
       const st = m.status(id)
       if (!st) throw new Error(`没有这台服务器：${id}`)

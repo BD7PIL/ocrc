@@ -67,6 +67,8 @@ const PLAN = [
   { id: '28-rail-empty', page: 'status', scenario: 'empty', note: '状态区：未添加' },
   { id: '29-rail-down', page: 'status', scenario: 'error', note: '状态区：服务未运行' },
   { id: '30-rail-dark', page: 'status', scenario: 'two', theme: 'dark', note: '状态区：深色' },
+  // 0.10.2 新增：凭据漂移可见化
+  { id: '31-auth-drift', page: 'panel', scenario: 'authdrift', note: '凭据不一致：warning 徽章 + 修法 hint（含「同步后要重启」）' },
 ]
 
 const chrome = [

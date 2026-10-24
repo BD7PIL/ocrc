@@ -35,6 +35,8 @@ interface InstanceStatus {
   liveApp?: string
   proxy?: { enabled: boolean; localPort: number; remotePort: number }
   egress?: { mode: string; relay: boolean; reason: string; probe?: string; cached: boolean }
+  /** 凭据漂移结论（检查/sync-auth 后才有；只含结论+原因+时间，无哈希无凭据）。 */
+  auth?: { sync: 'match' | 'drift' | 'unknown'; reason?: string; at: number }
   /** D7: who holds each forward leg (pid + role), from the manager's markers. */
   holders?: string[]
   inspected?: { uname?: string; glibc?: string }
@@ -79,8 +81,10 @@ interface PlanDetail {
   peerPort?: 'open' | 'closed' | 'unknown'
   /** 正在跑的实例自报版本（plan 顺带实测）。 */
   liveApp?: string
-  /** 渠道最新已发布的 pack（升级目标候选）；error 时如实说查不到。 */
+  /** 渠道最新已发布的 pack（升级目标候选）；查不到时如实说。 */
   latestPack?: { version: string } | { error: string }
+  /** 凭据漂移结论（plan 顺带探测；drift 时亮「凭据不一致」徽章）。 */
+  auth?: { sync: 'match' | 'drift' | 'unknown'; reason?: string; at: number }
 }
 
 interface Defaults {
@@ -738,6 +742,9 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
         const upgradeTo = provisioned && planLatest && planLatest !== row.appVersion ? planLatest : undefined
         /** 裁决之二：引擎也跟渠道——已装 OpenCode 比 npm 渠道最新旧时提示（真决策在 upgrade 里，只升不降）。 */
         const engineUpgradeTo = provisioned && isNewerEngine(channelEngineLatest, st?.engine?.version) ? channelEngineLatest : undefined
+        /** 凭据漂移（2026-10-24：key 轮换后对端用旧 key 不可见）。只在有结论且
+         *  drift 时出徽章；match 是好事不吵，unknown 是没查不是坏消息。 */
+        const authDrift = st?.auth?.sync === 'drift' ? st.auth : undefined
         const showVersion = st?.liveApp ?? st?.app
         return (
           <div className="oc-card" key={row.id}>
@@ -747,6 +754,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
               <KitBadge label={state.label} tone={state.tone} />
               {upgradeTo ? <KitBadge label={`可升级 ${upgradeTo}`} tone="info" /> : null}
               {engineUpgradeTo ? <KitBadge label={`OpenCode 可升级 ${engineUpgradeTo}`} tone="info" /> : null}
+              {authDrift ? <KitBadge label="凭据不一致" tone="warning" /> : null}
             </div>
             {/* ② 地址 + 登录方式（只出现一次） */}
             <div className="oc-muted oc-sm oc-mono oc-truncate">{`${address} · ${row.sshAuth === 'password' ? '密码登录' : '密钥登录'}`}</div>
@@ -763,6 +771,13 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
             {provisioned && !isUp ? (
               <div className="oc-xs oc-muted">
                 {upgradeTo ? `已装好（${row.appVersion}）。可升级到 ${upgradeTo}，也可以直接启动当前版。` : '已装好。下一步：启动 → 创建配对链接。'}
+              </div>
+            ) : null}
+            {/* 凭据漂移的修法要连着说：sync-auth 是点时拷贝 + 引擎起时读凭据，
+                「同步完要重启」是实测踩过的坑，不写出来用户会白同步一次。 */}
+            {authDrift ? (
+              <div className="oc-xs oc-muted">
+                {`凭据与控制端不一致${authDrift.reason ? `（${authDrift.reason}）` : ''}——「同步凭据」可对齐；同步后要重启实例才生效。`}
               </div>
             ) : null}
 
@@ -1198,6 +1213,15 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                 ) : null}
                 {planFor.reply.latestPack && 'error' in planFor.reply.latestPack ? (
                   <div className="oc-xs oc-muted">{`渠道最新：查不到（${planFor.reply.latestPack.error}）`}</div>
+                ) : null}
+                {planFor.reply.auth ? (
+                  <div className="oc-xs oc-muted">
+                    {planFor.reply.auth.sync === 'match'
+                      ? '凭据：与控制端一致。'
+                      : planFor.reply.auth.sync === 'drift'
+                        ? `凭据：不一致（${planFor.reply.auth.reason ?? '对端是旧凭据'}）——「同步凭据」可对齐，同步后要重启实例才生效。`
+                        : `凭据：未定（${planFor.reply.auth.reason ?? '探测失败'}）。`}
+                  </div>
                 ) : null}
                 {planFor.reply.engineCandidates.length > 0 ? (
                   <div className="oc-col">

@@ -135,15 +135,18 @@ __export(instance_config_exports, {
   PEER_AUTH_PATH: () => PEER_AUTH_PATH,
   PEER_CONFIG_DIR: () => PEER_CONFIG_DIR,
   applyKeyDeletes: () => applyKeyDeletes,
+  buildAuthFingerprintCommand: () => buildAuthFingerprintCommand,
   buildAuthPushScript: () => buildAuthPushScript,
   buildConfigApplyScript: () => buildConfigApplyScript,
   buildPeerConfigReadScript: () => buildPeerConfigReadScript,
+  decideAuthSync: () => decideAuthSync,
   diffConfig: () => diffConfig,
   discardStaging: () => discardStaging,
   findPeerOnlyKeys: () => findPeerOnlyKeys,
   findShadowedKeys: () => findShadowedKeys,
   listStaged: () => listStaged,
   mergeConfigLayers: () => mergeConfigLayers,
+  parseAuthFingerprint: () => parseAuthFingerprint,
   parsePeerConfigRead: () => parsePeerConfigRead,
   planConfigSync: () => planConfigSync,
   readLocalConfig: () => readLocalConfig,
@@ -541,6 +544,24 @@ function buildAuthPushScript() {
     'mv "$T" "$A"',
     'echo "sync-auth: written 0600"'
   ].join("\n");
+}
+function buildAuthFingerprintCommand() {
+  return `A="${PEER_AUTH_PATH}"; if [ -f "$A" ]; then sha256sum "$A" | cut -d' ' -f1; stat -c %Y "$A"; else echo MISSING; fi`;
+}
+function parseAuthFingerprint(out) {
+  const lines = out.trim().split("\n").map((l) => l.trim()).filter(Boolean);
+  if (lines.some((l) => l === "MISSING")) return "missing";
+  const sha = /^[0-9a-f]{64}$/.test(lines[0] ?? "") ? lines[0] : void 0;
+  if (!sha) return void 0;
+  const mtime = Number(lines[1]);
+  return { sha, mtime: Number.isFinite(mtime) && mtime > 0 ? mtime : void 0 };
+}
+function decideAuthSync(o) {
+  if (!o.localSha) return { sync: "unknown", reason: "\u672C\u673A\u6CA1\u6709 auth.json\uFF08\u5148\u5728\u672C\u673A\u767B\u5F55 provider\uFF09" };
+  if (o.peer === "missing") return { sync: "drift", reason: "\u5BF9\u7AEF\u6CA1\u6709 auth.json\uFF08\u4ECE\u672A\u540C\u6B65\u8FC7\u51ED\u636E\uFF09" };
+  if (!o.peer || !o.peer.sha) return { sync: "unknown", reason: "\u5BF9\u7AEF\u6307\u7EB9\u8BFB\u4E0D\u51FA\u6765\uFF08\u63A2\u6D4B\u8F93\u51FA\u5F02\u5E38\uFF09" };
+  if (o.peer.sha !== o.localSha) return { sync: "drift", reason: "\u5BF9\u7AEF\u662F\u65E7\u51ED\u636E\uFF08\u672C\u673A auth.json \u5728\u4E0A\u6B21\u540C\u6B65\u540E\u6539\u8FC7\uFF09" };
+  return { sync: "match" };
 }
 function discardStaging(dir) {
   rmSync3(dir, { recursive: true, force: true });
@@ -1307,6 +1328,7 @@ function createRemoteInstancesStore(path, opts = {}) {
 
 // ../../src/core/remote-instance-bridge.ts
 import { spawn as spawn3 } from "node:child_process";
+import { createHash as createHash5 } from "node:crypto";
 import net2 from "node:net";
 import { mkdtempSync, openSync, readFileSync as readFileSync7 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
@@ -3261,6 +3283,33 @@ tar: ${err.message}` });
     if (!cached) return { mode, relay: false, reason: "\u5C1A\u672A\u63A2\u6D4B\uFF08\u8DD1\u4E00\u6B21\u68C0\u67E5\u6216\u542F\u52A8\u5C31\u4F1A\u51B3\u5B9A\uFF09", cached: false };
     return { mode, relay: cached.relay, reason: cached.reason, probe: cached.probe, cached: true };
   }
+  async function authSyncFor(instance, probeOpts = {}) {
+    const r = rt(instance.id);
+    if (!probeOpts.bust && r.authSync && Date.now() - r.authSync.at < EGRESS_TTL_MS) return r.authSync;
+    const local = readLocalConfig({ dir: opts.localConfigDir, authPath: opts.localAuthPath });
+    const localSha = local.authPresent ? createHash5("sha256").update(readFileSync7(local.authPath)).digest("hex") : void 0;
+    let peer;
+    let sshError;
+    if (localSha) {
+      try {
+        const out = await ssh(instance, buildAuthFingerprintCommand(), 2e4);
+        peer = parseAuthFingerprint(out.stdout);
+      } catch (err) {
+        sshError = err.message;
+      }
+    }
+    const verdict = !localSha ? { sync: "unknown", reason: `\u672C\u673A\u6CA1\u6709 ${local.authPath}\u2014\u2014\u5148\u5728\u672C\u673A\u767B\u5F55 provider` } : sshError ? { sync: "unknown", reason: `\u5BF9\u7AEF\u6307\u7EB9\u53D6\u4E0D\u5230\uFF08ssh\uFF1A${sshError}\uFF09` } : decideAuthSync({ localSha, peer });
+    const value = { ...verdict, at: Date.now() };
+    r.authSync = value;
+    opts.store.update(instance.id, {
+      observed: { ...instance.observed, auth: { sync: value.sync, at: value.at } }
+    });
+    if (value.sync === "drift") pushLog(instance.id, `\u51ED\u636E\u4E0D\u4E00\u81F4\uFF1A${value.reason ?? "\u5BF9\u7AEF\u4E0E\u63A7\u5236\u7AEF auth.json \u4E0D\u540C"}\uFF08sync-auth \u53EF\u5BF9\u9F50\uFF0C\u540C\u6B65\u540E\u8981\u91CD\u542F\u5B9E\u4F8B\uFF09`);
+    return value;
+  }
+  function authView(instance) {
+    return rt(instance.id).authSync ?? instance.observed?.auth;
+  }
   async function ensureProxy(instance) {
     const cfg = proxyConfig(instance);
     if (!cfg.enabled) return "off";
@@ -3710,6 +3759,7 @@ tar: ${err.message}` });
       if (peerPort === "unknown") actions.push(`\u5B9E\u4F8B\u7AEF\u53E3 ${instance.instancePort}\uFF1A\u8FDC\u7A0B\u673A\u5668\u65E2\u6CA1\u6709\u6211\u4EEC\u7684\u8FD0\u884C\u65F6\u4E5F\u6CA1\u6709 ss/netstat\uFF0C\u5360\u7528\u60C5\u51B5\u65E0\u6CD5\u5224\u5B9A\uFF08\u542F\u52A8\u65F6\u624D\u4F1A\u77E5\u9053\uFF09`);
       const live = await probeThroughForward(instance).catch(() => ({ ok: false, error: "\u8F6C\u53D1\u672A\u8D77" }));
       noteLiveApp(id, live.ok ? live.version : void 0);
+      const auth = await authSyncFor(instance);
       if (rt(id).state !== "online") setState(id, "offline", "\u5DF2\u68C0\u67E5\uFF08\u672A\u542F\u52A8\uFF09");
       const latest = await latestPublishedPack();
       return {
@@ -3720,6 +3770,7 @@ tar: ${err.message}` });
         runtime,
         app,
         liveApp: live.ok ? live.version : void 0,
+        auth,
         latestPack: latest.ok ? { version: latest.pack.version } : { error: latest.error },
         engine: pick.ok ? { path: pick.candidate.path, version: pick.candidate.version } : void 0,
         engineError: pick.ok ? void 0 : pick.error,
@@ -4058,6 +4109,7 @@ tar: ${err.message}` });
           connects: (proxy?.connects ?? []).slice(-20).map((t) => `${t.host}:${t.port}`)
         },
         egress: egressView(instance),
+        auth: authView(instance),
         logTail: r?.logs.slice(-40) ?? []
       };
     },
@@ -4068,6 +4120,9 @@ tar: ${err.message}` });
       const instance = need(id);
       const decision = await egressFor(instance);
       return { mode: instance.egress ?? EGRESS_DEFAULT, ...decision };
+    },
+    async authSyncState(id) {
+      return authSyncFor(need(id));
     },
     // ── C1–C4: config and credentials for the peer's engine ────────────────────
     async configDiff(id, diffOpts = {}) {
@@ -4185,12 +4240,15 @@ tar: ${err.message}` });
       const content = readFileSync7(local.authPath);
       const result = await sshRunWithStdin(instance, buildAuthPushScript(), content, { timeoutMs: 45e3 });
       if (result.code !== 0) {
-        const detail = `\u51ED\u636E\u540C\u6B65\u5931\u8D25\uFF08exit ${result.code}\uFF09\uFF1A${cleanSshNoise(result.stderr || result.stdout).trim().split("\n").pop() ?? ""}`;
-        pushLog(id, detail);
-        return { ok: false, detail };
+        const detail2 = `\u51ED\u636E\u540C\u6B65\u5931\u8D25\uFF08exit ${result.code}\uFF09\uFF1A${cleanSshNoise(result.stderr || result.stdout).trim().split("\n").pop() ?? ""}`;
+        pushLog(id, detail2);
+        return { ok: false, detail: detail2 };
       }
       pushLog(id, "sync-auth: \u51ED\u636E\u5DF2\u5199\u5230\u8FDC\u7A0B\u673A\u5668\uFF080600\uFF0C\u65E7\u4EF6\u7559 .ocrc-bak\uFF09");
-      return { ok: true, detail: `\u51ED\u636E\u5DF2\u540C\u6B65\uFF08${content.length} \u5B57\u8282 \u2192 \u8FDC\u7A0B\u673A\u5668 0600\uFF09` };
+      const verified = await authSyncFor(instance, { bust: true });
+      const detail = verified.sync === "match" ? `\u51ED\u636E\u5DF2\u540C\u6B65\uFF08${content.length} \u5B57\u8282 \u2192 \u8FDC\u7A0B\u673A\u5668 0600\uFF09\uFF1B\u6307\u7EB9\u590D\u6838\u4E00\u81F4\u2014\u2014\u540C\u6B65\u540E\u8981\u91CD\u542F\u5B9E\u4F8B\uFF08down/up\uFF09\u624D\u751F\u6548` : `\u51ED\u636E\u5DF2\u540C\u6B65\uFF08${content.length} \u5B57\u8282 \u2192 \u8FDC\u7A0B\u673A\u5668 0600\uFF09\uFF0C\u4F46\u590D\u6838${verified.sync === "drift" ? "\u4ECD\u4E0D\u4E00\u81F4" : "\u672A\u5B9A"}\uFF08${verified.reason ?? "\u539F\u56E0\u672A\u77E5"}\uFF09`;
+      pushLog(id, `sync-auth: ${verified.sync === "match" ? "\u6307\u7EB9\u590D\u6838\u4E00\u81F4" : `\u590D\u6838 ${verified.sync}\uFF08${verified.reason ?? ""}\uFF09`}`);
+      return { ok: true, detail };
     },
     logs(id) {
       return rt(id).logs.slice(-LOG_CAP);

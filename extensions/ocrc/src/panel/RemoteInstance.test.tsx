@@ -512,6 +512,33 @@ describe('升级链路与操作台（0.10.0）', () => {
     expect(screen.queryByText(/OpenCode 可升级/)).toBeNull()
   })
 
+  it('凭据漂移徽章（0.10.2）：drift 才亮 warning + 修法 hint；match/unknown/没查过都不出', async () => {
+    let lastUnmount: (() => void) | undefined
+    const renderWith = async (auth: unknown) => {
+      lastUnmount?.()
+      const row = auth === undefined ? STOPPED : { ...STOPPED, status: { ...STOPPED.status, auth } }
+      const { request } = fakeRequest((call) => {
+        const body = call.body as { op?: string } | undefined
+        if (body?.op === 'list') return { status: 200, body: { instances: [row] } }
+        return { status: 200, body: {} }
+      })
+      const view = await act(async () => render(<RemoteInstance request={request} host={STUB_HOST} />))
+      lastUnmount = view.unmount
+      await waitFor(() => expect(screen.getByText('Ubuntu 26.04')).toBeTruthy())
+    }
+    await renderWith({ sync: 'drift', reason: '对端是旧凭据（本机 auth.json 在上次同步后改过）', at: Date.now() })
+    expect(screen.getByText('凭据不一致')).toBeTruthy()
+    // 修法 hint 连着说，含「同步后要重启」（实测踩过的坑，不写用户会白同步一次）
+    expect(screen.getByText(/同步后要重启实例才生效/)).toBeTruthy()
+    expect(screen.getByText(/对端是旧凭据/)).toBeTruthy()
+    await renderWith({ sync: 'match', at: Date.now() }) // 一致是好事，不吵
+    expect(screen.queryByText('凭据不一致')).toBeNull()
+    await renderWith({ sync: 'unknown', reason: '对端指纹取不到', at: Date.now() }) // 没查/失败不是坏消息
+    expect(screen.queryByText('凭据不一致')).toBeNull()
+    await renderWith(undefined) // 从未探测：字段都没有
+    expect(screen.queryByText('凭据不一致')).toBeNull()
+  })
+
   it('操作台：job 运行时自动展开、实时日志流、成功收起成结果 chip', { timeout: 20_000 }, async () => {
     // 'up' 先回 202 + jobId；job 轮询第一次 running（带 logTail），第二次 done。
     let jobCalls = 0

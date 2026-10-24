@@ -47,8 +47,14 @@ export interface RemoteInstance extends SshAuthSpec {
   /** openchamber version pinned to the control side's (mirror, never "latest"). */
   appVersion: string
   /** 最近一次**实测**到的运行版本（GET /api/version）与时间。与 pin 并存：
-   *  pin 说"我们装的是哪棵树"，observed 说"现在跑的是哪个版本"。 */
-  observed?: { app?: string; at?: number }
+   *  pin 说"我们装的是哪棵树"，observed 说"现在跑的是哪个版本"。
+   *  `auth`：最近一次凭据漂移探测的结论（sha256 比对，只存三值结论+时间，
+   *  不存哈希与凭据）——service 重启后「凭据不一致」徽章仍可见。 */
+  observed?: {
+    app?: string
+    at?: number
+    auth?: { sync: 'match' | 'drift' | 'unknown'; at: number }
+  }
   enabled: boolean
   /** R10 switches. Defaults: reconnect/resume on, restart-restore on, replay off. */
   reconnect?: boolean

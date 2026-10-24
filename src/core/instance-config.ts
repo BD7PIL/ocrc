@@ -698,6 +698,37 @@ export function buildAuthPushScript(): string {
   ].join('\n')
 }
 
+// ── auth 漂移探测（2026-10-24：DS key 轮换后对端还在用旧 key，问题不可见）──
+// 设计与 egress 探测同款：**只比哈希，凭据内容永不回传/进面板**；探测是显式
+// 动作（plan / sync-auth 自证 / CLI status），status 读只看缓存。
+
+export type AuthSyncState = 'match' | 'drift' | 'unknown'
+
+export interface AuthFingerprint { sha?: string; mtime?: number }
+
+/** 远端一行：指纹 + mtime；文件不在就 MISSING（那是 drift 的一种：从未同步过）。 */
+export function buildAuthFingerprintCommand(): string {
+  return `A="${PEER_AUTH_PATH}"; if [ -f "$A" ]; then sha256sum "$A" | cut -d' ' -f1; stat -c %Y "$A"; else echo MISSING; fi`
+}
+
+export function parseAuthFingerprint(out: string): AuthFingerprint | 'missing' | undefined {
+  const lines = out.trim().split('\n').map((l) => l.trim()).filter(Boolean)
+  if (lines.some((l) => l === 'MISSING')) return 'missing'
+  const sha = /^[0-9a-f]{64}$/.test(lines[0] ?? '') ? lines[0] : undefined
+  if (!sha) return undefined
+  const mtime = Number(lines[1])
+  return { sha, mtime: Number.isFinite(mtime) && mtime > 0 ? mtime : undefined }
+}
+
+/** 漂移判定（纯函数）：对端缺件/哈希不等 = drift；本机没件 = unknown（不是对端的错）。 */
+export function decideAuthSync(o: { localSha?: string; peer: AuthFingerprint | 'missing' | undefined }): { sync: AuthSyncState; reason?: string } {
+  if (!o.localSha) return { sync: 'unknown', reason: '本机没有 auth.json（先在本机登录 provider）' }
+  if (o.peer === 'missing') return { sync: 'drift', reason: '对端没有 auth.json（从未同步过凭据）' }
+  if (!o.peer || !o.peer.sha) return { sync: 'unknown', reason: '对端指纹读不出来（探测输出异常）' }
+  if (o.peer.sha !== o.localSha) return { sync: 'drift', reason: '对端是旧凭据（本机 auth.json 在上次同步后改过）' }
+  return { sync: 'match' }
+}
+
 /** Remove a staging tree (the manager's cleanup, kept here so the temp layout
  *  lives in one module). */
 export function discardStaging(dir: string): void {

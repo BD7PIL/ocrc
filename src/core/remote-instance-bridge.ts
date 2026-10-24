@@ -15,6 +15,7 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import net from 'node:net'
 import { mkdtempSync, openSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -39,8 +40,9 @@ import {
 import { appPackTierForGlibc, buildAppProbeCommand, buildOfflineGuardExports, buildRuntimeProbeCommand, provisionOffline, resolveEnginePin, sshRun, sshRunWithStdin, type AppPackTier, type SshResult } from './remote-instance-push.js'
 import { latestPublishedPack, latestEngineVersion, packReleaseAvailable, planUpgradeRun } from './app-pack-registry.js'
 import {
-  buildAuthPushScript, buildConfigApplyScript, buildPeerConfigReadScript, diffConfig, discardStaging,
-  parsePeerConfigRead, planConfigSync, readLocalConfig, stageConfigTree,
+  buildAuthFingerprintCommand, buildAuthPushScript, buildConfigApplyScript, buildPeerConfigReadScript, decideAuthSync,
+  diffConfig, discardStaging, parseAuthFingerprint, parsePeerConfigRead, planConfigSync, readLocalConfig, stageConfigTree,
+  type AuthFingerprint, type AuthSyncState,
 } from './instance-config.js'
 import { defaultComponentSources, installPreparedComponent, pluginEntryFor, prepareComponent, registerPeerPlugins } from './components.js'
 import { renderConfig } from './config-merge.js'
@@ -82,6 +84,9 @@ export interface InstanceStatus {
   terminal?: { ok: boolean; reason?: string }
   /** R9: where the controlled host's egress comes out, and what it has dialled. */
   proxy?: { enabled: boolean; localPort: number; remotePort: number; listening: boolean; connects: string[] }
+  /** auth 漂移结论（plan/sync-auth/CLI status 探测后才有；只含结论与原因，
+   *  不含哈希与凭据）。drift = 对端 auth.json 与控制端不一致。 */
+  auth?: { sync: AuthSyncState; reason?: string; at: number }
   /** D1: the egress **decision** (not just the relay config) with its reason, so
    *  a peer that is direct by design never looks like a missing relay. */
   egress?: { mode: EgressMode; relay: boolean; reason: string; probe?: EgressProbe; cached: boolean }
@@ -111,6 +116,8 @@ export interface InstancePlan {
   liveApp?: string
   /** 渠道最新已发布的 pack（升级目标候选）；查不到时是 error，面板如实说。 */
   latestPack?: { version: string } | { error: string }
+  /** 凭据漂移结论（本 plan 顺带探测；drift 时面板亮「凭据不一致」）。 */
+  auth?: { sync: AuthSyncState; reason?: string; at: number }
   /** A3: the effective egress policy, probed while planning when the mode is
    *  `auto` — "auto" is only a choice, the user still has to see what it picked. */
   egress?: { mode: EgressMode; relay: boolean; reason: string; probe?: EgressProbe }
@@ -187,6 +194,9 @@ export interface RemoteInstanceManager {
    *  cache only — it must not cost an ssh round trip — so a caller that wants a
    *  real answer on a cold process asks for it explicitly. */
   egress(id: string): Promise<{ mode: EgressMode; relay: boolean; reason: string; probe?: EgressProbe }>
+  /** auth 漂移探测（同 egress 的缓存语义）：sha256 比对控制端与对端 auth.json，
+   *  结论进缓存与 store.observed；status 只读缓存。凭据内容与哈希都不外发。 */
+  authSyncState(id: string): Promise<{ sync: AuthSyncState; reason?: string; at: number }>
   /** C1: local-vs-peer config diff, both directions. Read-only.
    *  `components` adds their plugin entries to the "what a sync would write" view. */
   configDiff(id: string, opts?: { components?: string[] }): Promise<InstanceConfigDiff>
@@ -301,6 +311,8 @@ interface InstanceRuntime {
   pairForward?: ChildProcess
   /** Cached egress decision for this peer (see egressFor). */
   egress?: { relay: boolean; reason: string; probe?: EgressProbe; at: number }
+  /** Cached auth-drift verdict (see authSyncFor): 只比哈希，凭据内容不落任何缓存。 */
+  authSync?: { sync: AuthSyncState; reason?: string; at: number }
   /** An `-R` relay adoption check is in flight (see ensureExternalRelayAsync). */
   relayPending?: boolean
   /** External-mode re-check timer (no child process to watch in that mode). */
@@ -758,6 +770,49 @@ export function createRemoteInstanceManager(opts: {
     const cached = rt(instance.id).egress
     if (!cached) return { mode, relay: false, reason: '尚未探测（跑一次检查或启动就会决定）', cached: false }
     return { mode, relay: cached.relay, reason: cached.reason, probe: cached.probe, cached: true }
+  }
+
+  /** auth 漂移探测（与 egressFor 同款范式，2026-10-24：key 轮换后对端还在用旧
+   *  key，问题不可见）。本机 auth.json 的 sha256 vs 对端 `sha256sum` 输出——
+   *  **只比哈希**，凭据内容不回传、不进缓存、不进面板。结论双写：rt 缓存
+   *  （本进程 5 分钟 TTL）+ store.observed（service 重启后徽章仍在）。失败不
+   *  抛错：ssh 不通/输出异常 = unknown，plan 不因它失败。 */
+  async function authSyncFor(instance: RemoteInstance, probeOpts: { bust?: boolean } = {}): Promise<{ sync: AuthSyncState; reason?: string; at: number }> {
+    const r = rt(instance.id)
+    if (!probeOpts.bust && r.authSync && Date.now() - r.authSync.at < EGRESS_TTL_MS) return r.authSync
+    const local = readLocalConfig({ dir: opts.localConfigDir, authPath: opts.localAuthPath })
+    const localSha = local.authPresent
+      ? createHash('sha256').update(readFileSync(local.authPath)).digest('hex')
+      : undefined
+    let peer: AuthFingerprint | 'missing' | undefined
+    let sshError: string | undefined
+    if (localSha) {
+      try {
+        const out = await ssh(instance, buildAuthFingerprintCommand(), 20_000)
+        peer = parseAuthFingerprint(out.stdout)
+      } catch (err) {
+        sshError = (err as Error).message
+      }
+    }
+    const verdict = !localSha
+      ? { sync: 'unknown' as AuthSyncState, reason: `本机没有 ${local.authPath}——先在本机登录 provider` }
+      : sshError
+        ? { sync: 'unknown' as AuthSyncState, reason: `对端指纹取不到（ssh：${sshError}）` }
+        : decideAuthSync({ localSha, peer })
+    const value = { ...verdict, at: Date.now() }
+    r.authSync = value
+    opts.store.update(instance.id, {
+      observed: { ...instance.observed, auth: { sync: value.sync, at: value.at } },
+    })
+    if (value.sync === 'drift') pushLog(instance.id, `凭据不一致：${value.reason ?? '对端与控制端 auth.json 不同'}（sync-auth 可对齐，同步后要重启实例）`)
+    return value
+  }
+
+  /** 结论的只读视图：rt 缓存 → store.observed（重启存活）→ 没有就不带字段
+   *  （与 egress 的 cached:false 同一诚实语义：没查过就说没查过，但徽章只在
+   *  有结论且为 drift 时出现，所以 unknown/未查都不出字段以外的噪音）。 */
+  function authView(instance: RemoteInstance): InstanceStatus['auth'] {
+    return rt(instance.id).authSync ?? instance.observed?.auth
   }
 
   async function ensureProxy(instance: RemoteInstance): Promise<'in-process' | 'external' | 'off'> {
@@ -1286,6 +1341,9 @@ export function createRemoteInstanceManager(opts: {
       // 是面板必须两个都说的真相，不是这里该抹平的。
       const live = await probeThroughForward(instance).catch(() => ({ ok: false as const, error: '转发未起' }))
       noteLiveApp(id, live.ok ? live.version : undefined)
+      // 凭据漂移与渠道最新都是「检查」该带回的真相：一次 ssh 指纹，结论进缓存
+      // 与 store（status/面板徽章随后免 ssh 可读）。
+      const auth = await authSyncFor(instance)
       // 检查完徽章不许再回「未检查」：查过了就说查过的结论（在线态保持，隧道
       // 活着是更强的真相）。
       if (rt(id).state !== 'online') setState(id, 'offline', '已检查（未启动）')
@@ -1293,6 +1351,7 @@ export function createRemoteInstanceManager(opts: {
       return {
         id, target, reachable: true, inspected: env, runtime, app,
         liveApp: live.ok ? live.version : undefined,
+        auth,
         latestPack: latest.ok ? { version: latest.pack.version } : { error: latest.error },
         engine: pick.ok ? { path: pick.candidate.path, version: pick.candidate.version } : undefined,
         engineError: pick.ok ? undefined : pick.error,
@@ -1686,6 +1745,7 @@ async probe(id) {
           connects: (proxy?.connects ?? []).slice(-20).map((t) => `${t.host}:${t.port}`),
         },
         egress: egressView(instance),
+        auth: authView(instance),
         logTail: r?.logs.slice(-40) ?? [],
       }
     },
@@ -1698,6 +1758,10 @@ async probe(id) {
       const instance = need(id)
       const decision = await egressFor(instance)
       return { mode: instance.egress ?? EGRESS_DEFAULT, ...decision }
+    },
+
+    async authSyncState(id) {
+      return authSyncFor(need(id))
     },
 
     // ── C1–C4: config and credentials for the peer's engine ────────────────────
@@ -1833,7 +1897,14 @@ async probe(id) {
       // Never log the content, and never echo it: the log says what happened,
       // not what was copied.
       pushLog(id, 'sync-auth: 凭据已写到远程机器（0600，旧件留 .ocrc-bak）')
-      return { ok: true, detail: `凭据已同步（${content.length} 字节 → 远程机器 0600）` }
+      // 同步完自证 match（bust 绕过缓存）：刚推的就是控制端这份，结论应当立刻
+      // 转绿——而不是等下一次「检查」。**提醒重启**：引擎起时读凭据，热文件不生效。
+      const verified = await authSyncFor(instance, { bust: true })
+      const detail = verified.sync === 'match'
+        ? `凭据已同步（${content.length} 字节 → 远程机器 0600）；指纹复核一致——同步后要重启实例（down/up）才生效`
+        : `凭据已同步（${content.length} 字节 → 远程机器 0600），但复核${verified.sync === 'drift' ? '仍不一致' : '未定'}（${verified.reason ?? '原因未知'}）`
+      pushLog(id, `sync-auth: ${verified.sync === 'match' ? '指纹复核一致' : `复核 ${verified.sync}（${verified.reason ?? ''}）`}`)
+      return { ok: true, detail }
     },
 
     logs(id) {

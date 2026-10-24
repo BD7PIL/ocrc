@@ -1,7 +1,16 @@
 # Changelog
 
-## 2.0.0-alpha.20 — 检查并更新名副其实 + 操作台 + 面板重设计（2026-10-24，扩展 0.10.0/0.10.1）
+## 2.0.0-alpha.20 — 检查并更新名副其实 + 操作台 + 面板重设计（2026-10-24，扩展 0.10.0/0.10.1/0.10.2）
 
+- **凭据漂移可见化（扩展 0.10.2）**：DS key 轮换后对端还在用旧 key、问题不可见（2026-10-24
+  实修实踩）。探测与 egress 同款范式：`sha256sum` 比对控制端与对端 auth.json（**只比哈希，
+  凭据内容与哈希都不回传/进面板**），结论三值 match/drift/unknown；「检查」（plan）、
+  sync-auth 成功后自证、CLI status 三处触发，结论双写 rt 缓存（5 分钟 TTL）+
+  `store.observed`（service 重启后徽章仍在，标注上次检查时间）；status 读零 ssh。面板：
+  drift 亮 warning 徽章「凭据不一致」+ 修法 hint（含「同步后要重启实例才生效」——热文件
+  不生效是实测坑）；match/unknown 不出（一致是好事、没查不是坏消息）。sync-auth 详情
+  补指纹复核与重启提醒；CLI status 加「凭据 一致/不一致/未定」行。audit 第 31 项
+  （sha 比对验证渲染）。
 - **引擎渠道跟随（裁决 2026-10-24 之二，扩展 0.10.1）**：openchamber 探渠道，opencode 同样探渠道——
   不可能每次升级手改 pin。`latestEngineVersion()`（npm `@opencode/cli-<target>` 的
   dist-tags.latest，`OCRC_NPM_REGISTRY` 可换镜像）+ `decideEngineTarget`（目标 = max(已装/生效 pin,
@@ -46,6 +55,7 @@
   横幅/per-row busy 等 8 项）；audit 清单重写为 30 项（新增升级发现/确认、操作台运行中/失败/
   收起 chip、深色操作台）。0.10.1 增量：引擎跟随/重试决策表与 npm fixture（registry）、CLI 离线
   路径（空库 list/status、remove 前置拒绝）、面板引擎徽章三态——主仓 283、扩展 57。
+  0.10.2 增量：指纹命令/解析/漂移决策三件套 + 面板徽章三态——主仓 286、扩展 58。
 
 ## 2.0.0-alpha.19 — 组件 pin reeve 0.2.4（2026-10-24）
 

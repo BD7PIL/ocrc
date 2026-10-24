@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFil
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  buildAuthPushScript, buildConfigApplyScript, buildPeerConfigReadScript, diffConfig, parsePeerConfigRead,
+  buildAuthFingerprintCommand, buildAuthPushScript, buildConfigApplyScript, buildPeerConfigReadScript, decideAuthSync,
+  diffConfig, parseAuthFingerprint, parsePeerConfigRead,
   findShadowedKeys, planConfigSync, readLocalConfig, stageConfigTree,
 } from '../../src/core/instance-config.js'
 import { mergeSticky, renderConfig, stripLiteralSecrets } from '../../src/core/config-merge.js'
@@ -529,6 +530,42 @@ describe('staging and the peer-side scripts', () => {
     expect(script).toContain('chmod 600 "$T"')
     expect(script).toContain('.ocrc-bak')
     expect(script).toContain('cat > "$T"')   // content arrives on stdin
+  })
+})
+
+describe('auth 漂移探测（只比哈希，凭据内容不回传）', () => {
+  const SHA = 'a'.repeat(64)
+  const SHA2 = 'b'.repeat(64)
+
+  it('指纹命令只输出哈希与 mtime；文件不在输出 MISSING', () => {
+    const cmd = buildAuthFingerprintCommand()
+    expect(cmd).toContain('sha256sum')
+    expect(cmd).toContain('MISSING')
+    // 不许出现 cat/回显内容——凭据纪律
+    expect(cmd).not.toContain('cat ')
+  })
+
+  it('解析：sha+mtime / MISSING / 垃圾输入', () => {
+    expect(parseAuthFingerprint(`${SHA}\n1770000000\n`)).toEqual({ sha: SHA, mtime: 1770000000 })
+    expect(parseAuthFingerprint(`${SHA}\n`)).toEqual({ sha: SHA, mtime: undefined })
+    expect(parseAuthFingerprint('MISSING')).toBe('missing')
+    expect(parseAuthFingerprint('')).toBeUndefined()
+    expect(parseAuthFingerprint('not-a-hash\n')).toBeUndefined()
+    expect(parseAuthFingerprint(`${SHA}\nmtime-garbage`)).toEqual({ sha: SHA, mtime: undefined })
+  })
+
+  it('决策表：match / 哈希不等 drift / 对端缺件 drift / 本机缺件 unknown / 输出异常 unknown', () => {
+    expect(decideAuthSync({ localSha: SHA, peer: { sha: SHA } })).toEqual({ sync: 'match' })
+    const stale = decideAuthSync({ localSha: SHA, peer: { sha: SHA2 } })
+    expect(stale.sync).toBe('drift')
+    if (stale.sync === 'drift') expect(stale.reason).toContain('旧凭据')
+    const never = decideAuthSync({ localSha: SHA, peer: 'missing' })
+    expect(never.sync).toBe('drift')
+    if (never.sync === 'drift') expect(never.reason).toContain('从未同步')
+    const noLocal = decideAuthSync({ localSha: undefined, peer: { sha: SHA } })
+    expect(noLocal.sync).toBe('unknown')
+    if (noLocal.sync === 'unknown') expect(noLocal.reason).toContain('本机没有')
+    expect(decideAuthSync({ localSha: SHA, peer: undefined }).sync).toBe('unknown')
   })
 })
 

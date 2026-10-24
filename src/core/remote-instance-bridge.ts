@@ -1329,7 +1329,9 @@ export function createRemoteInstanceManager(opts: {
       if (!(await packReleaseAvailable(to))) {
         return { ok: false, changed: false, from, to, detail: `${to} 的包还没发布（ocrc-openchamber-pack-${to} 缺失或不完整）——不写任何东西` }
       }
-      const wasOnline = rt(id).state === 'online'
+      // 「升级前在线」不能只看本进程内存表：CLI 是一次性进程，rt 恒 unknown；
+      // 面板 service 是长进程，但实例也可能是别人起的。ssh 实测远端 health 才算数。
+      const wasOnline = rt(id).state === 'online' || (await remoteHealth(instance).catch(() => '000')) === '200'
       pushLog(id, `升级：${from} → ${to}（旧树留 .ocrc-bak，一份就够）`)
       opts.store.update(id, { appVersion: to })
       const result = await manager.apply(id, { force: false })

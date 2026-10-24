@@ -839,7 +839,9 @@ export async function main(argv: string[]): Promise<void> {
 
   if (sub === 'upgrade') {
     // 裁决 2026-10-24：目标 = 渠道最新已发布的 pack；--to 钉死指定版本。
-    // 显式命令即确认（面板路径才要二次确认）。
+    // 显式命令即确认（面板路径才要二次确认）。失败用 exitCode 让进程自然退出——
+    // undici 的 keep-alive 套接字还开着时 process.exit 在 Node24/Windows 上会踩
+    // libuv 断言（UV_HANDLE_CLOSING），实测退出码 127。
     const instance = resolveInstance(args.slice(1), flags)
     const to = flagStr(flags, 'to')
     const m = manager()
@@ -847,7 +849,7 @@ export async function main(argv: string[]): Promise<void> {
     const r = await m.upgrade(instance.id, to ? { to } : {})
     m.dispose()
     console.log(`${r.ok ? 'OK  ' : 'FAIL'} ${r.detail}`)
-    if (!r.ok) process.exit(1)
+    if (!r.ok) process.exitCode = 1
     return
   }
 

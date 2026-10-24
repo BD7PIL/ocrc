@@ -15,6 +15,20 @@ function release(tag: string, assets: string[]) {
 const full = (v: string) => release(`ocrc-openchamber-pack-${v}`, packReleaseAssets(v))
 
 describe('parsePackReleases（渠道最新的纯解析）', () => {
+  it('资产清单与线上真实命名一致（回归：per-tier json 不带 .tar.gz）', () => {
+    // 逐字取自 ocrc-openchamber-pack-2.5.1 release 的实际资产名——别再用
+    // packReleaseAssets 自己造夹具自证清白（第一版就是这么漏的）。
+    expect(packReleaseAssets('2.5.1')).toEqual([
+      'ocrc-openchamber-pack-2.5.1-linux-x64-modern.tar.gz',
+      'ocrc-openchamber-pack-2.5.1-linux-x64-modern.tar.gz.sha512',
+      'ocrc-openchamber-pack-2.5.1-linux-x64-modern.json',
+      'ocrc-openchamber-pack-2.5.1-linux-x64-legacy-glibc217.tar.gz',
+      'ocrc-openchamber-pack-2.5.1-linux-x64-legacy-glibc217.tar.gz.sha512',
+      'ocrc-openchamber-pack-2.5.1-linux-x64-legacy-glibc217.json',
+      'ocrc-openchamber-pack-manifest.json',
+    ])
+  })
+
   it('取最大 semver，乱序输入也稳', () => {
     const out = parsePackReleases([full('2.5.0'), full('2.3.3'), full('2.4.0')])
     expect(out.map((p) => p.version)).toEqual(['2.3.3', '2.4.0', '2.5.0'])

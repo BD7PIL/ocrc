@@ -19,12 +19,15 @@ export interface PublishedPack {
 
 const PACK_TAG = /^ocrc-openchamber-pack-(\d+\.\d+\.\d+)$/
 const TIERS: AppPackTier[] = ['modern', 'legacy-glibc217']
-/** The 7 core assets a complete pack release carries (`ocrc-pack.yml` detect gate). */
+/** The 7 core assets a complete pack release carries (`ocrc-pack.yml` detect gate).
+ *  注意 per-tier 的 json 是 `<stem>.json`（**不带** `.tar.gz`）——workflow 的
+ *  expected() 就是这么写的，别从 tar 名直接续后缀（真实数据回归：2.5.1 release）。 */
 export function packReleaseAssets(version: string): string[] {
   const out: string[] = []
   for (const tier of TIERS) {
-    const base = appPackName(version, tier)
-    out.push(base, `${base}.sha512`, `${base}.json`)
+    const tar = appPackName(version, tier)
+    const stem = tar.replace(/\.tar\.gz$/, '')
+    out.push(tar, `${tar}.sha512`, `${stem}.json`)
   }
   out.push('ocrc-openchamber-pack-manifest.json')
   return out

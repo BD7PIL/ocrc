@@ -528,8 +528,8 @@ describe('升级链路与操作台（0.10.0）', () => {
     }
     await renderWith({ sync: 'drift', reason: '对端是旧凭据（本机 auth.json 在上次同步后改过）', at: Date.now() })
     expect(screen.getByText('凭据不一致')).toBeTruthy()
-    // 修法 hint 连着说，含「同步后要重启」（实测踩过的坑，不写用户会白同步一次）
-    expect(screen.getByText(/同步后要重启实例才生效/)).toBeTruthy()
+    // 修法 hint 连着说（引擎凭据走 /api/credential，热生效——实测不需要重启）
+    expect(screen.getByText(/引擎运行时立即生效/)).toBeTruthy()
     expect(screen.getByText(/对端是旧凭据/)).toBeTruthy()
     await renderWith({ sync: 'match', at: Date.now() }) // 一致是好事，不吵
     expect(screen.queryByText('凭据不一致')).toBeNull()

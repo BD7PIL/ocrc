@@ -722,7 +722,7 @@ function redactInstance(i) {
 }
 var MIN_ENGINE_VERSION = "2.0.20";
 var ENGINE_MAJOR = 2;
-var DEFAULT_ENGINE_PIN = "2.0.32";
+var DEFAULT_ENGINE_PIN = "2.1.4";
 var NODE_RUNTIME = {
   version: "24.22.0",
   /** Directory name inside the tarball. */
@@ -1012,15 +1012,28 @@ function judgeEngineCompat(payload) {
   const version = normalizeEngineVersion(String(payload.version ?? ""));
   const binary = String(payload.binary ?? "");
   if (state !== "compatible") {
-    return { ok: false, error: `\u5B9E\u4F8B\u7684 OpenCode \u517C\u5BB9\u6027 state=${state || "\uFF08\u7A7A\uFF09"}\uFF08\u9700\u8981 compatible\uFF09` };
+    const terminal = state === "incompatible";
+    return { ok: false, error: `\u5B9E\u4F8B\u7684 OpenCode \u517C\u5BB9\u6027 state=${state || "\uFF08\u7A7A\uFF09"}\uFF08\u9700\u8981 compatible\uFF09`, state: state || void 0, terminal };
   }
   if (!isSupportedEngineVersion(version)) {
-    return { ok: false, error: `\u5B9E\u4F8B\u7528\u7684 OpenCode ${version || "\uFF08\u7248\u672C\u672A\u77E5\uFF09"} \u4E0D\u6EE1\u8DB3 v2 \u95E8\u7981\uFF08\u9700 major=2 \u4E14 \u2265 ${MIN_ENGINE_VERSION}\uFF09${binary ? `\uFF1B\u4E8C\u8FDB\u5236 ${binary}` : ""}` };
+    return { ok: false, error: `\u5B9E\u4F8B\u7528\u7684 OpenCode ${version || "\uFF08\u7248\u672C\u672A\u77E5\uFF09"} \u4E0D\u6EE1\u8DB3 v2 \u95E8\u7981\uFF08\u9700 major=2 \u4E14 \u2265 ${MIN_ENGINE_VERSION}\uFF09${binary ? `\uFF1B\u4E8C\u8FDB\u5236 ${binary}` : ""}`, terminal: true };
   }
   if (!binary.startsWith("/")) {
-    return { ok: false, error: `\u5B9E\u4F8B\u62A5\u7684 OpenCode \u8DEF\u5F84\u4E0D\u662F\u7EDD\u5BF9\u8DEF\u5F84\uFF1A${binary || "\uFF08\u7A7A\uFF09"}` };
+    return { ok: false, error: `\u5B9E\u4F8B\u62A5\u7684 OpenCode \u8DEF\u5F84\u4E0D\u662F\u7EDD\u5BF9\u8DEF\u5F84\uFF1A${binary || "\uFF08\u7A7A\uFF09"}`, terminal: true };
   }
   return { ok: true, version, binary };
+}
+async function withCompatRetry(probe, opts = {}) {
+  const attempts = opts.attempts ?? 6;
+  const intervalMs = opts.intervalMs ?? 2e3;
+  const sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  let last = await probe();
+  for (let i = 1; i < attempts; i++) {
+    if (last.ok || last.terminal) return last;
+    await sleep(intervalMs);
+    last = await probe();
+  }
+  return last;
 }
 function judgeInstanceVersion(payload) {
   if (!payload || typeof payload !== "object") return { ok: false, error: "\u5B9E\u4F8B\u6CA1\u6709\u8FD4\u56DE\u7248\u672C\u4FE1\u606F" };
@@ -2256,8 +2269,9 @@ var TIERS = ["modern", "legacy-glibc217"];
 function packReleaseAssets(version) {
   const out = [];
   for (const tier of TIERS) {
-    const base = appPackName(version, tier);
-    out.push(base, `${base}.sha512`, `${base}.json`);
+    const tar = appPackName(version, tier);
+    const stem = tar.replace(/\.tar\.gz$/, "");
+    out.push(tar, `${tar}.sha512`, `${stem}.json`);
   }
   out.push("ocrc-openchamber-pack-manifest.json");
   return out;
@@ -2284,6 +2298,45 @@ function parsePackReleases(raw) {
     found.push({ version: m[1], tag });
   }
   return found.sort((a, b) => compareSemver(a.version, b.version));
+}
+var engineCache;
+async function latestEngineVersion(opts = {}) {
+  const now = opts.now?.() ?? Date.now();
+  if (!opts.bust && !opts.fetchImpl && engineCache && now - engineCache.at < (opts.ttlMs ?? CACHE_TTL_MS)) return engineCache.value;
+  const target = opts.npmTarget ?? "linux-x64";
+  const registry = (process.env.OCRC_NPM_REGISTRY ?? "https://registry.npmjs.org").replace(/\/+$/, "");
+  let value;
+  try {
+    const res = await (opts.fetchImpl ?? fetch)(`${registry}/${encodeURIComponent(`@opencode/cli-${target}`)}`, {
+      signal: AbortSignal.timeout(15e3),
+      headers: { accept: "application/vnd.npm.install-v1+json, application/json" }
+    });
+    if (!res.ok) throw new Error(`registry HTTP ${res.status}`);
+    const meta = await res.json();
+    const latest = meta["dist-tags"]?.latest;
+    if (!latest || !/^\d+\.\d+\.\d+/.test(latest)) throw new Error("registry \u5143\u6570\u636E\u91CC\u6CA1\u6709\u53EF\u7528\u7684 latest \u5F15\u64CE");
+    value = { ok: true, version: latest.split("-")[0] };
+  } catch (err) {
+    value = { ok: false, error: err.message };
+  }
+  if (!opts.fetchImpl) engineCache = { at: now, value };
+  return value;
+}
+function decideEngineTarget(o) {
+  const valid = [o.current, o.latest].filter((v) => !!v && /^\d+\.\d+\.\d+$/.test(v));
+  if (!valid.length) return void 0;
+  return valid.sort(compareSemver)[valid.length - 1];
+}
+function planUpgradeRun(o) {
+  const d = o.decision;
+  if (d.action === "refuse") return { kind: "refuse", to: d.to, detail: d.detail ?? "\u62D2\u7EDD\u5347\u7EA7" };
+  const engineTo = decideEngineTarget({ current: o.engineCurrent ?? o.enginePin, latest: o.engineLatest });
+  const engineBehind = !!engineTo && engineTo !== o.engineCurrent;
+  if (d.action === "noop") {
+    if (!engineBehind) return { kind: "noop", to: d.to, detail: d.detail ?? `\u5DF2\u7ECF\u662F\u8FD9\u4E00\u7248\uFF1A${d.to}` };
+    return { kind: "engine-only", to: d.to, engineTo };
+  }
+  return engineBehind ? { kind: "app+engine", to: d.to, engineTo } : { kind: "app", to: d.to };
 }
 var cache;
 var CACHE_TTL_MS = 6e4;
@@ -3695,17 +3748,35 @@ tar: ${err.message}` });
         to: explicit,
         latest: latest ? latest.ok ? { version: latest.pack.version } : { error: latest.error } : void 0
       });
-      if (decision.action !== "upgrade") {
-        return { ok: decision.action === "noop", changed: false, from, to: decision.to, detail: decision.detail };
+      if (decision.action === "refuse") {
+        return { ok: false, changed: false, from, to: decision.to, detail: decision.detail };
       }
-      const to = decision.to;
-      if (!await packReleaseAvailable(to)) {
+      const engineLatest = await latestEngineVersion();
+      const run = planUpgradeRun({
+        decision,
+        engineCurrent: instance.engineVersion,
+        enginePin: resolveEnginePin(),
+        engineLatest: engineLatest.ok ? engineLatest.version : void 0
+      });
+      if (run.kind === "refuse" || run.kind === "noop") {
+        return { ok: run.kind === "noop", changed: false, from, to: run.to, detail: run.detail };
+      }
+      const to = run.to;
+      if (run.kind !== "engine-only" && !await packReleaseAvailable(to)) {
         return { ok: false, changed: false, from, to, detail: `${to} \u7684\u5305\u8FD8\u6CA1\u53D1\u5E03\uFF08ocrc-openchamber-pack-${to} \u7F3A\u5931\u6216\u4E0D\u5B8C\u6574\uFF09\u2014\u2014\u4E0D\u5199\u4EFB\u4F55\u4E1C\u897F` };
       }
-      const wasOnline = rt(id).state === "online";
-      pushLog(id, `\u5347\u7EA7\uFF1A${from} \u2192 ${to}\uFF08\u65E7\u6811\u7559 .ocrc-bak\uFF0C\u4E00\u4EFD\u5C31\u591F\uFF09`);
-      opts.store.update(id, { appVersion: to });
-      const result = await manager.apply(id, { force: false });
+      const wasOnline = rt(id).state === "online" || await remoteHealth(instance).catch(() => "000") === "200";
+      if (run.kind === "engine-only" || run.kind === "app+engine") {
+        pushLog(id, `\u5F15\u64CE\u8DDF\u968F\u6E20\u9053\uFF1A${instance.engineVersion ?? "\uFF08\u672A\u5B9A\uFF09"} \u2192 ${run.engineTo}${engineLatest.ok ? "" : "\uFF08\u6E20\u9053\u63A2\u6D4B\u5931\u8D25\uFF0C\u6CBF\u7528\u751F\u6548 pin\uFF09"}`);
+      }
+      if (run.kind === "app" || run.kind === "app+engine") {
+        pushLog(id, `\u5347\u7EA7\uFF1A${from} \u2192 ${to}\uFF08\u65E7\u6811\u7559 .ocrc-bak\uFF0C\u4E00\u4EFD\u5C31\u591F\uFF09`);
+        opts.store.update(id, { appVersion: to });
+      } else {
+        pushLog(id, `OpenChamber \u5DF2\u662F ${to}\u2014\u2014\u53EA\u8865\u5F15\u64CE\uFF0C\u4E0D\u91CD\u88C5\u5E94\u7528`);
+      }
+      const engineTo = "engineTo" in run ? run.engineTo : instance.engineVersion;
+      const result = await manager.apply(id, { force: false, engineVersion: engineTo });
       if (!result.ok) return { ...result, changed: false, from, to };
       if (wasOnline) {
         pushLog(id, "\u5B9E\u4F8B\u539F\u5148\u5728\u7EBF\u2014\u2014\u91CD\u542F\u88C5\u8F7D\u65B0\u7248\u672C");
@@ -3762,7 +3833,9 @@ tar: ${err.message}` });
       const result = await provisionOffline(instance, instance.appVersion, {
         force: applyOpts.force,
         skipEngine: !!foreignPin,
-        engineVersion: applyOpts.engineVersion,
+        // 已装引擎的 pin 延续（升级交给 upgrade 的渠道跟随；普通 apply 不许把
+        // 已装引擎悄悄换版本，也不许在 store 有 pin 时退回全局常量）。
+        engineVersion: applyOpts.engineVersion ?? instance.engineVersion,
         guard: applyOpts.guard,
         trace: applyOpts.trace,
         tier,
@@ -3850,7 +3923,7 @@ tar: ${err.message}` });
             probe2 = await probeThroughForward(temp);
           }
           if (!probe2.ok) return { ok: false, detail: `\u5B9E\u4F8B\u5DF2\u8D77\u4F46\u8F6C\u53D1\u63A2\u6D3B\u5931\u8D25\uFF1A${probe2.error}` };
-          const compat2 = await probeEngineCompat(temp);
+          const compat2 = await withCompatRetry(() => probeEngineCompat(temp));
           if (!compat2.ok) return { ok: false, detail: `\u5B9E\u4F8B\u5728\u8DD1\uFF0C\u4F46OpenCode\u95E8\u7981\u672A\u8FC7\uFF1A${compat2.error}` };
           return { ok: true, version: probe2.version, compat: compat2 };
         }).catch((err) => ({ ok: false, detail: err.message }));
@@ -3886,7 +3959,7 @@ tar: ${err.message}` });
         setState(id, "error", `\u8F6C\u53D1\u63A2\u6D3B\u5931\u8D25\uFF1A${probe.error}`);
         return { ok: false, detail: `\u5B9E\u4F8B\u5DF2\u8D77\u4F46\u8F6C\u53D1\u63A2\u6D3B\u5931\u8D25\uFF1A${probe.error}` };
       }
-      const compat = await probeEngineCompat(instance);
+      const compat = await withCompatRetry(() => probeEngineCompat(instance));
       if (!compat.ok) {
         setState(id, "error", `OpenCode\u95E8\u7981\u672A\u8FC7\uFF1A${compat.error}`);
         return { ok: false, detail: `\u5B9E\u4F8B\u5728\u8DD1\uFF0C\u4F46OpenCode\u95E8\u7981\u672A\u8FC7\uFF1A${compat.error}` };
@@ -4210,7 +4283,8 @@ function createRemoteInstanceOps({
   store,
   manager,
   jobTtlMs = 10 * 6e4,
-  latestPack = () => latestPublishedPack()
+  latestPack = () => latestPublishedPack(),
+  latestEngine = () => latestEngineVersion()
 }) {
   const jobs = /* @__PURE__ */ new Map();
   const prune = () => {
@@ -4353,6 +4427,7 @@ function createRemoteInstanceOps({
         case "defaults": {
           const localPort = await firstFreeLocalPort();
           const latest = await latestPack();
+          const engineLatest = await latestEngine();
           return {
             status: 200,
             body: {
@@ -4361,6 +4436,7 @@ function createRemoteInstanceOps({
               appVersion: DEFAULT_APP_VERSION,
               latestPack: latest.ok ? { version: latest.pack.version } : { error: latest.error },
               enginePin: DEFAULT_ENGINE_PIN,
+              engineLatest: engineLatest.ok ? { version: engineLatest.version } : { error: engineLatest.error },
               nodeRuntime: NODE_RUNTIME.version,
               bind: "127.0.0.1",
               // Two records must not share the control-side forward port, so the

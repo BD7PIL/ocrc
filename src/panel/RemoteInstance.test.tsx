@@ -282,7 +282,7 @@ describe('远程服务器卡片', () => {
     expect(screen.getByText('联网方式')).toBeTruthy()
     expect(screen.getByText('服务器名称')).toBeTruthy()
     expect(screen.getByText(/兼容档：按远程机器 glibc 判定/)).toBeTruthy()
-    expect(screen.getByText(/OpenCode pin：2\.0\.27/)).toBeTruthy()
+    expect(screen.getByText(/OpenCode：新增装 2\.0\.27/)).toBeTruthy()
     expect(screen.getByText(/绑定：127\.0\.0\.1/)).toBeTruthy()
     // 默认密钥档：不显示密码框
     expect(screen.queryByText('SSH 密码')).toBeNull()
@@ -472,6 +472,44 @@ describe('升级链路与操作台（0.10.0）', () => {
     await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'upgrade')).toBe(true))
     const upgrade = calls.find((c) => (c.body as { op?: string })?.op === 'upgrade')
     expect(upgrade?.body).toMatchObject({ id: STOPPED.id, payload: { to: '2.5.0' } })
+  })
+
+  it('引擎渠道跟随可见（裁决之二）：已装 OpenCode 落后于渠道时第二枚徽章，确认文案带跟随目标', async () => {
+    const { request } = fakeRequest((call) => {
+      const body = call.body as { op?: string } | undefined
+      if (body?.op === 'list') return { status: 200, body: { instances: [STOPPED] } }
+      if (body?.op === 'defaults') return { status: 200, body: { ...DEFAULTS, latestPack: { version: '2.5.0' }, engineLatest: { version: '2.1.4' } } }
+      return { status: 200, body: {} }
+    })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
+    // 两枚徽章并存：app 可升级 + 引擎可升级（已装 2.0.27 < 渠道 2.1.4）
+    await waitFor(() => expect(screen.getByText('可升级 2.5.0')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('OpenCode 可升级 2.1.4')).toBeTruthy())
+    await act(async () => { screen.getByText('升级到 2.5.0').click() })
+    await waitFor(() => expect(screen.getByText('确认升级到 2.5.0')).toBeTruthy())
+    expect(screen.getByText(/引擎将跟随渠道到 2\.1\.4（只升不降）/)).toBeTruthy()
+  })
+
+  it('只升不降的显示面：渠道不比已装新（相等/更旧/查不到）就不出现引擎徽章', async () => {
+    let lastUnmount: (() => void) | undefined
+    const renderWith = async (engineLatest: unknown) => {
+      lastUnmount?.()
+      const { request } = fakeRequest((call) => {
+        const body = call.body as { op?: string } | undefined
+        if (body?.op === 'list') return { status: 200, body: { instances: [STOPPED] } }
+        if (body?.op === 'defaults') return { status: 200, body: { ...DEFAULTS, latestPack: { version: '2.5.0' }, engineLatest } }
+        return { status: 200, body: {} }
+      })
+      const view = await act(async () => render(<RemoteInstance request={request} host={STUB_HOST} />))
+      lastUnmount = view.unmount
+      await waitFor(() => expect(screen.getByText('可升级 2.5.0')).toBeTruthy())
+    }
+    await renderWith({ version: '2.0.27' }) // 相等：不提示
+    expect(screen.queryByText(/OpenCode 可升级/)).toBeNull()
+    await renderWith({ version: '2.0.20' }) // 更旧：不许降
+    expect(screen.queryByText(/OpenCode 可升级/)).toBeNull()
+    await renderWith({ error: 'registry unreachable' }) // 查不到：徽章不出现，也不报错
+    expect(screen.queryByText(/OpenCode 可升级/)).toBeNull()
   })
 
   it('操作台：job 运行时自动展开、实时日志流、成功收起成结果 chip', { timeout: 20_000 }, async () => {

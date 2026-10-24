@@ -88,6 +88,8 @@ interface Defaults {
   instancePort: number
   appVersion: string
   latestPack?: { version?: string; error?: string }
+  /** 引擎渠道最新（npm dist-tags.latest，裁决之二）；error 时如实说查不到。 */
+  engineLatest?: { version?: string; error?: string }
   enginePin: string
   nodeRuntime: string
   bind: string
@@ -266,6 +268,19 @@ function OperationConsole(props: {
   )
 }
 
+/** 渠道版比已装版新吗（x.y.z 三段比较；不合法输入一律 false——面板只做
+ *  「OpenCode 可升级」的提示，真决策在 core 的 decideEngineTarget）。 */
+function isNewerEngine(channel: string | undefined, installed: string | undefined): boolean {
+  const a = /^(\d+)\.(\d+)\.(\d+)$/.exec(channel ?? '')
+  const b = /^(\d+)\.(\d+)\.(\d+)$/.exec(installed ?? '')
+  if (!a || !b) return false
+  for (let i = 1; i <= 3; i++) {
+    const d = Number(a[i]) - Number(b[i])
+    if (d !== 0) return d > 0
+  }
+  return false
+}
+
 export function RemoteInstance(props: { request: RequestFn; host: HostClient | null }) {
   const { request, host } = props
   const [rows, setRows] = useState<InstanceRow[]>([])
@@ -377,7 +392,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
   useEffect(() => {
     if (!host) return
     void op<Defaults>({ op: 'defaults' }).then(setDefaults).catch((err: Error) => {
-      setDefaults((d) => d ?? ({ localPort: 4610, instancePort: 2610, appVersion: '…', enginePin: '…', nodeRuntime: '…', bind: '127.0.0.1', taken: [], latestPack: { error: err.message } }))
+      setDefaults((d) => d ?? ({ localPort: 4610, instancePort: 2610, appVersion: '…', enginePin: '…', nodeRuntime: '…', bind: '127.0.0.1', taken: [], latestPack: { error: err.message }, engineLatest: { error: err.message } }))
     })
   }, [host, op])
 
@@ -562,6 +577,8 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
   }
 
   const channelLatest = defaults?.latestPack?.version
+  /** 引擎渠道最新（npm dist-tags.latest，裁决之二）；查不到就是 undefined，徽章不出现。 */
+  const channelEngineLatest = defaults?.engineLatest?.version
 
   return (
     <div className="oc-stack">
@@ -687,10 +704,10 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
           </div>
           <div className="oc-xs oc-muted">
             {defaults?.latestPack?.version
-              ? `OpenChamber pin：渠道最新 ${defaults.latestPack.version}（新增时装这版；升级随时可到渠道最新）　·　OpenCode pin：${defaults.enginePin}　·　绑定：${defaults.bind}`
+              ? `OpenChamber pin：渠道最新 ${defaults.latestPack.version}（新增时装这版；升级随时可到渠道最新）　·　OpenCode：新增装 ${defaults.enginePin}${channelEngineLatest ? `，升级时跟随渠道（当前最新 ${channelEngineLatest}，只升不降）` : '，升级时跟随渠道（只升不降）'}　·　绑定：${defaults.bind}`
               : defaults?.latestPack?.error
-                ? `OpenChamber pin：渠道最新未知（${defaults.latestPack.error}）——新增将用 ${defaults.appVersion} 兜底　·　OpenCode pin：${defaults.enginePin}　·　绑定：${defaults.bind}`
-                : `OpenChamber pin：${defaults?.appVersion ?? '…'}　·　OpenCode pin：${defaults?.enginePin ?? '…'}　·　绑定：${defaults?.bind ?? '…'}`}
+                ? `OpenChamber pin：渠道最新未知（${defaults.latestPack.error}）——新增将用 ${defaults.appVersion} 兜底　·　OpenCode：新增装 ${defaults.enginePin}　·　绑定：${defaults.bind}`
+                : `OpenChamber pin：${defaults?.appVersion ?? '…'}　·　OpenCode：新增装 ${defaults?.enginePin ?? '…'}　·　绑定：${defaults?.bind ?? '…'}`}
           </div>
           <div className="oc-xs oc-muted">界面密码：添加时自动生成，只存在控制端；卡片里「界面密码」可看可复制（在浏览器里打开远程界面时要）。</div>
           <div className="oc-row">
@@ -719,6 +736,8 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
         /** 检查结果里的渠道最新优先（更新鲜），否则用挂载时取的那份。 */
         const planLatest = isPlan && planFor && planFor.reply.latestPack && 'version' in planFor.reply.latestPack ? planFor.reply.latestPack.version : channelLatest
         const upgradeTo = provisioned && planLatest && planLatest !== row.appVersion ? planLatest : undefined
+        /** 裁决之二：引擎也跟渠道——已装 OpenCode 比 npm 渠道最新旧时提示（真决策在 upgrade 里，只升不降）。 */
+        const engineUpgradeTo = provisioned && isNewerEngine(channelEngineLatest, st?.engine?.version) ? channelEngineLatest : undefined
         const showVersion = st?.liveApp ?? st?.app
         return (
           <div className="oc-card" key={row.id}>
@@ -727,6 +746,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
               <span className="oc-card-title oc-truncate">{row.name ?? row.id}</span>
               <KitBadge label={state.label} tone={state.tone} />
               {upgradeTo ? <KitBadge label={`可升级 ${upgradeTo}`} tone="info" /> : null}
+              {engineUpgradeTo ? <KitBadge label={`OpenCode 可升级 ${engineUpgradeTo}`} tone="info" /> : null}
             </div>
             {/* ② 地址 + 登录方式（只出现一次） */}
             <div className="oc-muted oc-sm oc-mono oc-truncate">{`${address} · ${row.sshAuth === 'password' ? '密码登录' : '密钥登录'}`}</div>
@@ -874,7 +894,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                 <KitBanner
                   tone="warning"
                   title={`升级到 ${upgradeTo}？`}
-                  body={`会在远程机器写盘（旧树留 .ocrc-bak），升级前在线的实例升级后自动重启装载新版。这台现在的 pin：${row.appVersion}。`}
+                  body={`会在远程机器写盘（旧树留 .ocrc-bak），升级前在线的实例升级后自动重启装载新版。这台现在的 pin：${row.appVersion}。${engineUpgradeTo ? `引擎将跟随渠道到 ${engineUpgradeTo}（只升不降）。` : '引擎跟随渠道（已是最新时不动）。'}`}
                 />
                 <div className="oc-row">
                   <KitButton

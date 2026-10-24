@@ -54,9 +54,9 @@ const PLAN = [
   { id: '17-logs-live', page: 'panel', scenario: 'one', note: '日志卡（三段分隔 + 实时刷新标注）', steps: [click('日志')], settle: 1400 },
   { id: '18-card-error-inline', page: 'panel', scenario: 'upfail', note: '卡片级错误：动作失败贴在**那张卡**里', steps: [click('启动')], settle: 1000 },
   { id: '19-panel-narrow', page: 'panel', scenario: 'mixed', width: 360, note: '窄宽 360px：卡片/表单/动作行不溢出' },
-  // 0.10.0 新增：升级链路与操作台
-  { id: '20-upgrade-offer', page: 'panel', scenario: 'upgrade', note: '升级发现：徽章「可升级 2.5.0」+ 主按钮换位（启动降次级）' },
-  { id: '21-upgrade-confirm', page: 'panel', scenario: 'upgrade', note: '升级确认块（写盘 + 自动重启的告知）', steps: [click('升级到 2.5.0')] },
+  // 0.10.0 新增：升级链路与操作台（0.10.1：徽章与确认文案含引擎渠道跟随）
+  { id: '20-upgrade-offer', page: 'panel', scenario: 'upgrade', note: '升级发现：徽章「可升级 2.5.0」+「OpenCode 可升级 2.1.4」+ 主按钮换位（启动降次级）' },
+  { id: '21-upgrade-confirm', page: 'panel', scenario: 'upgrade', note: '升级确认块（写盘 + 自动重启 + 引擎跟随渠道到 2.1.4 的告知）', steps: [click('升级到 2.5.0')] },
   { id: '22-console-running', page: 'panel', scenario: 'job', note: '操作台运行中：阶段轨道 + 折叠的连接日志（N 行）', steps: [click('启动', 0, 2200)] },
   { id: '23-console-failed', page: 'panel', scenario: 'jobfail', note: '操作台失败：错误横幅 + 日志自动展开', steps: [click('启动', 0, 4200)] },
   { id: '24-console-chip', page: 'panel', scenario: 'jobdone', note: '操作台成功收起：结果 chip（点开可回看）', steps: [click('启动', 0, 5500)] },

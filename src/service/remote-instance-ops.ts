@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto'
 import net from 'node:net'
 import {
   DEFAULT_APP_VERSION, DEFAULT_ENGINE_PIN, DEFAULT_INSTANCE_PORT, DEFAULT_LOCAL_PORT, NODE_RUNTIME,
-  latestPublishedPack, redactInstance,
+  latestEngineVersion, latestPublishedPack, redactInstance,
   type InstanceStatus, type RemoteInstance, type RemoteInstanceManager, type RemoteInstancesStore,
 } from '../../../../src/remote-instance/index.js'
 
@@ -136,12 +136,14 @@ export function createRemoteInstanceOps({
   manager,
   jobTtlMs = 10 * 60_000,
   latestPack = () => latestPublishedPack(),
+  latestEngine = () => latestEngineVersion(),
 }: {
   store: RemoteInstancesStore
   manager: RemoteInstanceManager
   jobTtlMs?: number
   /** Injectable so tests never touch the network; production uses the registry. */
   latestPack?: () => Promise<{ ok: true; pack: { version: string; tag: string } } | { ok: false; error: string }>
+  latestEngine?: () => Promise<{ ok: true; version: string } | { ok: false; error: string }>
 }): RemoteInstanceOps {
   const jobs = new Map<string, Job>()
 
@@ -311,6 +313,7 @@ export function createRemoteInstanceOps({
           // 渠道最新（add 表单的默认 pin 与「可升级」徽章都从这里来）。查不到就
           // 原样带 error，面板写「未知」而不是猜。
           const latest = await latestPack()
+          const engineLatest = await latestEngine()
           return {
             status: 200,
             body: {
@@ -319,6 +322,7 @@ export function createRemoteInstanceOps({
               appVersion: DEFAULT_APP_VERSION,
               latestPack: latest.ok ? { version: latest.pack.version } : { error: latest.error },
               enginePin: DEFAULT_ENGINE_PIN,
+              engineLatest: engineLatest.ok ? { version: engineLatest.version } : { error: engineLatest.error },
               nodeRuntime: NODE_RUNTIME.version,
               bind: '127.0.0.1',
               // Two records must not share the control-side forward port, so the

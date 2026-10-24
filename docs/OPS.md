@@ -401,14 +401,37 @@ Node 兜底（自己给解析器设上限），所以"没有路由"和"没有解
 | `~/.local/share/opencode/auth.json` | 用户凭据（provider 的 key） | C3：整份经 ssh stdin 写到对端 **0600**，不回显、不进日志 |
 
 ```bash
-ocrc remote config-diff <id>        # 只读：两个方向的差异 + 一次同步会做什么（含将被压住的键）
+ocrc remote config-diff <id>        # 只读：两个方向的差异（树状五桶 + 忽略表）+ 一次同步会做什么
 ocrc remote sync-config <id>        # 推差异（opencode.json 深合并；只写差异文件）
+ocrc remote sync-config <id> --only skills/command --only AGENTS.md      # 只推点名的（面板树勾选的终端形态；目录=前缀覆盖）
 ocrc remote sync-config <id> --delete-key provider:acc,mcp.servers:acc   # 显式删对端独有的配置项
 ocrc remote sync-config <id> --delete agent/old.md                       # 显式删对端独有的文件
+ocrc remote config-pull <id> command/tokenscope.md --dry-run             # 拉回预览（大小 + 上限检查）
+ocrc remote config-pull <id> skills/big/ command/tokenscope.md           # 拉回（peerOnly 零冲突；「两边不同」覆盖前先快照）
 ocrc remote sync-auth <id>          # provider 凭据 → 对端 0600
 ```
 
 三条必须知道的语义（都实测过，别按直觉猜）：
+
+- **`.jsonc` 比 `.json` 优先**（源码：`shared.js` 的 `userPaths=[opencode.json, opencode.jsonc]` + `readConfigLayers` 让 jsonc 覆盖 json）。
+  所以合并目标是**对端赢的那一层**；若那层带注释，我们**不重写它**（注释是用户的文档），改写到 `opencode.json`
+  并列出"会被压住的键"。要让值真正生效：更新/删掉对端那个 jsonc，或加 `--prefer-commented-target` 明确接受丢注释。
+- **删除永远是显式的**：对端独有的文件与配置项只在 `config-diff` 里**列出**，勾选/`--delete-key` 才删，且都留 `.ocrc-bak`。
+- **密钥不落配置文件**：MCP `environment` 里的字面量密钥会写成 `{env:VAR}`（值本身不写）；provider 的 key 走 `auth.json`。
+  `{env:VAR}` 的值由**对端自己的环境**提供——我们不替你发明它。
+
+**双向（0.11，扩展 0.11.0）**
+- **拉回**：`config-pull`（面板 = 差异卡树上勾「拉回」）。范围只有两桶：「只在远程机器」（拉回=本机新建，零冲突）
+  与「两边不同」里方向切成「拉」的（**覆盖本机，覆盖前整树快照到 `~/.ocrc/pull-backup-<时间戳>/<id>/`**——
+  git 能救回已 commit 的，救不回没 commit 的，快照兜底）。配置文档（opencode.json/jsonc）不参与拉取。
+  传输是对端 `tar czf -` 经 ssh stdout 流式回来，本机手写 tar 头解析（零依赖，校验和不符即整体拒收）；
+  未压缩总量 512MB 封顶。落点就是本机配置目录（软链生效时即 git 工作树）——**commit 之后才是正式声明**。
+- **忽略表**：每实例 `ignorePaths`（种子 `**/__pycache__/`）。diff/推送/拉取/CLI **同一口径**过滤——
+  树上「忽略此目录」后两侧都不再列出，也进不了任何传输。面板差异卡里可见可移除。
+- **差异卡树状化**：三区（会推/两边不同/只在远程）目录树 + 目录级勾选级联 + <50 文件默认展开一层；
+  「两边不同」行内「推/拉」方向切换（目录级联）；动作按钮按方向分流成推送/拉回两批。
+- **冷状态识别**：service（重）启动对 enabled 实例 fire-and-forget 实测探测（5 分钟冷却）——
+  卡片不再停在「未检查」；提示「下一步：启动」在实测过在线时改说「此前在线——启动会复用不重启」。
 
 - **`.jsonc` 比 `.json` 优先**（源码：`shared.js` 的 `userPaths=[opencode.json, opencode.jsonc]` + `readConfigLayers` 让 jsonc 覆盖 json）。
   所以合并目标是**对端赢的那一层**；若那层带注释，我们**不重写它**（注释是用户的文档），改写到 `opencode.json`

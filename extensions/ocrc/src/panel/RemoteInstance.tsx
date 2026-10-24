@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { HostClient } from '@openchamber/sdk'
 import { networkLabel, stateLabel, tierLabel } from '../shared/instance-labels.js'
+import { buildFileTree, checkState, leafPaths, minCover, setSubtree, type TreeNode } from '../shared/file-tree.js'
 import { KitBadge, KitBanner, KitButton, KitEmpty, KitIcon, KitField, KitMenu, KitSelect, KitSeparator, KitSpinner, KitSwitch } from '../shared/kit.js'
 import { post, type RequestFn } from '../shared/service-client.js'
 
@@ -61,6 +62,8 @@ interface InstanceRow {
   provision?: 'push' | 'reuse'
   egress?: 'auto' | 'relay' | 'direct'
   hasUiPassword: boolean
+  /** 最近一次实测到的运行版本与时间——「此前在线」提示（冷状态识别）用它。 */
+  observed?: { app?: string; at?: number; auth?: { sync: 'match' | 'drift' | 'unknown'; at: number } }
   status: InstanceStatus | null
 }
 
@@ -117,6 +120,8 @@ interface ConfigDiff {
   peerOnly: string[]
   unknown: string[]
   auth: { local: boolean; peer: boolean }
+  /** 本次 diff 用的忽略表（push/pull/CLI 同一口径）。 */
+  ignore: { patterns: string[]; filtered: number }
   plan: {
     basename: string
     configChanged: boolean
@@ -185,6 +190,108 @@ interface ConsoleState {
 }
 
 const clockOf = (at: number) => new Date(at).toLocaleTimeString([], { hour12: false })
+
+/**
+ * 差异树的一区（0.11）：目录行 = 折叠 + 名称 + 计数徽章（+ 忽略入口），叶子 =
+ * 勾选 + 文件名。勾选级联（目录勾 = 整棵子树）；「两边不同」区每行另有方向
+ * 切换（推/拉，目录级联）。展开默认：<50 个文件展开一层，否则全折叠。
+ * 纯展示 + 回调——树语义在 shared/file-tree.ts，那里有单测。
+ */
+function DiffTree(props: {
+  tree: TreeNode
+  region: string
+  depth: number
+  /** 文件总数 < 50 时根下默认展开一层。 */
+  defaultOpen: boolean
+  expanded: Record<string, boolean>
+  toggleExpanded: (path: string) => void
+  overrides: Record<string, boolean>
+  defaultOn: boolean
+  onCheck: (node: TreeNode, value: boolean) => void
+  /** 「两边不同」区专用：方向（false=推 默认 / true=拉），叶子粒度。 */
+  directions?: Record<string, boolean>
+  onDirection?: (node: TreeNode, pull: boolean) => void
+  /** 「只在远程机器」区专用第二列（删）。 */
+  extraLabel?: string
+  extraOverrides?: Record<string, boolean>
+  onExtra?: (node: TreeNode, value: boolean) => void
+  onIgnore?: (dirPath: string) => void
+}) {
+  const { tree, depth } = props
+  if (!tree.dir) {
+    const pull = props.directions ? props.directions[tree.path] === true : false
+    const onExtra = props.extraOverrides && props.onExtra ? props.onExtra : undefined
+    const onDir = props.directions && props.onDirection ? props.onDirection : undefined
+    return (
+      <div className="oc-tree-row" style={{ paddingLeft: depth * 14 }}>
+        <KitSwitch
+          label={tree.name}
+          checked={props.overrides[tree.path] ?? props.defaultOn}
+          onChange={(v) => props.onCheck(tree, v)}
+        />
+        {onDir ? (
+          <KitButton
+            size="xs"
+            variant="ghost"
+            label={pull ? '拉' : '推'}
+            onClick={() => onDir(tree, !pull)}
+          />
+        ) : null}
+        {props.extraLabel && onExtra ? (
+          <KitSwitch
+            label={props.extraLabel}
+            checked={props.extraOverrides![tree.path] ?? false}
+            onChange={(v) => onExtra(tree, v)}
+          />
+        ) : null}
+      </div>
+    )
+  }
+  // 根（''）永远展开；其余按记忆，没有记忆就用 defaultOpen（只展开第一层）。
+  const open = tree.path === '' ? true : props.expanded[`${props.region}:${tree.path}`] ?? (depth < 1 && props.defaultOpen)
+  const state = checkState(tree, props.overrides, props.defaultOn)
+  const dirPull = props.directions ? checkState(tree, props.directions, false) === 'on' : false
+  return (
+    <div className="oc-col">
+      {tree.path !== '' ? (
+        <div className="oc-tree-row" style={{ paddingLeft: (depth - 1) * 14 }}>
+          <button
+            type="button"
+            className="oc-tree-caret"
+            aria-expanded={open}
+            onClick={() => props.toggleExpanded(tree.path)}
+          >
+            <KitIcon name="chevron" size={12} />
+          </button>
+          <KitSwitch
+            label={tree.name}
+            checked={state !== 'off'}
+            onChange={(v) => props.onCheck(tree, v)}
+          />
+          <span className="oc-group-count">{tree.count}</span>
+          {props.onDirection ? (
+            <KitButton
+              size="xs"
+              variant="ghost"
+              label={dirPull ? '拉' : '推'}
+              onClick={() => props.onDirection!(tree, !dirPull)}
+            />
+          ) : null}
+          {props.onIgnore ? (
+            <KitButton size="xs" variant="ghost" label="忽略" onClick={() => props.onIgnore!(tree.path)} />
+          ) : null}
+        </div>
+      ) : null}
+      {open ? (
+        <div className="oc-col">
+          {tree.children.map((c) => (
+            <DiffTree key={c.path} {...props} tree={c} depth={tree.path === '' ? 0 : depth + 1} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
 
 /** 操作台。纯展示 + 三个交互（收起 / 展开日志 / 复制日志）。 */
 function OperationConsole(props: {
@@ -312,6 +419,13 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
   /** Deletions are opt-in per item: a peer-only file or key is never removed by
    *  the diff itself (that would be a wipe wearing a sync's clothes). */
   const [checkedDeletes, setCheckedDeletes] = useState<Record<string, boolean>>({})
+  /** 0.11 差异树：推勾选（默认全勾）、方向（默认推）、peerOnly 拉回勾选（默认不勾）、
+   *  折叠记忆与拉回的二次确认。都按叶子路径记，目录操作用 setSubtree 级联。 */
+  const [checkedPush, setCheckedPush] = useState<Record<string, boolean>>({})
+  const [directions, setDirections] = useState<Record<string, boolean>>({})
+  const [checkedPull, setCheckedPull] = useState<Record<string, boolean>>({})
+  const [cfgExpanded, setCfgExpanded] = useState<Record<string, boolean>>({})
+  const [pullArmed, setPullArmed] = useState(false)
   /** 操作台：一次只有一个（同一台的后一个操作顶掉前一个已收尾的）。 */
   const [consoleFor, setConsoleFor] = useState<ConsoleState | null>(null)
 
@@ -558,14 +672,72 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
     const diff = await op<ConfigDiff>({ op: 'configdiff', id })
     setConfigFor({ id, diff })
     setCheckedDeletes({})
+    setCheckedPush({})
+    setDirections({})
+    setCheckedPull({})
+    setCfgExpanded({})
+    setPullArmed(false)
     setSyncResult('')
   }, id)
+
+  /** 三棵区域树（会推/两边不同/只在远程）从 diff 派生；ignore 变了 diff 会刷新，
+   *  消失的叶子连同覆盖项一起自然失效。 */
+  const cfgTrees = useMemo(() => configFor ? {
+    add: buildFileTree(configFor.diff.add),
+    change: buildFileTree(configFor.diff.change),
+    peer: buildFileTree(configFor.diff.peerOnly),
+    changePush: buildFileTree(configFor.diff.change.filter((rel) => directions[rel] !== true)),
+    changePull: buildFileTree(configFor.diff.change.filter((rel) => directions[rel] === true)),
+  } : null, [configFor, directions])
+  const cfgDefaultOpen = useMemo(() => {
+    if (!configFor) return false
+    return configFor.diff.add.length + configFor.diff.change.length + configFor.diff.peerOnly.length < 50
+  }, [configFor])
+
+  /** 推送的最小覆盖：会推区（默认全勾）+ 两边不同里方向=推且勾着的。 */
+  const pushSelection = (): string[] => {
+    if (!cfgTrees) return []
+    return [...minCover(cfgTrees.add, checkedPush, true), ...minCover(cfgTrees.changePush, checkedPush, true)]
+  }
+  /** 拉回的最小覆盖：两边不同里方向=拉且勾着的（覆盖前快照）+ 只在远程里勾着拉的（零冲突）。 */
+  const pullSelection = (): string[] => {
+    if (!cfgTrees) return []
+    return [...minCover(cfgTrees.changePull, checkedPush, true), ...minCover(cfgTrees.peer, checkedPull, false)]
+  }
+  const pushCount = pushSelection().length
+  const pullCount = pullSelection().length
+  const overwriteCount = cfgTrees ? leafPaths(cfgTrees.changePull).filter((rel) => checkedPush[rel] ?? true).length : 0
 
   const syncConfigNow = (id: string, dryRun: boolean) => run(`${dryRun ? 'dryrun' : 'syncconfig'}:${id}`, async () => {
     const deletes = Object.entries(checkedDeletes).filter(([k, v]) => v && k.startsWith('file:')).map(([k]) => k.slice(5))
     const keyDeletes = Object.entries(checkedDeletes).filter(([k, v]) => v && k.startsWith('key:')).map(([k]) => k.slice(4))
-    const r = await op<{ ok: boolean; detail: string }>({ op: 'syncconfig', id, payload: { deletes, keyDeletes, dryRun } }, { id, label: dryRun ? '同步配置（试运行）' : '同步配置' })
+    // 树勾选的终端形态：`only` 用最小覆盖（目录整勾发目录，桥端按前缀展开）。
+    // 空数组也是有效选择（只推合并后的配置文档）。
+    const only = pushSelection()
+    const r = await op<{ ok: boolean; detail: string }>({ op: 'syncconfig', id, payload: { deletes, keyDeletes, only, dryRun } }, { id, label: dryRun ? '同步配置（试运行）' : '同步配置' })
     setSyncResult(`${r.ok ? 'OK' : 'FAIL'} ${r.detail}`)
+    const diff = await op<ConfigDiff>({ op: 'configdiff', id })
+    setConfigFor({ id, diff })
+  }, id)
+
+  const pullNow = (id: string, dryRun: boolean) => run(`${dryRun ? 'pulldry' : 'pullfiles'}:${id}`, async () => {
+    const paths = pullSelection()
+    if (paths.length === 0) return
+    const r = await op<{ ok: boolean; detail: string }>({ op: 'pullfiles', id, payload: { paths, dryRun } }, { id, label: dryRun ? '拉回（试运行）' : '拉回所选' })
+    setSyncResult(`${r.ok ? 'OK' : 'FAIL'} ${r.detail}`)
+    setPullArmed(false)
+    const diff = await op<ConfigDiff>({ op: 'configdiff', id })
+    setConfigFor({ id, diff })
+  }, id)
+
+  const ignorePattern = (id: string, pattern: string) => run(`ignore:${id}`, async () => {
+    await op({ op: 'ignoreadd', id, payload: { pattern } })
+    const diff = await op<ConfigDiff>({ op: 'configdiff', id })
+    setConfigFor({ id, diff })
+  }, id)
+
+  const unignorePattern = (id: string, pattern: string) => run(`unignore:${id}`, async () => {
+    await op({ op: 'ignoreremove', id, payload: { pattern } })
     const diff = await op<ConfigDiff>({ op: 'configdiff', id })
     setConfigFor({ id, diff })
   }, id)
@@ -767,10 +939,13 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
             {/* 需要人管的状态才解释；在线不需要解释（它的解释在详情里）。 */}
             {st && st.state !== 'online' && st.detail ? <div className="oc-xs oc-muted">{st.detail}</div> : null}
             {/* 首跑动线：装完但没启动时，把下一步说出来——「创建配对链接」在装完前是隐藏的。
-                有新版时主推升级，但启动当前版永远是一条路。 */}
+                有新版时主推升级，但启动当前版永远是一条路。实测过在线的（observed 有版本）
+                不说「下一步」——启动会复用不重启，别吓人。 */}
             {provisioned && !isUp ? (
               <div className="oc-xs oc-muted">
-                {upgradeTo ? `已装好（${row.appVersion}）。可升级到 ${upgradeTo}，也可以直接启动当前版。` : '已装好。下一步：启动 → 创建配对链接。'}
+                {row.observed?.app
+                  ? `此前在线（${row.observed.app}）——启动会复用不重启。${upgradeTo ? `可升级到 ${upgradeTo}。` : ''}`
+                  : upgradeTo ? `已装好（${row.appVersion}）。可升级到 ${upgradeTo}，也可以直接启动当前版。` : '已装好。下一步：启动 → 创建配对链接。'}
               </div>
             ) : null}
             {/* 凭据漂移的修法要连着说：sync-auth 是点时拷贝 + 引擎起时读凭据，
@@ -1059,29 +1234,100 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
               </div>
             ) : null}
 
-            {configFor?.id === row.id ? (
+            {configFor?.id === row.id && cfgTrees ? (
               <div className="oc-card">
                 <div className="oc-row oc-row-between">
                   <span className="oc-card-title">配置差异（控制端 ↔ 远程机器的 ~/.config/opencode）</span>
                   <KitButton size="xs" variant="ghost" label="收起" onClick={() => setConfigFor(null)} />
                 </div>
                 {configFor.diff.peerError ? <KitBanner tone="error" title="读远程机器失败" body={configFor.diff.peerError} /> : null}
-                {/* 先给结论：这一卡最该先看到的是"会写几个文件"。 */}
+                {/* 先给结论：这一卡最该先看到的是"会写几个 / 拉回几个"。 */}
                 <div className="oc-muted">
-                  {configFor.diff.add.length + configFor.diff.change.length > 0
-                    ? `会写 ${configFor.diff.add.length + configFor.diff.change.length} 个文件（旧件留 .ocrc-bak）`
-                    : '文件层面没有差异'}
-                  {configFor.diff.plan.configChanged ? `，并改配置文档 ${configFor.diff.plan.basename}` : ''}
+                  {`推送 ${pushCount} 个文件${configFor.diff.plan.configChanged ? ` + 配置文档 ${configFor.diff.plan.basename}` : ''}　·　拉回 ${pullCount} 个${overwriteCount > 0 ? `（其中 ${overwriteCount} 个覆盖本机，先快照）` : ''}`}
                 </div>
 
                 <KitSeparator label="差异" />
                 <div className="oc-xs oc-muted">
-                  {`只在控制端（会推过去）${configFor.diff.add.length}　·　两边不同（覆盖）${configFor.diff.change.length}　·　两边相同${configFor.diff.same.length}　·　只在远程机器${configFor.diff.peerOnly.length}　·　算不出哈希${configFor.diff.unknown.length}（读不到内容，不当作相同）`}
+                  {`只在控制端${configFor.diff.add.length}　·　两边不同${configFor.diff.change.length}　·　两边相同${configFor.diff.same.length}　·　只在远程机器${configFor.diff.peerOnly.length}　·　算不出哈希${configFor.diff.unknown.length}（读不到内容，不当作相同）`}
                 </div>
-                {configFor.diff.add.length + configFor.diff.change.length > 0 ? (
-                  <pre className="oc-pre">{[...configFor.diff.add.map((f) => `+ ${f}`), ...configFor.diff.change.map((f) => `~ ${f}`)].join('\n')}</pre>
-                ) : null}
                 <div className="oc-xs oc-muted">{`控制端配置目录：${configFor.diff.localDir}`}</div>
+
+                {configFor.diff.ignore.patterns.length > 0 ? (
+                  <div className="oc-row oc-row-nowrap">
+                    <span className="oc-xs oc-muted">忽略表（已滤 {configFor.diff.ignore.filtered} 个）：</span>
+                    {configFor.diff.ignore.patterns.map((p) => (
+                      <span key={p} className="oc-row oc-row-nowrap">
+                        <span className="oc-xs oc-sdk-mono">{p}</span>
+                        <button type="button" className="oc-tree-caret" title={`移除忽略规则 ${p}`} onClick={() => void unignorePattern(row.id, p)}>
+                          <KitIcon name="close" size={10} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+
+                {configFor.diff.add.length > 0 ? (
+                  <>
+                    <div className="oc-xs oc-muted">只在控制端（勾选 = 推过去；目录勾选级联）：</div>
+                    <DiffTree
+                      tree={cfgTrees.add}
+                      region="add"
+                      depth={0}
+                      defaultOpen={cfgDefaultOpen}
+                      expanded={cfgExpanded}
+                      toggleExpanded={(p) => setCfgExpanded((prev) => ({ ...prev, [`add:${p}`]: !(prev[`add:${p}`] ?? true) }))}
+                      overrides={checkedPush}
+                      defaultOn
+                      onCheck={(node, v) => setCheckedPush((prev) => setSubtree(node, { ...prev }, v))}
+                      onIgnore={(dir) => void ignorePattern(row.id, `${dir}/`)}
+                    />
+                  </>
+                ) : null}
+
+                {configFor.diff.change.length > 0 ? (
+                  <>
+                    <div className="oc-xs oc-muted">两边不同（勾选参与，行内「推/拉」选方向：推=控制端为准，拉=对端为准）：</div>
+                    <DiffTree
+                      tree={cfgTrees.change}
+                      region="change"
+                      depth={0}
+                      defaultOpen={cfgDefaultOpen}
+                      expanded={cfgExpanded}
+                      toggleExpanded={(p) => setCfgExpanded((prev) => ({ ...prev, [`change:${p}`]: !(prev[`change:${p}`] ?? true) }))}
+                      overrides={checkedPush}
+                      defaultOn
+                      onCheck={(node, v) => setCheckedPush((prev) => setSubtree(node, { ...prev }, v))}
+                      directions={directions}
+                      onDirection={(node, pull) => setDirections((prev) => setSubtree(node, { ...prev }, pull))}
+                      onIgnore={(dir) => void ignorePattern(row.id, `${dir}/`)}
+                    />
+                  </>
+                ) : null}
+
+                {configFor.diff.peerOnly.length > 0 ? (
+                  <>
+                    <div className="oc-xs oc-muted">只在远程机器（勾「拉回」= 拉回本机，零冲突不覆盖；勾「删」= 同步时删掉，旧件留 .ocrc-bak）：</div>
+                    <DiffTree
+                      tree={cfgTrees.peer}
+                      region="peer"
+                      depth={0}
+                      defaultOpen={cfgDefaultOpen}
+                      expanded={cfgExpanded}
+                      toggleExpanded={(p) => setCfgExpanded((prev) => ({ ...prev, [`peer:${p}`]: !(prev[`peer:${p}`] ?? true) }))}
+                      overrides={checkedPull}
+                      defaultOn={false}
+                      onCheck={(node, v) => setCheckedPull((prev) => setSubtree(node, { ...prev }, v))}
+                      extraLabel="删"
+                      extraOverrides={checkedDeletes}
+                      onExtra={(node, v) => setCheckedDeletes((prev) => setSubtree(node, { ...prev }, v))}
+                      onIgnore={(dir) => void ignorePattern(row.id, `${dir}/`)}
+                    />
+                  </>
+                ) : null}
+
+                {configFor.diff.unknown.length > 0 ? (
+                  <pre className="oc-pre">{configFor.diff.unknown.map((f) => `? ${f}`).join('\n')}</pre>
+                ) : null}
 
                 <KitSeparator label="同步会做什么" />
                 <div className="oc-xs oc-muted">
@@ -1095,20 +1341,11 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                   />
                 ) : null}
 
-                {/* 删除必须显式勾选：diff 只负责提出候选。 */}
-                {configFor.diff.peerOnly.length > 0 || configFor.diff.plan.keyDeleteCandidates.length > 0 ? (
+                {/* 配置项删除必须显式勾选：diff 只负责提出候选。 */}
+                {configFor.diff.plan.keyDeleteCandidates.length > 0 ? (
                   <>
-                    <KitSeparator label="删除（勾选才会删）" />
+                    <KitSeparator label="配置项删除（勾选才会删）" />
                     <div className="oc-col">
-                      <div className="oc-xs oc-muted">只在远程机器（旧件留 .ocrc-bak）：</div>
-                      {configFor.diff.peerOnly.map((rel) => (
-                        <KitSwitch
-                          key={`file:${rel}`}
-                          label={`文件 ${rel}`}
-                          checked={checkedDeletes[`file:${rel}`] === true}
-                          onChange={(v) => setCheckedDeletes((prev) => ({ ...prev, [`file:${rel}`]: v }))}
-                        />
-                      ))}
                       {configFor.diff.plan.keyDeleteCandidates.map((c) => (
                         <KitSwitch
                           key={`key:${c.collection}:${c.key}`}
@@ -1143,7 +1380,8 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                   />
                   <KitButton
                     size="sm"
-                    label="同步配置"
+                    label={`同步配置（推 ${pushCount}）`}
+                    disabled={pushCount === 0 && !configFor.diff.plan.configChanged}
                     loading={busy[row.id] === `syncconfig:${row.id}`}
                     onClick={() => void syncConfigNow(row.id, false)}
                   />
@@ -1155,8 +1393,37 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                     onClick={() => void syncAuthNow(row.id)}
                   />
                 </div>
+                <div className="oc-row">
+                  <KitButton
+                    size="sm"
+                    variant="outline"
+                    label="试运行拉取"
+                    disabled={pullCount === 0}
+                    loading={busy[row.id] === `pulldry:${row.id}`}
+                    onClick={() => void pullNow(row.id, true)}
+                  />
+                  {pullArmed && pullCount > 0 ? (
+                    <>
+                      <KitButton
+                        size="sm"
+                        label={`确认拉回 ${pullCount} 个${overwriteCount > 0 ? `（覆盖本机 ${overwriteCount} 个，先快照）` : ''}`}
+                        loading={busy[row.id] === `pullfiles:${row.id}`}
+                        onClick={() => void pullNow(row.id, false)}
+                      />
+                      <KitButton size="sm" variant="ghost" label="取消" onClick={() => setPullArmed(false)} />
+                    </>
+                  ) : (
+                    <KitButton
+                      size="sm"
+                      variant="outline"
+                      label={`拉回所选（${pullCount}）`}
+                      disabled={pullCount === 0}
+                      onClick={() => (overwriteCount > 0 ? setPullArmed(true) : void pullNow(row.id, false))}
+                    />
+                  )}
+                </div>
                 <div className="oc-xs oc-muted">
-                  凭据走 ssh stdin 写到远程 0600，不回显；配置只推差异、opencode.json 深合并（远程独有键保留）、plugin 键交给远程自己的 OpenChamber。
+                  推送只推勾选的差异、opencode.json 深合并（远程独有键保留）；拉回经 ssh 流式 tar，落在本机配置目录——commit 后才是正式声明，git clean 前先 commit。凭据走 ssh stdin 写远程 0600，不回显。
                 </div>
               </div>
             ) : null}

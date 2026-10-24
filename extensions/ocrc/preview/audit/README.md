@@ -4,7 +4,7 @@
 按它驱动预览（真面板 + 真 kit + 假宿主），把图写到本目录。
 
 ```bash
-node extensions/ocrc/scripts/audit.mjs            # 全套 30 张
+node extensions/ocrc/scripts/audit.mjs            # 全套 33 张
 node extensions/ocrc/scripts/audit.mjs --only 15  # 只跑序号含 15 的项
 node extensions/ocrc/scripts/audit.mjs --no-serve # 复用已在跑的预览
 ```
@@ -31,7 +31,7 @@ node extensions/ocrc/scripts/audit.mjs --no-serve # 复用已在跑的预览
 | 12 | 检查结果（只读） | pass | 含「正在跑的实例自报 2.5.1」与渠道最新 2.5.0；FAIL 行红 |
 | 13 | 检查结果 + 安装确认 | pass | 写盘确认行 + [确认安装] |
 | 14 | 配对链接卡 | pass | 长链接折行；无「在 app 里打开」（深链必被拒），说清「导入链接」 |
-| 15 | 配置差异卡 | pass | 结论行置顶 + 五分区 + 删除勾选 |
+| 15 | 配置差异卡 | pass | 结论行置顶（推 N + 拉回 M）+ 0.11 树状三区（重拍于 0.11.0） |
 | 16 | 界面密码卡 | pass | 等宽块 + 复制 |
 | 17 | 日志卡（实时） | pass | 三段带标签分隔 + 「实时刷新中 · 每 5 秒」标注 |
 | 18 | 卡片级错误 | pass | 动作失败贴在那张卡里 |
@@ -44,6 +44,8 @@ node extensions/ocrc/scripts/audit.mjs --no-serve # 复用已在跑的预览
 | 25 | 操作台 · 失败（深色） | pass | 轨道/日志/横幅深色对比足够 |
 | 26–30 | 状态区 · 2 台 / 1 台 / 未添加 / 服务未运行 / 深色 | pass | 一行一机只读；服务未运行如实说 |
 | 31 | 凭据不一致（0.10.2/0.10.3） | pass | warning 徽章 + 修法 hint（引擎凭据走 /api/credential，热生效）；sha 比对验证 |
+| 32 | 差异树 + 双向拉取（0.11.0） | pass | 目录级勾选级联 + 计数徽章 + 行内「推/拉」方向 + 忽略表（可移除）+ 试运行拉取/两段确认拉回 |
+| 33 | 冷状态识别（0.11.0） | pass | 未检查但 observed 有实测 → 「此前在线——启动会复用不重启」，不再是「下一步：启动」 |
 
 ## 这一轮（第三轮）抓到并修掉的
 

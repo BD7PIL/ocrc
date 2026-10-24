@@ -23,8 +23,11 @@ export type { RemoteInstancesStore } from '../core/remote-instances.js'
 
 export { createRemoteInstanceManager, instanceUrl, proxyConfig } from '../core/remote-instance-bridge.js'
 export type {
-  InstanceOutcome, InstancePlan, InstanceState, InstanceStatus, RemoteInstanceManager,
+  InstanceConfigDiff, InstanceConfigOutcome, InstanceOutcome, InstancePlan, InstancePullOutcome,
+  InstanceState, InstanceStatus, RemoteInstanceManager,
 } from '../core/remote-instance-bridge.js'
+
+export { DEFAULT_IGNORE_PATHS, sanitizeIgnorePaths } from '../utils/ignore-patterns.js'
 
 export { createInstanceProxy } from '../core/remote-instance-proxy.js'
 export type { InstanceProxy } from '../core/remote-instance-proxy.js'

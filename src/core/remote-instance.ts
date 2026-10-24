@@ -74,6 +74,10 @@ export interface RemoteInstance extends SshAuthSpec {
    *   · `reuse` —— 一个字节都不推。只做检查（运行时/应用是否在位、引擎是否过
    *     v2 门禁）并把引擎 pin 下来；缺件就明确失败，让人改回推包。 */
   provision?: ProvisionMode
+  /** 配置同步的忽略表（噪音治理）：模式语法见 utils/ignore-patterns.ts。
+   *  `undefined` = 默认种子（运行垃圾）；`[]` = 用户显式清空——normalize 不许
+   *  把"清空"又变回种子。diff/推送/拉取/CLI 同一口径过滤。 */
+  ignorePaths?: string[]
   /** C2b: per-peer provider `baseURL` rewrites, applied during a config sync.
    *  A peer without its own egress may only reach a provider through our relay or
    *  an internal gateway, so the URL the control side uses is not always the one

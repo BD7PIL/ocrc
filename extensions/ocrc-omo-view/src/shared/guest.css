@@ -114,6 +114,16 @@ html, body {
   overflow-wrap: anywhere;
 }
 
+/* 差异树（0.11）：目录行 = 折叠 + 勾选 + 计数；叶子行 = 勾选 + 名称。缩进由
+   DiffTree 按深度给 padding-left。折叠/移除按钮是裸按钮，颜色跟 currentColor。 */
+.oc-tree-row { display: flex; align-items: center; gap: 6px; min-height: 24px; }
+.oc-tree-caret {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; padding: 0; border: 0; background: none;
+  color: inherit; opacity: 0.65; cursor: pointer; flex: none;
+}
+.oc-tree-caret:hover { opacity: 1; }
+
 /* 表单网格：字段的列宽由这里决定。
    kit 每个组件外面那层 span 是 `display: contents`，而 `TextFieldProps` /
    `SelectProps` 没有 width/grow——"让两个字段一样宽"只能靠给每个字段套一层

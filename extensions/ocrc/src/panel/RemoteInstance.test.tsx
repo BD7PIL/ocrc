@@ -78,6 +78,7 @@ const DIFF_MIN = {
   localDir: '/home/u/.config/opencode',
   add: [], change: [], same: [], peerOnly: [], unknown: [],
   auth: { local: true, peer: true },
+  ignore: { patterns: ['**/__pycache__/'], filtered: 0 },
   plan: {
     basename: 'opencode.json', configChanged: false, files: [], deletes: [],
     keyDeletes: { requested: [], removed: [] },
@@ -222,11 +223,12 @@ describe('远程服务器卡片', () => {
     await waitFor(() => expect(calls.filter((c) => (c.body as { op?: string })?.op === 'pairlink')).toHaveLength(2))
   })
 
-  it('配置差异：先看差异，删除要勾选，同步前可试运行', async () => {
+  it('配置差异：树状三区、方向切换、拉回两段确认、删除要勾选、同步前可试运行', async () => {
     const DIFF = {
       localDir: '/home/u/.config/opencode',
-      add: ['skill/new.md'], change: ['opencode.json'], same: [], peerOnly: ['agent/old.md'], unknown: [],
+      add: ['skill/new.md'], change: ['command/changed.md'], same: [], peerOnly: ['agent/old.md'], unknown: [],
       auth: { local: true, peer: false },
+      ignore: { patterns: ['**/__pycache__/'], filtered: 2 },
       plan: {
         basename: 'opencode.json', configChanged: true, files: ['opencode.json', 'skill/new.md'], deletes: [],
         keyDeletes: { requested: [], removed: [] },
@@ -240,25 +242,50 @@ describe('远程服务器卡片', () => {
       if (body?.op === 'list') return { status: 200, body: { instances: [ROW] } }
       if (body?.op === 'configdiff') return { status: 200, body: DIFF }
       if (body?.op === 'syncconfig') return { status: 200, body: { ok: true, detail: '同步 2 个文件' } }
+      if (body?.op === 'pullfiles') return { status: 200, body: { ok: true, detail: '拉回 1 个文件' } }
+      if (body?.op === 'ignoreadd') return { status: 200, body: { ignorePaths: [] } }
       return { status: 200, body: {} }
     })
     await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
     await act(async () => { screen.getByText('更多').click() })
     await act(async () => { screen.getByText('配置差异与同步').click() })
     await waitFor(() => expect(screen.getByText(/配置差异（控制端 ↔ 远程机器/)).toBeTruthy())
-    expect(screen.getByText(/\+ skill\/new\.md/)).toBeTruthy()
-    expect(screen.getByText('文件 agent/old.md')).toBeTruthy()
+    // 树状：叶子按文件名展示，目录有计数徽章；peerOnly 行有「拉回勾选」+「删」两个开关
+    expect(screen.getByText('new.md')).toBeTruthy()
+    expect(screen.getByText('changed.md')).toBeTruthy()
+    expect(screen.getByText('old.md')).toBeTruthy()
     expect(screen.getByText('配置项 provider:acc-provider')).toBeTruthy()
+    // 忽略表可见
+    expect(screen.getByText('**/__pycache__/')).toBeTruthy()
 
+    // 方向切换：按钮显示当前方向（默认推），目录行与叶子行各一个（目录=级联）。
+    // 点叶子那个（渲染顺序在目录行之后）切到「拉」→ 推送计数减一、拉回计数加一
+    expect(screen.getByText('同步配置（推 2）')).toBeTruthy()
+    const dirButtons = screen.getAllByText('推')
+    await act(async () => { dirButtons[dirButtons.length - 1]!.click() })
+    expect(screen.getByText('同步配置（推 1）')).toBeTruthy()
+    expect(screen.getByText('拉回所选（1）')).toBeTruthy()
+
+    // 试运行带上树勾选的最小覆盖（目录整勾发目录）；changed.md 已切「拉」，不在推送里
     await act(async () => { screen.getByText('试运行（不写远程机器）').click() })
     await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'syncconfig')).toBe(true))
     let last = calls.filter((c) => (c.body as { op?: string })?.op === 'syncconfig').pop()
     expect(last).toBeTruthy()
-    expect((last as { body: { payload: { dryRun: boolean; deletes: string[]; keyDeletes: string[] } } }).body.payload)
-      .toEqual({ dryRun: true, deletes: [], keyDeletes: [] })
+    expect((last as { body: { payload: { dryRun: boolean; deletes: string[]; keyDeletes: string[]; only: string[] } } }).body.payload)
+      .toEqual({ dryRun: true, deletes: [], keyDeletes: [], only: ['skill'] })
 
+    // 拉回含覆盖方向 → 两段确认
+    await act(async () => { screen.getByText('拉回所选（1）').click() })
+    await act(async () => { screen.getByText('确认拉回 1 个（覆盖本机 1 个，先快照）').click() })
+    await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'pullfiles')).toBe(true))
+    const pull = calls.filter((c) => (c.body as { op?: string })?.op === 'pullfiles').pop()
+    // 整勾目录压缩成目录路径（桥端按前缀展开）
+    expect((pull as { body: { payload: { paths: string[]; dryRun: boolean } } }).body.payload)
+      .toEqual({ paths: ['command'], dryRun: false })
+
+    // 配置项删除 + 同步
     await act(async () => { screen.getByText('配置项 provider:acc-provider').click() })
-    await act(async () => { screen.getByText('同步配置').click() })
+    await act(async () => { screen.getByText('同步配置（推 1）').click() })
     await waitFor(() => expect(calls.filter((c) => (c.body as { op?: string })?.op === 'syncconfig')).toHaveLength(2))
     last = calls.filter((c) => (c.body as { op?: string })?.op === 'syncconfig').pop()
     expect(last).toBeTruthy()

@@ -49,7 +49,7 @@ const PLAN = [
   { id: '12-plan', page: 'panel', scenario: 'fresh', note: '检查结果（只读；含实测运行版本与渠道最新）', steps: [click('检查并安装')], settle: 1000 },
   { id: '13-plan-confirm', page: 'panel', scenario: 'fresh', note: '检查结果 + 安装确认', steps: [click('检查并安装'), click('安装到远程机器')], settle: 1000 },
   { id: '14-pairlink', page: 'panel', scenario: 'one', note: '配对链接卡（长链接折行）', steps: [click('创建配对链接')], settle: 1000 },
-  { id: '15-config-diff', page: 'panel', scenario: 'one', note: '配置差异卡（分区 + 结论行）', steps: [click('更多'), click('配置差异与同步')], settle: 1000 },
+  { id: '15-config-diff', page: 'panel', scenario: 'one', note: '配置差异卡（0.11 树状化：三区目录树 + 结论行）', steps: [click('更多'), click('配置差异与同步')], settle: 1000 },
   { id: '16-ui-password', page: 'panel', scenario: 'one', note: '界面密码卡', steps: [click('更多'), click('界面密码')], settle: 1000 },
   { id: '17-logs-live', page: 'panel', scenario: 'one', note: '日志卡（三段分隔 + 实时刷新标注）', steps: [click('日志')], settle: 1400 },
   { id: '18-card-error-inline', page: 'panel', scenario: 'upfail', note: '卡片级错误：动作失败贴在**那张卡**里', steps: [click('启动')], settle: 1000 },
@@ -69,6 +69,10 @@ const PLAN = [
   { id: '30-rail-dark', page: 'status', scenario: 'two', theme: 'dark', note: '状态区：深色' },
   // 0.10.2/0.10.3：凭据漂移可见化（引擎 DB 凭据为准）
   { id: '31-auth-drift', page: 'panel', scenario: 'authdrift', note: '凭据不一致：warning 徽章 + 修法 hint（引擎运行时立即生效）' },
+  // 0.11：树状差异卡 + 双向拉取 + 冷状态识别
+  { id: '32-config-tree', page: 'panel', scenario: 'one', note: '差异树（0.11）：目录级勾选 + 计数徽章 + 行内推/拉方向 + 忽略表 + 拉回按钮',
+    steps: [click('更多'), click('配置差异与同步')], settle: 1200 },
+  { id: '33-cold-online', page: 'panel', scenario: 'cold', note: '冷状态识别（0.11）：未检查但实测过在线 → 「此前在线——启动会复用不重启」' },
 ]
 
 const chrome = [

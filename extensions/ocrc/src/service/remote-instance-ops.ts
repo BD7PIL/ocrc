@@ -10,8 +10,8 @@
 import { randomUUID } from 'node:crypto'
 import net from 'node:net'
 import {
-  DEFAULT_APP_VERSION, DEFAULT_ENGINE_PIN, DEFAULT_INSTANCE_PORT, DEFAULT_LOCAL_PORT, NODE_RUNTIME,
-  latestEngineVersion, latestPublishedPack, redactInstance,
+  DEFAULT_APP_VERSION, DEFAULT_ENGINE_PIN, DEFAULT_IGNORE_PATHS, DEFAULT_INSTANCE_PORT, DEFAULT_LOCAL_PORT, NODE_RUNTIME,
+  latestEngineVersion, latestPublishedPack, redactInstance, sanitizeIgnorePaths,
   type InstanceStatus, type RemoteInstance, type RemoteInstanceManager, type RemoteInstancesStore,
 } from '../../../../src/remote-instance/index.js'
 
@@ -71,8 +71,16 @@ export type RemoteInstanceOp =
   | { op: 'configdiff'; id: string }
   /** C1–C4: push the whitelisted config. A job: two ssh round trips plus a tar
    *  stream, and the peer may be slow. `deletes` are peer-only files the user
-   *  explicitly chose — never implied by the diff. */
-  | { op: 'syncconfig'; id: string; payload?: { deletes?: string[]; keyDeletes?: string[]; dryRun?: boolean } }
+   *  explicitly chose — never implied by the diff. `only` narrows the push to
+   *  the tree's checkbox selection (file paths exact, directory paths cover). */
+  | { op: 'syncconfig'; id: string; payload?: { deletes?: string[]; keyDeletes?: string[]; only?: string[]; dryRun?: boolean } }
+  /** 0.11 pull (peer → control side): peerOnly paths land zero-conflict;
+   *  「两边不同」 paths overwrite after a snapshot. A job (ssh + tar stream). */
+  | { op: 'pullfiles'; id: string; payload?: { paths?: string[]; dryRun?: boolean } }
+  /** 0.11 ignore table: add/remove one pattern for this instance (immediate —
+   *  store write, no ssh). The diff/push/pull caliber follows it at once. */
+  | { op: 'ignoreadd'; id: string; payload: { pattern: string } }
+  | { op: 'ignoreremove'; id: string; payload: { pattern: string } }
   /** C3: copy provider credentials (`auth.json`) — stdin, 0600, never echoed. */
   | { op: 'syncauth'; id: string }
   /** Ask the peer's own openchamber for a pairing link. A job, not a plain
@@ -346,7 +354,7 @@ export function createRemoteInstanceOps({
 
         case 'syncconfig': {
           if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
-          for (const field of ['deletes', 'keyDeletes'] as const) {
+          for (const field of ['deletes', 'keyDeletes', 'only'] as const) {
             const value = op.payload?.[field]
             if (value !== undefined && (!Array.isArray(value) || value.some((v) => typeof v !== 'string'))) {
               return { status: 400, body: { error: `${field} must be a string[]` } }
@@ -355,8 +363,38 @@ export function createRemoteInstanceOps({
           return start(() => manager.syncConfig(op.id, {
             deletes: op.payload?.deletes,
             keyDeletes: op.payload?.keyDeletes,
+            only: op.payload?.only,
             dryRun: op.payload?.dryRun === true,
           }), op.id)
+        }
+
+        case 'pullfiles': {
+          if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
+          const paths = op.payload?.paths
+          if (paths !== undefined && (!Array.isArray(paths) || paths.some((v) => typeof v !== 'string'))) {
+            return { status: 400, body: { error: 'paths must be a string[]' } }
+          }
+          return start(() => manager.pullFiles(op.id, {
+            paths,
+            dryRun: op.payload?.dryRun === true,
+          }), op.id)
+        }
+
+        case 'ignoreadd':
+        case 'ignoreremove': {
+          const instance = store.get(op.id)
+          if (!instance) return { status: 404, body: { error: '没有这台服务器' } }
+          const pattern = op.payload?.pattern
+          if (typeof pattern !== 'string' || !pattern.trim() || pattern.length > 256) {
+            return { status: 400, body: { error: 'pattern 必须是 1–256 字符' } }
+          }
+          // sanitize is the single grammar gate: what it drops never enters the table.
+          const current = instance.ignorePaths ?? [...DEFAULT_IGNORE_PATHS]
+          const next = op.op === 'ignoreadd'
+            ? sanitizeIgnorePaths([...current, pattern.trim()])
+            : current.filter((p) => p !== pattern.trim())
+          store.update(op.id, { ignorePaths: next })
+          return { status: 200, body: { ignorePaths: next } }
         }
 
         case 'syncauth': {

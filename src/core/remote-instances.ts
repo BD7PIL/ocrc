@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname, join } from 'node:path'
 import { createLogger } from '../utils/logger.js'
 import { generateSecret } from '../utils/secret.js'
+import { DEFAULT_IGNORE_PATHS, sanitizeIgnorePaths } from '../utils/ignore-patterns.js'
 import {
   DEFAULT_APP_VERSION, DEFAULT_INSTANCE_PORT, DEFAULT_LOCAL_PORT, PROXY_DEFAULTS, RECONNECT_DEFAULTS,
   instanceIdFor, redactInstance, type RedactedInstance, type RemoteInstance,
@@ -134,6 +135,8 @@ export function createRemoteInstancesStore(path: string, opts: { flushOnExit?: b
       reconnect: i.reconnect ?? RECONNECT_DEFAULTS.reconnect,
       restoreOnStart: i.restoreOnStart ?? RECONNECT_DEFAULTS.restoreOnStart,
       replayQueued: i.replayQueued ?? RECONNECT_DEFAULTS.replayQueued,
+      // undefined → 默认种子；[] 是用户显式清空，必须原样保留。
+      ignorePaths: sanitizeIgnorePaths(i.ignorePaths ?? DEFAULT_IGNORE_PATHS),
       proxy: {
         enabled: i.proxy?.enabled ?? PROXY_DEFAULTS.enabled,
         localPort: i.proxy?.localPort && i.proxy.localPort > 0 ? i.proxy.localPort : PROXY_DEFAULTS.localPort,

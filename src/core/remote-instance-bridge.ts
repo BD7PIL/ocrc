@@ -17,9 +17,9 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import net from 'node:net'
-import { mkdtempSync, openSync, readFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { ocrcHome } from '../utils/paths.js'
 import { createLogger } from '../utils/logger.js'
 import { parseGlibcVersion, nextRetryDelay } from './remote-common.js'
@@ -42,10 +42,12 @@ import { appPackTierForGlibc, buildAppProbeCommand, buildOfflineGuardExports, bu
 import { latestPublishedPack, latestEngineVersion, packReleaseAvailable, planUpgradeRun } from './app-pack-registry.js'
 import {
   buildAuthSyncProbeScript, buildAuthPushScript, buildConfigApplyScript, buildEngineCredentialPushScript, buildPeerConfigReadScript,
-  decideAuthSyncV2, enginePushEntries, parseAuthSyncProbe, parseEngineCredentialPush,
-  diffConfig, discardStaging, parsePeerConfigRead, planConfigSync, readLocalConfig, stageConfigTree,
-  type AuthSyncState,
+  buildPeerPullScript, decideAuthSyncV2, enginePushEntries, extractConfigTar, gunzipCapped, isSafeConfigRel,
+  parseAuthSyncProbe, parseEngineCredentialPush, parsePeerConfigRead, parsePullFailures, parsePullSize,
+  diffConfig, discardStaging, planConfigSync, readLocalConfig, stageConfigFiles, MAX_PULL_BYTES,
+  type AuthSyncState, type LocalConfigState, type PeerConfigState,
 } from './instance-config.js'
+import { compileIgnoreMatcher, DEFAULT_IGNORE_PATHS } from '../utils/ignore-patterns.js'
 import { defaultComponentSources, installPreparedComponent, pluginEntryFor, prepareComponent, registerPeerPlugins } from './components.js'
 import { renderConfig } from './config-merge.js'
 import { askpassEnv } from './ssh-askpass.js'
@@ -144,6 +146,8 @@ export interface InstanceConfigDiff {
   peerOnly: string[]
   unknown: string[]
   auth: { local: boolean; peer: boolean }
+  /** The ignore table this diff was computed under (same caliber as sync/pull). */
+  ignore: { patterns: string[]; filtered: number }
   /** What one sync would do right now (the same plan the apply step uses). */
   plan: {
     basename: string
@@ -167,6 +171,19 @@ export interface InstanceConfigDiff {
 }
 
 export interface InstanceConfigOutcome { ok: boolean; detail: string }
+
+/** C1 拉回（对端 → 控制端）：peerOnly 零冲突新建；「两边不同」的拉回方向
+ *  先快照被覆盖件到 `~/.ocrc/pull-backup-<时间戳>/<id>/` 再写。 */
+export interface InstancePullOutcome {
+  ok: boolean
+  detail: string
+  /** Uncompressed bytes the peer reported (preview + real run). */
+  bytes?: number
+  pulled?: string[]
+  backedUp?: string[]
+  backupRoot?: string
+  skipped?: Array<{ name: string; type: string }>
+}
 
 export interface RemoteInstanceManager {
   plan(id: string): Promise<InstancePlan>
@@ -203,8 +220,14 @@ export interface RemoteInstanceManager {
    *  `components` adds their plugin entries to the "what a sync would write" view. */
   configDiff(id: string, opts?: { components?: string[] }): Promise<InstanceConfigDiff>
   /** C1–C4: one explicit push of the whitelisted config (+ explicit deletions).
-   *  `dryRun` computes everything and writes nothing. */
-  syncConfig(id: string, opts?: { deletes?: string[]; keyDeletes?: string[]; dryRun?: boolean; preferCommentedTarget?: boolean; components?: string[] }): Promise<InstanceConfigOutcome>
+   *  `dryRun` computes everything and writes nothing. `only` narrows the push to
+   *  the named files (the tree's checkboxes); the merged config doc is not a
+   *  selectable file and always travels when the merge changed. */
+  syncConfig(id: string, opts?: { deletes?: string[]; keyDeletes?: string[]; dryRun?: boolean; preferCommentedTarget?: boolean; components?: string[]; only?: string[] }): Promise<InstanceConfigOutcome>
+  /** 0.11: pull peer-side paths back into the control tree. peerOnly paths must
+   *  not exist locally (zero conflict); 「两边不同」 paths overwrite after a
+   *  snapshot. `dryRun` reports the size preview only. */
+  pullFiles(id: string, opts?: { paths?: string[]; dryRun?: boolean }): Promise<InstancePullOutcome>
   /** C3: provider credentials (`auth.json`) over ssh stdin, 0600 on the peer. */
   syncAuth(id: string): Promise<InstanceConfigOutcome>
   logs(id: string): string[]
@@ -214,12 +237,24 @@ export interface RemoteInstanceManager {
   peerLogs(id: string, opts?: { lines?: number }): Promise<PeerLogs & { ok: boolean; error?: string }>
   /** Boot restore (R10 `restoreOnStart`): bring up every enabled record. */
   ensureAll(): void
+  /** 0.11 冷状态识别：service（重）启动后内存态归零，卡片会停在「未检查」——
+   *  哪怕实例一直在线（隧道由桌面 app 持有）。对每个 enabled 实例 fire-and-forget
+   *  跑既有 probe()，把实测结论写回状态；每实例 5 分钟冷却。 */
+  probeColdAll(): void
   dispose(): void
 }
 
 const LOG_CAP = 200
 /** How long a probe result is trusted before asking the peer again. */
 const EGRESS_TTL_MS = 5 * 60_000
+/** 冷探测冷却：同一实例 5 分钟内不重发（启动风暴与手动刷新都不会打爆对端）。 */
+export const COLD_PROBE_COOLDOWN_MS = 5 * 60_000
+const coldProbeAt = new Map<string, number>()
+
+/** 冷探测到期判定（纯函数，单测钉死）：从未探过（undefined）立即到期。 */
+export function coldProbeDue(lastAt: number | undefined, now: number): boolean {
+  return now - (lastAt ?? 0) >= COLD_PROBE_COOLDOWN_MS
+}
 
 /** Effective R9 config for one instance (defaults filled in). */
 export function proxyConfig(instance: RemoteInstance): InstanceProxyConfig {
@@ -448,6 +483,23 @@ export function createRemoteInstanceManager(opts: {
     return instance
   }
 
+  /** One caliber for diff/push/pull: the ignore table filters the two file
+   *  inventories BEFORE any comparison, so no ignored path can re-enter via a
+   *  directory push or a pull. Mutates the fresh state objects in place. */
+  function instanceIgnore(instance: RemoteInstance): { patterns: string[]; matcher: (rel: string) => boolean } {
+    const patterns = instance.ignorePaths ?? [...DEFAULT_IGNORE_PATHS]
+    return { patterns, matcher: compileIgnoreMatcher(patterns) }
+  }
+
+  function applyInstanceIgnore(instance: RemoteInstance, local: LocalConfigState, peer: PeerConfigState): { patterns: string[]; filtered: number } {
+    const { patterns, matcher } = instanceIgnore(instance)
+    if (patterns.length === 0) return { patterns, filtered: 0 }
+    const before = local.files.length + peer.files.length
+    local.files = local.files.filter((f) => !matcher(f.rel))
+    peer.files = peer.files.filter((f) => !matcher(f.rel))
+    return { patterns, filtered: before - local.files.length - peer.files.length }
+  }
+
   const ssh = (instance: SshTargetRef, command: string, timeoutMs = 60_000) => sshRun(instance, command, { timeoutMs })
 
   // ── D7: forward ownership ───────────────────────────────────────────────────
@@ -515,6 +567,32 @@ export function createRemoteInstanceManager(opts: {
       })
       tar.stderr?.on('data', (d: Buffer) => { stderr += d.toString() })
       tar.stdout?.pipe(remote.stdin!)
+    })
+  }
+
+  /** ssh with **binary** stdout — a pull streams a gzipped tar there, so the
+   *  bytes must never round-trip through a string decode. */
+  function sshCaptureBinary(instance: SshTargetRef, script: string, timeoutMs = 120_000): Promise<{ code: number | null; stdoutBuf: Buffer; stderr: string }> {
+    return new Promise((resolve) => {
+      const child = spawn('ssh', buildSshExecArgs(instance, script), { stdio: ['ignore', 'pipe', 'pipe'], env: askpassEnv(instance) })
+      const chunks: Buffer[] = []
+      let stderr = ''
+      let settled = false
+      const stdoutBuf = () => Buffer.concat(chunks)
+      const done = (r: { code: number | null; stdoutBuf: Buffer; stderr: string }) => {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        resolve(r)
+      }
+      const timer = setTimeout(() => {
+        try { child.kill('SIGKILL') } catch { /* gone */ }
+        done({ code: null, stdoutBuf: stdoutBuf(), stderr: `${stderr}\ntimeout after ${timeoutMs}ms` })
+      }, timeoutMs)
+      child.stdout?.on('data', (d: Buffer) => chunks.push(d))
+      child.stderr?.on('data', (d: Buffer) => { stderr += d.toString() })
+      child.on('error', (err) => done({ code: null, stdoutBuf: stdoutBuf(), stderr: `${stderr}\n${err.message}` }))
+      child.on('close', (code) => done({ code, stdoutBuf: stdoutBuf(), stderr }))
     })
   }
 
@@ -1774,6 +1852,7 @@ async probe(id) {
       const local = readLocalConfig({ dir: opts.localConfigDir, authPath: opts.localAuthPath })
       const read = await ssh(instance, buildPeerConfigReadScript(), 45_000)
       const peer = parsePeerConfigRead(read.stdout)
+      const ignore = applyInstanceIgnore(instance, local, peer)
       const peerError = read.code === 0 ? undefined : cleanSshNoise(read.stderr || read.stdout).trim().split('\n').pop()
       const diff = diffConfig(local, peer)
       const component = await componentPluginsFor(instance, diffOpts.components)
@@ -1794,6 +1873,7 @@ async probe(id) {
         peerOnly: diff.peerOnly.filter(notConfig),
         unknown: diff.unknown.filter(notConfig),
         auth: diff.auth,
+        ignore,
         plan: {
           basename: plan.basename,
           configChanged: plan.configChanged,
@@ -1823,6 +1903,7 @@ async probe(id) {
         return { ok: false, detail }
       }
       const peer = parsePeerConfigRead(read.stdout)
+      applyInstanceIgnore(instance, local, peer)
       const diff = diffConfig(local, peer)
       const component = await componentPluginsFor(instance, syncOpts.components)
       const plan = planConfigSync(local, peer, {
@@ -1834,6 +1915,17 @@ async probe(id) {
         componentPlugins: component.plugins,
         componentNames: component.names,
       })
+      // The tree's checkboxes: narrow the push to the named entries — a file
+      // path matches exactly, a directory path covers its subtree (the tree's
+      // minimal cover sends whole directories when every file under them is
+      // checked). The merged config doc is not a selectable file — when the
+      // merge changed, it travels. `only` present but empty is a real choice
+      // ("push nothing but the merged doc"), distinct from absent.
+      if (syncOpts.only !== undefined) {
+        const only = syncOpts.only.filter(isSafeConfigRel)
+        const covered = (rel: string) => only.some((entry) => rel === entry || rel.startsWith(`${entry}/`))
+        plan.files = plan.files.filter((rel) => rel === plan.basename || covered(rel))
+      }
       const nothing = plan.files.length === 0 && plan.deletes.length === 0
       if (nothing) {
         pushLog(id, 'sync-config: 无差异，未写远程机器')
@@ -1846,17 +1938,16 @@ async probe(id) {
         }
       }
       // Staging, not a copy of the local dir: the peer's config file must receive
-      // the MERGED document (peer-only keys preserved), not our bytes. Only the
-      // entries that actually differ are staged — a directory travels as a unit,
-      // because tar-ing a subset of one buys nothing and risks a half-tree.
+      // the MERGED document (peer-only keys preserved), not our bytes. Exactly
+      // the files the plan named are staged — the ignore table and the tree's
+      // checkboxes can both carve holes a whole-directory copy would fill back in.
       const staging = mkdtempSync(join(tmpdir(), 'ocrc-cfgsync-'))
       try {
         const content = plan.merged && plan.configChanged ? renderConfig(plan.merged) : undefined
-        const topLevel = [...new Set(plan.files.map((rel) => rel.split('/')[0]!).filter((e) => e !== plan.basename))]
-        const staged = stageConfigTree({
+        const staged = stageConfigFiles({
           sourceDir: local.dir,
           destDir: staging,
-          entries: topLevel,
+          files: plan.files,
           mergedConfig: content ? { basename: plan.basename, content } : undefined,
         })
         if (staged.length === 0 && plan.deletes.length === 0) {
@@ -1882,6 +1973,116 @@ async probe(id) {
       } finally {
         discardStaging(staging)
       }
+    },
+
+    async pullFiles(id, pullOpts = {}) {
+      const instance = need(id)
+      const paths = [...new Set((pullOpts.paths ?? []).filter(isSafeConfigRel))]
+      if (paths.length === 0) return { ok: false, detail: '拉取列表为空（没有可接受的路径）' }
+      const local = readLocalConfig({ dir: opts.localConfigDir, authPath: opts.localAuthPath })
+      // The pull list has to come from a live diff: only「只在远程机器」(zero
+      // conflict, plain create) and「两边不同」(overwrite, snapshot first) are
+      // pullable — anything else is a request to fetch state we cannot vouch for.
+      const read = await ssh(instance, buildPeerConfigReadScript(), 45_000)
+      if (read.code !== 0) {
+        const detail = `读远程机器配置失败：${cleanSshNoise(read.stderr || read.stdout).trim().split('\n').pop() ?? `exit ${read.code}`}`
+        pushLog(id, detail)
+        return { ok: false, detail }
+      }
+      const peer = parsePeerConfigRead(read.stdout)
+      applyInstanceIgnore(instance, local, peer)
+      const ignore = instanceIgnore(instance)
+      const diff = diffConfig(local, peer)
+      const known = [...diff.peerOnly, ...diff.change]
+      // A tree selection names directories; a directory is pullable when any
+      // known file lives under it.
+      const pullable = (p: string) => known.some((rel) => rel === p || rel.startsWith(`${p}/`))
+      const rejected = paths.filter((p) => !pullable(p))
+      if (rejected.length > 0) {
+        const detail = `以下路径不在「只在远程机器/两边不同」里，不拉：${rejected.join('、')}`
+        pushLog(id, detail)
+        return { ok: false, detail }
+      }
+      const fmt = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`)
+      const res = await sshCaptureBinary(instance, buildPeerPullScript(paths, { dryRun: pullOpts.dryRun }), 180_000)
+      if (res.code !== 0) {
+        const detail = `拉取失败（exit ${res.code}）：${parsePullFailures(cleanSshNoise(res.stderr || res.stdoutBuf.toString('utf-8')).trim())}`
+        pushLog(id, detail)
+        return { ok: false, detail }
+      }
+      let preamble: { bytes: number; gzip: Buffer }
+      try {
+        preamble = parsePullSize(res.stdoutBuf)
+      } catch (err) {
+        const detail = `拉取失败：${(err as Error).message}`
+        pushLog(id, detail)
+        return { ok: false, detail }
+      }
+      if (preamble.bytes > MAX_PULL_BYTES) {
+        const detail = `待拉取 ${fmt(preamble.bytes)} 超过上限 512MB，已拒绝（一次拉少一点）`
+        pushLog(id, detail)
+        return { ok: false, detail, bytes: preamble.bytes }
+      }
+      if (pullOpts.dryRun) {
+        return {
+          ok: true,
+          bytes: preamble.bytes,
+          detail: `试运行：将拉 ${paths.length} 条，约 ${fmt(preamble.bytes)}；被覆盖的本机文件先快照到 ~/.ocrc/pull-backup-<时间戳>/`,
+        }
+      }
+      let tarBuf: Buffer
+      try {
+        tarBuf = gunzipCapped(preamble.gzip)
+      } catch (err) {
+        const detail = `解包失败（损坏或超过 512MB 上限）：${(err as Error).message}`
+        pushLog(id, detail)
+        return { ok: false, detail }
+      }
+      let extracted: ReturnType<typeof extractConfigTar>
+      try {
+        extracted = extractConfigTar(tarBuf, paths)
+      } catch (err) {
+        const detail = `解析对端 tar 失败：${(err as Error).message}`
+        pushLog(id, detail)
+        return { ok: false, detail }
+      }
+      // A pulled directory arrives whole: the ignore table applies to what lands
+      // on the control side too, or `__pycache__` junk would ride back in.
+      if (ignore.patterns.length > 0) {
+        const kept = extracted.files.filter((f) => !ignore.matcher(f.rel))
+        const dropped = extracted.files.length - kept.length
+        if (dropped > 0) extracted.skipped.push({ name: `${dropped} 个被忽略表过滤`, type: 'ignored' })
+        extracted.files = kept
+      }
+      if (extracted.files.length === 0) {
+        const detail = '对端 tar 里没有可落地的文件（全部被范围/安全性过滤拒绝）'
+        pushLog(id, detail)
+        return { ok: false, detail, skipped: extracted.skipped }
+      }
+      // Overwrites snapshot first: the pulled tree lands in the control side's
+      // config dir, which (after the link fix) IS the git working tree — but
+      // "git can get it back" is only true for committed content.
+      const ts = new Date().toISOString().replace(/[:.]/g, '-')
+      const backupRoot = join(opts.home ?? ocrcHome(), `pull-backup-${ts}`, instance.id)
+      const backedUp: string[] = []
+      const pulled: string[] = []
+      for (const f of extracted.files) {
+        const dest = join(local.dir, f.rel)
+        if (existsSync(dest)) {
+          const bak = join(backupRoot, f.rel)
+          mkdirSync(dirname(bak), { recursive: true })
+          copyFileSync(dest, bak)
+          backedUp.push(f.rel)
+        }
+        mkdirSync(dirname(dest), { recursive: true })
+        writeFileSync(dest, f.content)
+        pulled.push(f.rel)
+      }
+      const skippedNote = extracted.skipped.length > 0 ? `；跳过 ${extracted.skipped.length} 个非普通文件/越界条目` : ''
+      const backupNote = backedUp.length > 0 ? `，${backedUp.length} 个本机旧件快照在 ${backupRoot}` : ''
+      const detail = `拉回 ${pulled.length} 个文件（约 ${fmt(preamble.bytes)}）${backupNote}${skippedNote}——落点在配置目录，commit 后成为正式声明`
+      pushLog(id, detail)
+      return { ok: true, detail, bytes: preamble.bytes, pulled, backedUp, backupRoot: backedUp.length > 0 ? backupRoot : undefined, skipped: extracted.skipped }
     },
 
     async syncAuth(id) {
@@ -1972,6 +2173,20 @@ async probe(id) {
         // controlled host is unreachable (its own reconnect loop takes over).
         void manager.up(instance.id).catch((err: unknown) => {
           setState(instance.id, 'error', `自恢复失败：${(err as Error).message}`)
+        })
+      }
+    },
+
+    probeColdAll() {
+      const now = Date.now()
+      for (const instance of opts.store.list()) {
+        if (!instance.enabled) continue
+        if (!coldProbeDue(coldProbeAt.get(instance.id), now)) continue
+        coldProbeAt.set(instance.id, now)
+        // Fire-and-forget: the card turns from 未检查 to its measured state on
+        // the next status read; a failure here is a state, not an exception.
+        void manager.probe(instance.id).catch((err: unknown) => {
+          setState(instance.id, 'error', `冷探测失败：${(err as Error).message}`)
         })
       }
     },

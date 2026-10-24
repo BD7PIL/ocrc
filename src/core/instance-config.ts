@@ -24,9 +24,10 @@
  * `sha256sum`, `tar`), because EL7 is the floor: read (base64 + hashes) and
  * apply (tar on stdin, `.ocrc-bak` before every overwrite).
  */
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { join, relative, sep } from 'node:path'
+import { gunzipSync } from 'node:zlib'
+import { dirname, join, relative, sep } from 'node:path'
 import { parseConfig, stripJsonc } from '../utils/jsonc.js'
 import { hasChanges, mergeSticky, stripLiteralSecrets } from './config-merge.js'
 
@@ -190,10 +191,26 @@ export function buildPeerConfigReadScript(): string {
     'echo "B64_JSONC_END"',
     `if [ -f "${PEER_AUTH_PATH}" ]; then echo "AUTH=present"; else echo "AUTH=missing"; fi`,
     'echo "LIST_BEGIN"',
-    `cd "$D" 2>/dev/null && for e in ${list}; do [ -e "$e" ] || continue; find "$e" -type f 2>/dev/null; done | sort -u | while IFS= read -r rel; do`,
-    '  h=$(sha256sum "$rel" 2>/dev/null | cut -c1-16)',
-    '  echo "${h:-?} $rel"',
-    'done',
+    // Batched + parallel hashing: one sha256sum per 50 files, 4 at a time —
+    // the per-file spawn loop cost ~minutes on EL7-class CPUs once the skills
+    // tree (~14k files) entered the whitelist. The find list is joined with the
+    // hash output so a file that fails to hash still emits `?` ("cannot tell",
+    // never "same"); without the join it would vanish and read as "peer lacks
+    // it", which turns into a wrong push.
+    'F=$(mktemp /tmp/.ocrc-f.XXXXXX 2>/dev/null); H=$(mktemp /tmp/.ocrc-h.XXXXXX 2>/dev/null)',
+    'if [ -n "$F" ] && [ -n "$H" ] && cd "$D" 2>/dev/null; then',
+    `  for e in ${list}; do [ -e "$e" ] || continue; find "$e" -type f 2>/dev/null; done | sort -u > "$F"`,
+    "  tr '\\n' '\\0' < \"$F\" | xargs -0 -r -n50 -P4 sha256sum 2>/dev/null > \"$H\"",
+    // sha256sum prints `<64hex>␣␣<name>` (text mode) — name starts at col 67.
+    `  awk 'NR==FNR { if (length($0) > 66) h[substr($0,67)] = substr($0,1,16); next } { print (($0 in h) ? h[$0] : "?") " " $0 }' "$H" "$F"`,
+    'else',
+    // Floor fallback (no mktemp / unwritable /tmp): the original per-file loop.
+    `  cd "$D" 2>/dev/null && for e in ${list}; do [ -e "$e" ] || continue; find "$e" -type f 2>/dev/null; done | sort -u | while IFS= read -r rel; do`,
+    '    h=$(sha256sum "$rel" 2>/dev/null | cut -c1-16)',
+    '    echo "${h:-?} $rel"',
+    '  done',
+    'fi',
+    'rm -f "$F" "$H" 2>/dev/null',
     'echo "LIST_END"',
   ].join('\n')
 }
@@ -217,7 +234,7 @@ export function parsePeerConfigRead(stdout: string): PeerConfigState {
   const files: FileFingerprint[] = []
   const list = /LIST_BEGIN\r?\n([\s\S]*?)\r?\nLIST_END/.exec(stdout)?.[1] ?? ''
   for (const line of list.split('\n')) {
-    const m = /^(\S+) (.+)$/.exec(line.trim())
+    const m = /^(\S+)\s+(.+)$/.exec(line.trim())
     if (m) files.push({ hash: m[1], rel: m[2] })
   }
   files.sort((a, b) => a.rel.localeCompare(b.rel))
@@ -610,33 +627,186 @@ export function planConfigSync(
  * local dir directly) is what makes the merge apply to the peer's file rather
  * than a byte copy of ours.
  */
-export function stageConfigTree(opts: {
+export function isSafeConfigRel(rel: string): boolean {
+  if (!rel || rel.length > 512) return false
+  if (rel.includes('\0') || rel.includes('\\')) return false
+  if (/^[a-zA-Z]:/.test(rel)) return false
+  if (rel.startsWith('/')) return false
+  const segs = rel.split('/')
+  // `.`/`..`/empty segments (`a//b`) would walk or duplicate — neither is a
+  // path we ever produced, so neither is a path we ever accept.
+  return segs.every((s) => s.length > 0 && s !== '.' && s !== '..')
+}
+
+/** Stage exactly the files the plan will push (per file: the ignore table and
+ *  the tree's checkboxes can both carve holes a whole-directory copy would
+ *  fill back in). Links are dereferenced on purpose: the peer is another
+ *  machine — a link's target does not exist there. */
+export function stageConfigFiles(opts: {
   sourceDir: string
   destDir: string
-  entries?: readonly string[]
-  skipBasenames?: readonly string[]
+  files: readonly string[]
   mergedConfig?: { basename: string; content: string }
 }): string[] {
-  const entries = opts.entries ?? INSTANCE_SYNC_ENTRIES
-  const skip = new Set(opts.skipBasenames ?? CONFIG_CANDIDATES)
   mkdirSync(opts.destDir, { recursive: true })
   const staged: string[] = []
-  for (const entry of entries) {
-    if (skip.has(entry)) continue
-    const src = join(opts.sourceDir, entry)
+  for (const rel of opts.files) {
+    if (!isSafeConfigRel(rel)) continue
+    // The config doc travels as the MERGED document (mergedConfig below), never
+    // as a byte copy of ours.
+    if ((CONFIG_CANDIDATES as readonly string[]).includes(rel)) continue
+    const src = join(opts.sourceDir, rel)
     if (!existsSync(src)) continue
-    const dest = join(opts.destDir, entry)
-    // **穿透链接**（dereference）：本机的配置项可能是 junction/symlink（例如把某目录软链到
-    // 仓库里）。对端是另一台机器，链接目标在那儿根本不存在；照搬链接还会在 Windows 上直接
-    // EPERM（建符号链接要提权）。所以把链接当"目录内容"复制过去 —— 这是唯一能在对端成立的形式。
-    cpSync(src, dest, { recursive: true, dereference: true })
-    staged.push(entry)
+    const dest = join(opts.destDir, rel)
+    mkdirSync(dirname(dest), { recursive: true })
+    copyFileSync(src, dest)
+    staged.push(rel)
   }
   if (opts.mergedConfig) {
     writeFileSync(join(opts.destDir, opts.mergedConfig.basename), opts.mergedConfig.content)
     staged.push(opts.mergedConfig.basename)
   }
   return staged
+}
+
+// ── pull（对端 → 控制端）──────────────────────────────────────────────────────
+
+/** Hard cap on one pull, measured on the uncompressed size the peer reports. */
+export const MAX_PULL_BYTES = 512 * 1024 * 1024
+
+/**
+ * The peer side of a pull: report the uncompressed byte sum, then stream a
+ * gzipped tar of exactly the named paths on stdout. `dryRun` stops after the
+ * size — a preview that costs one `du`, not a compression round trip.
+ * Paths arrive pre-validated (`isSafeConfigRel`); they are single-quoted here
+ * anyway, because defensive quoting is the whole job of a script builder.
+ */
+export function buildPeerPullScript(paths: readonly string[], opts: { dryRun?: boolean } = {}): string {
+  const qq = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
+  const list = paths.map(qq).join(' ')
+  return [
+    `D="${PEER_CONFIG_DIR}"`,
+    'cd "$D" 2>/dev/null || { echo "PULL_ERR cannot-enter-config-dir"; exit 3; }',
+    'missing=0',
+    `for p in ${list}; do [ -e "$p" ] || { echo "PULL_MISSING $p"; missing=1; }; done`,
+    '[ "$missing" = 0 ] || exit 4',
+    `echo "PULL_SIZE $(du -sb ${list} 2>/dev/null | awk '{s+=$1} END {print s+0}')"`,
+    ...(opts.dryRun ? ['exit 0'] : [`tar czf - ${list}`]),
+  ].join('\n')
+}
+
+/** Success path: `PULL_SIZE <n>\n` followed by the raw gzip stream. */
+export function parsePullSize(buf: Buffer): { bytes: number; gzip: Buffer } {
+  const nl = buf.indexOf(0x0a)
+  if (nl < 0) throw new Error('拉取输出里没有 PULL_SIZE 行')
+  const line = buf.subarray(0, nl).toString('utf-8').trim()
+  const m = /^PULL_SIZE (\d+)$/.exec(line)
+  if (!m) throw new Error(`拉取输出头不是 PULL_SIZE：${line.slice(0, 80)}`)
+  return { bytes: Number(m[1]), gzip: buf.subarray(nl + 1) }
+}
+
+/** Failure path: collect PULL_MISSING / PULL_ERR lines from a text stdout. */
+export function parsePullFailures(text: string): string {
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+  const missing = lines.filter((l) => l.startsWith('PULL_MISSING ')).map((l) => l.slice('PULL_MISSING '.length))
+  const errs = lines.filter((l) => l.startsWith('PULL_ERR ')).map((l) => l.slice('PULL_ERR '.length))
+  const parts: string[] = []
+  if (missing.length > 0) parts.push(`对端已不存在：${missing.join('、')}`)
+  if (errs.length > 0) parts.push(errs.join('；'))
+  return parts.join('；') || text.split('\n').filter(Boolean).slice(-1)[0] || '拉取失败'
+}
+
+export interface ExtractedFile { rel: string; content: Buffer }
+export interface TarExtractResult {
+  files: ExtractedFile[]
+  dirs: string[]
+  /** Non-regular entries (links, devices) and entries outside the requested
+   *  roots — reported, never written. */
+  skipped: Array<{ name: string; type: string }>
+}
+
+/**
+ * Hand-rolled GNU-tar reader (zero runtime deps, zlib is built in): 512-byte
+ * headers, ustar prefix, GNU longname (`L`) for >100-char names — skills trees
+ * produce those. Every entry passes `isSafeConfigRel` AND must live under one
+ * of the requested roots: the peer builds the archive from our args, but the
+ * archive is still remote input, so extraction is defended on this side.
+ * Header checksums are verified — a truncated or corrupted stream must fail,
+ * not half-apply.
+ */
+export function extractConfigTar(buf: Buffer, allowedRoots: readonly string[]): TarExtractResult {
+  const files: ExtractedFile[] = []
+  const dirs: string[] = []
+  const skipped: Array<{ name: string; type: string }> = []
+  const underRoots = (rel: string) =>
+    allowedRoots.length === 0 || allowedRoots.some((r) => rel === r || rel.startsWith(r.endsWith('/') ? r : `${r}/`))
+  let off = 0
+  let longName: string | null = null
+  while (off + 512 <= buf.length) {
+    const header = buf.subarray(off, off + 512)
+    if (isZeroBlock(header)) break
+    if (!tarChecksumOk(header)) throw new Error(`tar 头校验失败（偏移 ${off}）：流被截断或损坏`)
+    const rawName = fieldString(header, 0, 100)
+    const size = fieldOctal(header, 124, 12)
+    if (size < 0) throw new Error('tar 尺寸字段非法：流被截断或损坏')
+    const type = String.fromCharCode(header[156] ?? 0)
+    const prefix = fieldString(header, 345, 155)
+    const magic = fieldString(header, 257, 6)
+    let name = magic.startsWith('ustar') && prefix ? `${prefix}/${rawName}` : rawName
+    const dataStart = off + 512
+    const dataEnd = dataStart + size
+    if (dataEnd > buf.length) throw new Error('tar 数据段截断：流不完整')
+    const data = buf.subarray(dataStart, dataEnd)
+    off = dataStart + Math.ceil(size / 512) * 512
+    if (type === 'L') { longName = data.toString('utf-8').replace(/\0+$/, ''); continue }
+    if (type === 'K' || type === 'x' || type === 'g') continue
+    if (longName !== null) { name = longName; longName = null }
+    const rel = name.replace(/^\.\//, '').replace(/\/+$/, '')
+    if (rel === '') continue
+    if (type === '5') {
+      if (isSafeConfigRel(rel) && underRoots(rel)) dirs.push(rel)
+      else skipped.push({ name, type: 'dir-out-of-scope' })
+      continue
+    }
+    if (type === '0' || type === '\0') {
+      if (!isSafeConfigRel(rel)) { skipped.push({ name, type: 'unsafe-name' }); continue }
+      if (!underRoots(rel)) { skipped.push({ name, type: 'out-of-scope' }); continue }
+      files.push({ rel, content: Buffer.from(data) })
+      continue
+    }
+    skipped.push({ name, type })
+  }
+  return { files, dirs, skipped }
+}
+
+/** Gunzip with the pull cap applied inside zlib (bomb guard, zero deps). */
+export function gunzipCapped(gzip: Buffer): Buffer {
+  return gunzipSync(gzip, { maxOutputLength: MAX_PULL_BYTES })
+}
+
+function isZeroBlock(b: Buffer): boolean {
+  for (let i = 0; i < b.length; i++) if (b[i] !== 0) return false
+  return true
+}
+
+function tarChecksumOk(h: Buffer): boolean {
+  const stored = fieldOctal(h, 148, 8)
+  let sum = 0
+  for (let i = 0; i < 512; i++) sum += i >= 148 && i < 156 ? 32 : h[i]!
+  return sum === stored
+}
+
+function fieldString(b: Buffer, start: number, len: number): string {
+  const slice = b.subarray(start, start + len)
+  const nul = slice.indexOf(0)
+  return slice.subarray(0, nul < 0 ? slice.length : nul).toString('utf-8')
+}
+
+function fieldOctal(b: Buffer, start: number, len: number): number {
+  const s = fieldString(b, start, len).trim()
+  if (!s) return 0
+  const v = parseInt(s, 8)
+  return Number.isNaN(v) ? -1 : v
 }
 
 /**

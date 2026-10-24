@@ -24,6 +24,7 @@ import {
   renderExports,
   withCompatRetry,
 } from '../../src/core/remote-instance.js'
+import { COLD_PROBE_COOLDOWN_MS, coldProbeDue } from '../../src/core/remote-instance-bridge.js'
 
 /** Dev plan §5.1: pin the decisions and the shell lines; the ssh transport and
  *  the real-host walk live in the plan's acceptance script. The two failures
@@ -405,5 +406,16 @@ describe('升级目标决策（裁决 2026-10-24：渠道最新）', () => {
 
   it('既没 to 也没渠道信息 → refuse', () => {
     expect(decideUpgrade({ from: '2.3.3' }).action).toBe('refuse')
+  })
+})
+
+describe('冷状态识别（0.11）', () => {
+  it('冷却判定：从未探过立即到期；5 分钟内不重发；过冷却重发', () => {
+    const now = 1_000_000_000_000
+    expect(coldProbeDue(undefined, now)).toBe(true)
+    expect(coldProbeDue(now, now)).toBe(false)
+    expect(coldProbeDue(now - 4 * 60_000, now)).toBe(false)
+    expect(coldProbeDue(now - 5 * 60_000 - 1, now)).toBe(true)
+    expect(COLD_PROBE_COOLDOWN_MS).toBe(5 * 60_000)
   })
 })

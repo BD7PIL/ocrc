@@ -2,13 +2,16 @@ import { describe, expect, it } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { gunzipSync, gzipSync } from 'node:zlib'
 import {
   buildAuthSyncProbeScript, buildAuthPushScript, buildConfigApplyScript, buildEngineCredentialPushScript, buildPeerConfigReadScript,
-  decideAuthSyncV2, enginePushEntries, parseAuthSyncProbe, parseEngineCredentialPush, parsePeerConfigRead,
+  buildPeerPullScript, decideAuthSyncV2, enginePushEntries, extractConfigTar, gunzipCapped, isSafeConfigRel,
+  parseAuthSyncProbe, parseEngineCredentialPush, parsePeerConfigRead, parsePullFailures, parsePullSize,
   diffConfig,
-  findShadowedKeys, planConfigSync, readLocalConfig, stageConfigTree,
+  findShadowedKeys, planConfigSync, readLocalConfig, stageConfigFiles,
 } from '../../src/core/instance-config.js'
 import { mergeSticky, renderConfig, stripLiteralSecrets } from '../../src/core/config-merge.js'
+import { compileIgnoreMatcher, sanitizeIgnorePaths } from '../../src/utils/ignore-patterns.js'
 
 /**
  * C1–C4 — the rules a config sync to a peer has to keep, pinned where they can
@@ -95,6 +98,22 @@ describe('peer config read', () => {
     expect(script).toContain('opencode.jsonc')
     expect(script).toContain('B64_JSON_BEGIN')
     expect(script).toContain('B64_JSONC_BEGIN')
+  })
+
+  it('hashes in batched parallel form and keeps a per-file fallback', () => {
+    const script = buildPeerConfigReadScript()
+    // Fast path: one sha256sum per 50 files, 4 workers, joined back against the
+    // find list so unreadable files still surface as `?` instead of vanishing.
+    expect(script).toContain('xargs -0 -r -n50 -P4 sha256sum')
+    expect(script).toContain('mktemp')
+    expect(script).toContain('$0 in h')
+    // Floor fallback: the original per-file loop survives for mktemp-less hosts.
+    expect(script).toContain('while IFS= read -r rel')
+  })
+
+  it('tolerates any whitespace between hash and path (raw sha256sum lines)', () => {
+    const state = parsePeerConfigRead(['LIST_BEGIN', `aaaaaaaaaaaaaaaa  skill/two spaces.md`, 'LIST_END'].join('\n'))
+    expect(state.files).toEqual([{ hash: 'aaaaaaaaaaaaaaaa', rel: 'skill/two spaces.md' }])
   })
 })
 
@@ -339,8 +358,8 @@ describe('sync plan', () => {
     }
     const local = readLocalConfig({ dir, authPath })
     const staging = mkdtempSync(join(tmpdir(), 'ocrc-stage-'))
-    const staged = stageConfigTree({ sourceDir: dir, destDir: staging, entries: ['reeve'] })
-    expect(staged).toEqual(['reeve'])
+    const staged = stageConfigFiles({ sourceDir: dir, destDir: staging, files: local.files.map((f) => f.rel) })
+    expect(staged).toContain('reeve/fallback.jsonc')
     const copied = join(staging, 'reeve', 'fallback.jsonc')
     expect(existsSync(copied)).toBe(true)
     expect(readFileSync(copied, 'utf8')).toContain('schema')
@@ -503,16 +522,29 @@ describe('staging and the peer-side scripts', () => {
     })
     const local = readLocalConfig({ dir, authPath })
     const dest = tmp()
-    const staged = stageConfigTree({
+    const staged = stageConfigFiles({
       sourceDir: local.dir,
       destDir: dest,
-      entries: ['skill'],
+      files: ['skill/a.md', 'opencode.json'],
       mergedConfig: { basename: 'opencode.json', content: renderConfig({ model: 'merged' }) },
     })
-    expect(staged.sort()).toEqual(['opencode.json', 'skill'])
+    expect(staged.sort()).toEqual(['opencode.json', 'skill/a.md'])
     expect(JSON.parse(readFileSync(join(dest, 'opencode.json'), 'utf-8')).model).toBe('merged')
     expect(readFileSync(join(dest, 'skill/a.md'), 'utf-8')).toBe('a')
     expect(() => readFileSync(join(dest, 'agent/b.md'), 'utf-8')).toThrow()
+  })
+
+  it('staging never copies the raw local config doc — only the merged one', () => {
+    const { dir } = localTree({ 'opencode.json': JSON.stringify({ model: 'raw-local' }) })
+    const dest = tmp()
+    const staged = stageConfigFiles({
+      sourceDir: dir,
+      destDir: dest,
+      files: ['opencode.json', 'skill/x.md'],
+      mergedConfig: { basename: 'opencode.json', content: renderConfig({ model: 'merged' }) },
+    })
+    expect(staged).toEqual(['opencode.json'])
+    expect(JSON.parse(readFileSync(join(dest, 'opencode.json'), 'utf-8')).model).toBe('merged')
   })
 
   it('the apply script backs up before overwriting and before deleting', () => {
@@ -649,5 +681,149 @@ describe('the merge engine itself', () => {
     expect(env.HOSTNAME).toBe('h')
     expect(env.ALREADY).toBe('{env:ALREADY}')
     expect(replaced).toHaveLength(1)
+  })
+})
+
+// ── 0.11: ignore table ────────────────────────────────────────────────────────
+
+describe('ignore patterns', () => {
+  it('matches directory rules at the root and at any depth with the leading **', () => {
+    const m = compileIgnoreMatcher(['**/__pycache__/'])
+    expect(m('skills/x/scripts/__pycache__/tml.pyc')).toBe(true)
+    expect(m('__pycache__/a.pyc')).toBe(true)
+    expect(m('skills/x/scripts/__pycache__')).toBe(false) // files only reach us
+    expect(m('skills/x/SKILL.md')).toBe(false)
+  })
+
+  it('a slash-containing directory rule anchors at the root', () => {
+    const m = compileIgnoreMatcher(['skills/ppt-master/'])
+    expect(m('skills/ppt-master/SKILL.md')).toBe(true)
+    expect(m('other/skills/ppt-master/SKILL.md')).toBe(false)
+  })
+
+  it('a bare directory name matches at any depth (gitignore semantics)', () => {
+    const m = compileIgnoreMatcher(['__pycache__/'])
+    expect(m('a/b/__pycache__/x.pyc')).toBe(true)
+    expect(m('__pycache__/x.pyc')).toBe(true)
+  })
+
+  it('exact root files, any-depth names and single-segment wildcards', () => {
+    const m = compileIgnoreMatcher(['AGENTS.md', '**/tokenscope.md', 'command/exact.md'])
+    expect(m('AGENTS.md')).toBe(true)
+    expect(m('command/AGENTS.md')).toBe(true) // no slash in the pattern → any depth
+    expect(m('command/tokenscope.md')).toBe(true)
+    expect(m('a/deep/tokenscope.md')).toBe(true)
+    expect(m('command/exact.md')).toBe(true)
+    expect(m('other/command/exact.md')).toBe(false) // interior slash → rooted
+  })
+
+  it('an empty table matches nothing', () => {
+    const m = compileIgnoreMatcher([])
+    expect(m('__pycache__/x.pyc')).toBe(false)
+  })
+
+  it('sanitize: posix separators, foo/** folds to the directory rule, junk dropped', () => {
+    const windowsStyle = 'reeve' + String.fromCharCode(92) + 'fallback.jsonc'
+    expect(sanitizeIgnorePaths([windowsStyle, 'skills/big/**', '/abs/path', 'a/../b', '**', '', 'skills/big/**']))
+      .toEqual(['reeve/fallback.jsonc', 'skills/big/'])
+  })
+})
+
+
+// ── 0.11: pull (peer → control side) ─────────────────────────────────────────
+
+describe('pull scripts and tar parsing', () => {
+  it('isSafeConfigRel rejects everything that could walk out or smuggle a drive', () => {
+    const backslash = 'a' + String.fromCharCode(92) + 'b'
+    for (const bad of ['', '..', '../x', 'a/../../b', '/abs', 'C:/x', backslash, 'a//b', 'a/', 'a/.', './a']) {
+      expect(isSafeConfigRel(bad), JSON.stringify(bad)).toBe(false)
+    }
+    for (const good of ['AGENTS.md', 'skills/a/b/c.md', 'skills/with space.md', '.directory']) {
+      expect(isSafeConfigRel(good)).toBe(true)
+    }
+  })
+
+  it('the pull script quotes paths, reports size first, and streams tar only when real', () => {
+    const real = buildPeerPullScript(["skills/a b.md", "command/t'x.md"])
+    expect(real).toContain('D="$HOME/.config/opencode"')
+    expect(real).toContain("'skills/a b.md'")
+    // A quote inside a path must not become a second command: shell-escaped as '\''.
+    expect(real).toMatch(/'command\/t'\\''x\.md'/)
+    expect(real).toContain('PULL_SIZE')
+    expect(real).toContain('tar czf -')
+    const dry = buildPeerPullScript(['AGENTS.md'], { dryRun: true })
+    expect(dry).toContain('PULL_SIZE')
+    expect(dry).not.toContain('tar czf -')
+  })
+
+  it('parsePullSize splits the preamble from the gzip body; failures name the missing paths', () => {
+    const { bytes, gzip } = parsePullSize(Buffer.from(`PULL_SIZE 4096\nxxxxxxxx`, 'latin1'))
+    expect(bytes).toBe(4096)
+    expect(gzip.toString('latin1')).toBe('xxxxxxxx')
+    expect(parsePullFailures('PULL_MISSING skills/gone.md\nPULL_ERR boom')).toBe('对端已不存在：skills/gone.md；boom')
+  })
+
+  /** Minimal GNU-tar writer: exactly the format the parser accepts (ustar
+   *  header, GNU longname for >100-char names, 512 alignment, end blocks). */
+  function tarOf(entries: Array<{ name: string; content?: Buffer; type?: string }>): Buffer {
+    const blocks: Buffer[] = []
+    const padTo512 = (data: Buffer): Buffer[] => {
+      const p = (512 - (data.length % 512)) % 512
+      return p > 0 ? [data, Buffer.alloc(p)] : [data]
+    }
+    const headerFor = (name: string, size: number, type: string): Buffer => {
+      const h = Buffer.alloc(512)
+      h.write(name.slice(0, 100), 0, 'utf-8')
+      h.write('0000644\0', 100, 'ascii')
+      h.write(size.toString(8).padStart(11, '0') + '\0', 124, 'ascii')
+      h.write(type, 156, 'ascii')
+      h.write('ustar ', 257, 'ascii')
+      let sum = 0
+      for (let i = 0; i < 512; i++) sum += i >= 148 && i < 156 ? 32 : h[i]!
+      h.write(sum.toString(8).padStart(6, '0') + '\0 ', 148, 'ascii')
+      return h
+    }
+    for (const e of entries) {
+      let name = e.name
+      if (name.length >= 100) {
+        const data = Buffer.from(`${name}\0`, 'utf-8')
+        blocks.push(headerFor('././@LongLink', data.length, 'L'), ...padTo512(data))
+        name = name.slice(0, 99)
+      }
+      const content = e.content ?? Buffer.alloc(0)
+      blocks.push(headerFor(name, e.type === '5' ? 0 : content.length, e.type ?? '0'))
+      if (e.type !== '5') blocks.push(...padTo512(content))
+    }
+    blocks.push(Buffer.alloc(1024))
+    return Buffer.concat(blocks)
+  }
+
+  it('extracts regular files, honors GNU longname, skips links and out-of-scope entries', () => {
+    const longName = `skills/${'very/'.repeat(30)}deep.md`
+    const tar = tarOf([
+      { name: 'skills/a.md', content: Buffer.from('hello') },
+      { name: longName, content: Buffer.from('deep!') },
+      { name: 'skills/', type: '5' },
+      { name: 'a/../../evil.md', content: Buffer.from('x') },
+      { name: 'elsewhere/x.md', content: Buffer.from('y') },
+    ])
+    const r = extractConfigTar(tar, ['skills'])
+    expect(r.files.map((f) => f.rel).sort()).toEqual([longName, 'skills/a.md'].sort())
+    expect(r.files.find((f) => f.rel === 'skills/a.md')!.content.toString()).toBe('hello')
+    expect(r.files.find((f) => f.rel === longName)!.content.toString()).toBe('deep!')
+    expect(r.dirs).toContain('skills')
+    const kinds = r.skipped.map((s) => s.type)
+    expect(kinds).toContain('unsafe-name')
+    expect(kinds).toContain('out-of-scope')
+  })
+
+  it('a corrupted header fails loudly instead of half-applying', () => {
+    const tar = tarOf([{ name: 'skills/a.md', content: Buffer.from('hello') }])
+    tar[10] = tar[10]! ^ 0xff
+    expect(() => extractConfigTar(tar, ['skills'])).toThrow(/校验失败/)
+  })
+
+  it('gunzipCapped round-trips what gzipSync produced', () => {
+    expect(gunzipCapped(gzipSync(Buffer.from('round-trip'))).toString()).toBe('round-trip')
   })
 })

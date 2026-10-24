@@ -97,11 +97,15 @@ USAGE:
                                    本地 vs 对端配置差异（两个方向）+ 一次同步会做什么（只读）
   ocrc remote sync-config <id> [--delete a,b] [--delete-key provider:x,mcp.servers:y] [--dry-run]
                   [--component <src>]... [--with-components]
-                  [--prefer-commented-target]
+                  [--prefer-commented-target] [--only <路径>]...
                                    推白名单配置（opencode.json 深合并、只推差异、旧件留 .ocrc-bak）
                                    --delete：对端独有的文件显式删掉（也留 .ocrc-bak）
                                    --delete-key：删对端独有的配置项（providers:x / provider:x / mcp.servers:y）
+                                   --only：只推点名的文件（面板树勾选的终端形态；配置文档不受它影响）
                                    --prefer-commented-target：允许重写带注释的对端配置（注释会丢；默认写 opencode.json）
+  ocrc remote config-pull <id> <路径>... [--dry-run]
+                                   把对端路径拉回控制端（peerOnly 零冲突；「两边不同」覆盖前先快照到
+                                   ~/.ocrc/pull-backup-<时间戳>/；512MB 上限；路径相对 ~/.config/opencode）
   ocrc remote sync-auth <id>       把本机 auth.json（provider 凭据）写到对端（0600，不回显）
   ocrc remote upgrade <id>         升到控制端的 app pin（已在 pin 上就什么都不做）
   ocrc remote open <id>            打印 URL（并尝试用系统浏览器打开）
@@ -771,8 +775,9 @@ export async function main(argv: string[]): Promise<void> {
     show('只在本地（会推过去）', d.add)
     show('两边不同（会覆盖，旧件留 .ocrc-bak）', d.change)
     show('两边相同（不动）', d.same)
-    show('只在远程机器（不动；要删得显式 --delete）', d.peerOnly)
+    show('只在远程机器（不动；拉回用 config-pull，要删得显式 --delete）', d.peerOnly)
     show('远程机器算不出哈希（不当作相同）', d.unknown)
+    if (d.ignore.patterns.length > 0) console.log(`  忽略表（本次过滤了 ${d.ignore.filtered} 个文件）：${d.ignore.patterns.join(', ')}`)
     console.log(`  凭据 auth.json：控制端 ${d.auth.local ? '有' : '无'}，远程机器 ${d.auth.peer ? '有' : '无'}`)
     console.log(`  一次同步会：写 ${d.plan.files.length} 个文件${d.plan.deletes.length ? `、删 ${d.plan.deletes.length} 个` : ''}；配置 ${d.plan.configChanged ? `会改（写 ${d.plan.basename}）` : '无变化'}`)
     if (d.plan.keyDeleteCandidates.length > 0) {
@@ -788,10 +793,12 @@ export async function main(argv: string[]): Promise<void> {
     const instance = resolveInstance(args.slice(1), flags)
     const deletes = (flagStr(flags, 'delete') ?? '').split(',').map((s) => s.trim()).filter(Boolean)
     const keyDeletes = (flagStr(flags, 'delete-key') ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+    const only = flagAll(argv, 'only').map((s) => s.trim()).filter(Boolean)
     const m = manager()
     const r = await m.syncConfig(instance.id, {
       deletes,
       keyDeletes,
+      only: only.length > 0 ? only : undefined,
       dryRun: flags.has('dry-run'),
       // 显式允许重写带注释的对端配置（注释会丢）——默认不碰用户的文档。
       preferCommentedTarget: flags.has('prefer-commented-target'),
@@ -799,6 +806,30 @@ export async function main(argv: string[]): Promise<void> {
     })
     m.dispose()
     console.log(`${r.ok ? 'OK  ' : 'FAIL'} ${r.detail}`)
+    if (!r.ok) process.exit(1)
+    return
+  }
+
+  if (sub === 'config-pull') {
+    // 0.11 双向：把对端独有的（或两边不同的）路径拉回控制端。peerOnly 零冲突；
+    // 「两边不同」的拉回先快照本机旧件再覆盖（~/.ocrc/pull-backup-<时间戳>/）。
+    const rest = args.slice(1)
+    const positional = rest.filter((a) => !a.startsWith('-'))
+    // `<id> <path...>` 或 `--target user@host <path...>`：第一个位置参数是已登记
+    // id 就消费它，否则全部位置参数都是路径（adhoc 形态）。
+    const firstIsId = positional.length > 0 && !!store().get(positional[0])
+    const instance = resolveInstance(firstIsId ? [positional[0]] : [], flags)
+    const paths = (firstIsId ? positional.slice(1) : positional).map((s) => s.trim()).filter(Boolean)
+    if (paths.length === 0) {
+      console.error('FAIL config-pull 至少要给一个路径（相对 ~/.config/opencode，可用目录）')
+      process.exit(2)
+    }
+    const m = manager()
+    const r = await m.pullFiles(instance.id, { paths, dryRun: flags.has('dry-run') })
+    m.dispose()
+    console.log(`${r.ok ? 'OK  ' : 'FAIL'} ${r.detail}`)
+    if (r.pulled?.length) console.log(`  拉回：${r.pulled.join(', ')}`)
+    if (r.backedUp?.length) console.log(`  已快照（可随时拷回）：${r.backupRoot}`)
     if (!r.ok) process.exit(1)
     return
   }

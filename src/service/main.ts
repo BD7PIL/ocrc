@@ -82,7 +82,10 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`[ocrc] service listening on 127.0.0.1:${bound}`)
   // Restore remote instances in the background; the UI tunnel belongs to the
   // desktop shell, so this only starts the far-side servers and the relay leg.
+  // 0.11 冷状态识别：restore 不覆盖（或复用）的实例不再是永远的「未检查」——
+  // 启动即对 enabled 实例做一轮实测探测（fire-and-forget，5 分钟冷却）。
   remoteManager.ensureAll()
+  remoteManager.probeColdAll()
 })
 
 let shuttingDown = false

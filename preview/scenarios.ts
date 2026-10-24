@@ -24,6 +24,8 @@ export interface PreviewRow {
   provision?: 'push' | 'reuse'
   egress?: 'auto' | 'relay' | 'direct'
   hasUiPassword: boolean
+  /** 最近一次实测：observed.app 在 → 冷识别的「此前在线」提示（0.11）。 */
+  observed?: { app?: string; at?: number }
   status: Record<string, unknown> | null
 }
 
@@ -82,6 +84,17 @@ export const SCENARIOS: Record<string, PreviewRow[]> = {
     status: {
       ...STOPPED.status,
       auth: { sync: 'drift' as const, reason: '对端是旧凭据（本机 auth.json 在上次同步后改过）', at: Date.parse('2026-10-24T21:30:00+08:00') },
+    },
+  }],
+  /** 冷状态识别（0.11）：service 重启后未检查，但 observed 有实测——
+   *  提示说「此前在线——启动会复用不重启」，不再吓人地说「下一步：启动」。 */
+  cold: [{
+    ...STOPPED,
+    observed: { app: '2.3.3', at: Date.parse('2026-10-24T20:12:00+08:00') },
+    status: {
+      ...STOPPED.status,
+      state: 'unknown',
+      detail: '还没有检查过（service 重启后内存态归零；冷探测会自动实测）',
     },
   }],
 }
@@ -165,17 +178,18 @@ export const opRoutes = () => ({
   },
   'POST /remote-instance#configdiff': {
     body: {
-      localDir: '/home/u/.config/opencode',
-      add: ['skill/new-skill.md', 'agents/reviewer.md'],
-      change: ['opencode.json'],
-      same: ['skill/existing.md'],
-      peerOnly: ['agent/old-agent.md'],
-      unknown: ['auth.json'],
+      localDir: 'C:/Users/u/.config/opencode',
+      add: ['skill/new-skill/SKILL.md', 'skill/new-skill/scripts/run.sh', 'agents/reviewer.md'],
+      change: ['command/relay.md', 'agents/x/deep/a.md'],
+      same: ['skill/existing.md', 'command/keep.md'],
+      peerOnly: ['agent/old-agent/SKILL.md', 'command/tokenscope.md'],
+      unknown: [],
       auth: { local: true, peer: false },
+      ignore: { patterns: ['**/__pycache__/'], filtered: 3 },
       plan: {
         basename: 'opencode.jsonc',
         configChanged: true,
-        files: ['opencode.jsonc', 'skill/new-skill.md', 'agents/reviewer.md'],
+        files: ['opencode.jsonc', 'skill/new-skill/SKILL.md', 'agents/reviewer.md'],
         deletes: [],
         keyDeletes: { requested: [], removed: [] },
         keyDeleteCandidates: [{ collection: 'provider', key: 'acc-provider' }, { collection: 'mcp.servers', key: 'acc' }],
@@ -183,12 +197,21 @@ export const opRoutes = () => ({
         secretsReplaced: [{ path: 'mcp.servers.acc.environment.ACC_TOKEN', env: 'ACC_TOKEN' }],
         baseUrlRewrites: [],
         shadowed: ['provider.acc.baseURL'],
-        notes: ['远程机器独有的 1 个文件不会被动（要删得显式勾选）', 'plugin 键由远程机器自己的 OpenChamber 管，我们不写'],
+        notes: ['远程机器独有的 2 个文件不会被动（拉回用树上勾选或 config-pull）', 'plugin 键由远程机器自己的 OpenChamber 管，我们不写'],
       },
     },
   },
   'POST /remote-instance#syncconfig': {
     body: { ok: true, detail: '同步 3 个文件；opencode.jsonc.ocrc-bak 已留' },
+  },
+  'POST /remote-instance#pullfiles': {
+    body: { ok: true, detail: '拉回 2 个文件（约 12KB），1 个本机旧件快照在 ~/.ocrc/pull-backup-2026-10-24/', pulled: ['command/relay.md'], backedUp: ['agents/x/deep/a.md'] },
+  },
+  'POST /remote-instance#ignoreadd': {
+    body: { ignorePaths: ['**/__pycache__/', 'agents/x/'] },
+  },
+  'POST /remote-instance#ignoreremove': {
+    body: { ignorePaths: ['**/__pycache__/'] },
   },
   'POST /remote-instance#syncauth': {
     body: { ok: true, detail: 'auth.json 已写到远程机器 0600（旧件留 .ocrc-bak）' },

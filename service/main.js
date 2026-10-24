@@ -132,6 +132,7 @@ var instance_config_exports = {};
 __export(instance_config_exports, {
   INSTANCE_SYNC_ENTRIES: () => INSTANCE_SYNC_ENTRIES,
   MANAGED_COLLECTIONS: () => MANAGED_COLLECTIONS,
+  MAX_PULL_BYTES: () => MAX_PULL_BYTES,
   PEER_AUTH_PATH: () => PEER_AUTH_PATH,
   PEER_CONFIG_DIR: () => PEER_CONFIG_DIR,
   applyKeyDeletes: () => applyKeyDeletes,
@@ -140,24 +141,31 @@ __export(instance_config_exports, {
   buildConfigApplyScript: () => buildConfigApplyScript,
   buildEngineCredentialPushScript: () => buildEngineCredentialPushScript,
   buildPeerConfigReadScript: () => buildPeerConfigReadScript,
+  buildPeerPullScript: () => buildPeerPullScript,
   decideAuthSyncV2: () => decideAuthSyncV2,
   diffConfig: () => diffConfig,
   discardStaging: () => discardStaging,
   enginePushEntries: () => enginePushEntries,
+  extractConfigTar: () => extractConfigTar,
   findPeerOnlyKeys: () => findPeerOnlyKeys,
   findShadowedKeys: () => findShadowedKeys,
+  gunzipCapped: () => gunzipCapped,
+  isSafeConfigRel: () => isSafeConfigRel,
   listStaged: () => listStaged,
   mergeConfigLayers: () => mergeConfigLayers,
   parseAuthSyncProbe: () => parseAuthSyncProbe,
   parseEngineCredentialPush: () => parseEngineCredentialPush,
   parsePeerConfigRead: () => parsePeerConfigRead,
+  parsePullFailures: () => parsePullFailures,
+  parsePullSize: () => parsePullSize,
   planConfigSync: () => planConfigSync,
   readLocalConfig: () => readLocalConfig,
-  stageConfigTree: () => stageConfigTree
+  stageConfigFiles: () => stageConfigFiles
 });
-import { cpSync, existsSync as existsSync5, mkdirSync as mkdirSync6, readFileSync as readFileSync4, readdirSync, rmSync as rmSync3, statSync as statSync3, writeFileSync as writeFileSync5 } from "node:fs";
+import { copyFileSync as copyFileSync2, existsSync as existsSync5, mkdirSync as mkdirSync6, readFileSync as readFileSync4, readdirSync, rmSync as rmSync3, statSync as statSync3, writeFileSync as writeFileSync5 } from "node:fs";
 import { createHash as createHash3 } from "node:crypto";
-import { join as join8, relative, sep } from "node:path";
+import { gunzipSync } from "node:zlib";
+import { dirname as dirname3, join as join8, relative, sep } from "node:path";
 function mergeConfigLayers(layers) {
   let effective = {};
   const errors = [];
@@ -229,10 +237,26 @@ function buildPeerConfigReadScript() {
     'echo "B64_JSONC_END"',
     `if [ -f "${PEER_AUTH_PATH}" ]; then echo "AUTH=present"; else echo "AUTH=missing"; fi`,
     'echo "LIST_BEGIN"',
-    `cd "$D" 2>/dev/null && for e in ${list}; do [ -e "$e" ] || continue; find "$e" -type f 2>/dev/null; done | sort -u | while IFS= read -r rel; do`,
-    '  h=$(sha256sum "$rel" 2>/dev/null | cut -c1-16)',
-    '  echo "${h:-?} $rel"',
-    "done",
+    // Batched + parallel hashing: one sha256sum per 50 files, 4 at a time —
+    // the per-file spawn loop cost ~minutes on EL7-class CPUs once the skills
+    // tree (~14k files) entered the whitelist. The find list is joined with the
+    // hash output so a file that fails to hash still emits `?` ("cannot tell",
+    // never "same"); without the join it would vanish and read as "peer lacks
+    // it", which turns into a wrong push.
+    "F=$(mktemp /tmp/.ocrc-f.XXXXXX 2>/dev/null); H=$(mktemp /tmp/.ocrc-h.XXXXXX 2>/dev/null)",
+    'if [ -n "$F" ] && [ -n "$H" ] && cd "$D" 2>/dev/null; then',
+    `  for e in ${list}; do [ -e "$e" ] || continue; find "$e" -type f 2>/dev/null; done | sort -u > "$F"`,
+    `  tr '\\n' '\\0' < "$F" | xargs -0 -r -n50 -P4 sha256sum 2>/dev/null > "$H"`,
+    // sha256sum prints `<64hex>␣␣<name>` (text mode) — name starts at col 67.
+    `  awk 'NR==FNR { if (length($0) > 66) h[substr($0,67)] = substr($0,1,16); next } { print (($0 in h) ? h[$0] : "?") " " $0 }' "$H" "$F"`,
+    "else",
+    // Floor fallback (no mktemp / unwritable /tmp): the original per-file loop.
+    `  cd "$D" 2>/dev/null && for e in ${list}; do [ -e "$e" ] || continue; find "$e" -type f 2>/dev/null; done | sort -u | while IFS= read -r rel; do`,
+    '    h=$(sha256sum "$rel" 2>/dev/null | cut -c1-16)',
+    '    echo "${h:-?} $rel"',
+    "  done",
+    "fi",
+    'rm -f "$F" "$H" 2>/dev/null',
     'echo "LIST_END"'
   ].join("\n");
 }
@@ -254,7 +278,7 @@ function parsePeerConfigRead(stdout) {
   const files = [];
   const list = /LIST_BEGIN\r?\n([\s\S]*?)\r?\nLIST_END/.exec(stdout)?.[1] ?? "";
   for (const line of list.split("\n")) {
-    const m = /^(\S+) (.+)$/.exec(line.trim());
+    const m = /^(\S+)\s+(.+)$/.exec(line.trim());
     if (m) files.push({ hash: m[1], rel: m[2] });
   }
   files.sort((a, b) => a.rel.localeCompare(b.rel));
@@ -483,24 +507,141 @@ function planConfigSync(local, peer, opts = {}) {
   }
   return plan;
 }
-function stageConfigTree(opts) {
-  const entries = opts.entries ?? INSTANCE_SYNC_ENTRIES;
-  const skip = new Set(opts.skipBasenames ?? CONFIG_CANDIDATES);
+function isSafeConfigRel(rel) {
+  if (!rel || rel.length > 512) return false;
+  if (rel.includes("\0") || rel.includes("\\")) return false;
+  if (/^[a-zA-Z]:/.test(rel)) return false;
+  if (rel.startsWith("/")) return false;
+  const segs = rel.split("/");
+  return segs.every((s) => s.length > 0 && s !== "." && s !== "..");
+}
+function stageConfigFiles(opts) {
   mkdirSync6(opts.destDir, { recursive: true });
   const staged = [];
-  for (const entry of entries) {
-    if (skip.has(entry)) continue;
-    const src = join8(opts.sourceDir, entry);
+  for (const rel of opts.files) {
+    if (!isSafeConfigRel(rel)) continue;
+    if (CONFIG_CANDIDATES.includes(rel)) continue;
+    const src = join8(opts.sourceDir, rel);
     if (!existsSync5(src)) continue;
-    const dest = join8(opts.destDir, entry);
-    cpSync(src, dest, { recursive: true, dereference: true });
-    staged.push(entry);
+    const dest = join8(opts.destDir, rel);
+    mkdirSync6(dirname3(dest), { recursive: true });
+    copyFileSync2(src, dest);
+    staged.push(rel);
   }
   if (opts.mergedConfig) {
     writeFileSync5(join8(opts.destDir, opts.mergedConfig.basename), opts.mergedConfig.content);
     staged.push(opts.mergedConfig.basename);
   }
   return staged;
+}
+function buildPeerPullScript(paths, opts = {}) {
+  const qq = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
+  const list = paths.map(qq).join(" ");
+  return [
+    `D="${PEER_CONFIG_DIR}"`,
+    'cd "$D" 2>/dev/null || { echo "PULL_ERR cannot-enter-config-dir"; exit 3; }',
+    "missing=0",
+    `for p in ${list}; do [ -e "$p" ] || { echo "PULL_MISSING $p"; missing=1; }; done`,
+    '[ "$missing" = 0 ] || exit 4',
+    `echo "PULL_SIZE $(du -sb ${list} 2>/dev/null | awk '{s+=$1} END {print s+0}')"`,
+    ...opts.dryRun ? ["exit 0"] : [`tar czf - ${list}`]
+  ].join("\n");
+}
+function parsePullSize(buf) {
+  const nl = buf.indexOf(10);
+  if (nl < 0) throw new Error("\u62C9\u53D6\u8F93\u51FA\u91CC\u6CA1\u6709 PULL_SIZE \u884C");
+  const line = buf.subarray(0, nl).toString("utf-8").trim();
+  const m = /^PULL_SIZE (\d+)$/.exec(line);
+  if (!m) throw new Error(`\u62C9\u53D6\u8F93\u51FA\u5934\u4E0D\u662F PULL_SIZE\uFF1A${line.slice(0, 80)}`);
+  return { bytes: Number(m[1]), gzip: buf.subarray(nl + 1) };
+}
+function parsePullFailures(text) {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const missing = lines.filter((l) => l.startsWith("PULL_MISSING ")).map((l) => l.slice("PULL_MISSING ".length));
+  const errs = lines.filter((l) => l.startsWith("PULL_ERR ")).map((l) => l.slice("PULL_ERR ".length));
+  const parts = [];
+  if (missing.length > 0) parts.push(`\u5BF9\u7AEF\u5DF2\u4E0D\u5B58\u5728\uFF1A${missing.join("\u3001")}`);
+  if (errs.length > 0) parts.push(errs.join("\uFF1B"));
+  return parts.join("\uFF1B") || text.split("\n").filter(Boolean).slice(-1)[0] || "\u62C9\u53D6\u5931\u8D25";
+}
+function extractConfigTar(buf, allowedRoots) {
+  const files = [];
+  const dirs = [];
+  const skipped = [];
+  const underRoots = (rel) => allowedRoots.length === 0 || allowedRoots.some((r) => rel === r || rel.startsWith(r.endsWith("/") ? r : `${r}/`));
+  let off = 0;
+  let longName = null;
+  while (off + 512 <= buf.length) {
+    const header = buf.subarray(off, off + 512);
+    if (isZeroBlock(header)) break;
+    if (!tarChecksumOk(header)) throw new Error(`tar \u5934\u6821\u9A8C\u5931\u8D25\uFF08\u504F\u79FB ${off}\uFF09\uFF1A\u6D41\u88AB\u622A\u65AD\u6216\u635F\u574F`);
+    const rawName = fieldString(header, 0, 100);
+    const size = fieldOctal(header, 124, 12);
+    if (size < 0) throw new Error("tar \u5C3A\u5BF8\u5B57\u6BB5\u975E\u6CD5\uFF1A\u6D41\u88AB\u622A\u65AD\u6216\u635F\u574F");
+    const type = String.fromCharCode(header[156] ?? 0);
+    const prefix = fieldString(header, 345, 155);
+    const magic = fieldString(header, 257, 6);
+    let name = magic.startsWith("ustar") && prefix ? `${prefix}/${rawName}` : rawName;
+    const dataStart = off + 512;
+    const dataEnd = dataStart + size;
+    if (dataEnd > buf.length) throw new Error("tar \u6570\u636E\u6BB5\u622A\u65AD\uFF1A\u6D41\u4E0D\u5B8C\u6574");
+    const data = buf.subarray(dataStart, dataEnd);
+    off = dataStart + Math.ceil(size / 512) * 512;
+    if (type === "L") {
+      longName = data.toString("utf-8").replace(/\0+$/, "");
+      continue;
+    }
+    if (type === "K" || type === "x" || type === "g") continue;
+    if (longName !== null) {
+      name = longName;
+      longName = null;
+    }
+    const rel = name.replace(/^\.\//, "").replace(/\/+$/, "");
+    if (rel === "") continue;
+    if (type === "5") {
+      if (isSafeConfigRel(rel) && underRoots(rel)) dirs.push(rel);
+      else skipped.push({ name, type: "dir-out-of-scope" });
+      continue;
+    }
+    if (type === "0" || type === "\0") {
+      if (!isSafeConfigRel(rel)) {
+        skipped.push({ name, type: "unsafe-name" });
+        continue;
+      }
+      if (!underRoots(rel)) {
+        skipped.push({ name, type: "out-of-scope" });
+        continue;
+      }
+      files.push({ rel, content: Buffer.from(data) });
+      continue;
+    }
+    skipped.push({ name, type });
+  }
+  return { files, dirs, skipped };
+}
+function gunzipCapped(gzip) {
+  return gunzipSync(gzip, { maxOutputLength: MAX_PULL_BYTES });
+}
+function isZeroBlock(b) {
+  for (let i = 0; i < b.length; i++) if (b[i] !== 0) return false;
+  return true;
+}
+function tarChecksumOk(h) {
+  const stored = fieldOctal(h, 148, 8);
+  let sum = 0;
+  for (let i = 0; i < 512; i++) sum += i >= 148 && i < 156 ? 32 : h[i];
+  return sum === stored;
+}
+function fieldString(b, start, len) {
+  const slice = b.subarray(start, start + len);
+  const nul = slice.indexOf(0);
+  return slice.subarray(0, nul < 0 ? slice.length : nul).toString("utf-8");
+}
+function fieldOctal(b, start, len) {
+  const s = fieldString(b, start, len).trim();
+  if (!s) return 0;
+  const v = parseInt(s, 8);
+  return Number.isNaN(v) ? -1 : v;
 }
 function buildConfigApplyScript(deletes = []) {
   const q2 = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
@@ -691,7 +832,7 @@ function listStaged(dir) {
   if (existsSync5(dir)) walk(dir);
   return out.sort();
 }
-var PEER_CONFIG_DIR, PEER_AUTH_PATH, INSTANCE_SYNC_ENTRIES, CONFIG_CANDIDATES, MANAGED_COLLECTIONS, PEER_CRED_FINGERPRINTER, PEER_CRED_PUSHER;
+var PEER_CONFIG_DIR, PEER_AUTH_PATH, INSTANCE_SYNC_ENTRIES, CONFIG_CANDIDATES, MANAGED_COLLECTIONS, MAX_PULL_BYTES, PEER_CRED_FINGERPRINTER, PEER_CRED_PUSHER;
 var init_instance_config = __esm({
   "../../src/core/instance-config.ts"() {
     "use strict";
@@ -723,6 +864,7 @@ var init_instance_config = __esm({
       { id: "providers", path: ["providers"] },
       { id: "mcp.servers", path: ["mcp", "servers"] }
     ];
+    MAX_PULL_BYTES = 512 * 1024 * 1024;
     PEER_CRED_FINGERPRINTER = `
 let raw = ''
 process.stdin.on('data', (d) => { raw += d })
@@ -1337,6 +1479,51 @@ function generateSecret() {
   return randomBytes(18).toString("base64url");
 }
 
+// ../../src/utils/ignore-patterns.ts
+var DEFAULT_IGNORE_PATHS = ["**/__pycache__/"];
+function sanitizeIgnorePaths(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const item of raw) {
+    if (typeof item !== "string") continue;
+    const posix = item.trim().replace(/\\/g, "/");
+    if (!posix || posix.startsWith("/")) continue;
+    let segments = posix.split("/").filter((s) => s.length > 0);
+    if (segments.some((s) => s === ".." || s === ".")) continue;
+    const hadTrailingStarstar = segments.length > 1 && segments[segments.length - 1] === "**";
+    if (hadTrailingStarstar) segments = segments.slice(0, -1);
+    if (segments.filter((s) => s === "**").length > 1) continue;
+    const isDir = posix.endsWith("/") || hadTrailingStarstar;
+    const pattern = segments.join("/") + (isDir ? "/" : "");
+    if (pattern && pattern !== "/" && pattern !== "**" && !out.includes(pattern)) out.push(pattern);
+  }
+  return out;
+}
+function compileIgnoreMatcher(patterns) {
+  const regexes = patterns.map(compileOne).filter((r) => r !== null);
+  if (regexes.length === 0) return () => false;
+  return (rel) => regexes.some((re) => re.test(rel));
+}
+function compileOne(pattern) {
+  const dir = pattern.endsWith("/");
+  const segments = pattern.split("/").filter((s) => s.length > 0);
+  if (segments.length === 0) return null;
+  let anyDepth = !pattern.replace(/\/$/, "").includes("/");
+  if (segments[0] === "**") {
+    anyDepth = true;
+    segments.shift();
+    if (segments.length === 0) return null;
+  }
+  const body = segments.map(escapeSegment).join("/");
+  if (dir) {
+    return new RegExp(anyDepth ? `(?:^|/)${body}/` : `^${body}/`);
+  }
+  return new RegExp(anyDepth ? `^(?:[^/]+/)*${body}$` : `^${body}$`);
+}
+function escapeSegment(segment) {
+  return segment.replace(/[.+^${}()|[\]\\?]/g, "\\$&").replace(/\*/g, "[^/]*");
+}
+
 // ../../src/core/remote-instances.ts
 var log = createLogger("remote-instances");
 function remoteInstancesPath(home) {
@@ -1417,6 +1604,8 @@ function createRemoteInstancesStore(path, opts = {}) {
       reconnect: i.reconnect ?? RECONNECT_DEFAULTS.reconnect,
       restoreOnStart: i.restoreOnStart ?? RECONNECT_DEFAULTS.restoreOnStart,
       replayQueued: i.replayQueued ?? RECONNECT_DEFAULTS.replayQueued,
+      // undefined → 默认种子；[] 是用户显式清空，必须原样保留。
+      ignorePaths: sanitizeIgnorePaths(i.ignorePaths ?? DEFAULT_IGNORE_PATHS),
       proxy: {
         enabled: i.proxy?.enabled ?? PROXY_DEFAULTS.enabled,
         localPort: i.proxy?.localPort && i.proxy.localPort > 0 ? i.proxy.localPort : PROXY_DEFAULTS.localPort,
@@ -1501,9 +1690,9 @@ function createRemoteInstancesStore(path, opts = {}) {
 import { spawn as spawn3 } from "node:child_process";
 import { createHash as createHash5 } from "node:crypto";
 import net2 from "node:net";
-import { mkdtempSync, openSync, readFileSync as readFileSync7 } from "node:fs";
+import { copyFileSync as copyFileSync3, existsSync as existsSync8, mkdirSync as mkdirSync9, mkdtempSync, openSync, readFileSync as readFileSync7, writeFileSync as writeFileSync8 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
-import { join as join11 } from "node:path";
+import { dirname as dirname5, join as join11 } from "node:path";
 
 // ../../src/core/remote-common.ts
 function parseGlibcVersion(firstLine) {
@@ -2583,9 +2772,9 @@ init_instance_config();
 // ../../src/core/components.ts
 import { execFileSync } from "node:child_process";
 import { createHash as createHash4 } from "node:crypto";
-import { cpSync as cpSync2, existsSync as existsSync6, mkdirSync as mkdirSync7, readFileSync as readFileSync5, readdirSync as readdirSync2, rmSync as rmSync4, statSync as statSync4, writeFileSync as writeFileSync6 } from "node:fs";
+import { cpSync, existsSync as existsSync6, mkdirSync as mkdirSync7, readFileSync as readFileSync5, readdirSync as readdirSync2, rmSync as rmSync4, statSync as statSync4, writeFileSync as writeFileSync6 } from "node:fs";
 import { homedir as homedir3, tmpdir } from "node:os";
-import { basename, dirname as dirname3, join as join9 } from "node:path";
+import { basename, dirname as dirname4, join as join9 } from "node:path";
 import { fileURLToPath } from "node:url";
 var COMPONENT_SCHEMA = 1;
 function fail(source, message) {
@@ -2717,7 +2906,7 @@ function packDirectory(dir) {
   const staging = join9(tmpdir(), `ocrc-component-${process.pid}-${Date.now()}`);
   const target = join9(staging, "package");
   mkdirSync7(target, { recursive: true });
-  cpSync2(dir, target, {
+  cpSync(dir, target, {
     recursive: true,
     filter: (src) => {
       const name = basename(src);
@@ -2827,7 +3016,7 @@ function buildArtifactPushScript(dest, sha256, mode = "0644") {
   const f = dest.replace(/^~\//, "$HOME/");
   return [
     "set -e",
-    `D="${dirname3(f)}"`,
+    `D="${dirname4(f)}"`,
     `F="${f}"`,
     'mkdir -p "$D"',
     'cat > "$F.part"',
@@ -3087,6 +3276,11 @@ var log5 = createLogger("remote-instance");
 var EXTERNAL_MONITOR_MS = 2e4;
 var LOG_CAP = 200;
 var EGRESS_TTL_MS = 5 * 6e4;
+var COLD_PROBE_COOLDOWN_MS = 5 * 6e4;
+var coldProbeAt = /* @__PURE__ */ new Map();
+function coldProbeDue(lastAt, now) {
+  return now - (lastAt ?? 0) >= COLD_PROBE_COOLDOWN_MS;
+}
 function proxyConfig(instance) {
   return {
     enabled: instance.proxy?.enabled ?? PROXY_DEFAULTS.enabled,
@@ -3196,6 +3390,18 @@ function createRemoteInstanceManager(opts) {
     if (!instance) throw new Error(`unknown remote instance ${id}`);
     return instance;
   };
+  function instanceIgnore(instance) {
+    const patterns = instance.ignorePaths ?? [...DEFAULT_IGNORE_PATHS];
+    return { patterns, matcher: compileIgnoreMatcher(patterns) };
+  }
+  function applyInstanceIgnore(instance, local, peer) {
+    const { patterns, matcher } = instanceIgnore(instance);
+    if (patterns.length === 0) return { patterns, filtered: 0 };
+    const before = local.files.length + peer.files.length;
+    local.files = local.files.filter((f) => !matcher(f.rel));
+    peer.files = peer.files.filter((f) => !matcher(f.rel));
+    return { patterns, filtered: before - local.files.length - peer.files.length };
+  }
   const ssh = (instance, command, timeoutMs = 6e4) => sshRun(instance, command, { timeoutMs });
   const ownerRole = ownerRoleFor(detachedForwards);
   function holderOf(instance, kind) {
@@ -3267,6 +3473,36 @@ tar: ${err.message}` });
         stderr += d.toString();
       });
       tar.stdout?.pipe(remote.stdin);
+    });
+  }
+  function sshCaptureBinary(instance, script, timeoutMs = 12e4) {
+    return new Promise((resolve) => {
+      const child = spawn3("ssh", buildSshExecArgs(instance, script), { stdio: ["ignore", "pipe", "pipe"], env: askpassEnv(instance) });
+      const chunks = [];
+      let stderr = "";
+      let settled = false;
+      const stdoutBuf = () => Buffer.concat(chunks);
+      const done = (r) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        resolve(r);
+      };
+      const timer = setTimeout(() => {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+        }
+        done({ code: null, stdoutBuf: stdoutBuf(), stderr: `${stderr}
+timeout after ${timeoutMs}ms` });
+      }, timeoutMs);
+      child.stdout?.on("data", (d) => chunks.push(d));
+      child.stderr?.on("data", (d) => {
+        stderr += d.toString();
+      });
+      child.on("error", (err) => done({ code: null, stdoutBuf: stdoutBuf(), stderr: `${stderr}
+${err.message}` }));
+      child.on("close", (code) => done({ code, stdoutBuf: stdoutBuf(), stderr }));
     });
   }
   async function probeEnv(instance) {
@@ -4308,6 +4544,7 @@ tar: ${err.message}` });
       const local = readLocalConfig({ dir: opts.localConfigDir, authPath: opts.localAuthPath });
       const read = await ssh(instance, buildPeerConfigReadScript(), 45e3);
       const peer = parsePeerConfigRead(read.stdout);
+      const ignore = applyInstanceIgnore(instance, local, peer);
       const peerError = read.code === 0 ? void 0 : cleanSshNoise(read.stderr || read.stdout).trim().split("\n").pop();
       const diff = diffConfig(local, peer);
       const component = await componentPluginsFor(instance, diffOpts.components);
@@ -4326,6 +4563,7 @@ tar: ${err.message}` });
         peerOnly: diff.peerOnly.filter(notConfig),
         unknown: diff.unknown.filter(notConfig),
         auth: diff.auth,
+        ignore,
         plan: {
           basename: plan.basename,
           configChanged: plan.configChanged,
@@ -4354,6 +4592,7 @@ tar: ${err.message}` });
         return { ok: false, detail };
       }
       const peer = parsePeerConfigRead(read.stdout);
+      applyInstanceIgnore(instance, local, peer);
       const diff = diffConfig(local, peer);
       const component = await componentPluginsFor(instance, syncOpts.components);
       const plan = planConfigSync(local, peer, {
@@ -4365,6 +4604,11 @@ tar: ${err.message}` });
         componentPlugins: component.plugins,
         componentNames: component.names
       });
+      if (syncOpts.only !== void 0) {
+        const only = syncOpts.only.filter(isSafeConfigRel);
+        const covered = (rel) => only.some((entry) => rel === entry || rel.startsWith(`${entry}/`));
+        plan.files = plan.files.filter((rel) => rel === plan.basename || covered(rel));
+      }
       const nothing = plan.files.length === 0 && plan.deletes.length === 0;
       if (nothing) {
         pushLog(id, "sync-config: \u65E0\u5DEE\u5F02\uFF0C\u672A\u5199\u8FDC\u7A0B\u673A\u5668");
@@ -4379,11 +4623,10 @@ tar: ${err.message}` });
       const staging = mkdtempSync(join11(tmpdir2(), "ocrc-cfgsync-"));
       try {
         const content = plan.merged && plan.configChanged ? renderConfig(plan.merged) : void 0;
-        const topLevel = [...new Set(plan.files.map((rel) => rel.split("/")[0]).filter((e) => e !== plan.basename))];
-        const staged = stageConfigTree({
+        const staged = stageConfigFiles({
           sourceDir: local.dir,
           destDir: staging,
-          entries: topLevel,
+          files: plan.files,
           mergedConfig: content ? { basename: plan.basename, content } : void 0
         });
         if (staged.length === 0 && plan.deletes.length === 0) {
@@ -4408,6 +4651,105 @@ tar: ${err.message}` });
       } finally {
         discardStaging(staging);
       }
+    },
+    async pullFiles(id, pullOpts = {}) {
+      const instance = need(id);
+      const paths = [...new Set((pullOpts.paths ?? []).filter(isSafeConfigRel))];
+      if (paths.length === 0) return { ok: false, detail: "\u62C9\u53D6\u5217\u8868\u4E3A\u7A7A\uFF08\u6CA1\u6709\u53EF\u63A5\u53D7\u7684\u8DEF\u5F84\uFF09" };
+      const local = readLocalConfig({ dir: opts.localConfigDir, authPath: opts.localAuthPath });
+      const read = await ssh(instance, buildPeerConfigReadScript(), 45e3);
+      if (read.code !== 0) {
+        const detail2 = `\u8BFB\u8FDC\u7A0B\u673A\u5668\u914D\u7F6E\u5931\u8D25\uFF1A${cleanSshNoise(read.stderr || read.stdout).trim().split("\n").pop() ?? `exit ${read.code}`}`;
+        pushLog(id, detail2);
+        return { ok: false, detail: detail2 };
+      }
+      const peer = parsePeerConfigRead(read.stdout);
+      applyInstanceIgnore(instance, local, peer);
+      const ignore = instanceIgnore(instance);
+      const diff = diffConfig(local, peer);
+      const known = [...diff.peerOnly, ...diff.change];
+      const pullable = (p) => known.some((rel) => rel === p || rel.startsWith(`${p}/`));
+      const rejected = paths.filter((p) => !pullable(p));
+      if (rejected.length > 0) {
+        const detail2 = `\u4EE5\u4E0B\u8DEF\u5F84\u4E0D\u5728\u300C\u53EA\u5728\u8FDC\u7A0B\u673A\u5668/\u4E24\u8FB9\u4E0D\u540C\u300D\u91CC\uFF0C\u4E0D\u62C9\uFF1A${rejected.join("\u3001")}`;
+        pushLog(id, detail2);
+        return { ok: false, detail: detail2 };
+      }
+      const fmt = (n) => n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`;
+      const res = await sshCaptureBinary(instance, buildPeerPullScript(paths, { dryRun: pullOpts.dryRun }), 18e4);
+      if (res.code !== 0) {
+        const detail2 = `\u62C9\u53D6\u5931\u8D25\uFF08exit ${res.code}\uFF09\uFF1A${parsePullFailures(cleanSshNoise(res.stderr || res.stdoutBuf.toString("utf-8")).trim())}`;
+        pushLog(id, detail2);
+        return { ok: false, detail: detail2 };
+      }
+      let preamble;
+      try {
+        preamble = parsePullSize(res.stdoutBuf);
+      } catch (err) {
+        const detail2 = `\u62C9\u53D6\u5931\u8D25\uFF1A${err.message}`;
+        pushLog(id, detail2);
+        return { ok: false, detail: detail2 };
+      }
+      if (preamble.bytes > MAX_PULL_BYTES) {
+        const detail2 = `\u5F85\u62C9\u53D6 ${fmt(preamble.bytes)} \u8D85\u8FC7\u4E0A\u9650 512MB\uFF0C\u5DF2\u62D2\u7EDD\uFF08\u4E00\u6B21\u62C9\u5C11\u4E00\u70B9\uFF09`;
+        pushLog(id, detail2);
+        return { ok: false, detail: detail2, bytes: preamble.bytes };
+      }
+      if (pullOpts.dryRun) {
+        return {
+          ok: true,
+          bytes: preamble.bytes,
+          detail: `\u8BD5\u8FD0\u884C\uFF1A\u5C06\u62C9 ${paths.length} \u6761\uFF0C\u7EA6 ${fmt(preamble.bytes)}\uFF1B\u88AB\u8986\u76D6\u7684\u672C\u673A\u6587\u4EF6\u5148\u5FEB\u7167\u5230 ~/.ocrc/pull-backup-<\u65F6\u95F4\u6233>/`
+        };
+      }
+      let tarBuf;
+      try {
+        tarBuf = gunzipCapped(preamble.gzip);
+      } catch (err) {
+        const detail2 = `\u89E3\u5305\u5931\u8D25\uFF08\u635F\u574F\u6216\u8D85\u8FC7 512MB \u4E0A\u9650\uFF09\uFF1A${err.message}`;
+        pushLog(id, detail2);
+        return { ok: false, detail: detail2 };
+      }
+      let extracted;
+      try {
+        extracted = extractConfigTar(tarBuf, paths);
+      } catch (err) {
+        const detail2 = `\u89E3\u6790\u5BF9\u7AEF tar \u5931\u8D25\uFF1A${err.message}`;
+        pushLog(id, detail2);
+        return { ok: false, detail: detail2 };
+      }
+      if (ignore.patterns.length > 0) {
+        const kept = extracted.files.filter((f) => !ignore.matcher(f.rel));
+        const dropped = extracted.files.length - kept.length;
+        if (dropped > 0) extracted.skipped.push({ name: `${dropped} \u4E2A\u88AB\u5FFD\u7565\u8868\u8FC7\u6EE4`, type: "ignored" });
+        extracted.files = kept;
+      }
+      if (extracted.files.length === 0) {
+        const detail2 = "\u5BF9\u7AEF tar \u91CC\u6CA1\u6709\u53EF\u843D\u5730\u7684\u6587\u4EF6\uFF08\u5168\u90E8\u88AB\u8303\u56F4/\u5B89\u5168\u6027\u8FC7\u6EE4\u62D2\u7EDD\uFF09";
+        pushLog(id, detail2);
+        return { ok: false, detail: detail2, skipped: extracted.skipped };
+      }
+      const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+      const backupRoot = join11(opts.home ?? ocrcHome(), `pull-backup-${ts}`, instance.id);
+      const backedUp = [];
+      const pulled = [];
+      for (const f of extracted.files) {
+        const dest = join11(local.dir, f.rel);
+        if (existsSync8(dest)) {
+          const bak = join11(backupRoot, f.rel);
+          mkdirSync9(dirname5(bak), { recursive: true });
+          copyFileSync3(dest, bak);
+          backedUp.push(f.rel);
+        }
+        mkdirSync9(dirname5(dest), { recursive: true });
+        writeFileSync8(dest, f.content);
+        pulled.push(f.rel);
+      }
+      const skippedNote = extracted.skipped.length > 0 ? `\uFF1B\u8DF3\u8FC7 ${extracted.skipped.length} \u4E2A\u975E\u666E\u901A\u6587\u4EF6/\u8D8A\u754C\u6761\u76EE` : "";
+      const backupNote = backedUp.length > 0 ? `\uFF0C${backedUp.length} \u4E2A\u672C\u673A\u65E7\u4EF6\u5FEB\u7167\u5728 ${backupRoot}` : "";
+      const detail = `\u62C9\u56DE ${pulled.length} \u4E2A\u6587\u4EF6\uFF08\u7EA6 ${fmt(preamble.bytes)}\uFF09${backupNote}${skippedNote}\u2014\u2014\u843D\u70B9\u5728\u914D\u7F6E\u76EE\u5F55\uFF0Ccommit \u540E\u6210\u4E3A\u6B63\u5F0F\u58F0\u660E`;
+      pushLog(id, detail);
+      return { ok: true, detail, bytes: preamble.bytes, pulled, backedUp, backupRoot: backedUp.length > 0 ? backupRoot : void 0, skipped: extracted.skipped };
     },
     async syncAuth(id) {
       const instance = need(id);
@@ -4483,6 +4825,17 @@ tar: ${err.message}` });
         }
         void manager.up(instance.id).catch((err) => {
           setState(instance.id, "error", `\u81EA\u6062\u590D\u5931\u8D25\uFF1A${err.message}`);
+        });
+      }
+    },
+    probeColdAll() {
+      const now = Date.now();
+      for (const instance of opts.store.list()) {
+        if (!instance.enabled) continue;
+        if (!coldProbeDue(coldProbeAt.get(instance.id), now)) continue;
+        coldProbeAt.set(instance.id, now);
+        void manager.probe(instance.id).catch((err) => {
+          setState(instance.id, "error", `\u51B7\u63A2\u6D4B\u5931\u8D25\uFF1A${err.message}`);
         });
       }
     },
@@ -4723,7 +5076,7 @@ function createRemoteInstanceOps({
         }
         case "syncconfig": {
           if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
-          for (const field of ["deletes", "keyDeletes"]) {
+          for (const field of ["deletes", "keyDeletes", "only"]) {
             const value = op.payload?.[field];
             if (value !== void 0 && (!Array.isArray(value) || value.some((v) => typeof v !== "string"))) {
               return { status: 400, body: { error: `${field} must be a string[]` } };
@@ -4732,8 +5085,33 @@ function createRemoteInstanceOps({
           return start(() => manager.syncConfig(op.id, {
             deletes: op.payload?.deletes,
             keyDeletes: op.payload?.keyDeletes,
+            only: op.payload?.only,
             dryRun: op.payload?.dryRun === true
           }), op.id);
+        }
+        case "pullfiles": {
+          if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
+          const paths = op.payload?.paths;
+          if (paths !== void 0 && (!Array.isArray(paths) || paths.some((v) => typeof v !== "string"))) {
+            return { status: 400, body: { error: "paths must be a string[]" } };
+          }
+          return start(() => manager.pullFiles(op.id, {
+            paths,
+            dryRun: op.payload?.dryRun === true
+          }), op.id);
+        }
+        case "ignoreadd":
+        case "ignoreremove": {
+          const instance = store.get(op.id);
+          if (!instance) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
+          const pattern = op.payload?.pattern;
+          if (typeof pattern !== "string" || !pattern.trim() || pattern.length > 256) {
+            return { status: 400, body: { error: "pattern \u5FC5\u987B\u662F 1\u2013256 \u5B57\u7B26" } };
+          }
+          const current = instance.ignorePaths ?? [...DEFAULT_IGNORE_PATHS];
+          const next = op.op === "ignoreadd" ? sanitizeIgnorePaths([...current, pattern.trim()]) : current.filter((p) => p !== pattern.trim());
+          store.update(op.id, { ignorePaths: next });
+          return { status: 200, body: { ignorePaths: next } };
         }
         case "syncauth": {
           if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
@@ -4817,6 +5195,7 @@ server.listen(PORT, "127.0.0.1", () => {
   const bound = addr && typeof addr !== "string" ? addr.port : PORT;
   console.log(`[ocrc] service listening on 127.0.0.1:${bound}`);
   remoteManager.ensureAll();
+  remoteManager.probeColdAll();
 });
 var shuttingDown = false;
 function shutdown() {

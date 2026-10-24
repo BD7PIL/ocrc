@@ -50,10 +50,11 @@ function makeManager(): RemoteInstanceManager {
     })),
     configDiff: vi.fn(async () => ({
       localDir: '/home/u/.config/opencode', add: ['skill/a.md'], change: [], same: [], peerOnly: ['agent/old.md'],
-      unknown: [], auth: { local: true, peer: false },
+      unknown: [], auth: { local: true, peer: false }, ignore: { patterns: ['**/__pycache__/'], filtered: 0 },
       plan: { basename: 'opencode.json', configChanged: true, files: ['opencode.json', 'skill/a.md'], deletes: [], droppedManagedKeys: [], secretsReplaced: [], baseUrlRewrites: [], notes: [] },
     })),
     syncConfig: vi.fn(async () => ({ ok: true, detail: '同步 2 个文件' })),
+    pullFiles: vi.fn(async () => ({ ok: true, detail: '拉回 1 个文件', pulled: ['agent/old.md'] })),
     syncAuth: vi.fn(async () => ({ ok: true, detail: '凭据已同步（512 字节 → 对端 0600）' })),
     status: (id: string) => ({ id, state: 'online' as const, url: 'http://127.0.0.1:4610', tunnelOwner: 'external' as const, logTail: [] }),
     statusAll: () => [],
@@ -253,14 +254,46 @@ describe('remote-instance ops', () => {
     const started = await ops.handle({ op: 'syncconfig', id: 'user@h' })
     expect(started.status).toBe(202)
     await waitJob(ops, (started.body as { jobId: string }).jobId)
-    expect(manager.syncConfig).toHaveBeenCalledWith('user@h', { deletes: undefined, keyDeletes: undefined, dryRun: false })
+    expect(manager.syncConfig).toHaveBeenCalledWith('user@h', { deletes: undefined, keyDeletes: undefined, only: undefined, dryRun: false })
 
-    const explicit = await ops.handle({ op: 'syncconfig', id: 'user@h', payload: { deletes: ['agent/old.md'], dryRun: true } })
+    const explicit = await ops.handle({ op: 'syncconfig', id: 'user@h', payload: { deletes: ['agent/old.md'], only: ['skills/a'], dryRun: true } })
     await waitJob(ops, (explicit.body as { jobId: string }).jobId)
-    expect(manager.syncConfig).toHaveBeenLastCalledWith('user@h', { deletes: ['agent/old.md'], keyDeletes: undefined, dryRun: true })
+    expect(manager.syncConfig).toHaveBeenLastCalledWith('user@h', { deletes: ['agent/old.md'], keyDeletes: undefined, only: ['skills/a'], dryRun: true })
 
     expect((await ops.handle({ op: 'syncconfig', id: 'user@h', payload: { deletes: [1] as never } })).status).toBe(400)
     expect((await ops.handle({ op: 'syncauth', id: 'missing' })).status).toBe(404)
+  })
+
+  it('pullfiles is a job that forwards paths and dryRun', async () => {
+    const manager = makeManager()
+    const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager })
+    expect((await ops.handle({ op: 'pullfiles', id: 'missing', payload: { paths: ['AGENTS.md'] } })).status).toBe(404)
+    expect((await ops.handle({ op: 'pullfiles', id: 'user@h', payload: { paths: [42] as never } })).status).toBe(400)
+    const started = await ops.handle({ op: 'pullfiles', id: 'user@h', payload: { paths: ['command/tokenscope.md'], dryRun: true } })
+    expect(started.status).toBe(202)
+    const job = await waitJob(ops, (started.body as { jobId: string }).jobId)
+    expect(job.state).toBe('done')
+    expect(manager.pullFiles).toHaveBeenCalledWith('user@h', { paths: ['command/tokenscope.md'], dryRun: true })
+  })
+
+  it('ignoreadd/ignoreremove edit the per-instance table through sanitize', async () => {
+    const store = makeStore([instance()])
+    const ops = createRemoteInstanceOps({ store, manager: makeManager() })
+    expect((await ops.handle({ op: 'ignoreadd', id: 'missing', payload: { pattern: 'x' } })).status).toBe(404)
+    expect((await ops.handle({ op: 'ignoreadd', id: 'user@h', payload: { pattern: '  ' } })).status).toBe(400)
+
+    const added = await ops.handle({ op: 'ignoreadd', id: 'user@h', payload: { pattern: 'skills/big/**' } })
+    expect(added.status).toBe(200)
+    // `foo/**` folds to the directory rule — the panel never sees the raw form back.
+    expect((added.body as { ignorePaths: string[] }).ignorePaths).toContain('skills/big/')
+
+    const removed = await ops.handle({ op: 'ignoreremove', id: 'user@h', payload: { pattern: 'skills/big/' } })
+    expect((removed.body as { ignorePaths: string[] }).ignorePaths).not.toContain('skills/big/')
+    // removing the last pattern leaves an explicit empty table (not the seed back)
+    for (const seed of [...(store.get('user@h')?.ignorePaths ?? [])]) {
+      await ops.handle({ op: 'ignoreremove', id: 'user@h', payload: { pattern: seed } })
+    }
+    expect(store.get('user@h')?.ignorePaths).toEqual([])
   })
 
   it('unknown op and unknown ids are explicit', async () => {
@@ -292,7 +325,7 @@ describe('remote-instance ops', () => {
     const everyOp: Record<RemoteInstanceOp['op'], true> = {
       list: true, add: true, patch: true, plan: true, apply: true, upgrade: true, up: true, down: true, probe: true,
       status: true, logs: true, peerlog: true, url: true, defaults: true, uipassword: true,
-      configdiff: true, syncconfig: true, syncauth: true, pairlink: true,
+      configdiff: true, syncconfig: true, pullfiles: true, ignoreadd: true, ignoreremove: true, syncauth: true, pairlink: true,
       delete: true, job: true,
     }
     const ops = createRemoteInstanceOps({

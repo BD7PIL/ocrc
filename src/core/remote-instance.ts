@@ -366,11 +366,16 @@ export const MIN_ENGINE_VERSION = '2.0.20'
 export const ENGINE_MAJOR = 2
 
 /** Engine version we deploy to a controlled host (R12: a **pin**, never
- *  "latest"). 2.0.32 is the version the component adapters are verified
- *  against (deep-memory's v2 gate; opencode-deep-memory README §compatibility).
- *  A bin-cache manifest or `OCRC_V2_PIN` overrides it, and the CLI can name one
- *  explicitly. */
-export const DEFAULT_ENGINE_PIN = '2.0.32'
+ *  "latest"). 2.1.4 是 openchamber 2.5.1 的硬要求之下的最新版：上游
+ *  `MINIMUM_OPENCODE_VERSION = '2.1.0'`（2.1.0 加了 `archived` 语义），我们钉过的
+ *  2.0.32 被它判 incompatible（2026-10-24 实测，门禁正确拦截）。组件适配器
+ *  （deep-memory）此前对 2.0.32 验证过，2.1.x 待组件仓跟随验证。
+ *  裁决之二（2026-10-24）之后的完整优先级链：**渠道发现（upgrade 时查 npm
+ *  dist-tags.latest，只升不降）> manifest/OCRC_V2_PIN > 本常量**——本常量与
+ *  manifest 只是「今天的正确兜底」，今后的更新归 follow CI 的 bump-pin job，
+ *  人不再手改。A bin-cache manifest or `OCRC_V2_PIN` overrides it, and the CLI
+ *  can name one explicitly. */
+export const DEFAULT_ENGINE_PIN = '2.1.4'
 
 /** The runtime we ship to the controlled host (verdict §二): unofficial
  *  glibc-2.17 build — the ONLY 24.x line variant that runs on EL7. 24.14.0 has
@@ -955,7 +960,7 @@ export interface EngineCompatPayload {
 
 export type CompatJudgement =
   | { ok: true; version: string; binary: string }
-  | { ok: false; error: string }
+  | { ok: false; error: string; state?: string; terminal?: boolean }
 
 /** R12 assertion point ③ (plan §2.1): refuse anything that is not a v2 engine
  *  behind an absolute path. An instance that adopted a leftover process, or one
@@ -967,15 +972,40 @@ export function judgeEngineCompat(payload: EngineCompatPayload | undefined): Com
   const version = normalizeEngineVersion(String(payload.version ?? ''))
   const binary = String(payload.binary ?? '')
   if (state !== 'compatible') {
-    return { ok: false, error: `实例的 OpenCode 兼容性 state=${state || '（空）'}（需要 compatible）` }
+    // incompatible 是实例的明确裁决，当场终判；checking/空值等中间值交给
+    // withCompatRetry 的窗口（引擎子进程握手未稳时会这样）。
+    const terminal = state === 'incompatible'
+    return { ok: false, error: `实例的 OpenCode 兼容性 state=${state || '（空）'}（需要 compatible）`, state: state || undefined, terminal }
   }
   if (!isSupportedEngineVersion(version)) {
-    return { ok: false, error: `实例用的 OpenCode ${version || '（版本未知）'} 不满足 v2 门禁（需 major=2 且 ≥ ${MIN_ENGINE_VERSION}）${binary ? `；二进制 ${binary}` : ''}` }
+    return { ok: false, error: `实例用的 OpenCode ${version || '（版本未知）'} 不满足 v2 门禁（需 major=2 且 ≥ ${MIN_ENGINE_VERSION}）${binary ? `；二进制 ${binary}` : ''}`, terminal: true }
   }
   if (!binary.startsWith('/')) {
-    return { ok: false, error: `实例报的 OpenCode 路径不是绝对路径：${binary || '（空）'}` }
+    return { ok: false, error: `实例报的 OpenCode 路径不是绝对路径：${binary || '（空）'}`, terminal: true }
   }
   return { ok: true, version, binary }
+}
+
+/** compat 探测的退避重试（真机踩过的竞态：同版本组合、同引擎，两台机器一个
+ *  门禁过一个门禁不过——实例刚起、引擎子进程握手未稳时，compatibility 接口会
+ *  给出暂态 state 或干脆 fetch 失败，单发必判错）。策略：终态（成功、明确
+ *  `incompatible`、以及 judgeEngineCompat 标 terminal 的确定性失败）当场返回；
+ *  其余（fetch 失败 / checking 等中间值）在 ~10s 窗口内每 2s 再问，窗口尽了
+ *  如实返回最后那个结果。probe/sleep 可注入——时序单测不真等。 */
+export async function withCompatRetry(
+  probe: () => Promise<CompatJudgement>,
+  opts: { attempts?: number; intervalMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<CompatJudgement> {
+  const attempts = opts.attempts ?? 6
+  const intervalMs = opts.intervalMs ?? 2_000
+  const sleep = opts.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))
+  let last = await probe()
+  for (let i = 1; i < attempts; i++) {
+    if (last.ok || last.terminal) return last
+    await sleep(intervalMs)
+    last = await probe()
+  }
+  return last
 }
 
 /** Judge `/api/version`. Missing capability or major < 2 = refuse (same rule as

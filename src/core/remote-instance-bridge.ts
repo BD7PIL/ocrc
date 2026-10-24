@@ -32,12 +32,12 @@ import {
   EGRESS_DEFAULT, type EgressMode, type EgressProbe, type ProvisionMode,
   decideUpgrade,
   buildTerminalProbeCommand, instancePaths, parseTerminalProbe,
-  judgeEngineCompat, judgeInstanceVersion, parseEngineProbe, pickV2Engine, type EngineCandidate,
+  judgeEngineCompat, judgeInstanceVersion, parseEngineProbe, pickV2Engine, withCompatRetry, type EngineCandidate,
   type EngineCompatPayload, type EnginePick, type ForwardSpec, type InstanceProxyConfig,
   type RemoteInstance, type SshTargetRef,
 } from './remote-instance.js'
-import { appPackTierForGlibc, buildAppProbeCommand, buildOfflineGuardExports, buildRuntimeProbeCommand, provisionOffline, sshRun, sshRunWithStdin, type AppPackTier, type SshResult } from './remote-instance-push.js'
-import { latestPublishedPack, packReleaseAvailable } from './app-pack-registry.js'
+import { appPackTierForGlibc, buildAppProbeCommand, buildOfflineGuardExports, buildRuntimeProbeCommand, provisionOffline, resolveEnginePin, sshRun, sshRunWithStdin, type AppPackTier, type SshResult } from './remote-instance-push.js'
+import { latestPublishedPack, latestEngineVersion, packReleaseAvailable, planUpgradeRun } from './app-pack-registry.js'
 import {
   buildAuthPushScript, buildConfigApplyScript, buildPeerConfigReadScript, diffConfig, discardStaging,
   parsePeerConfigRead, planConfigSync, readLocalConfig, stageConfigTree,
@@ -1322,19 +1322,42 @@ export function createRemoteInstanceManager(opts: {
         to: explicit,
         latest: latest ? (latest.ok ? { version: latest.pack.version } : { error: latest.error }) : undefined,
       })
-      if (decision.action !== 'upgrade') {
-        return { ok: decision.action === 'noop', changed: false, from, to: decision.to, detail: decision.detail }
+      if (decision.action === 'refuse') {
+        return { ok: false, changed: false, from, to: decision.to, detail: decision.detail }
       }
-      const to = decision.to
-      if (!(await packReleaseAvailable(to))) {
+      // 裁决 2026-10-24 之二：引擎同样跟随渠道（不可能每次升级手改 pin）。目标 =
+      // max(已装/生效 pin, npm 渠道最新)，**只升不降**；装上后由实例自己的
+      // compatibility 接口（up 的 R12 门禁）把关这版引擎配这版 app 行不行。
+      // app no-op 不短路引擎跟随：app 已最新但引擎落后时，只补引擎并重启装载。
+      const engineLatest = await latestEngineVersion()
+      const run = planUpgradeRun({
+        decision,
+        engineCurrent: instance.engineVersion,
+        enginePin: resolveEnginePin(),
+        engineLatest: engineLatest.ok ? engineLatest.version : undefined,
+      })
+      if (run.kind === 'refuse' || run.kind === 'noop') {
+        return { ok: run.kind === 'noop', changed: false, from, to: run.to, detail: run.detail }
+      }
+      const to = run.to
+      if (run.kind !== 'engine-only' && !(await packReleaseAvailable(to))) {
         return { ok: false, changed: false, from, to, detail: `${to} 的包还没发布（ocrc-openchamber-pack-${to} 缺失或不完整）——不写任何东西` }
       }
       // 「升级前在线」不能只看本进程内存表：CLI 是一次性进程，rt 恒 unknown；
       // 面板 service 是长进程，但实例也可能是别人起的。ssh 实测远端 health 才算数。
       const wasOnline = rt(id).state === 'online' || (await remoteHealth(instance).catch(() => '000')) === '200'
-      pushLog(id, `升级：${from} → ${to}（旧树留 .ocrc-bak，一份就够）`)
-      opts.store.update(id, { appVersion: to })
-      const result = await manager.apply(id, { force: false })
+      if (run.kind === 'engine-only' || run.kind === 'app+engine') {
+        pushLog(id, `引擎跟随渠道：${instance.engineVersion ?? '（未定）'} → ${run.engineTo}${engineLatest.ok ? '' : '（渠道探测失败，沿用生效 pin）'}`)
+      }
+      if (run.kind === 'app' || run.kind === 'app+engine') {
+        pushLog(id, `升级：${from} → ${to}（旧树留 .ocrc-bak，一份就够）`)
+        opts.store.update(id, { appVersion: to })
+      } else {
+        pushLog(id, `OpenChamber 已是 ${to}——只补引擎，不重装应用`)
+      }
+      // engine-only/app+engine 带渠道目标；app（引擎已最新）显式延续已装 pin。
+      const engineTo = 'engineTo' in run ? run.engineTo : instance.engineVersion
+      const result = await manager.apply(id, { force: false, engineVersion: engineTo })
       if (!result.ok) return { ...result, changed: false, from, to }
       if (wasOnline) {
         // 升级前在线 → 必须重启装载新版；"在线但跑旧版"就是撒谎（PRODUCT 零点四）。
@@ -1400,7 +1423,9 @@ export function createRemoteInstanceManager(opts: {
       const result = await provisionOffline(instance, instance.appVersion, {
         force: applyOpts.force,
         skipEngine: !!foreignPin,
-        engineVersion: applyOpts.engineVersion,
+        // 已装引擎的 pin 延续（升级交给 upgrade 的渠道跟随；普通 apply 不许把
+        // 已装引擎悄悄换版本，也不许在 store 有 pin 时退回全局常量）。
+        engineVersion: applyOpts.engineVersion ?? instance.engineVersion,
         guard: applyOpts.guard,
         trace: applyOpts.trace,
         tier,
@@ -1498,7 +1523,7 @@ export function createRemoteInstanceManager(opts: {
             probe = await probeThroughForward(temp)
           }
           if (!probe.ok) return { ok: false as const, detail: `实例已起但转发探活失败：${probe.error}` }
-          const compat = await probeEngineCompat(temp)
+          const compat = await withCompatRetry(() => probeEngineCompat(temp))
           if (!compat.ok) return { ok: false as const, detail: `实例在跑，但OpenCode门禁未过：${compat.error}` }
           return { ok: true as const, version: probe.version, compat }
         }).catch((err: unknown) => ({ ok: false as const, detail: (err as Error).message }))
@@ -1542,7 +1567,8 @@ export function createRemoteInstanceManager(opts: {
       }
       // R12 ③：实例自己说它用的是哪个引擎——这才是「引擎是 v2」的证据，
       // 而不是我们「请求它用 v2」。复用到既有实例时这一步尤其重要。
-      const compat = await probeEngineCompat(instance)
+      // 握手未稳的暂态答案由 withCompatRetry 的窗口吸收（真机竞态）。
+      const compat = await withCompatRetry(() => probeEngineCompat(instance))
       if (!compat.ok) {
         setState(id, 'error', `OpenCode门禁未过：${compat.error}`)
         return { ok: false, detail: `实例在跑，但OpenCode门禁未过：${compat.error}` }

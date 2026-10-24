@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_ENGINE_CANDIDATES,
   MIN_ENGINE_VERSION,
@@ -22,6 +22,7 @@ import {
   quoteRemotePath,
   pickV2Engine,
   renderExports,
+  withCompatRetry,
 } from '../../src/core/remote-instance.js'
 
 /** Dev plan §5.1: pin the decisions and the shell lines; the ssh transport and
@@ -280,6 +281,55 @@ describe('控制端转发与实例探活', () => {
     expect(rel.ok).toBe(false)
     if (!rel.ok) expect(rel.error).toContain('绝对路径')
     expect(judgeEngineCompat(undefined).ok).toBe(false)
+  })
+
+  it('终态标注：incompatible/版本门禁/路径是确定性失败；checking/空值是可重试暂态', () => {
+    const terminalOf = (p: Parameters<typeof judgeEngineCompat>[0]) => {
+      const j = judgeEngineCompat(p)
+      return j.ok ? 'ok' : (j.terminal ?? false)
+    }
+    // incompatible = 实例的明确裁决 → 当场终判（withCompatRetry 不再问）
+    const incompatible = judgeEngineCompat({ state: 'incompatible', version: '2.0.32', binary: '/x/opencode' })
+    expect(incompatible.ok).toBe(false)
+    if (!incompatible.ok) {
+      expect(incompatible.terminal).toBe(true)
+      expect(incompatible.state).toBe('incompatible')
+    }
+    // checking / 空值 = 引擎子进程握手未稳 → 交给重试窗口（terminal 显式 false）
+    expect(terminalOf({ state: 'checking', version: '2.0.32', binary: '/x/opencode' })).toBe(false)
+    expect(terminalOf({ version: '2.0.32', binary: '/x/opencode' })).toBe(false)
+    // 版本门禁 / 相对路径：重试不会让它们变好 → 终态
+    expect(terminalOf({ state: 'compatible', version: '1.18.32', binary: '/x/opencode' })).toBe(true)
+    expect(terminalOf({ state: 'compatible', version: '2.0.27', binary: 'opencode' })).toBe(true)
+  })
+
+  it('withCompatRetry（真机竞态修复）：暂态答案在窗口内被吸收，终态当场返回', async () => {
+    const waits: number[] = []
+    const sleep = async (ms: number) => { waits.push(ms) }
+    const ok = { ok: true as const, version: '2.1.4', binary: '/home/u/.ocrc/remote/engine/opencode' }
+
+    // pending → compatible：第一次 checking（暂态），第二次就绿——不再有第三次
+    let n = 0
+    const probe = async () => (n++ === 0
+      ? { ok: false as const, error: 'state=checking', state: 'checking' }
+      : ok)
+    expect(await withCompatRetry(probe, { sleep })).toEqual(ok)
+    expect(n).toBe(2)
+    expect(waits).toEqual([2_000])
+
+    // fetch 失败（无 state）也是暂态：重试到窗口尽，返回最后一个错
+    const flaky = vi.fn(async () => ({ ok: false as const, error: 'fetch failed' }))
+    const exhausted = await withCompatRetry(flaky, { attempts: 4, sleep })
+    expect(exhausted.ok).toBe(false)
+    expect(flaky).toHaveBeenCalledTimes(4)
+    expect(waits.slice(1)).toEqual([2_000, 2_000, 2_000])
+
+    // incompatible 是明确裁决：单发即止，不烧窗口
+    const incompatible = vi.fn(async () => ({ ok: false as const, error: 'state=incompatible', state: 'incompatible', terminal: true }))
+    const judged = await withCompatRetry(incompatible, { sleep })
+    expect(judged.ok).toBe(false)
+    expect(incompatible).toHaveBeenCalledTimes(1)
+    expect(waits.length).toBe(4) // 没有新增等待
   })
 
   it('export 渲染是确定序、丢空值、单引号安全', () => {

@@ -37,3 +37,31 @@
 - 远端旧版本目录不删（`~/.ocrc/remote/openchamber/<old>` 留着，回滚 = 把 pin 改回去）。
 - 实测到的运行版本写回 `store.observed`，与 pin 并排显示（`实测 2.5.1（pin 2.3.3）`）。
 - 镜像/企业代理：`OCRC_PACK_API_BASE`（API）与 `OCRC_PACK_BASE`（下载）分别可覆盖。
+
+## 裁决之二（同日稍后，用户拍板）：引擎同样跟随渠道
+
+「openchamber 你能探测更新，opencode 自然也应该探测更新，**不可能每次升级我们都手动改
+pin**」——app 走渠道发现之后，引擎（opencode）也走渠道发现。openchamber 2.5.1 的
+`MINIMUM_OPENCODE_VERSION='2.1.0'` 把我们钉的 2.0.32 判 incompatible，暴露了这条：手改
+pin 不可持续。
+
+- **渠道源**：npm registry 的 `@opencode/cli-<target>` dist-tags.latest（与 bin-cache 取件
+  同一个包）；`OCRC_NPM_REGISTRY` 可换镜像。失败诚实返回 error，不猜版本。
+- **决策**：`decideEngineTarget` = max(已装/生效 pin, 渠道最新)，**只升不降**——渠道出问题
+  保持现状，永不自动降级。
+- **编排骨架**：`planUpgradeRun` 把 app 决策与引擎跟随合并。关键约束：**app no-op 不许短路
+  引擎跟随**（真机踩过：app 已 2.5.1、引擎 2.0.32 被门禁拦下，upgrade 却先答"已经是这一版"）。
+  app 已最新但引擎落后 → engine-only（apply force:false 对同版本 app 是"已在位"，只补引擎）。
+- **终审**：装上后由实例自己的 `/api/opencode/compatibility`（up 的 R12 门禁）把关这版引擎
+  配这版 app 行不行——**我们不复制上游版本表**。
+- **pin 链降为兜底（三层）**：**渠道发现（upgrade 时）> manifest/OCRC_V2_PIN > 常量**。
+  兜底值（`DEFAULT_ENGINE_PIN` 与 `ops/v2-pin-manifest.json`，现为 2.1.4）今后由 follow CI
+  的 bump-pin job 自动更新，**人不再手改**。
+- **apply 纪律**：普通 apply 延续 store 里已装的引擎 pin（`applyOpts.engineVersion ??
+  instance.engineVersion`），不许悄悄换版本；引擎前进只发生在 upgrade 的渠道跟随里。
+- **附带修复（compat 竞态）**：up 的 compat 探测带 ~10s 退避重试（`withCompatRetry`）——
+  同版本组合两台机器一门禁过一个门禁不过的根因是实例刚起、引擎子进程握手未稳时接口给暂态
+  答案；明确 `incompatible` 与版本/路径类确定性失败仍当场终判。
+- 真机实证（2026-10-24，EL7 legacy 档 + Ubuntu modern 档）：升级前两台 state=incompatible
+  快速终判；`ocrc remote upgrade` app no-op + 引擎 2.0.32→2.1.4（bin-cache 首次从 npm 拉包）+
+  自动重启后两台 compat=compatible 在线（openchamber 2.5.1 / OpenCode 2.1.4）。

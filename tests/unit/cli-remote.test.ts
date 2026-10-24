@@ -121,6 +121,46 @@ describe('cli remote — usage errors exit 2 before anything runs', () => {
   })
 })
 
+describe('cli remote — offline read paths (no ssh, no network)', () => {
+  afterEach(restore)
+
+  /** 这些命令的"没数据"分支必须在碰任何网络之前就回答——空库不是错误。 */
+  it('list / status on an empty store answer honestly without ssh', async () => {
+    const home = tempHome()
+    const saved = process.env.OCRC_HOME
+    process.env.OCRC_HOME = home
+    try {
+      capture()
+      expect(await run(['list'])).toBe(0)
+      expect(logs.join('\n')).toContain('（空）ocrc remote add')
+      expect(await run(['status'])).toBe(0)
+      expect(logs.join('\n')).toContain('（没有登记的实例）')
+    } finally {
+      process.env.OCRC_HOME = saved
+      restore()
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it('remove refuses before touching anything: no id / unknown id are honest errors', async () => {
+    const home = tempHome()
+    const saved = process.env.OCRC_HOME
+    process.env.OCRC_HOME = home
+    try {
+      capture()
+      // main() 不包错误：这两条 throw 出来（真 CLI 由 src/cli/index.ts 的 catch
+      // 兜底打印 + exit 1），断言的是错误在碰 manager/ssh **之前**抛出。
+      await expect(run(['remove'])).rejects.toThrow('需要实例 id')
+      await expect(run(['remove', 'ghost@nowhere'])).rejects.toThrow('没有这台服务器：ghost@nowhere')
+      expect(existsSync(storePath(home))).toBe(false)
+    } finally {
+      process.env.OCRC_HOME = saved
+      restore()
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('cli remote — bootstrap dry run', () => {
   afterEach(restore)
 

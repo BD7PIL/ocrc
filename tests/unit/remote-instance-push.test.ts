@@ -218,7 +218,7 @@ describe('远程脚本：零联网 + 原子落位', () => {
 })
 
 describe('引擎推送（R12：pin 死、落在我们命名空间、绝不碰用户的 ~/.local/bin）', () => {
-  it('pin 优先级：显式 > manifest/OCRC_V2_PIN > 声明默认；永远不是 latest', () => {
+  it('pin 优先级：显式 > manifest/OCRC_V2_PIN > 声明默认；永远不是 latest（upgrade 语境里整条链只是渠道发现之下的兜底）', () => {
     expect(resolveEnginePin('2.0.30')).toBe('2.0.30')
     expect(resolveEnginePin()).toBe(DEFAULT_ENGINE_PIN)
     expect(DEFAULT_ENGINE_PIN).toMatch(/^2\./)

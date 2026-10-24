@@ -46,8 +46,9 @@ const client = host.client as unknown as Record<string, unknown>
 client.writeClipboard = async () => {}
 client.openUrl = async () => {}
 
-/** `?scenario=upgrade`：defaults 注入渠道最新 2.5.0 —— 看徽章「可升级」、
- *  主按钮变「升级到 2.5.0」与确认块。 */
+/** `?scenario=upgrade`：defaults 注入渠道最新 2.5.0 / 引擎渠道最新 2.1.4 ——
+ *  看「可升级 2.5.0」「OpenCode 可升级 2.1.4」两枚徽章、主按钮「升级到 2.5.0」
+ *  与确认块（确认文案含「引擎将跟随渠道到 2.1.4」）。 */
 if (scenario === 'upgrade') {
   const original = client.serviceRequest as (r: { body?: string }) => Promise<unknown>
   client.serviceRequest = (request: { body?: string }) => {
@@ -56,6 +57,7 @@ if (scenario === 'upgrade') {
         status: 200,
         body: JSON.stringify({
           localPort: 4614, instancePort: 2610, appVersion: '2.3.3', latestPack: { version: '2.5.0' },
+          engineLatest: { version: '2.1.4' },
           enginePin: '2.0.27', nodeRuntime: '24.22.0', bind: '127.0.0.1', taken: [4610, 4612],
         }),
       })

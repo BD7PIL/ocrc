@@ -358,7 +358,10 @@ export function engineBinaryPath(version: string, target: string = ENGINE_TARGET
 }
 
 /** Which engine to deploy: explicit > `manifest.json`/`OCRC_V2_PIN` > the
- *  declared default pin. Never "latest" — the pin is the contract (R12). */
+ *  declared default pin. Never "latest" — the pin is the contract (R12).
+ *  裁决之二（2026-10-24）：在 upgrade 的语境里，这条链整体只是**兜底**——
+ *  它上面还有一层「npm 渠道发现」（app-pack-registry 的 latestEngineVersion，
+ *  只升不降），兜底值本身由 follow CI 的 bump-pin job 自动更新，人不手改。 */
 export function resolveEnginePin(explicit?: string): string {
   return explicit?.trim() || resolveV2Pin() || DEFAULT_ENGINE_PIN
 }

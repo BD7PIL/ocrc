@@ -64,6 +64,80 @@ export function parsePackReleases(raw: unknown): PublishedPack[] {
 
 export type LatestPackResult = { ok: true; pack: PublishedPack } | { ok: false; error: string }
 
+/** 引擎（opencode）渠道最新（裁决 2026-10-24 之二：openchamber 探渠道，引擎同样
+ *  探渠道——不可能每次升级手改 pin）。来源 = npm registry 的 dist-tags.latest，
+ *  与 bin-cache 取同一个包（@opencode/cli-<target>）。失败诚实返回 error。 */
+export type LatestEngineResult = { ok: true; version: string } | { ok: false; error: string }
+
+let engineCache: { at: number; value: LatestEngineResult } | undefined
+
+export async function latestEngineVersion(
+  opts: { fetchImpl?: typeof fetch; now?: () => number; bust?: boolean; ttlMs?: number; npmTarget?: string } = {},
+): Promise<LatestEngineResult> {
+  const now = opts.now?.() ?? Date.now()
+  if (!opts.bust && !opts.fetchImpl && engineCache && now - engineCache.at < (opts.ttlMs ?? CACHE_TTL_MS)) return engineCache.value
+  const target = opts.npmTarget ?? 'linux-x64'
+  const registry = (process.env.OCRC_NPM_REGISTRY ?? 'https://registry.npmjs.org').replace(/\/+$/, '')
+  let value: LatestEngineResult
+  try {
+    const res = await (opts.fetchImpl ?? fetch)(`${registry}/${encodeURIComponent(`@opencode/cli-${target}`)}`, {
+      signal: AbortSignal.timeout(15_000),
+      headers: { accept: 'application/vnd.npm.install-v1+json, application/json' },
+    })
+    if (!res.ok) throw new Error(`registry HTTP ${res.status}`)
+    const meta = (await res.json()) as { 'dist-tags'?: Record<string, string> }
+    const latest = meta['dist-tags']?.latest
+    if (!latest || !/^\d+\.\d+\.\d+/.test(latest)) throw new Error('registry 元数据里没有可用的 latest 引擎')
+    value = { ok: true, version: latest.split('-')[0]! }
+  } catch (err) {
+    value = { ok: false, error: (err as Error).message }
+  }
+  if (!opts.fetchImpl) engineCache = { at: now, value }
+  return value
+}
+
+/** 升级的引擎目标 = max(候选)，**只升不降**：渠道查不到或比已装还旧时，保持现状。
+ *  候选来自调用方（已装 pin、生效 pin、渠道最新）。 */
+export function decideEngineTarget(o: { current?: string; latest?: string }): string | undefined {
+  const valid = [o.current, o.latest].filter((v): v is string => !!v && /^\d+\.\d+\.\d+$/.test(v))
+  if (!valid.length) return undefined
+  return valid.sort(compareSemver)[valid.length - 1]
+}
+
+/** upgrade 的编排骨架（裁决 2026-10-24 之二）：把 app 决策与引擎跟随合并成
+ *  「这次要做什么」。关键约束：**app no-op 不许短路引擎跟随**——真机踩过
+ * （app 已是渠道最新 2.5.1、引擎 2.0.32 被 2.5.1 的门禁拦下，upgrade 却先
+ *  return "已经是这一版"），所以 noop 且引擎落后时产出 engine-only。decision
+ *  用结构化形状收（与 remote-instance 的 UpgradeDecision 兼容，不引类型依赖
+ *  ——那个模块是叶子，反向 import 会成环）。 */
+export type UpgradeRun =
+  | { kind: 'refuse'; to: string; detail: string }
+  | { kind: 'noop'; to: string; detail: string }
+  /** app 已是目标版，但引擎落后于渠道 → 只补引擎（apply force:false 对同版本 app 是"已在位"）。 */
+  | { kind: 'engine-only'; to: string; engineTo: string }
+  | { kind: 'app'; to: string }
+  | { kind: 'app+engine'; to: string; engineTo: string }
+
+export function planUpgradeRun(o: {
+  decision: { action: 'upgrade' | 'noop' | 'refuse'; to: string; detail?: string }
+  /** store 里已装的引擎 pin（undefined = 这台还没装过引擎）。 */
+  engineCurrent?: string
+  /** 生效兜底 pin（manifest / OCRC_V2_PIN / 常量，resolveEnginePin 的产物）。 */
+  enginePin: string
+  /** npm 渠道最新；探测失败就不传（decideEngineTarget 会沿用 current）。 */
+  engineLatest?: string
+}): UpgradeRun {
+  const d = o.decision
+  if (d.action === 'refuse') return { kind: 'refuse', to: d.to, detail: d.detail ?? '拒绝升级' }
+  const engineTo = decideEngineTarget({ current: o.engineCurrent ?? o.enginePin, latest: o.engineLatest })
+  const engineBehind = !!engineTo && engineTo !== o.engineCurrent
+  if (d.action === 'noop') {
+    if (!engineBehind) return { kind: 'noop', to: d.to, detail: d.detail ?? `已经是这一版：${d.to}` }
+    return { kind: 'engine-only', to: d.to, engineTo: engineTo! }
+  }
+  return engineBehind ? { kind: 'app+engine', to: d.to, engineTo: engineTo! } : { kind: 'app', to: d.to }
+}
+
 let cache: { at: number; value: LatestPackResult } | undefined
 const CACHE_TTL_MS = 60_000
 

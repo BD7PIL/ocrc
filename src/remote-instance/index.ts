@@ -41,6 +41,7 @@ export {
 export type { AppPackManifest, AppPackTier } from '../core/remote-instance-push.js'
 
 export {
-  latestPublishedPack, packReleaseAvailable, packReleaseAssets, parsePackReleases, compareSemver,
+  latestPublishedPack, latestEngineVersion, packReleaseAvailable, packReleaseAssets, parsePackReleases,
+  compareSemver, decideEngineTarget, planUpgradeRun,
 } from '../core/app-pack-registry.js'
-export type { LatestPackResult, PublishedPack } from '../core/app-pack-registry.js'
+export type { LatestPackResult, LatestEngineResult, PublishedPack, UpgradeRun } from '../core/app-pack-registry.js'

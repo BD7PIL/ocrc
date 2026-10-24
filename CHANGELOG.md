@@ -1,7 +1,24 @@
 # Changelog
 
-## 2.0.0-alpha.20 — 检查并更新名副其实 + 操作台 + 面板重设计（2026-10-24，扩展 0.10.0）
+## 2.0.0-alpha.20 — 检查并更新名副其实 + 操作台 + 面板重设计（2026-10-24，扩展 0.10.0/0.10.1）
 
+- **引擎渠道跟随（裁决 2026-10-24 之二，扩展 0.10.1）**：openchamber 探渠道，opencode 同样探渠道——
+  不可能每次升级手改 pin。`latestEngineVersion()`（npm `@opencode/cli-<target>` 的
+  dist-tags.latest，`OCRC_NPM_REGISTRY` 可换镜像）+ `decideEngineTarget`（目标 = max(已装/生效 pin,
+  渠道最新)，**只升不降**）+ `planUpgradeRun`（app 决策 × 引擎跟随的编排骨架：**app no-op 不许短路
+  引擎跟随**——真机踩过「app 已 2.5.1、引擎 2.0.32 被门禁拦下，upgrade 却先答"已经是这一版"」）。
+  装上后由实例自己的 compatibility 接口（up 的 R12 门禁）终审这版引擎配这版 app 行不行，我们不
+  复制上游版本表。pin 链整体降为兜底：**渠道发现 > manifest/OCRC_V2_PIN > 常量**，兜底值
+  （`DEFAULT_ENGINE_PIN`/manifest 均为 2.1.4）今后由 follow CI 的 bump-pin job 自动更新，人不手改。
+  普通 apply 延续已装引擎 pin，不许悄悄换版本；引擎前进只发生在 upgrade 的渠道跟随里。
+- **compat 竞态修复（真 bug，扩展 0.10.1）**：同版本组合两台机器一门禁过一个门禁不过——实例刚起、
+  引擎子进程握手未稳时 compatibility 接口会给出暂态答案或 fetch 失败，单发必判错。
+  `withCompatRetry`（~10s 窗口每 2s 再问；明确 `incompatible` 与版本/路径类确定性失败当场终判）
+  包住 up 的两处探测。真机双档实证：升级前两台 state=incompatible 快速终判，引擎跟随到 2.1.4
+  重启后两台 compat=compatible 在线。
+- **面板（扩展 0.10.1）**：徽章「OpenCode 可升级 X」（info，与「可升级 X」同款；相等/更旧/查不到
+  不出现——只升不降的显示面）；升级确认文案补「引擎将跟随渠道到 X（只升不降）」；新增表单 pin 行
+  改说「OpenCode：新增装 <pin>，升级时跟随渠道」。
 - **升级链路（裁决 2026-10-24：渠道最新）**：新增 `src/core/app-pack-registry.ts`——升级目标改为
   「我们供给渠道里最新已发布的 pack」（`ocrc-openchamber-pack-<semver>` 七资产齐全的 release，
   `OCRC_PACK_API_BASE` 可换镜像）。`ocrc remote upgrade <id> [--to <ver>]`；面板的「检查更新」
@@ -27,7 +44,8 @@
   全静默。
 - 测试：主仓 263（新增 pack 发现 fixture/升级决策 15 项）、扩展 54（新增操作台/升级确认/ok:false
   横幅/per-row busy 等 8 项）；audit 清单重写为 30 项（新增升级发现/确认、操作台运行中/失败/
-  收起 chip、深色操作台）。
+  收起 chip、深色操作台）。0.10.1 增量：引擎跟随/重试决策表与 npm fixture（registry）、CLI 离线
+  路径（空库 list/status、remove 前置拒绝）、面板引擎徽章三态——主仓 283、扩展 57。
 
 ## 2.0.0-alpha.19 — 组件 pin reeve 0.2.4（2026-10-24）
 

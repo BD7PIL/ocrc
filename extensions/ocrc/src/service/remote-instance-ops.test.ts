@@ -208,6 +208,7 @@ describe('remote-instance ops', () => {
     const ok = createRemoteInstanceOps({
       store: makeStore(), manager: makeManager(),
       latestPack: async () => ({ ok: true, pack: { version: '2.5.0', tag: 'ocrc-openchamber-pack-2.5.0' } }),
+      latestEngine: async () => ({ ok: false, error: 'not under test here' }),
     })
     const body = (await ok.handle({ op: 'defaults' })).body as { latestPack: { version?: string; error?: string } }
     expect(body.latestPack).toEqual({ version: '2.5.0' })
@@ -215,9 +216,26 @@ describe('remote-instance ops', () => {
     const down = createRemoteInstanceOps({
       store: makeStore(), manager: makeManager(),
       latestPack: async () => ({ ok: false, error: 'HTTP 403' }),
+      latestEngine: async () => ({ ok: false, error: 'not under test here' }),
     })
     const body2 = (await down.handle({ op: 'defaults' })).body as { latestPack: { version?: string; error?: string } }
     expect(body2.latestPack).toEqual({ error: 'HTTP 403' })
+  })
+
+  it('defaults also exposes the engine channel-latest (裁决之二：面板要能说"OpenCode 可升级")', async () => {
+    const ops = createRemoteInstanceOps({
+      store: makeStore(), manager: makeManager(),
+      latestEngine: async () => ({ ok: true, version: '2.1.4' }),
+    })
+    const body = (await ops.handle({ op: 'defaults' })).body as { engineLatest?: { version?: string; error?: string } }
+    expect(body.engineLatest).toEqual({ version: '2.1.4' })
+
+    const down = createRemoteInstanceOps({
+      store: makeStore(), manager: makeManager(),
+      latestEngine: async () => ({ ok: false, error: 'registry unreachable' }),
+    })
+    const body2 = (await down.handle({ op: 'defaults' })).body as { engineLatest?: { version?: string; error?: string } }
+    expect(body2.engineLatest).toEqual({ error: 'registry unreachable' })
   })
 
   it('config sync ops are jobs and never imply deletions', async () => {
@@ -280,6 +298,7 @@ describe('remote-instance ops', () => {
     const ops = createRemoteInstanceOps({
       store: makeStore([instance()]), manager: makeManager(),
       latestPack: async () => ({ ok: false, error: 'tests do not touch the network' }),
+      latestEngine: async () => ({ ok: false, error: 'tests do not touch the network' }),
     })
     for (const name of Object.keys(everyOp) as Array<RemoteInstanceOp['op']>) {
       const reply = await ops.handle({ op: name } as never)

@@ -1,15 +1,15 @@
 /* Page chrome only — and deliberately short.
  *
- * Colour, type scale, radii and control geometry belong to the host. The tokens
- * arrive from `applyHostReady()` (written onto <html> as both `--oc-*` aliases
- * and the host's own names), and the SDK kit paints the controls themselves,
- * injecting its own stylesheet on the first mount. Everything this file used to
- * carry — a second colour ramp, five duplicated copies of it — was a frozen
- * copy of the shell's look, which is exactly what made the panels read as a
- * separate app. What is left is the layout the kit does not provide.
- *
- * Every value below falls back to a neutral so a frame previewed outside the
- * host is still legible. */
+ * 色彩、字阶、字重、圆角、控件全部属于宿主（PRODUCT 零点六条）。令牌清单以本机
+ * openchamber 2.5.1 web-dist 实测为准（docs/design 里有一页对照）：
+ *   字阶  --text-base:1rem / --text-markdown:.875rem(14px) / --text-code:.75rem(12px)
+ *   字重  --font-weight-normal/medium/semibold/bold（400/500/600/700）
+ *   字体  --font-sans / --font-mono
+ *   颜色  --foreground / --muted-foreground / --border / --surface-muted /
+ *          --status-success | -warning | -error | -info（暗色由宿主令牌双值自动跟随）
+ *   圆角  --radius-sm:.25rem / --radius-md:.4375rem / --radius:.5625rem / --radius-xl:.75rem
+ * 本文件只写布局；一切数值走 `var(--令牌, fallback)`——fallback 只为脱离宿主预览时
+ * 可读，不引入第二套设计。字号最小就是 12px（--text-code）：11px 不存在于整个体系。 */
 
 html, body {
   margin: 0;
@@ -22,6 +22,12 @@ html, body {
 
 /* A kit wrapper must not become a layout box of its own. */
 .oc-kit { display: contents; }
+
+/* 本地基础类：这三类过去由宿主的样式副本顺手提供（.oc-stack/.oc-muted/.oc-sdk-mono），
+   属于未承诺的依赖——现在本地等价定义，值全部令牌化。 */
+.oc-stack { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.oc-muted { color: var(--muted-foreground, color-mix(in srgb, currentColor 70%, transparent)); }
+.oc-sdk-mono, .oc-mono { font-family: var(--font-mono, ui-monospace, monospace); }
 
 .oc-page {
   box-sizing: border-box;
@@ -42,8 +48,7 @@ html, body {
 
 .oc-row-nowrap { flex-wrap: nowrap; }
 
-/* 两端对齐的一行（左说明、右动作）。这个类从批次 2 起就被面板用着，却一直没定义，
-   于是「已添加 N 台」和按钮永远挤在左边。 */
+/* 两端对齐的一行（左说明、右动作）。 */
 .oc-row-between { justify-content: space-between; }
 
 .oc-col {
@@ -63,20 +68,38 @@ html, body {
   white-space: nowrap;
 }
 
+/* 字阶（令牌化；oc-xs 是体系最小字号 12px，不再有 11px） */
+.oc-xs { font-size: var(--text-code, 0.75rem); }
+.oc-sm { font-size: var(--text-markdown, 0.875rem); }
+.oc-card-title {
+  font-size: var(--text-markdown, 0.875rem);
+  font-weight: var(--font-weight-semibold, 600);
+  line-height: 1.35;
+}
+.oc-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--text-markdown, 0.875rem);
+  font-weight: var(--font-weight-medium, 500);
+}
+.oc-group-count { font-size: var(--text-code, 0.75rem); font-weight: var(--font-weight-normal, 400); color: var(--muted-foreground, inherit); }
+
 .oc-card {
   display: flex;
   flex-direction: column;
   gap: 8px;
   min-width: 0;
   padding: 10px;
-  border: 1px solid var(--interactive-border, color-mix(in srgb, currentColor 25%, transparent));
+  border: 1px solid var(--interactive-border, var(--border, color-mix(in srgb, currentColor 25%, transparent)));
   border-radius: var(--radius, 9px);
 }
 
-/* Diff and log output: raw text the kit has no primitive for.
-   `pre-wrap` + `anywhere`: a pairing link (754px) and an ssh command line (766px)
-   both overflowed a 572px card and were rendered clipped — the user copies half a
-   link. Wrapping is the honest rendering; the height cap still scrolls. */
+.oc-card-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+/* 卡内分区（动作行 / 详情 / 操作台之间）：宿主令牌的 1px 线，不用组件卡套卡。 */
+.oc-card-rule { border: 0; border-top: 1px solid var(--border, color-mix(in srgb, currentColor 20%, transparent)); margin: 2px 0; }
+
 .oc-pre {
   margin: 0;
   max-height: 220px;
@@ -85,7 +108,7 @@ html, body {
   border-radius: calc(var(--radius, 9px) - 2px);
   background: var(--surface-muted, color-mix(in srgb, currentColor 8%, transparent));
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
+  font-size: var(--text-code, 0.75rem);
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -109,8 +132,82 @@ html, body {
   .oc-form { grid-template-columns: minmax(0, 1fr); }
 }
 
-.oc-xs { font-size: 11px; }
-.oc-sm { font-size: 12px; }
+/* ── 操作台（zcode 时序 × 宿主材质）────────────────────────────────────────── */
+
+/* 阶段轨道：行 + 左侧图标环 + 行间连线。数据全是实测（job 轮询里观察到的状态迁移）。 */
+.oc-stage-track { display: flex; flex-direction: column; min-width: 0; }
+.oc-stage-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: var(--text-markdown, 0.875rem);
+  min-width: 0;
+}
+.oc-stage-row:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 22px;
+  bottom: -4px;
+  border-left: 1px solid var(--border, color-mix(in srgb, currentColor 20%, transparent));
+}
+.oc-stage-icon {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--border, color-mix(in srgb, currentColor 25%, transparent));
+  color: var(--muted-foreground, inherit);
+  background: var(--background, transparent);
+}
+.oc-stage-row[data-kind="done"] .oc-stage-icon {
+  border-color: var(--status-success, #1a7f4b);
+  color: var(--status-success, #1a7f4b);
+}
+.oc-stage-row[data-kind="active"] .oc-stage-icon {
+  border-color: var(--status-info, #1c6ea4);
+  color: var(--status-info, #1c6ea4);
+}
+.oc-stage-row[data-kind="failed"] .oc-stage-icon {
+  border-color: var(--status-error, #c0392b);
+  color: var(--status-error, #c0392b);
+}
+.oc-stage-time {
+  margin-left: auto;
+  flex: 0 0 auto;
+  padding-left: 8px;
+  font-size: var(--text-code, 0.75rem);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground, inherit);
+}
+
+/* 结果 chip：操作台成功 3 秒后收起成这一行；点开可回看全程。 */
+.oc-result-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 9px;
+  border: 0;
+  border-radius: var(--radius-md, 7px);
+  background: var(--surface-muted, color-mix(in srgb, currentColor 8%, transparent));
+  color: var(--foreground, inherit);
+  font-size: var(--text-code, 0.75rem);
+  text-align: left;
+  cursor: pointer;
+}
+.oc-result-chip[data-ok="true"] { color: var(--status-success, #1a7f4b); }
+.oc-result-chip[data-ok="false"] { color: var(--status-error, #c0392b); }
+.oc-result-chip .oc-truncate { flex: 1 1 auto; }
+
+/* 图标槽。 */
+.oc-icon { display: inline-flex; flex: 0 0 auto; align-items: center; }
 
 /* 状态区读数：每台服务器两行（名称 + 状态 / 版本 + 网络）。宿主的这一栏只有一行
    宽，所以这里不放控件，只放事实。 */
@@ -147,8 +244,4 @@ html, body {
 .oc-ok { color: var(--status-success, #1a7f4b); }
 .oc-warn { color: var(--status-warning, #9a6a00); }
 .oc-err { color: var(--status-error, #c0392b); }
-.oc-off { color: var(--surface-muted-foreground, currentColor); }
-
-/* Icon slot. The kit's own `row-lead` is a fixed 64px mono column, which is
-   right for issue keys and wrong for a 14px glyph. */
-.oc-icon { display: inline-flex; flex: 0 0 auto; align-items: center; }
+.oc-off { color: var(--surface-muted-foreground, var(--muted-foreground, currentColor)); }

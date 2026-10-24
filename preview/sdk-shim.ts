@@ -45,6 +45,89 @@ host.client.onReady = (listener) => originalOnReady((ctx) => listener({ ...ctx, 
 const client = host.client as unknown as Record<string, unknown>
 client.writeClipboard = async () => {}
 client.openUrl = async () => {}
+
+/** `?scenario=upgrade`：defaults 注入渠道最新 2.5.0 —— 看徽章「可升级」、
+ *  主按钮变「升级到 2.5.0」与确认块。 */
+if (scenario === 'upgrade') {
+  const original = client.serviceRequest as (r: { body?: string }) => Promise<unknown>
+  client.serviceRequest = (request: { body?: string }) => {
+    if (typeof request.body === 'string' && request.body.includes('"op":"defaults"')) {
+      return Promise.resolve({
+        status: 200,
+        body: JSON.stringify({
+          localPort: 4614, instancePort: 2610, appVersion: '2.3.3', latestPack: { version: '2.5.0' },
+          enginePin: '2.0.27', nodeRuntime: '24.22.0', bind: '127.0.0.1', taken: [4610, 4612],
+        }),
+      })
+    }
+    return original(request)
+  }
+}
+
+/** `?scenario=job` / `jobfail`：'up' 走真 job 协议（202 + jobId + op:job 轮询带
+ *  logTail 与状态迁移），用来看操作台——运行中的阶段轨道、日志流、成功收起 /
+ *  失败保持。轮询第 3 次收尾。 */
+if (scenario === 'job' || scenario === 'jobfail') {
+  let ticks = 0
+  const fail = scenario === 'jobfail'
+  const original = client.serviceRequest as (r: { body?: string }) => Promise<unknown>
+  client.serviceRequest = (request: { body?: string }) => {
+    const body = typeof request.body === 'string' ? request.body : ''
+    if (body.includes('"op":"up"')) {
+      return Promise.resolve({ status: 200, body: JSON.stringify({ jobId: 'job-preview' }) })
+    }
+    if (body.includes('"op":"job"')) {
+      ticks += 1
+      const logTail = [
+        '升级：2.3.3 → 2.5.0（旧树留 .ocrc-bak，一份就够）',
+        'OpenChamber 包兼容档：legacy-glibc217（远程机器 glibc 2.17）',
+        '应用包已取件：ocrc-openchamber-pack-2.5.0-linux-x64-legacy-glibc217.tar.gz（214.3MB）',
+        '运行时：已推送 node v24.22.0',
+        'OpenCode：2.0.27 已在位',
+      ].slice(0, ticks)
+      if (fail && ticks >= 3) {
+        return Promise.resolve({ status: 200, body: JSON.stringify({ job: { state: 'error', error: 'ssh 不可达：22 端口超时（第 3 次重试）' }, logTail }) })
+      }
+      if (ticks >= 3) {
+        return Promise.resolve({ status: 200, body: JSON.stringify({ job: { state: 'done', result: { ok: true, detail: 'online：http://127.0.0.1:4610（openchamber 2.5.0）' } }, logTail }) })
+      }
+      return Promise.resolve({ status: 200, body: JSON.stringify({ job: { state: 'running' }, logTail }) })
+    }
+    // 阶段轨道的原料：list 的状态跟着 tick 走（checking → provisioning → online/offline）。
+    if (body.includes('"op":"list"')) {
+      const state = ticks === 0 ? 'offline' : ticks === 1 ? 'checking' : ticks === 2 ? 'provisioning' : (fail ? 'error' : 'online')
+      const withState = rows('upgrade').map((r) => ({ ...r, status: { ...(r.status as object), state, app: ticks >= 3 && !fail ? '2.5.0' : '2.3.3' } }))
+      return Promise.resolve({ status: 200, body: JSON.stringify({ instances: withState }) })
+    }
+    return original(request)
+  }
+}
+
+/** `?scenario=jobdone`：一次轮询就 done（audit 的「结果 chip」截图用，避免时序竞态）。 */
+if (scenario === 'jobdone') {
+  let ticked = false
+  const original = client.serviceRequest as (r: { body?: string }) => Promise<unknown>
+  client.serviceRequest = (request: { body?: string }) => {
+    const body = typeof request.body === 'string' ? request.body : ''
+    if (body.includes('"op":"up"')) {
+      return Promise.resolve({ status: 200, body: JSON.stringify({ jobId: 'job-done-preview' }) })
+    }
+    if (body.includes('"op":"job"')) {
+      const logTail = ['升级：2.3.3 → 2.5.0（旧树留 .ocrc-bak，一份就够）', '应用包已取件：ocrc-openchamber-pack-2.5.0-linux-x64-legacy-glibc217.tar.gz（214.3MB）']
+      if (ticked) {
+        return Promise.resolve({ status: 200, body: JSON.stringify({ job: { state: 'done', result: { ok: true, detail: 'online：http://127.0.0.1:4612（openchamber 2.5.0）' } }, logTail }) })
+      }
+      ticked = true
+      return Promise.resolve({ status: 200, body: JSON.stringify({ job: { state: 'running' }, logTail: logTail.slice(0, 1) }) })
+    }
+    if (body.includes('"op":"list"')) {
+      const withState = rows('upgrade').map((r) => ({ ...r, status: { ...(r.status as object), state: ticked ? 'online' : 'checking', app: ticked ? '2.5.0' : '2.3.3' } }))
+      return Promise.resolve({ status: 200, body: JSON.stringify({ instances: withState }) })
+    }
+    return original(request)
+  }
+}
+
 if (scenario === 'slow') client.serviceRequest = () => new Promise(() => { /* 永远不答 */ })
 
 export function connectHost(): typeof host.client {

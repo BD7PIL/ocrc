@@ -74,6 +74,8 @@ export const SCENARIOS: Record<string, PreviewRow[]> = {
   two: [ONLINE, STOPPED],
   mixed: [ONLINE, STOPPED, FRESH],
   fresh: [FRESH],
+  /** 升级发现：已停机器 + 渠道有 2.5.0（defaults 由 sdk-shim 注入 latestPack）。 */
+  upgrade: [STOPPED],
 }
 
 export const rows = (scenario: string): PreviewRow[] =>
@@ -111,6 +113,9 @@ export const opRoutes = () => ({
       provision: 'push',
       tier: 'legacy-glibc217',
       peerPort: 'open',
+      /** 0.10.0：检查结果里的实测运行版本与渠道最新（升级入口与「pin 不一致」提示）。 */
+      liveApp: '2.5.1',
+      latestPack: { version: '2.5.0' },
     },
   },
   'POST /remote-instance#pairlink': {

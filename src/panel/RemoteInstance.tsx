@@ -1,23 +1,25 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { HostClient } from '@openchamber/sdk'
 import { networkLabel, stateLabel, tierLabel } from '../shared/instance-labels.js'
-import { KitBadge, KitBanner, KitButton, KitEmpty, KitField, KitSelect, KitSeparator, KitSwitch } from '../shared/kit.js'
+import { KitBadge, KitBanner, KitButton, KitEmpty, KitIcon, KitField, KitMenu, KitSelect, KitSeparator, KitSpinner, KitSwitch } from '../shared/kit.js'
 import { post, type RequestFn } from '../shared/service-client.js'
 
 /**
- * 远程服务器列表（2.0.0-alpha.8「远程机器能力」，PRODUCT 第零点十条；0.8.2 重做卡片）。
+ * 远程服务器列表（0.10.0 重做卡片：视觉全走宿主令牌，交互时序参考 zcode）。
  *
  * 这一页只做一件事：**把 openchamber 装到远程机器上，然后把 app 连过去**。动线只有
  * 一条——添加服务器 → 检查并安装 → 启动 → 创建配对链接（在桌面 app 里确认后，这台
  * 机器出现在「其他 OpenChamber 服务器」）。
  *
- * 卡片按**固定字段顺序**画，缺的字段写「未知」：以前是"状态里有什么画什么"，于是两台
- * 机器显示的事实集不一样（一台有版本没有 node，另一台反过来），看起来像两个产品。
- * 每条事实只出现一次：地址不再既进标题又进第二行，网络也不再同时进徽标、摘要与详情。
+ * 卡片按**固定字段顺序**画，缺的字段写「未知」。标题用令牌字阶（14px/600），不再
+ * 是一堵 11px 灰字墙。主动作**随状态推进**且每卡唯一（default 变体）；次级动作
+ * outline；低频动作收进「更多」菜单（destructive 项自带红）；写远程机器的动作
+ * （安装、升级、同步、移除）都要一次显式确认。
  *
- * 主动作**随状态推进**（未安装 → 检查并安装；已停止 → 启动；在线 → 打开界面 + 停止），
- * 其余动作收在「更多」里并按配置 / 维护分组——十二个同权按钮排成两行时，没有一个看
- * 起来是"该按的"。写远程机器的动作（安装、同步、移除）都要一次显式确认。
+ * 操作台（0.10.0）：plan/apply/upgrade/up/down 这类 job 运行时，卡片里自动展开
+ * 实时控制台——阶段轨道（轮询里实测到的状态迁移，不是编的）+ 默认折叠的等宽
+ * 日志流（失败自动展开；用户贴底阅读时才自动跟随）；成功 3 秒后收起成结果
+ * chip，失败保持展开。检查结果与升级入口并进操作台收尾块。
  */
 
 interface InstanceStatus {
@@ -29,6 +31,8 @@ interface InstanceStatus {
   engine?: { path: string; version: string }
   runtime?: string
   app?: string
+  /** 正在跑的实例自报的 openchamber 版本（实测；与 pin 不一致时两个都说）。 */
+  liveApp?: string
   proxy?: { enabled: boolean; localPort: number; remotePort: number }
   egress?: { mode: string; relay: boolean; reason: string; probe?: string; cached: boolean }
   /** D7: who holds each forward leg (pid + role), from the manager's markers. */
@@ -73,12 +77,17 @@ interface PlanDetail {
   provision?: 'push' | 'reuse'
   tier?: string
   peerPort?: 'open' | 'closed' | 'unknown'
+  /** 正在跑的实例自报版本（plan 顺带实测）。 */
+  liveApp?: string
+  /** 渠道最新已发布的 pack（升级目标候选）；error 时如实说查不到。 */
+  latestPack?: { version: string } | { error: string }
 }
 
 interface Defaults {
   localPort: number
   instancePort: number
   appVersion: string
+  latestPack?: { version?: string; error?: string }
   enginePin: string
   nodeRuntime: string
   bind: string
@@ -153,10 +162,115 @@ interface PeerLogs {
   paths: { instance: string; app: string }
 }
 
+/** 操作台状态：全部实测（job 轮询的 logTail + 轮询间隙读到的状态迁移）。 */
+interface ConsoleState {
+  id: string
+  label: string
+  jobId: string
+  startedAt: number
+  lines: string[]
+  /** 观察到的状态迁移（检查中 → 安装中 → …），each { at } 是观察到的时间。 */
+  phases: Array<{ text: string; at: number }>
+  phase: 'running' | 'done' | 'error'
+  ok?: boolean
+  summary?: string
+  /** 成功 3 秒后收起成结果 chip；点 chip 回看全程。 */
+  chip: boolean
+}
+
+const clockOf = (at: number) => new Date(at).toLocaleTimeString([], { hour12: false })
+
+/** 操作台。纯展示 + 三个交互（收起 / 展开日志 / 复制日志）。 */
+function OperationConsole(props: {
+  state: ConsoleState
+  onCollapse: () => void
+  onCopyLogs: () => void
+}) {
+  const { state } = props
+  const [logsOpen, setLogsOpen] = useState(state.phase === 'error')
+  // 失败自动展开：console 挂触时多半还是 running，phase 变 error 的那一刻才翻。
+  useEffect(() => { if (state.phase === 'error') setLogsOpen(true) }, [state.phase])
+  const [pinned, setPinned] = useState(true)
+  const preRef = useRef<HTMLPreElement | null>(null)
+  const lastLines = useRef(0)
+  // 贴底跟随：只有用户本来就在底部（≤2px）才自动滚——上翻看历史不被打扰。
+  useLayoutEffect(() => {
+    const pre = preRef.current
+    if (!pre || !logsOpen) return
+    if (pinned && lastLines.current !== state.lines.length) {
+      pre.scrollTop = pre.scrollHeight
+    }
+    lastLines.current = state.lines.length
+  }, [state.lines, logsOpen, pinned])
+
+  const elapsed = Math.max(0, Math.round((Date.now() - state.startedAt) / 1000))
+  return (
+    <div className="oc-col" data-testid={`console-${state.id}`}>
+      <div className="oc-row oc-row-nowrap">
+        {state.phase === 'done' ? <span className="oc-ok oc-icon"><KitIcon name="check" size={12} /></span> : null}
+        {state.phase === 'error' ? <span className="oc-err oc-icon"><KitIcon name="close" size={12} /></span> : null}
+        <span className="oc-card-title">{state.label}</span>
+        <span className="oc-stage-time">{elapsed >= 60 ? `${Math.floor(elapsed / 60)}m${elapsed % 60}s` : `${elapsed}s`}</span>
+        <span className="oc-push" />
+        <KitButton size="xs" variant="ghost" label="收起" onClick={props.onCollapse} />
+      </div>
+      {state.phases.length > 0 ? (
+        <div className="oc-stage-track">
+          {state.phases.map((p, i) => {
+            const isLast = i === state.phases.length - 1
+            const kind = state.phase === 'error' && isLast ? 'failed'
+              : state.phase !== 'running' || !isLast ? 'done'
+                : 'active'
+            return (
+              <div key={`${p.text}-${p.at}`} className="oc-stage-row" data-kind={kind}>
+                <span className="oc-stage-icon">
+                  {kind === 'active' ? <KitSpinner /> : null}
+                  {kind === 'done' ? <KitIcon name="check" size={9} /> : null}
+                  {kind === 'failed' ? <KitIcon name="close" size={9} /> : null}
+                </span>
+                <span className="oc-truncate">{p.text}</span>
+                <span className="oc-stage-time">{clockOf(p.at)}</span>
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
+      {state.phase === 'error' && state.summary ? <KitBanner tone="error" title={`${state.label}失败`} body={state.summary} /> : null}
+      <KitButton
+        size="xs"
+        variant="ghost"
+        label={logsOpen ? `收起日志（${state.lines.length}）` : `连接日志（${state.lines.length}）`}
+        onClick={() => setLogsOpen((v) => !v)}
+      />
+      {logsOpen ? (
+        <div className="oc-col">
+          <pre
+            ref={preRef}
+            className="oc-pre"
+            onScroll={(e) => {
+              const el = e.currentTarget
+              setPinned(el.scrollHeight - el.scrollTop - el.clientHeight <= 2)
+            }}
+          >{state.lines.length ? state.lines.join('\n') : '（还没有日志——刚开始的操作可能要等第一秒轮询）'}</pre>
+          <div className="oc-row">
+            <KitButton
+              size="xs"
+              variant="ghost"
+              label="复制日志"
+              onClick={props.onCopyLogs}
+            />
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function RemoteInstance(props: { request: RequestFn; host: HostClient | null }) {
   const { request, host } = props
   const [rows, setRows] = useState<InstanceRow[]>([])
-  const [busy, setBusy] = useState('')
+  /** per-scope busy：一台服务器的操作不再抹掉另一台的按钮状态（单字符串时代的病）。 */
+  const [busy, setBusy] = useState<Record<string, string>>({})
   /** 错误带**作用域**：`page`（读列表失败）贴顶部；某台服务器的 id 则贴**那张卡**里——
    *  列表长了以后，用户在卡片中部操作失败，顶部横幅在屏幕外，等于没报错。 */
   const [error, setError] = useState<{ scope: string; message: string } | null>(null)
@@ -166,6 +280,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
   const [defaults, setDefaults] = useState<Defaults | null>(null)
   const [planFor, setPlanFor] = useState<{ id: string; reply: PlanDetail } | null>(null)
   const [confirmFor, setConfirmFor] = useState('')
+  const [confirmUpgradeFor, setConfirmUpgradeFor] = useState('')
   const [pairFor, setPairFor] = useState<{ id: string; reply: PairLink } | null>(null)
   const [logFor, setLogFor] = useState<{ id: string; lines: string[]; peer?: PeerLogs } | null>(null)
   const [secretFor, setSecretFor] = useState<{ id: string; url: string; uiPassword: string } | null>(null)
@@ -173,66 +288,137 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
   const [syncResult, setSyncResult] = useState('')
   /** Which card has its 详情 expanded (one at a time — the point is less noise). */
   const [detailsFor, setDetailsFor] = useState<string | null>(null)
-  /** Which card has 更多 expanded (one at a time, same reason as 详情). */
-  const [moreFor, setMoreFor] = useState<string | null>(null)
   /** 移除要二次确认：记录删掉之后这台机器就从列表里消失了。 */
   const [removeFor, setRemoveFor] = useState('')
   /** Deletions are opt-in per item: a peer-only file or key is never removed by
    *  the diff itself (that would be a wipe wearing a sync's clothes). */
   const [checkedDeletes, setCheckedDeletes] = useState<Record<string, boolean>>({})
+  /** 操作台：一次只有一个（同一台的后一个操作顶掉前一个已收尾的）。 */
+  const [consoleFor, setConsoleFor] = useState<ConsoleState | null>(null)
+
+  const fetchRows = useCallback(async (): Promise<InstanceRow[]> => {
+    const reply = await post<{ instances: InstanceRow[] }>(request, '/remote-instance', { op: 'list' })
+    return reply.instances ?? []
+  }, [request])
 
   const op = useCallback(
-    async <T,>(body: Record<string, unknown>): Promise<T> => {
+    async <T,>(body: Record<string, unknown>, ctx?: { id: string; label: string }): Promise<T> => {
       const first = await post<{ jobId?: string } & T>(request, '/remote-instance', body)
       if (first && typeof (first as { jobId?: string }).jobId === 'string') {
         const jobId = (first as { jobId: string }).jobId
+        // 操作台：job 启动即展开；已在跑的操作不被顶掉（同一卡的串行操作由按钮态挡住，
+        // 不同卡互不影响）。阶段轨道从每次 tick 的列表实测里取状态迁移。
+        if (ctx) {
+          setConsoleFor((c) => (c && c.phase === 'running' ? c : {
+            id: ctx.id, label: ctx.label, jobId, startedAt: Date.now(), lines: [], phases: [], phase: 'running', chip: false,
+          }))
+        }
         const deadline = Date.now() + 10 * 60_000
+        let lastState: string | undefined
         while (Date.now() < deadline) {
           await new Promise((r) => setTimeout(r, 1_000))
-          const reply = await post<{ job: { state: string; result?: T; error?: string } }>(request, '/remote-instance', { op: 'job', jobId })
-          if (reply.job.state === 'done') return reply.job.result as T
-          if (reply.job.state === 'error') throw new Error(reply.job.error ?? '操作失败')
+          const reply = await post<{ job: { state: string; result?: T; error?: string }; logTail?: string[] }>(
+            request, '/remote-instance', { op: 'job', jobId })
+          if (ctx) {
+            setConsoleFor((c) => (c && c.jobId === jobId ? { ...c, lines: reply.logTail ?? c.lines } : c))
+            try {
+              const rowsNow = await fetchRows()
+              setRows(rowsNow)
+              const st = rowsNow.find((r) => r.id === ctx.id)?.status?.state
+              if (st) {
+                const label = stateLabel(st).label
+                if (label !== lastState) {
+                  lastState = label
+                  const at = Date.now()
+                  setConsoleFor((c) => (c && c.jobId === jobId && c.phase === 'running'
+                    ? { ...c, phases: [...c.phases, { text: label, at }] }
+                    : c))
+                }
+              }
+            } catch { /* 列表读失败不影响 job 轮询本身 */ }
+          }
+          if (reply.job.state === 'done') {
+            const result = reply.job.result as ({ ok?: boolean; detail?: string } | undefined)
+            setConsoleFor((c) => (c && c.jobId === jobId
+              ? { ...c, phase: 'done', ok: result?.ok !== false, summary: result?.detail } : c))
+            return reply.job.result as T
+          }
+          if (reply.job.state === 'error') {
+            setConsoleFor((c) => (c && c.jobId === jobId
+              ? { ...c, phase: 'error', ok: false, summary: reply.job.error ?? '操作失败' } : c))
+            throw new Error(reply.job.error ?? '操作失败')
+          }
         }
         throw new Error('操作超时（10 分钟）')
       }
       return first as T
     },
-    [request],
+    [request, fetchRows],
   )
 
   const refresh = useCallback(async () => {
     try {
-      const reply = await op<{ instances: InstanceRow[] }>({ op: 'list' })
-      setRows(reply.instances ?? [])
+      setRows(await fetchRows())
       setError(null)
     } catch (err) {
       setError({ scope: 'page', message: (err as Error).message })
     } finally {
       setLoading(false)
     }
-  }, [op])
+  }, [fetchRows])
 
   // 宿主桥要先就绪：Panel 第一遍渲染时 host 还是 null，这时发请求只会拿到
   // 「宿主桥未就绪」——正常情况下它被紧接着的成功应答盖掉，服务慢时却会留在屏幕上。
   useEffect(() => { if (host) void refresh() }, [host, refresh])
 
   // The pins and the free local port are needed outside the form too (the plan
-  // card names the app version), so they are fetched once on mount.
+  // card names the app version), so they are fetched once on mount. 失败不再
+  // 全静默：表单里的 pin 行会写「未知（原因）」。
   useEffect(() => {
     if (!host) return
-    void op<Defaults>({ op: 'defaults' }).then(setDefaults).catch(() => { /* the form re-asks */ })
+    void op<Defaults>({ op: 'defaults' }).then(setDefaults).catch((err: Error) => {
+      setDefaults((d) => d ?? ({ localPort: 4610, instancePort: 2610, appVersion: '…', enginePin: '…', nodeRuntime: '…', bind: '127.0.0.1', taken: [], latestPack: { error: err.message } }))
+    })
   }, [host, op])
 
+  // 成功 → 3 秒后收起成结果 chip；失败保持展开。
+  useEffect(() => {
+    if (consoleFor?.phase !== 'done' || consoleFor.chip) return
+    const t = setTimeout(() => setConsoleFor((c) => (c && c.phase === 'done' ? { ...c, chip: true } : c)), 3_000)
+    return () => clearTimeout(t)
+  }, [consoleFor])
+
+  // 「日志」打开期间 5 秒一轮询（实时快照）；收起即停。
+  useEffect(() => {
+    const id = logFor?.id
+    if (!id) return
+    const timer = setInterval(() => {
+      void (async () => {
+        try {
+          const lines = await op<{ lines: string[] }>({ op: 'logs', id, tail: 80 })
+          const peer = await op<PeerLogs>({ op: 'peerlog', id, lines: 60 })
+          setLogFor((cur) => (cur && cur.id === id ? { id, lines: lines.lines ?? [], peer } : cur))
+        } catch { /* 一次轮询失败保持上次内容，下一轮再试 */ }
+      })()
+    }, 5_000)
+    return () => clearInterval(timer)
+  }, [logFor?.id, op])
+
   const run = async (label: string, fn: () => Promise<unknown>, scope = 'page') => {
-    setBusy(label)
-    setError(null)
+    setBusy((b) => ({ ...b, [scope]: label }))
+    // 只清本 scope 的旧错误：别的卡的横幅不该被这张卡的新动作顺手抹掉。
+    setError((e) => (e && e.scope === scope ? null : e))
     try {
       await fn()
       await refresh()
     } catch (err) {
       setError({ scope, message: (err as Error).message })
     } finally {
-      setBusy('')
+      setBusy((b) => {
+        const next = { ...b }
+        delete next[scope]
+        return next
+      })
     }
   }
 
@@ -281,18 +467,47 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
       reconnect: form.reconnect,
       restoreOnStart: form.restoreOnStart,
     }
+    // 新增的缺省 pin = 渠道最新（裁决 2026-10-24）；查不到时留给后端常量兜底。
+    if (!form.id && defaults?.latestPack?.version) payload.appVersion = defaults.latestPack.version
     // 密码只在填了的时候进 payload：空 = 保留原值（后端也不会回显）。
     if (form.sshAuth === 'password' && form.sshPassword) payload.sshPassword = form.sshPassword
     if (form.sshAuth === 'key') payload.sshPassword = undefined
     if (form.id) await op({ op: 'patch', id: form.id, payload })
     else await op({ op: 'add', payload })
     setForm(null)
-  })
+  }, form?.id ?? 'page')
 
   const plan = (id: string) => run(`plan:${id}`, async () => {
-    const reply = await op<PlanDetail>({ op: 'plan', id })
+    const reply = await op<PlanDetail>({ op: 'plan', id }, { id, label: '检查更新' })
     setPlanFor({ id, reply })
     setConfirmFor('')
+    setConfirmUpgradeFor('')
+  }, id)
+
+  const applyNow = (row: InstanceRow) => run(`apply:${row.id}`, async () => {
+    const r = await op<{ ok: boolean; detail: string }>({ op: 'apply', id: row.id, payload: { confirm: true } }, { id: row.id, label: '安装' })
+    // ok:false 过去被静默丢弃（只有徽章小字）——现在就是这张卡该喊出来的错误。
+    if (r && r.ok === false) throw new Error(r.detail || '安装未通过')
+    setConfirmFor('')
+    setPlanFor(null)
+  }, row.id)
+
+  const upgradeNow = (row: InstanceRow, to: string) => run(`upgrade:${row.id}`, async () => {
+    const r = await op<{ ok: boolean; detail: string } & { from?: string; to?: string }>(
+      { op: 'upgrade', id: row.id, payload: { to } }, { id: row.id, label: `升级到 ${to}` })
+    if (r && r.ok === false) throw new Error(r.detail || '升级未通过')
+    setConfirmUpgradeFor('')
+    setPlanFor(null)
+  }, row.id)
+
+  const upNow = (id: string) => run(`up:${id}`, async () => {
+    const r = await op<{ ok: boolean; detail: string }>({ op: 'up', id }, { id, label: '启动' })
+    if (r && r.ok === false) throw new Error(r.detail || '启动未通过')
+  }, id)
+
+  const downNow = (id: string) => run(`down:${id}`, async () => {
+    const r = await op<{ ok: boolean; detail: string }>({ op: 'down', id }, { id, label: '停止' })
+    if (r && r.ok === false) throw new Error(r.detail || '停止未通过')
   }, id)
 
   const openUi = (row: InstanceRow) => run(`url:${row.id}`, async () => {
@@ -301,10 +516,10 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
     // host.openUrl is the sanctioned "open externally".
     if (!host) throw new Error('宿主未连接，无法打开界面')
     await host.openUrl(reply.url)
-  })
+  }, row.id)
 
   const makePairLink = (id: string) => run(`pairlink:${id}`, async () => {
-    const reply = await op<PairLink>({ op: 'pairlink', id })
+    const reply = await op<PairLink>({ op: 'pairlink', id }, { id, label: '创建配对链接' })
     setPairFor({ id, reply })
   }, id)
 
@@ -330,21 +545,23 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
   const syncConfigNow = (id: string, dryRun: boolean) => run(`${dryRun ? 'dryrun' : 'syncconfig'}:${id}`, async () => {
     const deletes = Object.entries(checkedDeletes).filter(([k, v]) => v && k.startsWith('file:')).map(([k]) => k.slice(5))
     const keyDeletes = Object.entries(checkedDeletes).filter(([k, v]) => v && k.startsWith('key:')).map(([k]) => k.slice(4))
-    const r = await op<{ ok: boolean; detail: string }>({ op: 'syncconfig', id, payload: { deletes, keyDeletes, dryRun } })
+    const r = await op<{ ok: boolean; detail: string }>({ op: 'syncconfig', id, payload: { deletes, keyDeletes, dryRun } }, { id, label: dryRun ? '同步配置（试运行）' : '同步配置' })
     setSyncResult(`${r.ok ? 'OK' : 'FAIL'} ${r.detail}`)
     const diff = await op<ConfigDiff>({ op: 'configdiff', id })
     setConfigFor({ id, diff })
   }, id)
 
   const syncAuthNow = (id: string) => run(`syncauth:${id}`, async () => {
-    const r = await op<{ ok: boolean; detail: string }>({ op: 'syncauth', id })
+    const r = await op<{ ok: boolean; detail: string }>({ op: 'syncauth', id }, { id, label: '同步凭据' })
     setSyncResult(`${r.ok ? 'OK' : 'FAIL'} ${r.detail}`)
   }, id)
 
-  const copy = async (label: string, text: string) => {
+  const copy = async (label: string, text: string, scope = 'page') => {
     if (!host) throw new Error('宿主未连接，无法写剪贴板')
-    await run(label, async () => { await host.writeClipboard(text) })
+    await run(label, async () => { await host.writeClipboard(text) }, scope)
   }
+
+  const channelLatest = defaults?.latestPack?.version
 
   return (
     <div className="oc-stack">
@@ -354,26 +571,29 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
 
       <span className="oc-muted oc-sm">把 openchamber 装到远程机器，然后用配对链接把它加进 app。</span>
       <div className="oc-row oc-row-between">
-        <span className="oc-muted oc-xs">
-          {error?.scope === 'page'
-            ? '列表读取失败'
-            : loading && rows.length === 0
-              ? '正在读取服务器列表…'
-              : rows.length > 0 ? `已添加 ${rows.length} 台` : '还没有添加服务器'}
+        <span className="oc-group-head">
+          服务器
+          <span className="oc-group-count">
+            {error?.scope === 'page'
+              ? '列表读取失败'
+              : loading && rows.length === 0
+                ? '正在读取…'
+                : rows.length > 0 ? `${rows.length} 台` : '还没有添加'}
+          </span>
         </span>
         <div className="oc-row">
           {/* 列表为空时这个按钮不出现：空态自己带「添加服务器」动作，两个同名按钮
               同时挂在屏上是同一件事说两遍。 */}
           {rows.length > 0 || form ? (
-            <KitButton size="sm" label={form ? '取消' : '添加服务器'} variant={form ? 'ghost' : 'default'} loading={busy === 'defaults'} onClick={() => (form ? setForm(null) : openForm())} />
+            <KitButton size="sm" label={form ? '取消' : '添加服务器'} variant={form ? 'ghost' : 'default'} loading={busy.page === 'defaults'} onClick={() => (form ? setForm(null) : openForm())} />
           ) : null}
-          <KitButton size="sm" label="刷新" variant="ghost" loading={busy === 'refresh'} onClick={() => void run('refresh', refresh)} />
+          <KitButton size="sm" label="刷新" variant="ghost" loading={busy.page === 'refresh'} onClick={() => void run('refresh', refresh)} />
         </div>
       </div>
 
       {form ? (
         <div className="oc-card">
-          <strong>{form.id ? `编辑 ${form.name || form.id}` : '添加服务器'}</strong>
+          <span className="oc-card-title">{form.id ? `编辑 ${form.name || form.id}` : '添加服务器'}</span>
           <div className="oc-form">
             <div className="oc-form-cell">
               <KitField label="服务器名称" value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder="EL7 box（留空则用 用户@主机）" />
@@ -428,10 +648,10 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                 options={[
                   { id: 'auto', label: '自动（探测远程机器）', hint: '推荐：远程机器能自己出网就直连' },
                   { id: 'relay', label: '经本机转发', hint: '远程机器完全出不了网时用' },
-                { id: 'direct', label: '直连', hint: '远程机器有外网；本机转发不参与' },
-              ]}
-              onChange={(id) => setForm({ ...form, egress: id === 'relay' ? 'relay' : id === 'direct' ? 'direct' : 'auto' })}
-            />
+                  { id: 'direct', label: '直连', hint: '远程机器有外网；本机转发不参与' },
+                ]}
+                onChange={(id) => setForm({ ...form, egress: id === 'relay' ? 'relay' : id === 'direct' ? 'direct' : 'auto' })}
+              />
             </div>
             <div className="oc-form-cell">
               <KitField
@@ -466,12 +686,16 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
             {`兼容档：按远程机器 glibc 判定${defaults ? '（< 2.28 → 含重建 node-pty 的旧档）' : ''}　·　运行时：node v${defaults?.nodeRuntime ?? '…'}`}
           </div>
           <div className="oc-xs oc-muted">
-            {`OpenChamber pin：${defaults?.appVersion ?? '…'}（跟随控制端，不取 latest）　·　OpenCode pin：${defaults?.enginePin ?? '…'}　·　绑定：${defaults?.bind ?? '127.0.0.1'}`}
+            {defaults?.latestPack?.version
+              ? `OpenChamber pin：渠道最新 ${defaults.latestPack.version}（新增时装这版；升级随时可到渠道最新）　·　OpenCode pin：${defaults.enginePin}　·　绑定：${defaults.bind}`
+              : defaults?.latestPack?.error
+                ? `OpenChamber pin：渠道最新未知（${defaults.latestPack.error}）——新增将用 ${defaults.appVersion} 兜底　·　OpenCode pin：${defaults.enginePin}　·　绑定：${defaults.bind}`
+                : `OpenChamber pin：${defaults?.appVersion ?? '…'}　·　OpenCode pin：${defaults?.enginePin ?? '…'}　·　绑定：${defaults?.bind ?? '…'}`}
           </div>
           <div className="oc-xs oc-muted">界面密码：添加时自动生成，只存在控制端；卡片里「界面密码」可看可复制（在浏览器里打开远程界面时要）。</div>
           <div className="oc-row">
-            <KitButton size="sm" label={form.id ? '保存' : '添加'} loading={busy === 'save'} onClick={() => void save()} />
-            <KitButton size="sm" variant="ghost" label="取消" disabled={busy === 'save'} onClick={() => setForm(null)} />
+            <KitButton size="sm" label={form.id ? '保存' : '添加'} loading={busy[form.id ?? 'page'] === 'save'} onClick={() => void save()} />
+            <KitButton size="sm" variant="ghost" label="取消" disabled={busy[form.id ?? 'page'] === 'save'} onClick={() => setForm(null)} />
           </div>
         </div>
       ) : null}
@@ -492,44 +716,84 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
         const provisioned = Boolean(st?.engine) || isUp
         const address = `${row.user ? `${row.user}@` : ''}${row.host}:${row.port}`
         const isPlan = planFor?.id === row.id
+        /** 检查结果里的渠道最新优先（更新鲜），否则用挂载时取的那份。 */
+        const planLatest = isPlan && planFor && planFor.reply.latestPack && 'version' in planFor.reply.latestPack ? planFor.reply.latestPack.version : channelLatest
+        const upgradeTo = provisioned && planLatest && planLatest !== row.appVersion ? planLatest : undefined
+        const showVersion = st?.liveApp ?? st?.app
         return (
           <div className="oc-card" key={row.id}>
-            {/* ① 名称 + 状态 */}
-            <div className="oc-row">
-              <strong className="oc-truncate">{row.name ?? row.id}</strong>
+            {/* ① 卡头：名称（令牌字阶）+ 状态徽章 + 可升级徽章 */}
+            <div className="oc-card-head">
+              <span className="oc-card-title oc-truncate">{row.name ?? row.id}</span>
               <KitBadge label={state.label} tone={state.tone} />
+              {upgradeTo ? <KitBadge label={`可升级 ${upgradeTo}`} tone="info" /> : null}
             </div>
-            {/* ② 地址 + 登录方式 */}
-            <div className="oc-muted oc-sm oc-truncate">{`${address} · ${row.sshAuth === 'password' ? '密码登录' : '密钥登录'}`}</div>
-            {/* ③ 版本 + 网络（缺的写「未知」，不省字段） */}
+            {/* ② 地址 + 登录方式（只出现一次） */}
+            <div className="oc-muted oc-sm oc-mono oc-truncate">{`${address} · ${row.sshAuth === 'password' ? '密码登录' : '密钥登录'}`}</div>
+            {/* ③ 版本 + 网络（缺的写「未知」，不省字段）；实测版与 pin 不一致时两个都说 */}
             <div className="oc-muted oc-sm">
-              {`OpenChamber ${st?.app ?? '未知'} · OpenCode ${st?.engine?.version ?? '未知'} · ${networkLabel(st?.egress)}`}
+              {`OpenChamber ${showVersion ?? '未知'}${st?.liveApp && st.liveApp !== row.appVersion ? `（pin ${row.appVersion}）` : ''} · OpenCode ${st?.engine?.version ?? '未知'} · ${networkLabel(st?.egress)}`}
             </div>
             {/* 这台卡自己产生的错误贴在这里：长列表下用户看不到页面顶部的横幅。 */}
             {error?.scope === row.id ? <KitBanner tone="error" title="出错了" body={error.message} /> : null}
             {/* 需要人管的状态才解释；在线不需要解释（它的解释在详情里）。 */}
             {st && st.state !== 'online' && st.detail ? <div className="oc-xs oc-muted">{st.detail}</div> : null}
-            {/* 首跑动线：装完但没启动时，把下一步说出来——「创建配对链接」在装完前是隐藏的。 */}
-            {provisioned && !isUp ? <div className="oc-xs oc-muted">已装好。下一步：启动 → 创建配对链接。</div> : null}
+            {/* 首跑动线：装完但没启动时，把下一步说出来——「创建配对链接」在装完前是隐藏的。
+                有新版时主推升级，但启动当前版永远是一条路。 */}
+            {provisioned && !isUp ? (
+              <div className="oc-xs oc-muted">
+                {upgradeTo ? `已装好（${row.appVersion}）。可升级到 ${upgradeTo}，也可以直接启动当前版。` : '已装好。下一步：启动 → 创建配对链接。'}
+              </div>
+            ) : null}
 
-            <KitSeparator />
-            {/* 主动作随状态推进：没装就装、停了就起、在线就打开。 */}
+            {/* ④ 操作台（job 运行时自动展开；成功收起成 chip）。 */}
+            {consoleFor && consoleFor.id === row.id && !consoleFor.chip ? (
+              <OperationConsole
+                state={consoleFor}
+                onCollapse={() => setConsoleFor((c) => (c ? { ...c, chip: true } : c))}
+                onCopyLogs={() => {
+                  void copy(`copylog:${row.id}`, consoleFor.lines.join('\n'), row.id)
+                }}
+              />
+            ) : null}
+            {consoleFor && consoleFor.id === row.id && consoleFor.chip && consoleFor.phase !== 'running' ? (
+              <button
+                type="button"
+                className="oc-result-chip"
+                data-ok={consoleFor.ok === true ? 'true' : 'false'}
+                onClick={() => setConsoleFor((c) => (c ? { ...c, chip: false } : c))}
+              >
+                {consoleFor.ok === false ? <KitIcon name="close" size={10} /> : <KitIcon name="check" size={10} />}
+                <span className="oc-truncate">{`${consoleFor.label}：${consoleFor.summary ?? (consoleFor.ok === false ? '失败' : '完成')}`}</span>
+              </button>
+            ) : null}
+
+            <div className="oc-card-rule" />
+
+            {/* ⑤ 动作行：唯一 primary 随状态推进；低频进「更多」菜单。 */}
             <div className="oc-row">
               {!provisioned ? (
                 <KitButton
                   size="sm"
                   label="检查并安装"
-                  loading={busy === `plan:${row.id}`}
+                  loading={busy[row.id] === `plan:${row.id}`}
                   onClick={() => void plan(row.id)}
                 />
               ) : isUp ? (
-                <KitButton size="sm" label="打开界面" loading={busy === `url:${row.id}`} onClick={() => void openUi(row)} />
+                <KitButton size="sm" label="打开界面" loading={busy[row.id] === `url:${row.id}`} onClick={() => void openUi(row)} />
+              ) : upgradeTo ? (
+                <KitButton
+                  size="sm"
+                  label={`升级到 ${upgradeTo}`}
+                  loading={busy[row.id] === `upgrade:${row.id}`}
+                  onClick={() => { setConfirmUpgradeFor((c) => (c === row.id ? '' : row.id)); setConfirmFor('') }}
+                />
               ) : (
                 <KitButton
                   size="sm"
                   label="启动"
-                  loading={busy === `up:${row.id}`}
-                  onClick={() => void run(`up:${row.id}`, async () => { await op({ op: 'up', id: row.id }) }, row.id)}
+                  loading={busy[row.id] === `up:${row.id}`}
+                  onClick={() => void upNow(row.id)}
                 />
               )}
               {isUp ? (
@@ -537,8 +801,25 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                   size="sm"
                   variant="outline"
                   label="停止"
-                  loading={busy === `down:${row.id}`}
-                  onClick={() => void run(`down:${row.id}`, async () => { await op({ op: 'down', id: row.id }) }, row.id)}
+                  loading={busy[row.id] === `down:${row.id}`}
+                  onClick={() => void downNow(row.id)}
+                />
+              ) : provisioned && upgradeTo ? (
+                <KitButton
+                  size="sm"
+                  variant="outline"
+                  label="启动"
+                  loading={busy[row.id] === `up:${row.id}`}
+                  onClick={() => void upNow(row.id)}
+                />
+              ) : null}
+              {provisioned && !isUp ? (
+                <KitButton
+                  size="sm"
+                  variant={upgradeTo ? 'ghost' : 'outline'}
+                  label="检查更新"
+                  loading={busy[row.id] === `plan:${row.id}`}
+                  onClick={() => void plan(row.id)}
                 />
               ) : null}
               {/* 配对链接要求实例在跑，所以没装过就不摆出来（免得点了才发现不行）。 */}
@@ -547,25 +828,91 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                   size="sm"
                   variant="outline"
                   label="创建配对链接"
-                  loading={busy === `pairlink:${row.id}`}
+                  loading={busy[row.id] === `pairlink:${row.id}`}
                   onClick={() => void makePairLink(row.id)}
                 />
               ) : null}
+              {provisioned ? (
+                <KitButton
+                  size="sm"
+                  variant="ghost"
+                  label="日志"
+                  loading={busy[row.id] === `logs:${row.id}`}
+                  onClick={() => void showLogs(row.id)}
+                />
+              ) : null}
               <span className="oc-push" />
+              <KitMenu
+                label="更多"
+                variant="ghost"
+                size="sm"
+                items={[
+                  { id: 'configdiff', label: '配置差异与同步' },
+                  { id: 'secret', label: '界面密码' },
+                  { id: 'edit', label: '编辑' },
+                  { separator: true },
+                  { id: 'remove', label: '移除服务器', destructive: true },
+                ]}
+                onSelect={(id) => {
+                  if (id === 'configdiff') void showConfigDiff(row.id)
+                  else if (id === 'secret') void showSecret(row.id)
+                  else if (id === 'edit') openForm(row)
+                  else if (id === 'remove') setRemoveFor(row.id)
+                }}
+              />
               <KitButton
                 size="xs"
                 variant="ghost"
                 label={detailsFor === row.id ? '收起详情' : '详情 ▾'}
                 onClick={() => setDetailsFor(detailsFor === row.id ? null : row.id)}
               />
-              <KitButton
-                size="xs"
-                variant="ghost"
-                label={moreFor === row.id ? '收起更多' : '更多 ▾'}
-                onClick={() => setMoreFor(moreFor === row.id ? null : row.id)}
-              />
             </div>
 
+            {/* 升级确认（写盘 + 重启实例，PRODUCT 零点四的一次显式确认）。 */}
+            {confirmUpgradeFor === row.id && upgradeTo ? (
+              <div className="oc-col">
+                <KitBanner
+                  tone="warning"
+                  title={`升级到 ${upgradeTo}？`}
+                  body={`会在远程机器写盘（旧树留 .ocrc-bak），升级前在线的实例升级后自动重启装载新版。这台现在的 pin：${row.appVersion}。`}
+                />
+                <div className="oc-row">
+                  <KitButton
+                    size="sm"
+                    label={`确认升级到 ${upgradeTo}`}
+                    loading={busy[row.id] === `upgrade:${row.id}`}
+                    onClick={() => void upgradeNow(row, upgradeTo)}
+                  />
+                  <KitButton size="sm" variant="ghost" label="取消" onClick={() => setConfirmUpgradeFor('')} />
+                </div>
+              </div>
+            ) : null}
+
+            {/* 移除是破坏性动作：先问一次（菜单里点出来，这里确认）。 */}
+            {removeFor === row.id ? (
+              <div className="oc-col">
+                <KitBanner
+                  tone="warning"
+                  title="移除这台服务器？"
+                  body="只删控制端的这条记录；远程机器上的实例会先被停掉（~/.ocrc/remote 不动）。"
+                />
+                <div className="oc-row">
+                  <KitButton
+                    size="sm"
+                    variant="destructive"
+                    label="确认移除"
+                    loading={busy[row.id] === `delete:${row.id}`}
+                    onClick={() => void run(`delete:${row.id}`, async () => {
+                      await op({ op: 'delete', id: row.id })
+                      setRemoveFor('')
+                    }, row.id)}
+                  />
+                  <KitButton size="sm" variant="ghost" label="取消" onClick={() => setRemoveFor('')} />
+                </div>
+              </div>
+            ) : null}
+
+            {/* ⑥ 详情：事实 + 两个开关（配置项，不是动作）。 */}
             {detailsFor === row.id ? (
               <div className="oc-col">
                 <div className="oc-xs oc-muted">{`端口：远程 ${row.instancePort} → 本机 ${row.localPort}（绑定 127.0.0.1）`}</div>
@@ -577,23 +924,6 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                 {st?.forwardAttempts ? <div className="oc-xs oc-muted">{`转发重连 ${st.forwardAttempts} 次`}</div> : null}
                 {(st?.holders ?? []).map((line) => <div key={line} className="oc-xs oc-muted">{`转发持有者 ${line}`}</div>)}
                 {st?.detail ? <div className="oc-xs oc-muted">{`最近一次结果：${st.detail}`}</div> : null}
-              </div>
-            ) : null}
-
-            {moreFor === row.id ? (
-              <div className="oc-col">
-                <div className="oc-xs oc-muted">配置</div>
-                <div className="oc-row">
-                  <KitButton size="sm" variant="ghost" label="配置差异与同步" loading={busy === `configdiff:${row.id}`} onClick={() => void showConfigDiff(row.id)} />
-                  <KitButton size="sm" variant="ghost" label="界面密码" loading={busy === `secret:${row.id}`} onClick={() => void showSecret(row.id)} />
-                </div>
-                <div className="oc-xs oc-muted">维护</div>
-                <div className="oc-row">
-                  <KitButton size="sm" variant="ghost" label={provisioned ? '检查并更新' : '检查并安装'} loading={busy === `plan:${row.id}`} onClick={() => void plan(row.id)} />
-                  <KitButton size="sm" variant="ghost" label="日志" loading={busy === `logs:${row.id}`} onClick={() => void showLogs(row.id)} />
-                  <KitButton size="sm" variant="ghost" label="编辑" onClick={() => openForm(row)} />
-                </div>
-                <div className="oc-xs oc-muted">开关</div>
                 <div className="oc-row">
                   <KitSwitch
                     label="自动重连"
@@ -610,35 +940,6 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                     }, row.id)}
                   />
                 </div>
-                {/* 移除是破坏性动作：单独一行，且先问一次（原来它和 日志/编辑 挤在一排，
-                    确认行把那一排挤爆、"取消"被挤出可视区）。 */}
-                <div className="oc-xs oc-muted">移除</div>
-                {removeFor === row.id ? (
-                  <>
-                    <KitBanner
-                      tone="warning"
-                      title="移除这台服务器？"
-                      body="只删控制端的这条记录；远程机器上的实例会先被停掉（~/.ocrc/remote 不动）。"
-                    />
-                    <div className="oc-row">
-                      <KitButton
-                        size="sm"
-                        variant="destructive"
-                        label="确认移除"
-                        loading={busy === `delete:${row.id}`}
-                        onClick={() => void run(`delete:${row.id}`, async () => {
-                          await op({ op: 'delete', id: row.id })
-                          setRemoveFor('')
-                        }, row.id)}
-                      />
-                      <KitButton size="sm" variant="ghost" label="取消" onClick={() => setRemoveFor('')} />
-                    </div>
-                  </>
-                ) : (
-                  <div className="oc-row">
-                    <KitButton size="sm" variant="destructive" label="移除服务器" onClick={() => setRemoveFor(row.id)} />
-                  </div>
-                )}
               </div>
             ) : null}
 
@@ -648,7 +949,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
             {pairFor?.id === row.id ? (
               <div className="oc-card">
                 <div className="oc-row oc-row-between">
-                  <strong>配对链接</strong>
+                  <span className="oc-card-title">配对链接</span>
                   <KitButton size="xs" variant="ghost" label="收起" onClick={() => setPairFor(null)} />
                 </div>
                 <div className="oc-muted">{pairFor.reply.detail}</div>
@@ -669,10 +970,10 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                       <KitButton
                         size="sm"
                         label="复制链接"
-                        loading={busy === `copy:${row.id}`}
+                        loading={busy[row.id] === `copy:${row.id}`}
                         onClick={() => void run(`copy:${row.id}`, async () => {
                           const link = pairFor.reply.link as string
-                          await copy(`copy:${row.id}`, link)
+                          await copy(`copy:${row.id}`, link, row.id)
                           // toast 自己带一个 Copy（宿主的 `copy` 字段）：剪贴板写入失败时
                           // 用户还有第二次机会，而且"去哪儿粘"这句话在这一刻出现在眼前。
                           await host?.toast({
@@ -687,14 +988,14 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                         size="sm"
                         variant="outline"
                         label="打开界面"
-                        loading={busy === `url:${row.id}`}
+                        loading={busy[row.id] === `url:${row.id}`}
                         onClick={() => void openUi(row)}
                       />
                       <KitButton
                         size="sm"
                         variant="ghost"
                         label="重新创建"
-                        loading={busy === `pairlink:${row.id}`}
+                        loading={busy[row.id] === `pairlink:${row.id}`}
                         onClick={() => void makePairLink(row.id)}
                       />
                     </div>
@@ -708,7 +1009,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
             {secretFor?.id === row.id ? (
               <div className="oc-card">
                 <div className="oc-row oc-row-between">
-                  <strong>界面密码（只在控制端本地）</strong>
+                  <span className="oc-card-title">界面密码（只在控制端本地）</span>
                   <KitButton size="xs" variant="ghost" label="收起" onClick={() => setSecretFor(null)} />
                 </div>
                 <pre className="oc-pre">{`${secretFor.url}\n${secretFor.uiPassword}`}</pre>
@@ -717,7 +1018,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                     size="sm"
                     variant="outline"
                     label="复制"
-                    onClick={() => void copy(`copysecret:${row.id}`, `${secretFor.url}\n${secretFor.uiPassword}`)}
+                    onClick={() => void copy(`copysecret:${row.id}`, `${secretFor.url}\n${secretFor.uiPassword}`, row.id)}
                   />
                 </div>
               </div>
@@ -726,7 +1027,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
             {configFor?.id === row.id ? (
               <div className="oc-card">
                 <div className="oc-row oc-row-between">
-                  <strong>配置差异（控制端 ↔ 远程机器的 ~/.config/opencode）</strong>
+                  <span className="oc-card-title">配置差异（控制端 ↔ 远程机器的 ~/.config/opencode）</span>
                   <KitButton size="xs" variant="ghost" label="收起" onClick={() => setConfigFor(null)} />
                 </div>
                 {configFor.diff.peerError ? <KitBanner tone="error" title="读远程机器失败" body={configFor.diff.peerError} /> : null}
@@ -802,20 +1103,20 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                     size="sm"
                     variant="outline"
                     label="试运行（不写远程机器）"
-                    loading={busy === `dryrun:${row.id}`}
+                    loading={busy[row.id] === `dryrun:${row.id}`}
                     onClick={() => void syncConfigNow(row.id, true)}
                   />
                   <KitButton
                     size="sm"
                     label="同步配置"
-                    loading={busy === `syncconfig:${row.id}`}
+                    loading={busy[row.id] === `syncconfig:${row.id}`}
                     onClick={() => void syncConfigNow(row.id, false)}
                   />
                   <KitButton
                     size="sm"
                     variant="outline"
                     label="同步凭据（auth.json）"
-                    loading={busy === `syncauth:${row.id}`}
+                    loading={busy[row.id] === `syncauth:${row.id}`}
                     onClick={() => void syncAuthNow(row.id)}
                   />
                 </div>
@@ -828,9 +1129,10 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
             {logFor?.id === row.id ? (
               <div className="oc-card">
                 <div className="oc-row oc-row-between">
-                  <strong>日志（三处：控制端转发 / 远程实例 / 远程机器的 OpenChamber）</strong>
+                  <span className="oc-card-title">日志（三处：控制端转发 / 远程实例 / 远程机器的 OpenChamber）</span>
                   <KitButton size="xs" variant="ghost" label="收起" onClick={() => setLogFor(null)} />
                 </div>
+                <div className="oc-xs oc-muted">实时刷新中 · 每 5 秒自动重取；收起即停。</div>
                 {logFor.peer && !logFor.peer.ok ? (
                   <KitBanner tone="warning" title="取远程日志失败" body={logFor.peer.error ?? '原因未知'} />
                 ) : null}
@@ -847,10 +1149,11 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
               </div>
             ) : null}
 
+            {/* ⑦ 检查结果：plan 只读预演的结论 + 安装/升级入口（确认门槛在下面）。 */}
             {isPlan && planFor ? (
               <div className="oc-card">
                 <div className="oc-row oc-row-between">
-                  <strong>检查结果（只读，不写远程机器）</strong>
+                  <span className="oc-card-title">检查结果（只读，不写远程机器）</span>
                   <KitButton size="xs" variant="ghost" label="收起" onClick={() => setPlanFor(null)} />
                 </div>
                 <div className="oc-muted">
@@ -859,7 +1162,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                     : `ssh 不可达：${planFor.reply.sshError ?? '未知原因'}`}
                 </div>
                 <div className="oc-muted">{`运行时：${planFor.reply.runtime ?? '缺失（会推送）'}`}</div>
-                <div className="oc-muted">{`OpenChamber：${planFor.reply.app ?? '缺失（会推送）'}`}</div>
+                <div className="oc-muted">{`OpenChamber：${planFor.reply.app ?? '缺失（会推送）'}${planFor.reply.liveApp ? `（正在跑的实例自报 ${planFor.reply.liveApp}）` : ''}`}</div>
                 <div className="oc-muted">
                   {planFor.reply.engine
                     ? `OpenCode：${planFor.reply.engine.path} → ${planFor.reply.engine.version}`
@@ -872,6 +1175,9 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                   <div className="oc-xs oc-muted">
                     {`网络：${planFor.reply.egress.relay ? '经本机转发' : '直连'}（策略 ${planFor.reply.egress.mode}${planFor.reply.egress.probe ? `，探测 ${planFor.reply.egress.probe}` : ''}：${planFor.reply.egress.reason}）`}
                   </div>
+                ) : null}
+                {planFor.reply.latestPack && 'error' in planFor.reply.latestPack ? (
+                  <div className="oc-xs oc-muted">{`渠道最新：查不到（${planFor.reply.latestPack.error}）`}</div>
                 ) : null}
                 {planFor.reply.engineCandidates.length > 0 ? (
                   <div className="oc-col">
@@ -898,12 +1204,8 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                     <KitButton
                       size="sm"
                       label="确认安装"
-                      loading={busy === `apply:${row.id}`}
-                      onClick={() => void run(`apply:${row.id}`, async () => {
-                        await op({ op: 'apply', id: row.id, payload: { confirm: true } })
-                        setConfirmFor('')
-                        setPlanFor(null)
-                      }, row.id)}
+                      loading={busy[row.id] === `apply:${row.id}`}
+                      onClick={() => void applyNow(row)}
                     />
                     <KitButton size="sm" variant="ghost" label="取消" onClick={() => setConfirmFor('')} />
                   </div>
@@ -911,7 +1213,8 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                   <div className="oc-row">
                     <KitButton
                       size="sm"
-                      label={planFor.reply.provision === 'reuse' ? '检查（复用已安装：不写远程机器）' : `安装到远程机器（OpenChamber ${defaults?.appVersion ?? planFor.reply.app ?? ''}）`}
+                      variant={upgradeTo ? 'outline' : 'default'}
+                      label={planFor.reply.provision === 'reuse' ? '检查（复用已安装：不写远程机器）' : `安装到远程机器（OpenChamber ${row.appVersion}）`}
                       disabled={!planFor.reply.reachable}
                       onClick={() => setConfirmFor(row.id)}
                     />

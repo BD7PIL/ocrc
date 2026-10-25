@@ -31,6 +31,8 @@ import {
   buildInstanceProxyProbeCommand, parseInstanceProxyProbe, relayProxyUrl,
   buildPairLinkCommand, parsePairLink, describePairLink, buildEgressProbeCommand, parseEgressProbe, resolveEgressPolicy,
   relayHostFor, type BindMode,
+  buildFirewallPortCommand, buildFirewallProbeCommand, isLanAddress, parseFirewallProbe,
+  type FirewallBackend, type FirewallState,
   EGRESS_DEFAULT, type EgressMode, type EgressProbe, type ProvisionMode,
   decideUpgrade,
   NODE_RUNTIME,
@@ -102,8 +104,8 @@ export interface InstanceInspection {
   uname?: string
   glibc?: string
   home?: string
-  /** 对端自己眼里的主局域网地址（hostname -I 第一段）——bind=lan 的提示用它。 */
-  ip?: string
+  /** 对端全部地址（hostname -I 全量）——bind=lan 的地址菜单，只展示不决策。 */
+  ips?: string[]
 }
 
 export interface InstancePlan {
@@ -210,8 +212,13 @@ export interface RemoteInstanceManager {
   probe(id: string): Promise<{ online: boolean; version?: string; detail?: string; remote?: boolean }>
   /** Ask the peer's own openchamber for a single-use pairing link (identity stays
    *  upstream's: the link is redeemed for a per-device, revocable token). We only
-   *  hold the `-L` that makes its URL reachable. */
-  pairLink(id: string): Promise<{ ok: boolean; detail: string; link?: string; expiresAt?: string; url?: string }>
+   *  hold the `-L` that makes its URL reachable.
+   *  `address` 点名 LAN 直连候选（0.11.2）：生成前实测并放行 `地址:实例端口`；
+   *  缺 sudo 时回 `needsSudo`，由调用方收密码重试（密码即用即弃）。 */
+  pairLink(id: string, opts?: { address?: string; sudoPassword?: string }): Promise<{ ok: boolean; detail: string; link?: string; expiresAt?: string; url?: string; needsSudo?: boolean; backend?: FirewallBackend }>
+  /** 0.11.2：配对区的地址菜单——对端全部地址 + 逐地址控制端实测 + 防火墙真相。
+   *  展示用：选哪个地址永远是用户的按钮，不是这里。 */
+  lanInfo(id: string): Promise<{ ok: boolean; detail?: string; port?: number; bind?: BindMode; addresses?: string[]; reachable?: Record<string, boolean>; firewall?: FirewallState }>
   status(id: string): InstanceStatus | undefined
   statusAll(): InstanceStatus[]
   /** D1: decide (and cache) where this peer's egress goes. `status` reads the
@@ -300,14 +307,14 @@ export function cleanSshNoise(text: string): string {
     .join('\n')
 }
 
-/** Remote: one round of environment facts (uname / glibc / HOME / LAN IP). */
+/** Remote: one round of environment facts (uname / glibc / HOME / 全部地址). */
 export function buildInstanceEnvProbeCommand(): string {
   return [
     'echo "UNAME=$(uname -s -m 2>/dev/null)"',
     'echo "LDD=$(ldd --version 2>/dev/null | head -1)"',
     'echo "HOME=$HOME"',
-    // bind=lan 的提示要用：对端自己眼里的局域网地址（第一个非空段）。
-    'echo "IP=$(hostname -I 2>/dev/null | awk \'{print $1}\')"',
+    // bind=lan 的地址菜单用：对端全部地址（只展示，永不自动替用户选）。
+    'echo "IPS=$(hostname -I 2>/dev/null)"',
   ].join('; ')
 }
 
@@ -331,7 +338,7 @@ export function parseEnvProbe(out: string): InstanceInspection {
     uname: kv.get('UNAME') || undefined,
     glibc: parseGlibcVersion(kv.get('LDD')),
     home: kv.get('HOME') || undefined,
-    ip: kv.get('IP') || undefined,
+    ips: (kv.get('IPS') ?? '').split(/\s+/).map((s) => s.trim()).filter(Boolean),
   }
 }
 
@@ -1222,13 +1229,109 @@ export function createRemoteInstanceManager(opts: {
     return (await probeThroughForward(instance)).ok
   }
 
+  /** Control-side reachability probe for `<address>:<port>` — a raw TCP connect
+   *  with a short timeout. `open` means some host answered on that port; `error`
+   *  is the honest third state (timeout/refused are distinct from "we know it
+   *  is closed" which we never claim from the outside). */
+  async function lanReachable(address: string, port: number, timeoutMs = 4_000): Promise<boolean> {
+    return new Promise((resolve) => {
+      const socket = net.connect({ host: address, port, timeout: timeoutMs })
+      const done = (ok: boolean) => {
+        socket.destroy()
+        resolve(ok)
+      }
+      socket.once('connect', () => done(true))
+      socket.once('timeout', () => done(false))
+      socket.once('error', () => done(false))
+    })
+  }
+
+  /** The LAN-direct contract, in order: measure → probe the firewall → open our
+   *  instance port → re-measure. The sudo password travels stdin-only (ssh -S),
+   *  never argv/env/disk/memory. Three outcomes the caller must keep straight:
+   *  reachable, needs-sudo (caller shows the password box and retries), and
+   *  genuinely unreachable (we do not mint a link that cannot work). */
+  async function ensureLanPort(
+    instance: RemoteInstance,
+    address: string,
+    sudoPassword?: string,
+  ): Promise<{ state: 'open' | 'needs-sudo' | 'closed'; opened?: boolean; firewall?: FirewallState; reason?: string }> {
+    const port = instance.instancePort
+    if (await lanReachable(address, port)) return { state: 'open' }
+    const fp = await ssh(instance, buildFirewallProbeCommand(port), 30_000)
+    const firewall = parseFirewallProbe(fp.stdout)
+    if (firewall.backend === 'none') {
+      return { state: 'closed', firewall, reason: `${address}:${port} 连不上，远程机器没有识别到 firewalld/ufw——需要手工放行 ${port}/tcp` }
+    }
+    if (firewall.backend === 'unknown') {
+      return { state: 'closed', firewall, reason: `${address}:${port} 连不上，防火墙后端判定不了——需要手工放行 ${port}/tcp` }
+    }
+    if (firewall.portOpen === 'open') {
+      // 放行但连不上 = 实例多半没在 0.0.0.0 上听——这不是防火墙能修的。
+      return { state: 'closed', firewall, reason: `${address}:${port} 连不上，但远程机器已放行 ${port}/tcp——检查实例是否以「访问范围=局域网」重启过` }
+    }
+    // portOpen closed/unknown 都往下走：开端口这条命令本身幂等（已放行再 add 也成功），
+    // 而 EL7 的 demo 用户连「查状态」都被 polkit 拒（unknown）——真密码却开得动。
+    if (firewall.sudo === 'needed' && !sudoPassword) {
+      return { state: 'needs-sudo', firewall, reason: `${firewall.backend === 'firewalld' ? 'firewalld' : 'ufw'} 拦着 ${port}/tcp，且当前用户没有免密 sudo` }
+    }
+    const cmd = buildFirewallPortCommand(firewall.backend, port, true, !!sudoPassword)
+    const r = sudoPassword
+      ? await sshRunWithStdin(instance, cmd, `${sudoPassword}\n`, { timeoutMs: 60_000 })
+      : await ssh(instance, cmd, 60_000)
+    if (!r.stdout.includes('FW_DONE')) {
+      const why = (r.stderr || r.stdout).replace(/\s+/g, ' ').slice(-200)
+      return { state: 'closed', firewall, reason: `放行 ${port}/tcp 的命令没成功：${why}` }
+    }
+    if (await lanReachable(address, port)) return { state: 'open', opened: true, firewall }
+    return { state: 'closed', firewall, reason: `已放行 ${port}/tcp 并重载，但 ${address}:${port} 仍连不上——确认实例监听 0.0.0.0 与路由可达性` }
+  }
+
+  /** 0.11.2 配对区的数据源：一次 ssh 拿地址全量，逐地址控制端实测，附一份
+   *  防火墙真相。面板据此画「每地址一行：可达徽章 + 生成按钮」。 */
+  async function lanInfo(id: string): Promise<{ ok: boolean; detail?: string; port?: number; bind?: BindMode; addresses?: string[]; reachable?: Record<string, boolean>; firewall?: FirewallState }> {
+    const instance = opts.store.get(id)
+    if (!instance) return { ok: false, detail: `没有这个实例：${id}` }
+    const env = await probeEnv(instance)
+    if (!env) return { ok: false, detail: 'ssh 不可达，拿不到地址列表' }
+    const addresses = env.ips ?? []
+    if (!addresses.length) return { ok: true, port: instance.instancePort, bind: instance.bind ?? 'loopback', addresses, reachable: {}, detail: '远程机器没报告任何地址（hostname -I 为空）' }
+    const reachable: Record<string, boolean> = {}
+    for (const a of addresses) reachable[a] = await lanReachable(a, instance.instancePort)
+    const firewall = parseFirewallProbe((await ssh(instance, buildFirewallProbeCommand(instance.instancePort), 30_000)).stdout)
+    return { ok: true, port: instance.instancePort, bind: instance.bind ?? 'loopback', addresses, reachable, firewall }
+  }
+
   /** Ask the peer's own CLI for a single-use pairing link and hand it back for
    *  the app to redeem. openchamber owns identity here: the link's secret is
    *  exchanged for a per-device, revocable client token, so nothing of ours
-   *  stores a credential. */
-  async function pairLink(id: string): Promise<{ ok: boolean; detail: string; link?: string; expiresAt?: string; url?: string }> {
+   *  stores a credential.
+   *  `address`（0.11.2）：用户**点名**的 LAN 地址——链接的直连候选就是它，绝不
+   *  自动挑选。点名之前先把 `该地址:实例端口` 修到真可达；修不动就不造假链接。 */
+  async function pairLink(
+    id: string,
+    linkOpts: { address?: string; sudoPassword?: string } = {},
+  ): Promise<{ ok: boolean; detail: string; link?: string; expiresAt?: string; url?: string; needsSudo?: boolean; backend?: FirewallBackend }> {
     const instance = opts.store.get(id)
     if (!instance) return { ok: false, detail: `没有这个实例：${id}` }
+    const address = linkOpts.address?.trim()
+    let serverUrl: string | undefined
+    if (address) {
+      if (instance.bind !== 'lan') {
+        return { ok: false, detail: '实例不是「访问范围=局域网」——先把 bind 设为 lan 并重启实例，LAN 地址候选才有意义' }
+      }
+      if (!isLanAddress(address)) {
+        return { ok: false, detail: `地址不合法：${address}` }
+      }
+      const lan = await ensureLanPort(instance, address, linkOpts.sudoPassword)
+      if (lan.state === 'needs-sudo') {
+        return { ok: false, detail: lan.reason ?? `需要 sudo 才能放行 ${instance.instancePort}/tcp`, needsSudo: true, backend: lan.firewall?.backend }
+      }
+      if (lan.state !== 'open') {
+        return { ok: false, detail: lan.reason ?? `${address}:${instance.instancePort} 连不上——不生成到不了的链接` }
+      }
+      serverUrl = `http://${address}:${instance.instancePort}`
+    }
     const forwarded = await ensurePairingForwardAsync(instance)
     if (!forwarded) {
       return { ok: false, detail: `本地转发 127.0.0.1:${instance.localPort} 起不来或远程机器不可达——先启动实例（配对链接要求它在跑）` }
@@ -1245,18 +1348,12 @@ export function createRemoteInstanceManager(opts: {
     startExternalMonitor(id)
     const url = instanceUrl(instance.localPort)
     // bind=lan：`--server`（链接里的 LAN 候选——上游没有独立的候选 flag，`--lan`
-    // 只是「启动时绑 0.0.0.0」）换成对端自己的 LAN 地址。局域网设备直连它，
-    // 到不了的设备回落 relay 候选；loopback 记录保持控制端转发不变。
-    let serverUrl = url
-    if (instance.bind === 'lan') {
-      const ipOut = await ssh(instance, "hostname -I 2>/dev/null | awk '{print $1}'", 15_000)
-      const ip = ipOut.stdout.trim()
-      if (ip) serverUrl = `http://${ip}:${instance.instancePort}`
-    }
+    // 只是「启动时绑 0.0.0.0」）用**调用方点名的地址**；没有点名就保持控制端转发，
+    // 永不自动选（0.11.1 的"取第一段"已废弃，多网卡第一段不是契约）。
     const r = await ssh(instance, buildPairLinkCommand({
       appVersion: instance.appVersion,
       instancePort: instance.instancePort,
-      serverUrl,
+      serverUrl: serverUrl ?? url,
       label: instance.name?.trim() || instance.id,
       lan: instance.bind === 'lan',
     }), 45_000)
@@ -1265,8 +1362,10 @@ export function createRemoteInstanceManager(opts: {
       return { ok: false, detail: `远程机器没给出配对链接：${(r.stdout + r.stderr).replace(/\s+/g, ' ').slice(-200)}` }
     }
     const info = describePairLink(link)
-    pushLog(id, `配对链接已生成（一次性${info?.expiresAt ? `，${info.expiresAt} 过期` : ''}，${info?.candidates ?? 0} 条路由）`)
-    return { ok: true, detail: '配对链接已生成——在桌面版里打开它，或复制到「导入链接」', link, ...(info?.expiresAt ? { expiresAt: info.expiresAt } : {}), url }
+    pushLog(id, serverUrl
+      ? `配对链接已生成（直连候选 ${serverUrl}）`
+      : `配对链接已生成（一次性${info?.expiresAt ? `，${info.expiresAt} 过期` : ''}，${info?.candidates ?? 0} 条路由）`)
+    return { ok: true, detail: serverUrl ? `配对链接已生成——直连候选 ${serverUrl}，在桌面版里打开它，或复制到「导入链接」` : '配对链接已生成——在桌面版里打开它，或复制到「导入链接」', link, ...(info?.expiresAt ? { expiresAt: info.expiresAt } : {}), url }
   }
 
   /** External-tunnel mode: the desktop shell owns the UI's `-L`; this manager
@@ -1434,8 +1533,11 @@ export function createRemoteInstanceManager(opts: {
       actions.push(`建转发：ssh -N -L 127.0.0.1:${instance.localPort}:127.0.0.1:${instance.instancePort} → 打开 ${url}`)
       // bind=lan 是显式 opt-in 的暴露面：plan 必须把代价连着地址一次说清。
       if (instance.bind === 'lan') {
-        const lanUrl = env.ip ? `http://${env.ip}:${instance.instancePort}` : `http://<对端IP>:${instance.instancePort}`
-        actions.push(`注意：实例绑定 0.0.0.0，对局域网暴露在 ${lanUrl}——UI 密码是唯一门（无 TLS）；确认远程机器防火墙放行 ${instance.instancePort}/tcp`)
+        const ips = env.ips?.length ? env.ips : []
+        const lanHint = ips.length
+          ? ips.map((ip) => `http://${ip}:${instance.instancePort}`).join(' / ')
+          : `http://<对端IP>:${instance.instancePort}`
+        actions.push(`注意：实例绑定 0.0.0.0，对局域网暴露在 ${lanHint}——UI 密码是唯一门（无 TLS）；点哪个地址生成链接，防火墙就放行哪个（端口 ${instance.instancePort}/tcp）`)
       }
       // A3: `auto` must show what it picked, and the probe costs an ssh round
       // trip we can afford here (this is the "look before you leap" step).
@@ -1821,8 +1923,11 @@ async probe(id) {
       return { online: false, detail: probe.error }
     },
 
-    pairLink(id) {
-      return pairLink(id)
+    pairLink(id, linkOpts) {
+      return pairLink(id, linkOpts)
+    },
+    lanInfo(id) {
+      return lanInfo(id)
     },
 
     status(id) {

@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.0.0-alpha.20 — LAN 直连成套：每地址一个配对按钮 + 防火墙 ocrc 来开（2026-10-24，扩展 0.11.2）
+
+- **更正 0.11.1 的「第一段」猜测（用户点名批评）**：bind=lan 的配对链接候选此前自动取
+  `hostname -I` 的**第一段**（EL7 实测选了 192.168.22.202，而用户给自己的 ssh 地址是
+  192.168.26.101）——多网卡的第一段不是契约，地址是机器主人的决定。0.11.2 起该路径**删除**：
+  `hostname -I` 全量列出只做菜单（`inspected.ip` → `inspected.ips: string[]`），选哪个地址
+  永远是用户的按钮，桥端与 CLI 均不自动挑选。
+- **每地址一个按钮（面板）**：配对卡打开先跑新 op `laninfo`——一次 ssh 拿地址全量 +
+  逐地址**控制端实测**（TCP connect）+ 防火墙真相；面板画成「每地址一行 = 直连 URL +
+  可达徽章 + 生成此地址的配对链接」。点哪个，链接的直连候选（`--server`）就是哪个；
+  原有「控制端转发」链接仍可生成，服务控制机自己。
+- **防火墙由 ocrc 开（核心能力）**：`pairLink(id, { address, sudoPassword? })` 生成前先
+  `ensureLanPort`——控制端实测 → `buildFirewallProbeCommand` 闭集判定（firewalld/ufw/none/
+  unknown，polkit 拒绝诚实记 unknown 绝不猜）→ 拦着就 `buildFirewallPortCommand` 放行
+  （firewalld `--permanent --add-port + --reload`；ufw `allow <port>/tcp`；只碰我们的实例
+  端口）→ 复测。三态收口：可达（含「本次打开的」）；**needs-sudo**（回 `{ needsSudo: true,
+  backend }`，面板收一次密码重试）；修不动就不造假链接（已放行但连不上=提示查 0.0.0.0
+  监听；无后端=请手工放行）。**sudo 密码纪律**：`sudo -S` 从 ssh stdin 喂入，不进 argv、
+  不落盘、不回显、不记住；免密 sudo（`sudo -n`）自动走。放行后的端口**保持开放**（用户
+  要的就是开放态）。
+- **CLI**：`ocrc remote laninfo <id>`（地址菜单的终端形态）+ `ocrc remote pairlink <id>
+  --lan <地址>`（needsSudo 时终端补一次不回显的密码或 stdin 喂一行，即用即弃）。
+- 测试 16 项新增（防火墙闭集解析两后端+none+unknown+polkit、开关命令形状（-S 密码形态
+  vs -n）、地址校验拒注入串、桥端三态（needsSudo 握手、stdin 喂密码、已放行连不上、无
+  后端）、lanInfo 全量无第一段回归）；面板测试钉「两地址两按钮不自动选 + 密码即用即弃」。
+
 ## 2.0.0-alpha.20 — relay 按出网注入 + LAN bind 开关（2026-10-24，扩展 0.11.1）
 
 - **事故修复：官方 relay 全断的根因（用户报告「重拉后远程配置丢失、relay 终端全部不可达」）**：

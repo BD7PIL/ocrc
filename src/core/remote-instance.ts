@@ -618,6 +618,78 @@ export function renderExports(vars: Record<string, string | undefined>): string 
   return out.length ? `export ${out.join(' ')}; ` : ''
 }
 
+// ── 对端防火墙（0.11.2，bind=lan 的收尾：开关拨过去，端口就该真的可达）────────
+
+export type FirewallBackend = 'firewalld' | 'ufw' | 'none' | 'unknown'
+export type PortState = 'open' | 'closed' | 'unknown'
+export type SudoMode = 'nopasswd' | 'needed'
+
+export interface FirewallState {
+  backend: FirewallBackend
+  portOpen: PortState
+  sudo: SudoMode
+}
+
+/** 用户指定的局域网地址（IP 或主机名）。多网卡机器上选哪个地址是机器主人的
+ *  决定——0.11.1 曾拿 `hostname -I` 第一段自动当候选（EL7 选成了 22.202，而用户
+ *  给的是 26.101），这条“猜测路径”从 0.11.2 起删除：地址只来自显式输入。 */
+export function isLanAddress(s: string): boolean {
+  return /^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(s) && s.length <= 253
+}
+
+/**
+ * 对端防火墙探测：backend（firewalld/ufw/none）、实例端口状态、sudo 形态。
+ * 无 root 时状态读取可能失败（EL7 实测 polkit 拒绝）——那一位诚实写 `unknown`，
+ * 绝不猜；`sudo -n` 可用时会自动带 sudo 再读一遍。
+ */
+export function buildFirewallProbeCommand(port: number): string {
+  return [
+    'echo FIREWALL_BEGIN',
+    'command -v firewall-cmd >/dev/null 2>&1 && echo HAS_FIREWALLD=1',
+    'command -v ufw >/dev/null 2>&1 && echo HAS_UFW=1',
+    'if sudo -n true 2>/dev/null; then echo SUDO=nopasswd; else echo SUDO=needed; fi',
+    `st=$(firewall-cmd --state 2>/dev/null || sudo -n firewall-cmd --state 2>/dev/null)`,
+    '[ -n "$st" ] && echo FW_STATE=$st || echo FW_STATE=unknown',
+    `pq=$(firewall-cmd --query-port=${port}/tcp 2>/dev/null || sudo -n firewall-cmd --query-port=${port}/tcp 2>/dev/null)`,
+    'if [ -n "$pq" ]; then [ "$pq" = yes ] && echo PORT=open || echo PORT=closed; else echo PORT=unknown; fi',
+    `uf=$(ufw status 2>/dev/null)`,
+    'echo "$uf" | grep -q "Status: active" && echo UFW=active || echo UFW=inactive',
+    'echo "$uf" | grep -qE "^' + port + '/tcp[ \\t]" && echo UFW_PORT=open || echo UFW_PORT=closed',
+    'echo FIREWALL_END',
+  ].join('\n')
+}
+
+export function parseFirewallProbe(stdout: string): FirewallState {
+  const block = /FIREWALL_BEGIN\r?\n([\s\S]*?)\r?\nFIREWALL_END/.exec(stdout)?.[1] ?? ''
+  const kv = new Map<string, string>()
+  for (const line of block.split('\n')) {
+    const i = line.indexOf('=')
+    if (i > 0) kv.set(line.slice(0, i).trim(), line.slice(i + 1).trim())
+  }
+  let backend: FirewallBackend = 'none'
+  if (kv.get('HAS_FIREWALLD')) backend = 'firewalld'
+  else if (kv.get('HAS_UFW') && kv.get('UFW') === 'active') backend = 'ufw'
+  // ufw 装了但 inactive：它不过滤，等于 none。
+  else if (kv.get('HAS_UFW')) backend = 'none'
+  const portOpen: PortState = backend === 'firewalld'
+    ? (kv.get('PORT') as PortState) ?? 'unknown'
+    : backend === 'ufw'
+      ? (kv.get('UFW_PORT') as PortState) ?? 'unknown'
+      : 'unknown'
+  return { backend, portOpen, sudo: kv.get('SUDO') === 'nopasswd' ? 'nopasswd' : 'needed' }
+}
+
+/** 打开/关闭实例端口：密码形态下第一条 sudo 用 `-S` 从 stdin 读密码（后续 sudo
+ *  在凭据缓存窗口内免密），免密形态全程 `-n`。由 `sshRunWithStdin` 喂密码。 */
+export function buildFirewallPortCommand(backend: FirewallBackend, port: number, open: boolean, useSudoPassword: boolean): string {
+  const s = open ? 'add-port' : 'remove-port'
+  const sudo = useSudoPassword ? 'sudo -S -p \'\' ' : 'sudo -n '
+  if (backend === 'firewalld') {
+    return `${sudo}firewall-cmd --permanent --${s}=${port}/tcp && sudo firewall-cmd --reload && echo FW_DONE`
+  }
+  return `${sudo}ufw ${open ? 'allow' : 'delete allow'} ${port}/tcp && echo FW_DONE`
+}
+
 /** Controlled host: ask the running instance for a single-use pairing link.
  *
  *  Identity is openchamber's job here — the link carries a one-time secret that

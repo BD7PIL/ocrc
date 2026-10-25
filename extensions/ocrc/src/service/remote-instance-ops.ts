@@ -86,8 +86,13 @@ export type RemoteInstanceOp =
   /** Ask the peer's own openchamber for a pairing link. A job, not a plain
    *  request: it ensures the `-L` for the link's URL, re-establishes the egress
    *  leg and starts monitoring, each of which is an ssh round trip — together
-   *  they outlive the host proxy's 20 s budget. */
-  | { op: 'pairlink'; id: string }
+   *  they outlive the host proxy's 20 s budget. `address`（0.11.2）点名的 LAN
+   *  直连候选；`sudoPassword` 只在本请求内存里走一遍，绝不落盘。
+   *  回 `{ needsSudo: true, backend }` 时面板收密码重试。 */
+  | { op: 'pairlink'; id: string; payload?: { address?: string; sudoPassword?: string } }
+  /** 0.11.2 配对区地址菜单：对端全部地址 + 逐地址可达实测 + 防火墙真相。
+   *  A job（两次 ssh + 逐地址 TCP 探测）。选哪个地址是用户的事，这里只列菜单。 */
+  | { op: 'laninfo'; id: string }
   | { op: 'delete'; id: string }
   | { op: 'job'; jobId: string }
 
@@ -317,7 +322,23 @@ export function createRemoteInstanceOps({
 
         case 'pairlink': {
           if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
-          return start(() => manager.pairLink(op.id), op.id)
+          for (const field of ['address', 'sudoPassword'] as const) {
+            const v = op.payload?.[field]
+            if (v !== undefined && typeof v !== 'string') {
+              return { status: 400, body: { error: `${field} must be a string` } }
+            }
+          }
+          const address = op.payload?.address?.trim()
+          const sudoPassword = op.payload?.sudoPassword
+          return start(() => manager.pairLink(op.id, {
+            ...(address ? { address } : {}),
+            ...(sudoPassword ? { sudoPassword } : {}),
+          }), op.id)
+        }
+
+        case 'laninfo': {
+          if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
+          return start(() => manager.lanInfo(op.id), op.id)
         }
 
         case 'defaults': {

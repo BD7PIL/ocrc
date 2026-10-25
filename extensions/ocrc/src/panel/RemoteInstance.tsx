@@ -71,7 +71,7 @@ interface InstanceRow {
 interface PlanDetail {
   reachable: boolean
   sshError?: string
-  inspected?: { uname?: string; glibc?: string; home?: string; ip?: string }
+  inspected?: { uname?: string; glibc?: string; home?: string; ips?: string[] }
   instancePort?: number
   runtime?: string
   app?: string
@@ -111,6 +111,21 @@ interface PairLink {
   link?: string
   expiresAt?: string
   url?: string
+  /** 点名 LAN 地址生成时可能缺 sudo：true = 面板要收一次密码重试（不存）。 */
+  needsSudo?: boolean
+  backend?: 'firewalld' | 'ufw' | 'none' | 'unknown'
+}
+
+/** 0.11.2 配对区的地址菜单数据：对端全部地址 + 逐地址控制端实测 + 防火墙真相。
+ *  只做菜单——选哪个地址是用户的按钮，不是这里的自动决策。 */
+interface LanInfo {
+  ok: boolean
+  detail?: string
+  port?: number
+  bind?: 'loopback' | 'lan'
+  addresses?: string[]
+  reachable?: Record<string, boolean>
+  firewall?: { backend: 'firewalld' | 'ufw' | 'none' | 'unknown'; portOpen: 'open' | 'closed' | 'unknown'; sudo: 'nopasswd' | 'needed' }
 }
 
 /** C5：控制端 vs 远程机器的配置差异 + 一次同步会做什么（同一个 plan 就是 apply 用的那份）。 */
@@ -411,6 +426,12 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
   const [confirmFor, setConfirmFor] = useState('')
   const [confirmUpgradeFor, setConfirmUpgradeFor] = useState('')
   const [pairFor, setPairFor] = useState<{ id: string; reply: PairLink } | null>(null)
+  /** 0.11.2：配对卡打开时取的地址菜单（bind=lan 才有内容）。 */
+  const [lanFor, setLanFor] = useState<{ id: string; info: LanInfo } | null>(null)
+  /** sudo 密码只活在组件状态里（内存），请求即用即弃，不进任何持久层。 */
+  const [sudoPw, setSudoPw] = useState('')
+  /** needsSudo 时记住是哪个地址被拦的——「放行并生成链接」重发它。 */
+  const [sudoRetryAddr, setSudoRetryAddr] = useState('')
   const [logFor, setLogFor] = useState<{ id: string; lines: string[]; peer?: PeerLogs } | null>(null)
   const [secretFor, setSecretFor] = useState<{ id: string; url: string; uiPassword: string } | null>(null)
   const [configFor, setConfigFor] = useState<{ id: string; diff: ConfigDiff } | null>(null)
@@ -656,10 +677,38 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
     await host.openUrl(reply.url)
   }, row.id)
 
-  const makePairLink = (id: string) => run(`pairlink:${id}`, async () => {
-    const reply = await op<PairLink>({ op: 'pairlink', id }, { id, label: '创建配对链接' })
-    setPairFor({ id, reply })
-  }, id)
+  /** 打开配对卡：bind=lan 先取地址菜单（每地址一行），loopback 直接生成控制端
+   *  转发链接——那是它唯一的正确候选。 */
+  const openPairing = (row: InstanceRow) => run(`paircard:${row.id}`, async () => {
+    setSudoPw('')
+    setSudoRetryAddr('')
+    setLanFor(null)
+    setPairFor({ id: row.id, reply: { ok: true, detail: '正在读地址与防火墙状态…' } })
+    if (row.bind !== 'lan') {
+      const reply = await op<PairLink>({ op: 'pairlink', id: row.id }, { id: row.id, label: '创建配对链接' })
+      setPairFor({ id: row.id, reply })
+      return
+    }
+    const info = await op<LanInfo>({ op: 'laninfo', id: row.id }, { id: row.id, label: '读地址' })
+    setLanFor({ id: row.id, info })
+    setPairFor({ id: row.id, reply: { ok: true, detail: info.ok && (info.addresses?.length ?? 0) > 0 ? '点哪个地址，链接的直连候选就是哪个；生成前会先实测并放行该地址的端口。' : (info.detail ?? '没拿到地址列表——仍可用控制端转发。') } })
+  }, row.id)
+
+  /** address 点名 LAN 直连候选（sudoPassword 需要时才带——即用即弃）。 */
+  const makePairLink = (id: string, opts?: { address?: string; sudoPassword?: string }) => run(
+    opts?.address ? `pairlink:${id}:${opts.address}` : `pairlink:${id}`,
+    async () => {
+      const reply = await op<PairLink>({ op: 'pairlink', id, payload: opts }, { id, label: '创建配对链接' })
+      setSudoPw('')
+      setSudoRetryAddr(reply.needsSudo && opts?.address ? opts.address : '')
+      setPairFor({ id, reply })
+      if (reply.needsSudo || reply.link) {
+        // 徽章要跟上刚发生的事（端口放行了/还差密码）。
+        void op<LanInfo>({ op: 'laninfo', id }).then((info) => setLanFor({ id, info })).catch(() => { /* 菜单留着旧数据也能用 */ })
+      }
+    },
+    id,
+  )
 
   const showLogs = (id: string) => run(`logs:${id}`, async () => {
     // 控制端转发日志是**本进程**的（同步取）；远程机器两份要一次 ssh（job 型）。
@@ -1054,8 +1103,8 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                   size="sm"
                   variant="outline"
                   label="创建配对链接"
-                  loading={busy[row.id] === `pairlink:${row.id}`}
-                  onClick={() => void makePairLink(row.id)}
+                  loading={busy[row.id] === `paircard:${row.id}` || busy[row.id] === `pairlink:${row.id}`}
+                  onClick={() => void openPairing(row)}
                 />
               ) : null}
               {provisioned ? (
@@ -1176,8 +1225,59 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
               <div className="oc-card">
                 <div className="oc-row oc-row-between">
                   <span className="oc-card-title">配对链接</span>
-                  <KitButton size="xs" variant="ghost" label="收起" onClick={() => setPairFor(null)} />
+                  <KitButton size="xs" variant="ghost" label="收起" onClick={() => { setPairFor(null); setLanFor(null) }} />
                 </div>
+                {/* 0.11.2 LAN 地址菜单：有多少个地址就给多少行，可达徽章是控制端实测。
+                    选哪个地址永远是用户的按钮——0.11.1 的“取 hostname -I 第一段”已废弃。 */}
+                {row.bind === 'lan' && !pairFor.reply.link ? (
+                  lanFor?.id === row.id && lanFor.info.ok && (lanFor.info.addresses?.length ?? 0) > 0 ? (
+                    <>
+                      <KitSeparator label="LAN 直连（点哪个地址，链接的直连候选就是哪个）" />
+                      {lanFor.info.addresses!.map((addr) => (
+                        <div key={addr} className="oc-row oc-row-between">
+                          <span className="oc-sm oc-sdk-mono">
+                            {`http://${addr}:${lanFor.info.port ?? row.instancePort}`}
+                            {lanFor.info.reachable?.[addr] === true
+                              ? '　✓ 端口可达'
+                              : <span className="oc-muted">　✗ 连不上（生成时会先放行端口）</span>}
+                          </span>
+                          <KitButton
+                            size="xs"
+                            variant="outline"
+                            label="生成此地址的配对链接"
+                            loading={busy[row.id] === `pairlink:${row.id}:${addr}`}
+                            onClick={() => void makePairLink(row.id, { address: addr, ...(sudoPw ? { sudoPassword: sudoPw } : {}) })}
+                          />
+                        </div>
+                      ))}
+                      {lanFor.info.firewall ? (
+                        <div className="oc-xs oc-muted">
+                          {`防火墙：${lanFor.info.firewall.backend === 'none' ? '未识别到 firewalld/ufw' : lanFor.info.firewall.backend}　·　端口 ${lanFor.info.port ?? row.instancePort} ${lanFor.info.firewall.portOpen === 'open' ? '已放行' : lanFor.info.firewall.portOpen === 'closed' ? '未放行' : '状态未知'}　·　sudo ${lanFor.info.firewall.sudo === 'nopasswd' ? '免密' : '需要密码'}`}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <KitSeparator label="LAN 直连" />
+                  )
+                ) : null}
+                {/* needsSudo：桥端探测到防火墙拦着且无免密 sudo——收一次密码重试，
+                    即用即弃（不落盘、不记住）。点上面的地址按钮即带密码重发。 */}
+                {pairFor.reply.needsSudo ? (
+                  <>
+                    <KitField label={`sudo 密码（${pairFor.reply.backend === 'ufw' ? 'ufw' : 'firewalld'} 放行用，用完即弃）`} value={sudoPw} password placeholder="对端登录用户的 sudo 密码" onChange={setSudoPw} />
+                    <div className="oc-row">
+                      <KitButton
+                        size="sm"
+                        label="放行并生成链接"
+                        loading={Object.keys(busy).some((k) => k.startsWith(`pairlink:${row.id}:`))}
+                        onClick={() => {
+                          const addr = lanFor?.id === row.id && sudoRetryAddr ? sudoRetryAddr : undefined
+                          if (addr) void makePairLink(row.id, { address: addr, sudoPassword: sudoPw })
+                        }}
+                      />
+                    </div>
+                  </>
+                ) : null}
                 <div className="oc-muted">{pairFor.reply.detail}</div>
                 {pairFor.reply.link ? (
                   <>
@@ -1221,14 +1321,14 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                         size="sm"
                         variant="ghost"
                         label="重新创建"
-                        loading={busy[row.id] === `pairlink:${row.id}`}
-                        onClick={() => void makePairLink(row.id)}
+                        loading={busy[row.id] === `paircard:${row.id}`}
+                        onClick={() => void openPairing(row)}
                       />
                     </div>
                   </>
-                ) : (
+                ) : !pairFor.reply.ok && !pairFor.reply.needsSudo ? (
                   <KitBanner tone="warning" title="没拿到链接" body={pairFor.reply.detail} />
-                )}
+                ) : null}
               </div>
             ) : null}
 
@@ -1491,7 +1591,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                 </div>
                 {planFor.reply.bind === 'lan' ? (
                   <div className="oc-xs oc-muted">
-                    {`访问范围：局域网直连（绑定 0.0.0.0${planFor.reply.inspected?.ip ? `，http://${planFor.reply.inspected.ip}:${planFor.reply.instancePort ?? ''}` : ''}）——UI 密码是唯一门（无 TLS），只在可信内网用`}
+                    {`访问范围：局域网直连（绑定 0.0.0.0${planFor.reply.inspected?.ips?.length ? `，${planFor.reply.inspected.ips.map((ip) => `http://${ip}:${planFor.reply.instancePort ?? ''}`).join(' / ')}` : ''}）——UI 密码是唯一门（无 TLS），只在可信内网用`}
                   </div>
                 ) : null}
                 {planFor.reply.egress ? (

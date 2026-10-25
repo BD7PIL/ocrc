@@ -43,7 +43,8 @@ ocrc remote up user@192.0.2.10 --open
 |---|---|---|
 | 状态 | `ocrc remote status [id]` | 对端引擎**路径与版本**、隧道 pid/重连次数、中继端口，以及**出口决定**（`对端直连` / `经控制端中继` + 原因）。冷进程里 status 会先探一次——出口是"决定"，不是内存里的开关 |
 | 出口策略 | `ocrc remote add … --egress auto\|relay\|direct` | `auto`（默认）探测对端：能自己出网就直连、不通才经控制端；`relay`/`direct` 强制。**有外网的对端不该被无脑拉进控制端**（2026-10-17 起为默认行为） |
-| 访问范围 | `ocrc remote add … --bind loopback\|lan`、`ocrc remote set <id> --bind …`（0.11.1） | `loopback`（默认）实例只听对端 127.0.0.1——一切访问走 ssh 隧道/官方 relay，不对外暴露；`lan` 实例听 0.0.0.0，对端局域网可直连 `http://<对端IP>:<实例端口>`。**lan = 显式 opt-in 的暴露面：单因子 UI 密码、无 TLS**，只在可信内网用；防火墙自行放行端口；plan 会连对端 IP 把这些一次说清；pairlink 自动带 LAN 候选。改动下次 up 生效 |
+| 访问范围 | `ocrc remote add … --bind loopback\|lan`、`ocrc remote set <id> --bind …`（0.11.1） | `loopback`（默认）实例只听对端 127.0.0.1——一切访问走 ssh 隧道/官方 relay，不对外暴露；`lan` 实例听 0.0.0.0，对端局域网可直连 `http://<对端IP>:<实例端口>`。**lan = 显式 opt-in 的暴露面：单因子 UI 密码、无 TLS**，只在可信内网用；plan 会连对端地址把暴露面一次说清。改动下次 up 生效 |
+| LAN 直连链接 + 防火墙 | `ocrc remote laninfo <id>`、`ocrc remote pairlink <id> --lan <地址>`、面板配对卡每地址按钮（0.11.2） | 对端有多少个地址（`hostname -I` 全量）配对卡就列多少行（逐地址控制端实测徽章）；**选哪个地址永远是用户的按钮/参数，不自动挑**（0.11.1 的"第一段"猜测已废弃）。`--lan` 生成前先实测并放行 `地址:实例端口`：闭集探测 firewalld/ufw/none/unknown（polkit 拒绝记 unknown 不猜），只放行实例端口这一条规则；缺 sudo 回 `needsSudo`，面板收一次密码（`sudo -S` 走 ssh stdin，不进 argv/不落盘/不记住）、CLI 终端补一次不回显密码或 stdin 喂一行；修不动就不出链接。放行后的端口保持开放；不碰 ssh/22 |
 | 官方 relay（配对远程访问） | 自动（无开关） | 实例是否担任 relay host 由 openchamber 自己管：`OPENCHAMBER_RELAY_HOST=off`（不被动 hosting）**只在「探测确认对端出不了网且没有 R9 代理」时注入**（0.11.1 条件化；此前无条件注入导致在线对端每次重拉 relay 全断——2026-10-24 事故，见 decisions）。面板「创建配对链接」/ app 里 enable relay 是显式动作，任何时候都能 force-claim |
 | 装机方式 | `ocrc remote add … --provision push\|reuse` | `push`（默认）推控制端备件；`reuse` **一个字节都不推**，只检查运行时/应用/引擎并把引擎 pin 下来，缺件就明确失败 |
 | 认证档 | `ocrc remote add … --ssh-auth key\|password` | `key`（默认）用本机 `~/.ssh` 与 agent；`password` 经 askpass 喂密码并**禁用公钥**（否则带口令的私钥会先被试，报的错与密码无关）。密码只落 0600 档案、接口不回显；省略 `--ssh-password` 时从终端（不回显）或 stdin 读 |

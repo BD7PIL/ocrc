@@ -10,13 +10,14 @@
 export {
   BIND_DEFAULT, DEFAULT_APP_VERSION, DEFAULT_ENGINE_PIN, DEFAULT_INSTANCE_PORT, DEFAULT_LOCAL_PORT,
   NODE_RUNTIME, PROXY_DEFAULTS, RECONNECT_DEFAULTS,
-  buildDesktopHandoff, buildForwardArgs, buildRelayForwardArgs, instanceIdFor, instancePaths,
-  judgeEngineCompat, normalizeEngineVersion, parseTerminalProbe, quoteRemotePath, redactInstance,
-  relayHostFor,
+  buildDesktopHandoff, buildFirewallPortCommand, buildFirewallProbeCommand, buildForwardArgs,
+  buildRelayForwardArgs, instanceIdFor, instancePaths, isLanAddress,
+  judgeEngineCompat, normalizeEngineVersion, parseFirewallProbe, parseTerminalProbe, quoteRemotePath,
+  redactInstance, relayHostFor,
 } from '../core/remote-instance.js'
 export type {
-  BindMode, DesktopHandoff, EngineCompatPayload, ForwardSpec, InstanceProxyConfig,
-  RemoteInstance, TerminalProbe,
+  BindMode, DesktopHandoff, EngineCompatPayload, FirewallBackend, FirewallState, ForwardSpec,
+  InstanceProxyConfig, PortState, RemoteInstance, SudoMode, TerminalProbe,
 } from '../core/remote-instance.js'
 
 export { createRemoteInstancesStore, remoteInstancesPath } from '../core/remote-instances.js'

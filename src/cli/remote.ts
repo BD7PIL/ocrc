@@ -94,9 +94,14 @@ USAGE:
   ocrc remote status [id]          状态（含对端引擎路径与版本）
   ocrc remote connect <id> [--json] [--open]
                                    三项读出（地址/UI 密码/端口）——浏览器/手动路径；装进官方 app 用 pairlink
-  ocrc remote pairlink <id> [--json] [--open]
+  ocrc remote pairlink <id> [--json] [--open] [--lan <地址>]
                                    向上游要一张配对链接（一次性；换每设备 token，可撤销无过期）
+                                   --lan：LAN 直连候选——点名对端的某个地址（多网卡一个一个来，
+                                          面板里有每地址按钮与实测徽章）；生成前先实测并放行
+                                          实例端口（需要 sudo 时终端补一次密码，即用即弃不进 argv）
                                    --open：拉起桌面版确认；确认后机器出现在「其他 OpenChamber 服务器」
+  ocrc remote laninfo <id>         配对区地址菜单（终端形态）：对端全部地址 + 逐地址可达实测
+                                   + 防火墙真相——选哪个地址是 pairlink --lan 的事
   ocrc remote config-diff <id> [--component <src>]... [--with-components]
                                    本地 vs 对端配置差异（两个方向）+ 一次同步会做什么（只读）
   ocrc remote sync-config <id> [--delete a,b] [--delete-key provider:x,mcp.servers:y] [--dry-run]
@@ -207,8 +212,15 @@ async function readSshPassword(flags: Map<string, string | true>): Promise<strin
     if (!piped.trim()) throw new Error('--ssh-auth password 需要密码：给 --ssh-password，或从 stdin 喂一行')
     return piped.trim()
   }
-  process.stdout.write('SSH 密码（不回显）：')
-  const pw = await new Promise<string>((resolve) => {
+  const pw = await promptHidden('SSH 密码')
+  if (!pw.trim()) throw new Error('密码为空——密码档需要非空密码')
+  return pw.trim()
+}
+
+/** 不回显读一行——sudo 密码这类即用即弃的凭据与 SSH 密码共用同一条纪律：
+ *  不进 argv（shell 历史 + ps 可见），TTY 无回显，管道喂一行。 */
+async function promptHidden(label: string): Promise<string> {
+  return new Promise<string>((resolve) => {
     const stdin = process.stdin
     const wasRaw = stdin.isRaw
     stdin.setRawMode?.(true)
@@ -235,9 +247,8 @@ async function readSshPassword(flags: Map<string, string | true>): Promise<strin
       }
     }
     stdin.on('data', onData)
+    process.stdout.write(`${label}（不回显）：`)
   })
-  if (!pw.trim()) throw new Error('密码为空——密码档需要非空密码')
-  return pw.trim()
 }
 
 function store() {
@@ -859,9 +870,23 @@ export async function main(argv: string[]): Promise<void> {
     // 上游的配对路径：对端自己的 CLI 发一张一次性链接，桌面版确认后换成**每设备**
     // 的 token（可撤销、无过期）——我们不存任何凭据，只保证链接里的 URL 可达
     // （转发 + 出网腿 + 监护），这正好是面板那个按钮调的东西。
+    // `--lan <地址>`（0.11.2）：点名 LAN 直连候选——桥端先实测并放行 `地址:端口`
+    // （缺 sudo 会回 needsSudo，这里补一次不回显的密码重试；密码即用即弃）。
     const instance = resolveInstance(args.slice(1), flags)
+    const lanAddress = flagStr(flags, 'lan')
     const m = manager()
-    const r = await m.pairLink(instance.id)
+    let r = await m.pairLink(instance.id, lanAddress ? { address: lanAddress } : {})
+    if (!r.ok && r.needsSudo) {
+      console.error(`需要 sudo：${r.detail}`)
+      const piped = process.stdin.isTTY ? null : (readFileSync(0, 'utf-8').split('\n')[0] ?? '')
+      const pw = piped !== null ? piped.trim() : await promptHidden('对端 sudo 密码')
+      if (!pw) {
+        console.error('FAIL 没给 sudo 密码——端口没放行，链接不生成')
+        m.dispose()
+        process.exit(1)
+      }
+      r = await m.pairLink(instance.id, { address: lanAddress, sudoPassword: pw })
+    }
     m.dispose()
     if (!r.ok) {
       console.error(`FAIL ${r.detail}`)
@@ -885,6 +910,27 @@ export async function main(argv: string[]): Promise<void> {
         console.log(`（打开失败：${(err as Error).message}——手动复制上面那行）`)
       }
     }
+    return
+  }
+
+  if (sub === 'laninfo') {
+    const instance = resolveInstance(args.slice(1), flags)
+    const m = manager()
+    const r = await m.lanInfo(instance.id)
+    m.dispose()
+    if (!r.ok) {
+      console.error(`FAIL ${r.detail}`)
+      process.exit(1)
+    }
+    if (flags.has('json')) {
+      console.log(JSON.stringify(r, null, 2))
+      return
+    }
+    for (const a of r.addresses ?? []) {
+      console.log(`${r.reachable?.[a] === true ? '✓' : '✗'} http://${a}:${r.port}　${r.reachable?.[a] === true ? '端口可达' : '连不上（pairlink --lan 会先放行端口）'}`)
+    }
+    if (r.firewall) console.log(`防火墙：${r.firewall.backend}　·　端口 ${r.port} ${r.firewall.portOpen}　·　sudo ${r.firewall.sudo}`)
+    console.log('（生成哪条链接选哪个地址：ocrc remote pairlink <id> --lan <地址>；面板里有每地址按钮）')
     return
   }
 

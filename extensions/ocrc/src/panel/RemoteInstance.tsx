@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { HostClient } from '@openchamber/sdk'
 import { networkLabel, stateLabel, tierLabel } from '../shared/instance-labels.js'
 import { buildFileTree, checkState, leafPaths, minCover, setSubtree, type TreeNode } from '../shared/file-tree.js'
@@ -219,6 +219,45 @@ interface ConsoleState {
 const clockOf = (at: number) => new Date(at).toLocaleTimeString([], { hour12: false })
 
 /**
+ * 一台服务器的**全部附属卡状态**（0.11.4 归属模型）：键 = 服务器 id，跨机互不影响。
+ * 此前这 15 个状态各是一个全局单例（`xxxFor: { id } | null`），只靠渲染 gate 归属到行——
+ * 三个真毛刺：同类卡跨机静默搬家；移除服务器不清卡（重加同 id 复活旧数据）；收起不清
+ * 子状态（树勾选/pullArmed/sudoPw 滞留）。归属模型一次治三个：键随服务器生灭。
+ */
+interface ServerCards {
+  plan?: { reply: PlanDetail }
+  /** 安装/升级/移除二次确认与详情展开（原 string-id 单例 → 本机 boolean）。 */
+  confirmInstall?: boolean
+  confirmUpgrade?: boolean
+  remove?: boolean
+  details?: boolean
+  pair?: { reply: PairLink }
+  lan?: { info: LanInfo }
+  lanClose?: { reply?: LanCloseReply }
+  secret?: { url: string; uiPassword: string }
+  config?: { diff: ConfigDiff }
+  syncResult?: string
+  /** 配置差异树的交互状态：住在 config 卡的名下，收起随卡消亡（下次打开重置）。 */
+  tree: {
+    checkedDeletes: Record<string, boolean>
+    checkedPush: Record<string, boolean>
+    directions: Record<string, boolean>
+    checkedPull: Record<string, boolean>
+    cfgExpanded: Record<string, boolean>
+    pullArmed: boolean
+  }
+  logs?: { lines: string[]; peer?: PeerLogs }
+  /** sudo 密码只活在内存（本机键下），请求即用即弃。 */
+  sudoPw?: string
+  sudoRetryAddr?: string
+  /** 操作台（原全局单例）——并行操作各看各的台，互不顶掉。键即归属，不再存 id。 */
+  console?: Omit<ConsoleState, 'id'>
+}
+
+const EMPTY_TREE = { checkedDeletes: {}, checkedPush: {}, directions: {}, checkedPull: {}, cfgExpanded: {}, pullArmed: false }
+const EMPTY_CARDS: ServerCards = { tree: EMPTY_TREE }
+
+/**
  * 差异树的一区（0.11）：目录行 = 折叠 + 名称 + 计数徽章（+ 忽略入口），叶子 =
  * 勾选 + 文件名。勾选级联（目录勾 = 整棵子树）；「两边不同」区每行另有方向
  * 切换（推/拉，目录级联）。展开默认：<50 个文件展开一层，否则全折叠。
@@ -431,38 +470,34 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState<FormState | null>(null)
   const [defaults, setDefaults] = useState<Defaults | null>(null)
-  const [planFor, setPlanFor] = useState<{ id: string; reply: PlanDetail } | null>(null)
-  const [confirmFor, setConfirmFor] = useState('')
-  const [confirmUpgradeFor, setConfirmUpgradeFor] = useState('')
-  const [pairFor, setPairFor] = useState<{ id: string; reply: PairLink } | null>(null)
-  /** 0.11.2：配对卡打开时取的地址菜单（bind=lan 才有内容）。 */
-  const [lanFor, setLanFor] = useState<{ id: string; info: LanInfo } | null>(null)
-  /** sudo 密码只活在组件状态里（内存），请求即用即弃，不进任何持久层。 */
-  const [sudoPw, setSudoPw] = useState('')
-  /** needsSudo 时记住是哪个地址被拦的——「放行并生成链接」重发它。 */
-  const [sudoRetryAddr, setSudoRetryAddr] = useState('')
-  /** 0.11.3：bind 拨回 loopback 后的端口收尾（保存表单时检测到 lan→loopback 才出现）。 */
-  const [lanCloseFor, setLanCloseFor] = useState<{ id: string; reply?: LanCloseReply } | null>(null)
-  const [logFor, setLogFor] = useState<{ id: string; lines: string[]; peer?: PeerLogs } | null>(null)
-  const [secretFor, setSecretFor] = useState<{ id: string; url: string; uiPassword: string } | null>(null)
-  const [configFor, setConfigFor] = useState<{ id: string; diff: ConfigDiff } | null>(null)
-  const [syncResult, setSyncResult] = useState('')
-  /** Which card has its 详情 expanded (one at a time — the point is less noise). */
-  const [detailsFor, setDetailsFor] = useState<string | null>(null)
-  /** 移除要二次确认：记录删掉之后这台机器就从列表里消失了。 */
-  const [removeFor, setRemoveFor] = useState('')
-  /** Deletions are opt-in per item: a peer-only file or key is never removed by
-   *  the diff itself (that would be a wipe wearing a sync's clothes). */
-  const [checkedDeletes, setCheckedDeletes] = useState<Record<string, boolean>>({})
-  /** 0.11 差异树：推勾选（默认全勾）、方向（默认推）、peerOnly 拉回勾选（默认不勾）、
-   *  折叠记忆与拉回的二次确认。都按叶子路径记，目录操作用 setSubtree 级联。 */
-  const [checkedPush, setCheckedPush] = useState<Record<string, boolean>>({})
-  const [directions, setDirections] = useState<Record<string, boolean>>({})
-  const [checkedPull, setCheckedPull] = useState<Record<string, boolean>>({})
-  const [cfgExpanded, setCfgExpanded] = useState<Record<string, boolean>>({})
-  const [pullArmed, setPullArmed] = useState(false)
-  /** 操作台：一次只有一个（同一台的后一个操作顶掉前一个已收尾的）。 */
-  const [consoleFor, setConsoleFor] = useState<ConsoleState | null>(null)
+  /** 归属模型（0.11.4）：每台服务器自己的全部附属卡状态。写一律走 patchCard（函数式
+   *  更新），读一律走 card(id)（缺省 EMPTY）——不再有 `xxxFor?.id === row.id` 的门牌。 */
+  const [cards, setCards] = useState<Record<string, ServerCards>>({})
+
+  const patchCard = useCallback((id: string, patch: Partial<ServerCards> | ((c: ServerCards) => Partial<ServerCards>)) => {
+    setCards((prev) => {
+      const cur = prev[id] ?? EMPTY_CARDS
+      const next = { ...cur, ...(typeof patch === 'function' ? patch(cur) : patch) }
+      if (!next.tree) next.tree = EMPTY_TREE
+      return { ...prev, [id]: next }
+    })
+  }, [])
+  const dropCard = useCallback((id: string) => {
+    setCards((prev) => {
+      if (!(id in prev)) return prev
+      const { [id]: _gone, ...rest } = prev
+      return rest
+    })
+  }, [])
+  /** 配置树的一组小写手（读写都落到本机 tree 里）。 */
+  const patchTree = useCallback((id: string, patch: Partial<ServerCards['tree']>) => {
+    setCards((prev) => {
+      const cur = prev[id] ?? EMPTY_CARDS
+      return { ...prev, [id]: { ...cur, tree: { ...cur.tree, ...patch } } }
+    })
+  }, [])
+  /** 读某台服务器的卡状态；没有就是 EMPTY（稳定引用，渲染 gate 用 `c.pair` 即可）。 */
+  const card = (id: string): ServerCards => cards[id] ?? EMPTY_CARDS
 
   const fetchRows = useCallback(async (): Promise<InstanceRow[]> => {
     const reply = await post<{ instances: InstanceRow[] }>(request, '/remote-instance', { op: 'list' })
@@ -474,11 +509,11 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
       const first = await post<{ jobId?: string } & T>(request, '/remote-instance', body)
       if (first && typeof (first as { jobId?: string }).jobId === 'string') {
         const jobId = (first as { jobId: string }).jobId
-        // 操作台：job 启动即展开；已在跑的操作不被顶掉（同一卡的串行操作由按钮态挡住，
-        // 不同卡互不影响）。阶段轨道从每次 tick 的列表实测里取状态迁移。
+        // 操作台：job 启动即展开（本机键下）；已在跑的操作不被顶掉（同一卡的串行操作
+        // 由按钮态挡住）。阶段轨道从每次 tick 的列表实测里取状态迁移。
         if (ctx) {
-          setConsoleFor((c) => (c && c.phase === 'running' ? c : {
-            id: ctx.id, label: ctx.label, jobId, startedAt: Date.now(), lines: [], phases: [], phase: 'running', chip: false,
+          patchCard(ctx.id, (c) => (c.console && c.console.phase === 'running' ? {} : {
+            console: { label: ctx.label, jobId, startedAt: Date.now(), lines: [], phases: [], phase: 'running', chip: false },
           }))
         }
         const deadline = Date.now() + 10 * 60_000
@@ -488,7 +523,8 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
           const reply = await post<{ job: { state: string; result?: T; error?: string }; logTail?: string[] }>(
             request, '/remote-instance', { op: 'job', jobId })
           if (ctx) {
-            setConsoleFor((c) => (c && c.jobId === jobId ? { ...c, lines: reply.logTail ?? c.lines } : c))
+            patchCard(ctx.id, (c) => (c.console && c.console.jobId === jobId
+              ? { console: { ...c.console, lines: reply.logTail ?? c.console.lines } } : {}))
             try {
               const rowsNow = await fetchRows()
               setRows(rowsNow)
@@ -498,22 +534,21 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                 if (label !== lastState) {
                   lastState = label
                   const at = Date.now()
-                  setConsoleFor((c) => (c && c.jobId === jobId && c.phase === 'running'
-                    ? { ...c, phases: [...c.phases, { text: label, at }] }
-                    : c))
+                  patchCard(ctx.id, (c) => (c.console && c.console.jobId === jobId && c.console.phase === 'running'
+                    ? { console: { ...c.console, phases: [...c.console.phases, { text: label, at }] } } : {}))
                 }
               }
             } catch { /* 列表读失败不影响 job 轮询本身 */ }
           }
           if (reply.job.state === 'done') {
             const result = reply.job.result as ({ ok?: boolean; detail?: string } | undefined)
-            setConsoleFor((c) => (c && c.jobId === jobId
-              ? { ...c, phase: 'done', ok: result?.ok !== false, summary: result?.detail } : c))
+            patchCard(ctx?.id ?? '', (c) => (c.console && c.console.jobId === jobId
+              ? { console: { ...c.console, phase: 'done', ok: result?.ok !== false, summary: result?.detail } } : {}))
             return reply.job.result as T
           }
           if (reply.job.state === 'error') {
-            setConsoleFor((c) => (c && c.jobId === jobId
-              ? { ...c, phase: 'error', ok: false, summary: reply.job.error ?? '操作失败' } : c))
+            patchCard(ctx?.id ?? '', (c) => (c.console && c.console.jobId === jobId
+              ? { console: { ...c.console, phase: 'error', ok: false, summary: reply.job.error ?? '操作失败' } } : {}))
             throw new Error(reply.job.error ?? '操作失败')
           }
         }
@@ -521,12 +556,23 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
       }
       return first as T
     },
-    [request, fetchRows],
+    [request, fetchRows, patchCard],
   )
 
   const refresh = useCallback(async () => {
     try {
-      setRows(await fetchRows())
+      const next = await fetchRows()
+      setRows(next)
+      // 归属清理（0.11.4）：服务器从列表消失（本机删/别处删/宿主删），它的全部卡
+      // 与子状态一并消亡——重加同 id 不再复活旧日志/旧差异/旧操作台。
+      setCards((prev) => {
+        const alive = new Set(next.map((r) => r.id))
+        const stale = Object.keys(prev).filter((id) => !alive.has(id))
+        if (!stale.length) return prev
+        const out = { ...prev }
+        for (const id of stale) delete out[id]
+        return out
+      })
       setError(null)
     } catch (err) {
       setError({ scope: 'page', message: (err as Error).message })
@@ -549,28 +595,39 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
     })
   }, [host, op])
 
-  // 成功 → 3 秒后收起成结果 chip；失败保持展开。
+  // 成功 → 3 秒后收起成结果 chip；失败保持展开。按机器签名依赖：哪台的台到了
+  // done，哪台的收 chip，别的卡不动。
+  const consoleSig = Object.values(cards).map((c) => (c.console ? `${c.console.phase}:${c.console.chip ? 1 : 0}` : '-')).join('|')
   useEffect(() => {
-    if (consoleFor?.phase !== 'done' || consoleFor.chip) return
-    const t = setTimeout(() => setConsoleFor((c) => (c && c.phase === 'done' ? { ...c, chip: true } : c)), 3_000)
+    const due = Object.entries(cards).filter(([, c]) => c.console?.phase === 'done' && !c.console.chip).map(([id]) => id)
+    if (!due.length) return
+    const t = setTimeout(() => {
+      for (const id of due) patchCard(id, (c) => (c.console && c.console.phase === 'done' ? { console: { ...c.console, chip: true } } : {}))
+    }, 3_000)
     return () => clearTimeout(t)
-  }, [consoleFor])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [consoleSig, patchCard])
 
-  // 「日志」打开期间 5 秒一轮询（实时快照）；收起即停。
+  // 「日志」打开期间 5 秒一轮询（实时快照）；收起即停。归属模型下多台可同时开着
+  // 日志卡——逐台拉，互不干扰。
+  const logSig = Object.entries(cards).filter(([, c]) => c.logs).map(([id]) => id).join('|')
   useEffect(() => {
-    const id = logFor?.id
-    if (!id) return
+    const ids = logSig ? logSig.split('|') : []
+    if (!ids.length) return
     const timer = setInterval(() => {
       void (async () => {
-        try {
-          const lines = await op<{ lines: string[] }>({ op: 'logs', id, tail: 80 })
-          const peer = await op<PeerLogs>({ op: 'peerlog', id, lines: 60 })
-          setLogFor((cur) => (cur && cur.id === id ? { id, lines: lines.lines ?? [], peer } : cur))
-        } catch { /* 一次轮询失败保持上次内容，下一轮再试 */ }
+        for (const id of ids) {
+          try {
+            const lines = await op<{ lines: string[] }>({ op: 'logs', id, tail: 80 })
+            const peer = await op<PeerLogs>({ op: 'peerlog', id, lines: 60 })
+            patchCard(id, (cur) => (cur.logs ? { logs: { lines: lines.lines ?? [], peer } } : {}))
+          } catch { /* 一次轮询失败保持上次内容，下一轮再试 */ }
+        }
       })()
     }, 5_000)
     return () => clearInterval(timer)
-  }, [logFor?.id, op])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [logSig, op, patchCard])
 
   const run = async (label: string, fn: () => Promise<unknown>, scope = 'page') => {
     setBusy((b) => ({ ...b, [scope]: label }))
@@ -646,38 +703,33 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
     else await op({ op: 'add', payload })
     // 0.11.3：lan → loopback 时防火墙规则不会自己消失——摆出收尾卡（含关闭按钮）。
     const prev = form.id ? rows.find((r) => r.id === form.id) : undefined
-    setLanCloseFor(form.id && prev?.bind === 'lan' && form.bind !== 'lan' ? { id: form.id } : null)
+    if (form.id && prev?.bind === 'lan' && form.bind !== 'lan') patchCard(form.id, { lanClose: {} })
     setForm(null)
   }, form?.id ?? 'page')
 
   /** 收回此前为实例端口开的防火墙规则（needsSudo 时带一次密码重试，即用即弃）。 */
   const closeLanPort = (id: string, sudoPassword?: string) => run(`lanclose:${id}`, async () => {
     const reply = await op<LanCloseReply>({ op: 'lanclose', id, payload: sudoPassword ? { sudoPassword } : undefined }, { id, label: '关闭 LAN 端口' })
-    setSudoPw('')
-    setLanCloseFor({ id, reply })
+    patchCard(id, { sudoPw: '', lanClose: { reply } })
   }, id)
 
   const plan = (id: string) => run(`plan:${id}`, async () => {
     const reply = await op<PlanDetail>({ op: 'plan', id }, { id, label: '检查更新' })
-    setPlanFor({ id, reply })
-    setConfirmFor('')
-    setConfirmUpgradeFor('')
+    patchCard(id, { plan: { reply }, confirmInstall: false, confirmUpgrade: false })
   }, id)
 
   const applyNow = (row: InstanceRow) => run(`apply:${row.id}`, async () => {
     const r = await op<{ ok: boolean; detail: string }>({ op: 'apply', id: row.id, payload: { confirm: true } }, { id: row.id, label: '安装' })
     // ok:false 过去被静默丢弃（只有徽章小字）——现在就是这张卡该喊出来的错误。
     if (r && r.ok === false) throw new Error(r.detail || '安装未通过')
-    setConfirmFor('')
-    setPlanFor(null)
+    patchCard(row.id, { confirmInstall: false, plan: undefined })
   }, row.id)
 
   const upgradeNow = (row: InstanceRow, to: string) => run(`upgrade:${row.id}`, async () => {
     const r = await op<{ ok: boolean; detail: string } & { from?: string; to?: string }>(
       { op: 'upgrade', id: row.id, payload: { to } }, { id: row.id, label: `升级到 ${to}` })
     if (r && r.ok === false) throw new Error(r.detail || '升级未通过')
-    setConfirmUpgradeFor('')
-    setPlanFor(null)
+    patchCard(row.id, { confirmUpgrade: false, plan: undefined })
   }, row.id)
 
   const upNow = (id: string) => run(`up:${id}`, async () => {
@@ -699,20 +751,19 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
   }, row.id)
 
   /** 打开配对卡：bind=lan 先取地址菜单（每地址一行），loopback 直接生成控制端
-   *  转发链接——那是它唯一的正确候选。 */
+   *  转发链接——那是它唯一的正确候选。开卡顺手清本机的 sudo 残留与旧地址菜单。 */
   const openPairing = (row: InstanceRow) => run(`paircard:${row.id}`, async () => {
-    setSudoPw('')
-    setSudoRetryAddr('')
-    setLanFor(null)
-    setPairFor({ id: row.id, reply: { ok: true, detail: '正在读地址与防火墙状态…' } })
+    patchCard(row.id, { sudoPw: '', sudoRetryAddr: '', lan: undefined, pair: { reply: { ok: true, detail: '正在读地址与防火墙状态…' } } })
     if (row.bind !== 'lan') {
       const reply = await op<PairLink>({ op: 'pairlink', id: row.id }, { id: row.id, label: '创建配对链接' })
-      setPairFor({ id: row.id, reply })
+      patchCard(row.id, { pair: { reply } })
       return
     }
     const info = await op<LanInfo>({ op: 'laninfo', id: row.id }, { id: row.id, label: '读地址' })
-    setLanFor({ id: row.id, info })
-    setPairFor({ id: row.id, reply: { ok: true, detail: info.ok && (info.addresses?.length ?? 0) > 0 ? '点哪个地址，链接的直连候选就是哪个；生成前会先实测并放行该地址的端口。' : (info.detail ?? '没拿到地址列表——仍可用控制端转发。') } })
+    patchCard(row.id, {
+      lan: { info },
+      pair: { reply: { ok: true, detail: info.ok && (info.addresses?.length ?? 0) > 0 ? '点哪个地址，链接的直连候选就是哪个；生成前会先实测并放行该地址的端口。' : (info.detail ?? '没拿到地址列表——仍可用控制端转发。') } },
+    })
   }, row.id)
 
   /** address 点名 LAN 直连候选（sudoPassword 需要时才带——即用即弃）。 */
@@ -720,12 +771,10 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
     opts?.address ? `pairlink:${id}:${opts.address}` : `pairlink:${id}`,
     async () => {
       const reply = await op<PairLink>({ op: 'pairlink', id, payload: opts }, { id, label: '创建配对链接' })
-      setSudoPw('')
-      setSudoRetryAddr(reply.needsSudo && opts?.address ? opts.address : '')
-      setPairFor({ id, reply })
+      patchCard(id, { sudoPw: '', sudoRetryAddr: reply.needsSudo && opts?.address ? opts.address : '', pair: { reply } })
       if (reply.needsSudo || reply.link) {
         // 徽章要跟上刚发生的事（端口放行了/还差密码）。
-        void op<LanInfo>({ op: 'laninfo', id }).then((info) => setLanFor({ id, info })).catch(() => { /* 菜单留着旧数据也能用 */ })
+        void op<LanInfo>({ op: 'laninfo', id }).then((info) => patchCard(id, { lan: { info } })).catch(() => { /* 菜单留着旧数据也能用 */ })
       }
     },
     id,
@@ -735,91 +784,78 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
     // 控制端转发日志是**本进程**的（同步取）；远程机器两份要一次 ssh（job 型）。
     const reply = await op<{ lines: string[] }>({ op: 'logs', id, tail: 80 })
     const peer = await op<PeerLogs>({ op: 'peerlog', id, lines: 60 })
-    setLogFor({ id, lines: reply.lines ?? [], peer })
+    patchCard(id, { logs: { lines: reply.lines ?? [], peer } })
   }, id)
 
   const showSecret = (id: string) => run(`secret:${id}`, async () => {
     const reply = await op<{ uiPassword: string; url: string }>({ op: 'uipassword', id })
-    setSecretFor({ id, ...reply })
+    patchCard(id, { secret: { url: reply.url, uiPassword: reply.uiPassword } })
   }, id)
 
   const showConfigDiff = (id: string) => run(`configdiff:${id}`, async () => {
     const diff = await op<ConfigDiff>({ op: 'configdiff', id })
-    setConfigFor({ id, diff })
-    setCheckedDeletes({})
-    setCheckedPush({})
-    setDirections({})
-    setCheckedPull({})
-    setCfgExpanded({})
-    setPullArmed(false)
-    setSyncResult('')
+    // 打开即重置本机树状态（勾选/方向/折叠/拉回武装）——收起时它们已经随卡清掉了，
+    // 这里是「同一张卡重开」的兜底。
+    patchCard(id, { config: { diff }, syncResult: '', tree: { ...EMPTY_TREE } })
   }, id)
 
-  /** 三棵区域树（会推/两边不同/只在远程）从 diff 派生；ignore 变了 diff 会刷新，
-   *  消失的叶子连同覆盖项一起自然失效。 */
-  const cfgTrees = useMemo(() => configFor ? {
-    add: buildFileTree(configFor.diff.add),
-    change: buildFileTree(configFor.diff.change),
-    peer: buildFileTree(configFor.diff.peerOnly),
-    changePush: buildFileTree(configFor.diff.change.filter((rel) => directions[rel] !== true)),
-    changePull: buildFileTree(configFor.diff.change.filter((rel) => directions[rel] === true)),
-  } : null, [configFor, directions])
-  const cfgDefaultOpen = useMemo(() => {
-    if (!configFor) return false
-    return configFor.diff.add.length + configFor.diff.change.length + configFor.diff.peerOnly.length < 50
-  }, [configFor])
-
-  /** 推送的最小覆盖：会推区（默认全勾）+ 两边不同里方向=推且勾着的。 */
-  const pushSelection = (): string[] => {
-    if (!cfgTrees) return []
-    return [...minCover(cfgTrees.add, checkedPush, true), ...minCover(cfgTrees.changePush, checkedPush, true)]
+  /** 三棵区域树 + 推/拉最小覆盖 + 覆盖数：全部从**本机**的 config 卡状态派生。
+   *  纯函数（模块级），渲染时每行算自己的——不再有全局 memo。 */
+  function cfgViews(c: ServerCards) {
+    if (!c.config) return null
+    const t = c.tree
+    const trees = {
+      add: buildFileTree(c.config.diff.add),
+      change: buildFileTree(c.config.diff.change),
+      peer: buildFileTree(c.config.diff.peerOnly),
+      changePush: buildFileTree(c.config.diff.change.filter((rel) => t.directions[rel] !== true)),
+      changePull: buildFileTree(c.config.diff.change.filter((rel) => t.directions[rel] === true)),
+    }
+    return {
+      trees,
+      defaultOpen: c.config.diff.add.length + c.config.diff.change.length + c.config.diff.peerOnly.length < 50,
+      push: [...minCover(trees.add, t.checkedPush, true), ...minCover(trees.changePush, t.checkedPush, true)],
+      pull: [...minCover(trees.changePull, t.checkedPush, true), ...minCover(trees.peer, t.checkedPull, false)],
+      overwrite: leafPaths(trees.changePull).filter((rel) => t.checkedPush[rel] ?? true).length,
+    }
   }
-  /** 拉回的最小覆盖：两边不同里方向=拉且勾着的（覆盖前快照）+ 只在远程里勾着拉的（零冲突）。 */
-  const pullSelection = (): string[] => {
-    if (!cfgTrees) return []
-    return [...minCover(cfgTrees.changePull, checkedPush, true), ...minCover(cfgTrees.peer, checkedPull, false)]
-  }
-  const pushCount = pushSelection().length
-  const pullCount = pullSelection().length
-  const overwriteCount = cfgTrees ? leafPaths(cfgTrees.changePull).filter((rel) => checkedPush[rel] ?? true).length : 0
 
   const syncConfigNow = (id: string, dryRun: boolean) => run(`${dryRun ? 'dryrun' : 'syncconfig'}:${id}`, async () => {
-    const deletes = Object.entries(checkedDeletes).filter(([k, v]) => v && k.startsWith('file:')).map(([k]) => k.slice(5))
-    const keyDeletes = Object.entries(checkedDeletes).filter(([k, v]) => v && k.startsWith('key:')).map(([k]) => k.slice(4))
+    const c0 = card(id)
+    const deletes = Object.entries(c0.tree.checkedDeletes).filter(([k, v]) => v && k.startsWith('file:')).map(([k]) => k.slice(5))
+    const keyDeletes = Object.entries(c0.tree.checkedDeletes).filter(([k, v]) => v && k.startsWith('key:')).map(([k]) => k.slice(4))
     // 树勾选的终端形态：`only` 用最小覆盖（目录整勾发目录，桥端按前缀展开）。
     // 空数组也是有效选择（只推合并后的配置文档）。
-    const only = pushSelection()
+    const views = cfgViews(c0)
+    const only = views ? views.push : []
     const r = await op<{ ok: boolean; detail: string }>({ op: 'syncconfig', id, payload: { deletes, keyDeletes, only, dryRun } }, { id, label: dryRun ? '同步配置（试运行）' : '同步配置' })
-    setSyncResult(`${r.ok ? 'OK' : 'FAIL'} ${r.detail}`)
     const diff = await op<ConfigDiff>({ op: 'configdiff', id })
-    setConfigFor({ id, diff })
+    patchCard(id, { syncResult: `${r.ok ? 'OK' : 'FAIL'} ${r.detail}`, config: { diff } })
   }, id)
 
   const pullNow = (id: string, dryRun: boolean) => run(`${dryRun ? 'pulldry' : 'pullfiles'}:${id}`, async () => {
-    const paths = pullSelection()
+    const paths = cfgViews(card(id))?.pull ?? []
     if (paths.length === 0) return
     const r = await op<{ ok: boolean; detail: string }>({ op: 'pullfiles', id, payload: { paths, dryRun } }, { id, label: dryRun ? '拉回（试运行）' : '拉回所选' })
-    setSyncResult(`${r.ok ? 'OK' : 'FAIL'} ${r.detail}`)
-    setPullArmed(false)
     const diff = await op<ConfigDiff>({ op: 'configdiff', id })
-    setConfigFor({ id, diff })
+    patchCard(id, { syncResult: `${r.ok ? 'OK' : 'FAIL'} ${r.detail}`, config: { diff }, tree: { ...card(id).tree, pullArmed: false } })
   }, id)
 
   const ignorePattern = (id: string, pattern: string) => run(`ignore:${id}`, async () => {
     await op({ op: 'ignoreadd', id, payload: { pattern } })
     const diff = await op<ConfigDiff>({ op: 'configdiff', id })
-    setConfigFor({ id, diff })
+    patchCard(id, { config: { diff } })
   }, id)
 
   const unignorePattern = (id: string, pattern: string) => run(`unignore:${id}`, async () => {
     await op({ op: 'ignoreremove', id, payload: { pattern } })
     const diff = await op<ConfigDiff>({ op: 'configdiff', id })
-    setConfigFor({ id, diff })
+    patchCard(id, { config: { diff } })
   }, id)
 
   const syncAuthNow = (id: string) => run(`syncauth:${id}`, async () => {
     const r = await op<{ ok: boolean; detail: string }>({ op: 'syncauth', id }, { id, label: '同步凭据' })
-    setSyncResult(`${r.ok ? 'OK' : 'FAIL'} ${r.detail}`)
+    patchCard(id, { syncResult: `${r.ok ? 'OK' : 'FAIL'} ${r.detail}` })
   }, id)
 
   const copy = async (label: string, text: string, scope = 'page') => {
@@ -994,9 +1030,10 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
         // 「装过没有」只看一件事：有没有探测到 OpenCode。在线本身就是证据。
         const provisioned = Boolean(st?.engine) || isUp
         const address = `${row.user ? `${row.user}@` : ''}${row.host}:${row.port}`
-        const isPlan = planFor?.id === row.id
+        const c = card(row.id)
+        const cfg = cfgViews(c)
         /** 检查结果里的渠道最新优先（更新鲜），否则用挂载时取的那份。 */
-        const planLatest = isPlan && planFor && planFor.reply.latestPack && 'version' in planFor.reply.latestPack ? planFor.reply.latestPack.version : channelLatest
+        const planLatest = c.plan && c.plan.reply.latestPack && 'version' in c.plan.reply.latestPack ? c.plan.reply.latestPack.version : channelLatest
         const upgradeTo = provisioned && planLatest && planLatest !== row.appVersion ? planLatest : undefined
         /** 裁决之二：引擎也跟渠道——已装 OpenCode 比 npm 渠道最新旧时提示（真决策在 upgrade 里，只升不降）。 */
         const engineUpgradeTo = provisioned && isNewerEngine(channelEngineLatest, st?.engine?.version) ? channelEngineLatest : undefined
@@ -1042,25 +1079,25 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
               </div>
             ) : null}
 
-            {/* ④ 操作台（job 运行时自动展开；成功收起成 chip）。 */}
-            {consoleFor && consoleFor.id === row.id && !consoleFor.chip ? (
+            {/* ④ 操作台（job 运行时自动展开；成功收起成 chip）——本机自己的。 */}
+            {c.console && !c.console.chip ? (
               <OperationConsole
-                state={consoleFor}
-                onCollapse={() => setConsoleFor((c) => (c ? { ...c, chip: true } : c))}
+                state={{ ...c.console, id: row.id }}
+                onCollapse={() => patchCard(row.id, (cur) => (cur.console ? { console: { ...cur.console, chip: true } } : {}))}
                 onCopyLogs={() => {
-                  void copy(`copylog:${row.id}`, consoleFor.lines.join('\n'), row.id)
+                  void copy(`copylog:${row.id}`, c.console!.lines.join('\n'), row.id)
                 }}
               />
             ) : null}
-            {consoleFor && consoleFor.id === row.id && consoleFor.chip && consoleFor.phase !== 'running' ? (
+            {c.console && c.console.chip && c.console.phase !== 'running' ? (
               <button
                 type="button"
                 className="oc-result-chip"
-                data-ok={consoleFor.ok === true ? 'true' : 'false'}
-                onClick={() => setConsoleFor((c) => (c ? { ...c, chip: false } : c))}
+                data-ok={c.console.ok === true ? 'true' : 'false'}
+                onClick={() => patchCard(row.id, (cur) => (cur.console ? { console: { ...cur.console, chip: false } } : {}))}
               >
-                {consoleFor.ok === false ? <KitIcon name="close" size={10} /> : <KitIcon name="check" size={10} />}
-                <span className="oc-truncate">{`${consoleFor.label}：${consoleFor.summary ?? (consoleFor.ok === false ? '失败' : '完成')}`}</span>
+                {c.console.ok === false ? <KitIcon name="close" size={10} /> : <KitIcon name="check" size={10} />}
+                <span className="oc-truncate">{`${c.console.label}：${c.console.summary ?? (c.console.ok === false ? '失败' : '完成')}`}</span>
               </button>
             ) : null}
 
@@ -1082,7 +1119,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                   size="sm"
                   label={`升级到 ${upgradeTo}`}
                   loading={busy[row.id] === `upgrade:${row.id}`}
-                  onClick={() => { setConfirmUpgradeFor((c) => (c === row.id ? '' : row.id)); setConfirmFor('') }}
+                  onClick={() => patchCard(row.id, { confirmUpgrade: !c.confirmUpgrade, confirmInstall: false })}
                 />
               ) : (
                 <KitButton
@@ -1153,19 +1190,19 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                   if (id === 'configdiff') void showConfigDiff(row.id)
                   else if (id === 'secret') void showSecret(row.id)
                   else if (id === 'edit') openForm(row)
-                  else if (id === 'remove') setRemoveFor(row.id)
+                  else if (id === 'remove') patchCard(row.id, { remove: true })
                 }}
               />
               <KitButton
                 size="xs"
                 variant="ghost"
-                label={detailsFor === row.id ? '收起详情' : '详情 ▾'}
-                onClick={() => setDetailsFor(detailsFor === row.id ? null : row.id)}
+                label={c.details ? '收起详情' : '详情 ▾'}
+                onClick={() => patchCard(row.id, { details: !c.details })}
               />
             </div>
 
             {/* 升级确认（写盘 + 重启实例，PRODUCT 零点四的一次显式确认）。 */}
-            {confirmUpgradeFor === row.id && upgradeTo ? (
+            {c.confirmUpgrade && upgradeTo ? (
               <div className="oc-col">
                 <KitBanner
                   tone="warning"
@@ -1179,13 +1216,13 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                     loading={busy[row.id] === `upgrade:${row.id}`}
                     onClick={() => void upgradeNow(row, upgradeTo)}
                   />
-                  <KitButton size="sm" variant="ghost" label="取消" onClick={() => setConfirmUpgradeFor('')} />
+                  <KitButton size="sm" variant="ghost" label="取消" onClick={() => patchCard(row.id, { confirmUpgrade: false })} />
                 </div>
               </div>
             ) : null}
 
             {/* 移除是破坏性动作：先问一次（菜单里点出来，这里确认）。 */}
-            {removeFor === row.id ? (
+            {c.remove ? (
               <div className="oc-col">
                 <KitBanner
                   tone="warning"
@@ -1200,16 +1237,17 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                     loading={busy[row.id] === `delete:${row.id}`}
                     onClick={() => void run(`delete:${row.id}`, async () => {
                       await op({ op: 'delete', id: row.id })
-                      setRemoveFor('')
+                      // 归属清理：这条服务器的全部卡与子状态（含 console 残留）即刻消亡。
+                      dropCard(row.id)
                     }, row.id)}
                   />
-                  <KitButton size="sm" variant="ghost" label="取消" onClick={() => setRemoveFor('')} />
+                  <KitButton size="sm" variant="ghost" label="取消" onClick={() => patchCard(row.id, { remove: false })} />
                 </div>
               </div>
             ) : null}
 
             {/* ⑥ 详情：事实 + 两个开关（配置项，不是动作）。 */}
-            {detailsFor === row.id ? (
+            {c.details ? (
               <div className="oc-col">
                 <div className="oc-xs oc-muted">{`端口：远程 ${row.instancePort} → 本机 ${row.localPort}（${row.bind === 'lan' ? '绑定 0.0.0.0，对局域网暴露' : '仅绑定远程 127.0.0.1'}）`}</div>
                 {st?.engine ? <div className="oc-xs oc-muted oc-sdk-mono">{`OpenCode：${st.engine.path}`}</div> : null}
@@ -1239,17 +1277,18 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
               </div>
             ) : null}
 
-            {/* 动作结果（同步/升级）就贴在这一行下面：卡片可能没打开，结果不能只活在卡片里。 */}
-            {syncResult ? <div className="oc-xs oc-sdk-mono">{syncResult}</div> : null}
+            {/* 动作结果（同步/拉回/凭据）贴在本行下面：归属模型下它只属于这台机器——
+                顺带修掉旧模型的漏渲染（syncResult 曾不按行 gating，出现在每一行下面）。 */}
+            {c.syncResult ? <div className="oc-xs oc-sdk-mono">{c.syncResult}</div> : null}
 
             {/* 0.11.3 bind 拨回 loopback 的端口收尾：规则不会自己消失，摆出关闭通道。 */}
-            {lanCloseFor?.id === row.id ? (
+            {c.lanClose ? (
               <div className="oc-card">
                 <div className="oc-row oc-row-between">
                   <span className="oc-card-title">LAN 端口收尾</span>
-                  <KitButton size="xs" variant="ghost" label="收起" onClick={() => setLanCloseFor(null)} />
+                  <KitButton size="xs" variant="ghost" label="收起" onClick={() => patchCard(row.id, { lanClose: undefined })} />
                 </div>
-                {!lanCloseFor.reply ? (
+                {!c.lanClose.reply ? (
                   <>
                     <div className="oc-muted oc-sm">
                       {`访问范围已改回「仅本机转发」，但远程机器防火墙里为实例端口 ${row.instancePort}/tcp 开的规则还在——点下面收回（只动这一条规则，不碰别的；实例监听要重启才回到 127.0.0.1）。`}
@@ -1267,19 +1306,19 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                 ) : (
                   <>
                     <KitBanner
-                      tone={lanCloseFor.reply.ok ? 'success' : 'warning'}
-                      title={lanCloseFor.reply.ok ? (lanCloseFor.reply.changed ? '端口规则已收回' : '无事可做') : '没收回'}
-                      body={lanCloseFor.reply.detail}
+                      tone={c.lanClose.reply.ok ? 'success' : 'warning'}
+                      title={c.lanClose.reply.ok ? (c.lanClose.reply.changed ? '端口规则已收回' : '无事可做') : '没收回'}
+                      body={c.lanClose.reply.detail}
                     />
-                    {lanCloseFor.reply.needsSudo ? (
+                    {c.lanClose.reply.needsSudo ? (
                       <>
-                        <KitField label={`sudo 密码（${lanCloseFor.reply.backend === 'ufw' ? 'ufw' : 'firewalld'} 收回规则用，用完即弃）`} value={sudoPw} password placeholder="对端登录用户的 sudo 密码" onChange={setSudoPw} />
+                        <KitField label={`sudo 密码（${c.lanClose.reply.backend === 'ufw' ? 'ufw' : 'firewalld'} 收回规则用，用完即弃）`} value={c.sudoPw ?? ''} password placeholder="对端登录用户的 sudo 密码" onChange={(v) => patchCard(row.id, { sudoPw: v })} />
                         <div className="oc-row">
                           <KitButton
                             size="sm"
                             label="收回端口规则"
                             loading={busy[row.id] === `lanclose:${row.id}`}
-                            onClick={() => void closeLanPort(row.id, sudoPw)}
+                            onClick={() => void closeLanPort(row.id, c.sudoPw)}
                           />
                         </div>
                       </>
@@ -1289,23 +1328,23 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
               </div>
             ) : null}
 
-            {pairFor?.id === row.id ? (
+            {c.pair ? (
               <div className="oc-card">
                 <div className="oc-row oc-row-between">
                   <span className="oc-card-title">配对链接</span>
-                  <KitButton size="xs" variant="ghost" label="收起" onClick={() => { setPairFor(null); setLanFor(null) }} />
+                  <KitButton size="xs" variant="ghost" label="收起" onClick={() => patchCard(row.id, { pair: undefined, lan: undefined, sudoPw: '', sudoRetryAddr: '' })} />
                 </div>
                 {/* 0.11.2 LAN 地址菜单：有多少个地址就给多少行，可达徽章是控制端实测。
                     选哪个地址永远是用户的按钮——0.11.1 的“取 hostname -I 第一段”已废弃。 */}
-                {row.bind === 'lan' && !pairFor.reply.link ? (
-                  lanFor?.id === row.id && lanFor.info.ok && (lanFor.info.addresses?.length ?? 0) > 0 ? (
+                {row.bind === 'lan' && !c.pair.reply.link ? (
+                  c.lan && c.lan.info.ok && (c.lan.info.addresses?.length ?? 0) > 0 ? (
                     <>
                       <KitSeparator label="LAN 直连（点哪个地址，链接的直连候选就是哪个）" />
-                      {lanFor.info.addresses!.map((addr) => (
+                      {c.lan.info.addresses!.map((addr) => (
                         <div key={addr} className="oc-row oc-row-between">
                           <span className="oc-sm oc-sdk-mono">
-                            {`http://${addr}:${lanFor.info.port ?? row.instancePort}`}
-                            {lanFor.info.reachable?.[addr] === true
+                            {`http://${addr}:${c.lan!.info.port ?? row.instancePort}`}
+                            {c.lan!.info.reachable?.[addr] === true
                               ? '　✓ 端口可达'
                               : <span className="oc-muted">　✗ 连不上（生成时会先放行端口）</span>}
                           </span>
@@ -1314,13 +1353,13 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                             variant="outline"
                             label="生成此地址的配对链接"
                             loading={busy[row.id] === `pairlink:${row.id}:${addr}`}
-                            onClick={() => void makePairLink(row.id, { address: addr, ...(sudoPw ? { sudoPassword: sudoPw } : {}) })}
+                            onClick={() => void makePairLink(row.id, { address: addr, ...(c.sudoPw ? { sudoPassword: c.sudoPw } : {}) })}
                           />
                         </div>
                       ))}
-                      {lanFor.info.firewall ? (
+                      {c.lan.info.firewall ? (
                         <div className="oc-xs oc-muted">
-                          {`防火墙：${lanFor.info.firewall.backend === 'none' ? '未识别到 firewalld/ufw' : lanFor.info.firewall.backend}　·　端口 ${lanFor.info.port ?? row.instancePort} ${lanFor.info.firewall.portOpen === 'open' ? '已放行' : lanFor.info.firewall.portOpen === 'closed' ? '未放行' : '状态未知'}　·　sudo ${lanFor.info.firewall.sudo === 'nopasswd' ? '免密' : '需要密码'}`}
+                          {`防火墙：${c.lan.info.firewall.backend === 'none' ? '未识别到 firewalld/ufw' : c.lan.info.firewall.backend}　·　端口 ${c.lan.info.port ?? row.instancePort} ${c.lan.info.firewall.portOpen === 'open' ? '已放行' : c.lan.info.firewall.portOpen === 'closed' ? '未放行' : '状态未知'}　·　sudo ${c.lan.info.firewall.sudo === 'nopasswd' ? '免密' : '需要密码'}`}
                         </div>
                       ) : null}
                     </>
@@ -1330,26 +1369,25 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                 ) : null}
                 {/* needsSudo：桥端探测到防火墙拦着且无免密 sudo——收一次密码重试，
                     即用即弃（不落盘、不记住）。点上面的地址按钮即带密码重发。 */}
-                {pairFor.reply.needsSudo ? (
+                {c.pair.reply.needsSudo ? (
                   <>
-                    <KitField label={`sudo 密码（${pairFor.reply.backend === 'ufw' ? 'ufw' : 'firewalld'} 放行用，用完即弃）`} value={sudoPw} password placeholder="对端登录用户的 sudo 密码" onChange={setSudoPw} />
+                    <KitField label={`sudo 密码（${c.pair.reply.backend === 'ufw' ? 'ufw' : 'firewalld'} 放行用，用完即弃）`} value={c.sudoPw ?? ''} password placeholder="对端登录用户的 sudo 密码" onChange={(v) => patchCard(row.id, { sudoPw: v })} />
                     <div className="oc-row">
                       <KitButton
                         size="sm"
                         label="放行并生成链接"
                         loading={Object.keys(busy).some((k) => k.startsWith(`pairlink:${row.id}:`))}
                         onClick={() => {
-                          const addr = lanFor?.id === row.id && sudoRetryAddr ? sudoRetryAddr : undefined
-                          if (addr) void makePairLink(row.id, { address: addr, sudoPassword: sudoPw })
+                          if (c.sudoRetryAddr) void makePairLink(row.id, { address: c.sudoRetryAddr, sudoPassword: c.sudoPw })
                         }}
                       />
                     </div>
                   </>
                 ) : null}
-                <div className="oc-muted">{pairFor.reply.detail}</div>
-                {pairFor.reply.link ? (
+                <div className="oc-muted">{c.pair.reply.detail}</div>
+                {c.pair.reply.link ? (
                   <>
-                    <pre className="oc-pre">{pairFor.reply.link}</pre>
+                    <pre className="oc-pre">{c.pair.reply.link}</pre>
                     {/* 这里**不能**用「在 app 里打开」：宿主对 open-url 的载荷做 http(s)
                         校验（`case"open-url": … : ks(id, "URL must be http or https.")`，
                         attach / start-session 共用同一个校验），`openchamber://` 深链永远
@@ -1358,7 +1396,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                       复制这条链接，到桌面 app 的服务器列表里点「导入链接」粘贴并确认——
                       确认后这台机器出现在「其他 OpenChamber 服务器」，每设备一个 token
                       （可撤销、无过期），我们不存任何凭据。
-                      {pairFor.reply.expiresAt ? `链接有效期至 ${pairFor.reply.expiresAt}。` : ''}
+                      {c.pair.reply.expiresAt ? `链接有效期至 ${c.pair.reply.expiresAt}。` : ''}
                     </div>
                     <div className="oc-row">
                       <KitButton
@@ -1366,7 +1404,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                         label="复制链接"
                         loading={busy[row.id] === `copy:${row.id}`}
                         onClick={() => void run(`copy:${row.id}`, async () => {
-                          const link = pairFor.reply.link as string
+                          const link = c.pair!.reply.link as string
                           await copy(`copy:${row.id}`, link, row.id)
                           // toast 自己带一个 Copy（宿主的 `copy` 字段）：剪贴板写入失败时
                           // 用户还有第二次机会，而且"去哪儿粘"这句话在这一刻出现在眼前。
@@ -1394,52 +1432,52 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                       />
                     </div>
                   </>
-                ) : !pairFor.reply.ok && !pairFor.reply.needsSudo ? (
-                  <KitBanner tone="warning" title="没拿到链接" body={pairFor.reply.detail} />
+                ) : !c.pair.reply.ok && !c.pair.reply.needsSudo ? (
+                  <KitBanner tone="warning" title="没拿到链接" body={c.pair.reply.detail} />
                 ) : null}
               </div>
             ) : null}
 
-            {secretFor?.id === row.id ? (
+            {c.secret ? (
               <div className="oc-card">
                 <div className="oc-row oc-row-between">
                   <span className="oc-card-title">界面密码（只在控制端本地）</span>
-                  <KitButton size="xs" variant="ghost" label="收起" onClick={() => setSecretFor(null)} />
+                  <KitButton size="xs" variant="ghost" label="收起" onClick={() => patchCard(row.id, { secret: undefined })} />
                 </div>
-                <pre className="oc-pre">{`${secretFor.url}\n${secretFor.uiPassword}`}</pre>
+                <pre className="oc-pre">{`${c.secret.url}\n${c.secret.uiPassword}`}</pre>
                 <div className="oc-row">
                   <KitButton
                     size="sm"
                     variant="outline"
                     label="复制"
-                    onClick={() => void copy(`copysecret:${row.id}`, `${secretFor.url}\n${secretFor.uiPassword}`, row.id)}
+                    onClick={() => void copy(`copysecret:${row.id}`, `${c.secret!.url}\n${c.secret!.uiPassword}`, row.id)}
                   />
                 </div>
               </div>
             ) : null}
 
-            {configFor?.id === row.id && cfgTrees ? (
+            {c.config && cfg ? (
               <div className="oc-card">
                 <div className="oc-row oc-row-between">
                   <span className="oc-card-title">配置差异（控制端 ↔ 远程机器的 ~/.config/opencode）</span>
-                  <KitButton size="xs" variant="ghost" label="收起" onClick={() => setConfigFor(null)} />
+                  <KitButton size="xs" variant="ghost" label="收起" onClick={() => patchCard(row.id, { config: undefined, syncResult: undefined, tree: { ...EMPTY_TREE } })} />
                 </div>
-                {configFor.diff.peerError ? <KitBanner tone="error" title="读远程机器失败" body={configFor.diff.peerError} /> : null}
+                {c.config.diff.peerError ? <KitBanner tone="error" title="读远程机器失败" body={c.config.diff.peerError} /> : null}
                 {/* 先给结论：这一卡最该先看到的是"会写几个 / 拉回几个"。 */}
                 <div className="oc-muted">
-                  {`推送 ${pushCount} 个文件${configFor.diff.plan.configChanged ? ` + 配置文档 ${configFor.diff.plan.basename}` : ''}　·　拉回 ${pullCount} 个${overwriteCount > 0 ? `（其中 ${overwriteCount} 个覆盖本机，先快照）` : ''}`}
+                  {`推送 ${cfg.push.length} 个文件${c.config.diff.plan.configChanged ? ` + 配置文档 ${c.config.diff.plan.basename}` : ''}　·　拉回 ${cfg.pull.length} 个${cfg.overwrite > 0 ? `（其中 ${cfg.overwrite} 个覆盖本机，先快照）` : ''}`}
                 </div>
 
                 <KitSeparator label="差异" />
                 <div className="oc-xs oc-muted">
-                  {`只在控制端${configFor.diff.add.length}　·　两边不同${configFor.diff.change.length}　·　两边相同${configFor.diff.same.length}　·　只在远程机器${configFor.diff.peerOnly.length}　·　算不出哈希${configFor.diff.unknown.length}（读不到内容，不当作相同）`}
+                  {`只在控制端${c.config.diff.add.length}　·　两边不同${c.config.diff.change.length}　·　两边相同${c.config.diff.same.length}　·　只在远程机器${c.config.diff.peerOnly.length}　·　算不出哈希${c.config.diff.unknown.length}（读不到内容，不当作相同）`}
                 </div>
-                <div className="oc-xs oc-muted">{`控制端配置目录：${configFor.diff.localDir}`}</div>
+                <div className="oc-xs oc-muted">{`控制端配置目录：${c.config.diff.localDir}`}</div>
 
-                {configFor.diff.ignore.patterns.length > 0 ? (
+                {c.config.diff.ignore.patterns.length > 0 ? (
                   <div className="oc-row oc-row-nowrap">
-                    <span className="oc-xs oc-muted">忽略表（已滤 {configFor.diff.ignore.filtered} 个）：</span>
-                    {configFor.diff.ignore.patterns.map((p) => (
+                    <span className="oc-xs oc-muted">忽略表（已滤 {c.config.diff.ignore.filtered} 个）：</span>
+                    {c.config.diff.ignore.patterns.map((p) => (
                       <span key={p} className="oc-row oc-row-nowrap">
                         <span className="oc-xs oc-sdk-mono">{p}</span>
                         <button type="button" className="oc-tree-caret" title={`移除忽略规则 ${p}`} onClick={() => void unignorePattern(row.id, p)}>
@@ -1450,110 +1488,110 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                   </div>
                 ) : null}
 
-                {configFor.diff.add.length > 0 ? (
+                {c.config.diff.add.length > 0 ? (
                   <>
                     <div className="oc-xs oc-muted">只在控制端（勾选 = 推过去；目录勾选级联）：</div>
                     <DiffTree
-                      tree={cfgTrees.add}
+                      tree={cfg.trees.add}
                       region="add"
                       depth={0}
-                      defaultOpen={cfgDefaultOpen}
-                      expanded={cfgExpanded}
-                      toggleExpanded={(p) => setCfgExpanded((prev) => ({ ...prev, [`add:${p}`]: !(prev[`add:${p}`] ?? true) }))}
-                      overrides={checkedPush}
+                      defaultOpen={cfg.defaultOpen}
+                      expanded={c.tree.cfgExpanded}
+                      toggleExpanded={(p) => patchTree(row.id, { cfgExpanded: { ...c.tree.cfgExpanded, [`add:${p}`]: !(c.tree.cfgExpanded[`add:${p}`] ?? true) } })}
+                      overrides={c.tree.checkedPush}
                       defaultOn
-                      onCheck={(node, v) => setCheckedPush((prev) => setSubtree(node, { ...prev }, v))}
+                      onCheck={(node, v) => patchTree(row.id, { checkedPush: setSubtree(node, { ...c.tree.checkedPush }, v) })}
                       onIgnore={(dir) => void ignorePattern(row.id, `${dir}/`)}
                     />
                   </>
                 ) : null}
 
-                {configFor.diff.change.length > 0 ? (
+                {c.config.diff.change.length > 0 ? (
                   <>
                     <div className="oc-xs oc-muted">两边不同（勾选参与，行内「推/拉」选方向：推=控制端为准，拉=对端为准）：</div>
                     <DiffTree
-                      tree={cfgTrees.change}
+                      tree={cfg.trees.change}
                       region="change"
                       depth={0}
-                      defaultOpen={cfgDefaultOpen}
-                      expanded={cfgExpanded}
-                      toggleExpanded={(p) => setCfgExpanded((prev) => ({ ...prev, [`change:${p}`]: !(prev[`change:${p}`] ?? true) }))}
-                      overrides={checkedPush}
+                      defaultOpen={cfg.defaultOpen}
+                      expanded={c.tree.cfgExpanded}
+                      toggleExpanded={(p) => patchTree(row.id, { cfgExpanded: { ...c.tree.cfgExpanded, [`change:${p}`]: !(c.tree.cfgExpanded[`change:${p}`] ?? true) } })}
+                      overrides={c.tree.checkedPush}
                       defaultOn
-                      onCheck={(node, v) => setCheckedPush((prev) => setSubtree(node, { ...prev }, v))}
-                      directions={directions}
-                      onDirection={(node, pull) => setDirections((prev) => setSubtree(node, { ...prev }, pull))}
+                      onCheck={(node, v) => patchTree(row.id, { checkedPush: setSubtree(node, { ...c.tree.checkedPush }, v) })}
+                      directions={c.tree.directions}
+                      onDirection={(node, pull) => patchTree(row.id, { directions: setSubtree(node, { ...c.tree.directions }, pull) })}
                       onIgnore={(dir) => void ignorePattern(row.id, `${dir}/`)}
                     />
                   </>
                 ) : null}
 
-                {configFor.diff.peerOnly.length > 0 ? (
+                {c.config.diff.peerOnly.length > 0 ? (
                   <>
                     <div className="oc-xs oc-muted">只在远程机器（勾「拉回」= 拉回本机，零冲突不覆盖；勾「删」= 同步时删掉，旧件留 .ocrc-bak）：</div>
                     <DiffTree
-                      tree={cfgTrees.peer}
+                      tree={cfg.trees.peer}
                       region="peer"
                       depth={0}
-                      defaultOpen={cfgDefaultOpen}
-                      expanded={cfgExpanded}
-                      toggleExpanded={(p) => setCfgExpanded((prev) => ({ ...prev, [`peer:${p}`]: !(prev[`peer:${p}`] ?? true) }))}
-                      overrides={checkedPull}
+                      defaultOpen={cfg.defaultOpen}
+                      expanded={c.tree.cfgExpanded}
+                      toggleExpanded={(p) => patchTree(row.id, { cfgExpanded: { ...c.tree.cfgExpanded, [`peer:${p}`]: !(c.tree.cfgExpanded[`peer:${p}`] ?? true) } })}
+                      overrides={c.tree.checkedPull}
                       defaultOn={false}
-                      onCheck={(node, v) => setCheckedPull((prev) => setSubtree(node, { ...prev }, v))}
+                      onCheck={(node, v) => patchTree(row.id, { checkedPull: setSubtree(node, { ...c.tree.checkedPull }, v) })}
                       extraLabel="删"
-                      extraOverrides={checkedDeletes}
-                      onExtra={(node, v) => setCheckedDeletes((prev) => setSubtree(node, { ...prev }, v))}
+                      extraOverrides={c.tree.checkedDeletes}
+                      onExtra={(node, v) => patchTree(row.id, { checkedDeletes: setSubtree(node, { ...c.tree.checkedDeletes }, v) })}
                       onIgnore={(dir) => void ignorePattern(row.id, `${dir}/`)}
                     />
                   </>
                 ) : null}
 
-                {configFor.diff.unknown.length > 0 ? (
-                  <pre className="oc-pre">{configFor.diff.unknown.map((f) => `? ${f}`).join('\n')}</pre>
+                {c.config.diff.unknown.length > 0 ? (
+                  <pre className="oc-pre">{c.config.diff.unknown.map((f) => `? ${f}`).join('\n')}</pre>
                 ) : null}
 
                 <KitSeparator label="同步会做什么" />
                 <div className="oc-xs oc-muted">
-                  {`配置文档：${configFor.diff.plan.configChanged ? `会改（写远程 ${configFor.diff.plan.basename}）` : '无变化'}　·　凭据 auth.json：控制端 ${configFor.diff.auth.local ? '有' : '无'}，远程 ${configFor.diff.auth.peer ? '有' : '无'}`}
+                  {`配置文档：${c.config.diff.plan.configChanged ? `会改（写远程 ${c.config.diff.plan.basename}）` : '无变化'}　·　凭据 auth.json：控制端 ${c.config.diff.auth.local ? '有' : '无'}，远程 ${c.config.diff.auth.peer ? '有' : '无'}`}
                 </div>
-                {configFor.diff.plan.shadowed.length > 0 ? (
+                {c.config.diff.plan.shadowed.length > 0 ? (
                   <KitBanner
                     tone="warning"
                     title="会被远程覆盖层压住的键"
-                    body={`${configFor.diff.plan.shadowed.join('、')}——远程的 jsonc 是更高优先层，同步后这些键仍按它的值生效。`}
+                    body={`${c.config.diff.plan.shadowed.join('、')}——远程的 jsonc 是更高优先层，同步后这些键仍按它的值生效。`}
                   />
                 ) : null}
 
                 {/* 配置项删除必须显式勾选：diff 只负责提出候选。 */}
-                {configFor.diff.plan.keyDeleteCandidates.length > 0 ? (
+                {c.config.diff.plan.keyDeleteCandidates.length > 0 ? (
                   <>
                     <KitSeparator label="配置项删除（勾选才会删）" />
                     <div className="oc-col">
-                      {configFor.diff.plan.keyDeleteCandidates.map((c) => (
+                      {c.config.diff.plan.keyDeleteCandidates.map((kc) => (
                         <KitSwitch
-                          key={`key:${c.collection}:${c.key}`}
-                          label={`配置项 ${c.collection}:${c.key}`}
-                          checked={checkedDeletes[`key:${c.collection}:${c.key}`] === true}
-                          onChange={(v) => setCheckedDeletes((prev) => ({ ...prev, [`key:${c.collection}:${c.key}`]: v }))}
+                          key={`key:${kc.collection}:${kc.key}`}
+                          label={`配置项 ${kc.collection}:${kc.key}`}
+                          checked={c.tree.checkedDeletes[`key:${kc.collection}:${kc.key}`] === true}
+                          onChange={(v) => patchTree(row.id, { checkedDeletes: { ...c.tree.checkedDeletes, [`key:${kc.collection}:${kc.key}`]: v } })}
                         />
                       ))}
                     </div>
                   </>
                 ) : null}
 
-                {configFor.diff.plan.notes.length > 0 ? (
+                {c.config.diff.plan.notes.length > 0 ? (
                   <>
                     <KitSeparator label="说明" />
                     <div className="oc-col">
-                      {configFor.diff.plan.notes.map((n, i) => (
+                      {c.config.diff.plan.notes.map((n, i) => (
                         <div key={String(i)} className="oc-xs oc-muted">{`· ${n}`}</div>
                       ))}
                     </div>
                   </>
                 ) : null}
                 <KitSeparator label="动作" />
-                {syncResult ? <div className="oc-xs oc-sdk-mono">{syncResult}</div> : null}
+                {c.syncResult ? <div className="oc-xs oc-sdk-mono">{c.syncResult}</div> : null}
                 <div className="oc-row">
                   <KitButton
                     size="sm"
@@ -1564,8 +1602,8 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                   />
                   <KitButton
                     size="sm"
-                    label={`同步配置（推 ${pushCount}）`}
-                    disabled={pushCount === 0 && !configFor.diff.plan.configChanged}
+                    label={`同步配置（推 ${cfg.push.length}）`}
+                    disabled={cfg.push.length === 0 && !c.config.diff.plan.configChanged}
                     loading={busy[row.id] === `syncconfig:${row.id}`}
                     onClick={() => void syncConfigNow(row.id, false)}
                   />
@@ -1582,27 +1620,27 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                     size="sm"
                     variant="outline"
                     label="试运行拉取"
-                    disabled={pullCount === 0}
+                    disabled={cfg.pull.length === 0}
                     loading={busy[row.id] === `pulldry:${row.id}`}
                     onClick={() => void pullNow(row.id, true)}
                   />
-                  {pullArmed && pullCount > 0 ? (
+                  {c.tree.pullArmed && cfg.pull.length > 0 ? (
                     <>
                       <KitButton
                         size="sm"
-                        label={`确认拉回 ${pullCount} 个${overwriteCount > 0 ? `（覆盖本机 ${overwriteCount} 个，先快照）` : ''}`}
+                        label={`确认拉回 ${cfg.pull.length} 个${cfg.overwrite > 0 ? `（覆盖本机 ${cfg.overwrite} 个，先快照）` : ''}`}
                         loading={busy[row.id] === `pullfiles:${row.id}`}
                         onClick={() => void pullNow(row.id, false)}
                       />
-                      <KitButton size="sm" variant="ghost" label="取消" onClick={() => setPullArmed(false)} />
+                      <KitButton size="sm" variant="ghost" label="取消" onClick={() => patchTree(row.id, { pullArmed: false })} />
                     </>
                   ) : (
                     <KitButton
                       size="sm"
                       variant="outline"
-                      label={`拉回所选（${pullCount}）`}
-                      disabled={pullCount === 0}
-                      onClick={() => (overwriteCount > 0 ? setPullArmed(true) : void pullNow(row.id, false))}
+                      label={`拉回所选（${cfg.pull.length}）`}
+                      disabled={cfg.pull.length === 0}
+                      onClick={() => (cfg.overwrite > 0 ? patchTree(row.id, { pullArmed: true }) : void pullNow(row.id, false))}
                     />
                   )}
                 </div>
@@ -1612,93 +1650,93 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
               </div>
             ) : null}
 
-            {logFor?.id === row.id ? (
+            {c.logs ? (
               <div className="oc-card">
                 <div className="oc-row oc-row-between">
                   <span className="oc-card-title">日志（三处：控制端转发 / 远程实例 / 远程机器的 OpenChamber）</span>
-                  <KitButton size="xs" variant="ghost" label="收起" onClick={() => setLogFor(null)} />
+                  <KitButton size="xs" variant="ghost" label="收起" onClick={() => patchCard(row.id, { logs: undefined })} />
                 </div>
                 <div className="oc-xs oc-muted">实时刷新中 · 每 5 秒自动重取；收起即停。</div>
-                {logFor.peer && !logFor.peer.ok ? (
-                  <KitBanner tone="warning" title="取远程日志失败" body={logFor.peer.error ?? '原因未知'} />
+                {c.logs.peer && !c.logs.peer.ok ? (
+                  <KitBanner tone="warning" title="取远程日志失败" body={c.logs.peer.error ?? '原因未知'} />
                 ) : null}
                 <KitSeparator label="控制端转发（本进程，尾 80 行）" />
-                <pre className="oc-pre">{logFor.lines.length ? logFor.lines.join('\n') : '（空）'}</pre>
-                {logFor.peer ? (
+                <pre className="oc-pre">{c.logs.lines.length ? c.logs.lines.join('\n') : '（空）'}</pre>
+                {c.logs.peer ? (
                   <>
-                    <KitSeparator label={`远程实例日志 · ${logFor.peer.paths.instance || '路径未知'}`} />
-                    <pre className="oc-pre">{logFor.peer.instance.length ? logFor.peer.instance.join('\n') : '（空——实例可能没起过）'}</pre>
-                    <KitSeparator label={`远程机器的 OpenChamber 日志 · ${logFor.peer.paths.app || '路径未知'}`} />
-                    <pre className="oc-pre">{logFor.peer.app.length ? logFor.peer.app.join('\n') : '（空）'}</pre>
+                    <KitSeparator label={`远程实例日志 · ${c.logs.peer.paths.instance || '路径未知'}`} />
+                    <pre className="oc-pre">{c.logs.peer.instance.length ? c.logs.peer.instance.join('\n') : '（空——实例可能没起过）'}</pre>
+                    <KitSeparator label={`远程机器的 OpenChamber 日志 · ${c.logs.peer.paths.app || '路径未知'}`} />
+                    <pre className="oc-pre">{c.logs.peer.app.length ? c.logs.peer.app.join('\n') : '（空）'}</pre>
                   </>
                 ) : null}
               </div>
             ) : null}
 
             {/* ⑦ 检查结果：plan 只读预演的结论 + 安装/升级入口（确认门槛在下面）。 */}
-            {isPlan && planFor ? (
+            {c.plan ? (
               <div className="oc-card">
                 <div className="oc-row oc-row-between">
                   <span className="oc-card-title">检查结果（只读，不写远程机器）</span>
-                  <KitButton size="xs" variant="ghost" label="收起" onClick={() => setPlanFor(null)} />
+                  <KitButton size="xs" variant="ghost" label="收起" onClick={() => patchCard(row.id, { plan: undefined })} />
                 </div>
                 <div className="oc-muted">
-                  {planFor.reply.reachable
-                    ? `${planFor.reply.inspected?.uname ?? '?'} · glibc ${planFor.reply.inspected?.glibc ?? '?'} · HOME=${planFor.reply.inspected?.home ?? '?'}`
-                    : `ssh 不可达：${planFor.reply.sshError ?? '未知原因'}`}
+                  {c.plan.reply.reachable
+                    ? `${c.plan.reply.inspected?.uname ?? '?'} · glibc ${c.plan.reply.inspected?.glibc ?? '?'} · HOME=${c.plan.reply.inspected?.home ?? '?'}`
+                    : `ssh 不可达：${c.plan.reply.sshError ?? '未知原因'}`}
                 </div>
-                <div className="oc-muted">{`运行时：${planFor.reply.runtime ?? '缺失（会推送）'}`}</div>
-                <div className="oc-muted">{`OpenChamber：${planFor.reply.app ?? '缺失（会推送）'}${planFor.reply.liveApp ? `（正在跑的实例自报 ${planFor.reply.liveApp}）` : ''}`}</div>
+                <div className="oc-muted">{`运行时：${c.plan.reply.runtime ?? '缺失（会推送）'}`}</div>
+                <div className="oc-muted">{`OpenChamber：${c.plan.reply.app ?? '缺失（会推送）'}${c.plan.reply.liveApp ? `（正在跑的实例自报 ${c.plan.reply.liveApp}）` : ''}`}</div>
                 <div className="oc-muted">
-                  {planFor.reply.engine
-                    ? `OpenCode：${planFor.reply.engine.path} → ${planFor.reply.engine.version}`
+                  {c.plan.reply.engine
+                    ? `OpenCode：${c.plan.reply.engine.path} → ${c.plan.reply.engine.version}`
                     : 'OpenCode：不满足 v2 门禁'}
                 </div>
                 <div className="oc-xs oc-muted">
-                  {`兼容档：${tierLabel(planFor.reply.tier)}（按 glibc ${planFor.reply.inspected?.glibc ?? '?'}）　·　安装方式：${planFor.reply.provision === 'reuse' ? '复用已安装（不推字节）' : '推送安装'}`}
+                  {`兼容档：${tierLabel(c.plan.reply.tier)}（按 glibc ${c.plan.reply.inspected?.glibc ?? '?'}）　·　安装方式：${c.plan.reply.provision === 'reuse' ? '复用已安装（不推字节）' : '推送安装'}`}
                 </div>
-                {planFor.reply.bind === 'lan' ? (
+                {c.plan.reply.bind === 'lan' ? (
                   <div className="oc-xs oc-muted">
-                    {`访问范围：局域网直连（绑定 0.0.0.0${planFor.reply.inspected?.ips?.length ? `，${planFor.reply.inspected.ips.map((ip) => `http://${ip}:${planFor.reply.instancePort ?? ''}`).join(' / ')}` : ''}）——UI 密码是唯一门（无 TLS），只在可信内网用`}
+                    {`访问范围：局域网直连（绑定 0.0.0.0${c.plan!.reply.inspected?.ips?.length ? `，${c.plan!.reply.inspected.ips.map((ip) => `http://${ip}:${c.plan!.reply.instancePort ?? ''}`).join(' / ')}` : ''}）——UI 密码是唯一门（无 TLS），只在可信内网用`}
                   </div>
                 ) : null}
-                {planFor.reply.egress ? (
+                {c.plan.reply.egress ? (
                   <div className="oc-xs oc-muted">
-                    {`网络：${planFor.reply.egress.relay ? '经本机转发' : '直连'}（策略 ${planFor.reply.egress.mode}${planFor.reply.egress.probe ? `，探测 ${planFor.reply.egress.probe}` : ''}：${planFor.reply.egress.reason}）`}
+                    {`网络：${c.plan.reply.egress.relay ? '经本机转发' : '直连'}（策略 ${c.plan.reply.egress.mode}${c.plan.reply.egress.probe ? `，探测 ${c.plan.reply.egress.probe}` : ''}：${c.plan.reply.egress.reason}）`}
                   </div>
                 ) : null}
-                {planFor.reply.latestPack && 'error' in planFor.reply.latestPack ? (
-                  <div className="oc-xs oc-muted">{`渠道最新：查不到（${planFor.reply.latestPack.error}）`}</div>
+                {c.plan.reply.latestPack && 'error' in c.plan.reply.latestPack ? (
+                  <div className="oc-xs oc-muted">{`渠道最新：查不到（${c.plan.reply.latestPack.error}）`}</div>
                 ) : null}
-                {planFor.reply.auth ? (
+                {c.plan.reply.auth ? (
                   <div className="oc-xs oc-muted">
-                    {planFor.reply.auth.sync === 'match'
+                    {c.plan.reply.auth.sync === 'match'
                       ? '凭据：与控制端一致。'
-                      : planFor.reply.auth.sync === 'drift'
-                        ? `凭据：不一致（${planFor.reply.auth.reason ?? '引擎里是旧凭据'}）——「同步凭据」可对齐，引擎运行时立即生效。`
-                        : `凭据：未定（${planFor.reply.auth.reason ?? '探测失败'}）。`}
+                      : c.plan.reply.auth.sync === 'drift'
+                        ? `凭据：不一致（${c.plan.reply.auth.reason ?? '引擎里是旧凭据'}）——「同步凭据」可对齐，引擎运行时立即生效。`
+                        : `凭据：未定（${c.plan.reply.auth.reason ?? '探测失败'}）。`}
                   </div>
                 ) : null}
-                {planFor.reply.engineCandidates.length > 0 ? (
+                {c.plan.reply.engineCandidates.length > 0 ? (
                   <div className="oc-col">
-                    {planFor.reply.engineCandidates.map((c) => (
-                      <div key={c.path} className="oc-xs oc-muted">{`· ${c.raw || '（版本未知）'} · ${c.path}`}</div>
+                    {c.plan.reply.engineCandidates.map((ec) => (
+                      <div key={ec.path} className="oc-xs oc-muted">{`· ${ec.raw || '（版本未知）'} · ${ec.path}`}</div>
                     ))}
                   </div>
                 ) : null}
-                {planFor.reply.engineError ? <KitBanner tone="warning" title="OpenCode 门禁" body={planFor.reply.engineError} /> : null}
+                {c.plan.reply.engineError ? <KitBanner tone="warning" title="OpenCode 门禁" body={c.plan.reply.engineError} /> : null}
                 <div className="oc-muted">将要做的：</div>
                 {/* 不用 KitList：它的 `row-lead` 是 64px 定宽列，动作清单会变成
                     "标记在最左、文字在右边很远" 的坏表格。这里就是几行文字。 */}
                 <div className="oc-col">
-                  {planFor.reply.actions.map((a, i) => (
+                  {c.plan.reply.actions.map((a, i) => (
                     <div key={String(i)} className={a.startsWith('FAIL') ? 'oc-xs oc-err' : 'oc-xs oc-muted'}>
                       {`${a.startsWith('FAIL') ? '!' : '·'} ${a}`}
                     </div>
                   ))}
                 </div>
                 <KitSeparator />
-                {confirmFor === row.id ? (
+                {c.confirmInstall ? (
                   <div className="oc-row">
                     <span className="oc-muted">会在远程机器写盘（旧文件留 .ocrc-bak）——确认继续？</span>
                     <KitButton
@@ -1707,16 +1745,16 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                       loading={busy[row.id] === `apply:${row.id}`}
                       onClick={() => void applyNow(row)}
                     />
-                    <KitButton size="sm" variant="ghost" label="取消" onClick={() => setConfirmFor('')} />
+                    <KitButton size="sm" variant="ghost" label="取消" onClick={() => patchCard(row.id, { confirmInstall: false })} />
                   </div>
                 ) : (
                   <div className="oc-row">
                     <KitButton
                       size="sm"
                       variant={upgradeTo ? 'outline' : 'default'}
-                      label={planFor.reply.provision === 'reuse' ? '检查（复用已安装：不写远程机器）' : `安装到远程机器（OpenChamber ${row.appVersion}）`}
-                      disabled={!planFor.reply.reachable}
-                      onClick={() => setConfirmFor(row.id)}
+                      label={c.plan.reply.provision === 'reuse' ? '检查（复用已安装：不写远程机器）' : `安装到远程机器（OpenChamber ${row.appVersion}）`}
+                      disabled={!c.plan.reply.reachable}
+                      onClick={() => patchCard(row.id, { confirmInstall: true, confirmUpgrade: false })}
                     />
                   </div>
                 )}

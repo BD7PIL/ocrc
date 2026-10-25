@@ -56,7 +56,7 @@ const STOPPED = {
 
 const DEFAULTS = {
   localPort: 4612, instancePort: 2610, appVersion: '2.3.3', enginePin: '2.0.27',
-  nodeRuntime: '24.22.0', bind: '127.0.0.1', taken: [4610],
+  nodeRuntime: '24.22.0', taken: [4610],
 }
 
 const PLAN = {
@@ -186,7 +186,7 @@ describe('远程服务器卡片', () => {
     await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
     await waitFor(() => expect(screen.getByText('EL7 box')).toBeTruthy())
     await act(async () => { screen.getByText('详情 ▾').click() })
-    await waitFor(() => expect(screen.getByText('端口：远程 2610 → 本机 4610（绑定 127.0.0.1）')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('端口：远程 2610 → 本机 4610（仅绑定远程 127.0.0.1）')).toBeTruthy())
     expect(screen.getByText('OpenCode：/home/user/.ocrc/remote/engine/opencode')).toBeTruthy()
     expect(screen.getByText('运行时：node v24.22.0')).toBeTruthy()
     expect(screen.getByText('本机转发：:4711 → :2711')).toBeTruthy()
@@ -307,10 +307,10 @@ describe('远程服务器卡片', () => {
     expect(screen.getByText('登录方式')).toBeTruthy()
     expect(screen.getByText('安装方式')).toBeTruthy()
     expect(screen.getByText('联网方式')).toBeTruthy()
+    expect(screen.getByText('访问范围')).toBeTruthy()
     expect(screen.getByText('服务器名称')).toBeTruthy()
     expect(screen.getByText(/兼容档：按远程机器 glibc 判定/)).toBeTruthy()
     expect(screen.getByText(/OpenCode：新增装 2\.0\.27/)).toBeTruthy()
-    expect(screen.getByText(/绑定：127\.0\.0\.1/)).toBeTruthy()
     // 默认密钥档：不显示密码框
     expect(screen.queryByText('SSH 密码')).toBeNull()
   })
@@ -348,10 +348,34 @@ describe('远程服务器卡片', () => {
     await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'add')).toBe(true))
     const add = calls.find((c) => (c.body as { op?: string })?.op === 'add')
     expect(add?.body).toMatchObject({
-      payload: { host: '10.1.2.3', user: 'root', port: 22, sshAuth: 'key', provision: 'push', egress: 'auto' },
+      payload: { host: '10.1.2.3', user: 'root', port: 22, sshAuth: 'key', provision: 'push', egress: 'auto', bind: 'loopback' },
     })
     // 成功后表单收起（回到列表态）。
     await waitFor(() => expect(screen.queryByText('SSH 端口')).toBeNull())
+  })
+
+  it('访问范围（bind）：表单默认 loopback，切 lan 后 patch 带上；详情端口行随 bind 变', async () => {
+    const LANROW = { ...ROW, bind: 'lan' as const }
+    const { request, calls } = fakeRequest((call) => {
+      const body = call.body as { op?: string } | undefined
+      if (body?.op === 'list') return { status: 200, body: { instances: [LANROW] } }
+      if (body?.op === 'defaults') return { status: 200, body: DEFAULTS }
+      if (body?.op === 'patch') return { status: 200, body: { ok: true } }
+      return { status: 200, body: {} }
+    })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
+    await waitFor(() => expect(screen.getByText('EL7 box')).toBeTruthy())
+    // 详情卡端口行随 bind 变（lan = 明说暴露）
+    await act(async () => { screen.getByText('详情 ▾').click() })
+    await waitFor(() => expect(screen.getByText(/对局域网暴露/)).toBeTruthy())
+
+    // 编辑表单回填 lan，保存发 patch 带 bind
+    await act(async () => { screen.getByText('更多').click() })
+    await act(async () => { screen.getByText('编辑').click() })
+    await act(async () => { screen.getByText('保存').click() })
+    await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'patch')).toBe(true))
+    const patch = calls.find((c) => (c.body as { op?: string })?.op === 'patch')
+    expect((patch?.body as { payload: { bind?: string } }).payload.bind).toBe('lan')
   })
 
   it('启动/停止：STOPPED 卡发 up，在线卡发 down（带实例 id）', async () => {

@@ -158,10 +158,14 @@ describe('service main — auth + routing contract', () => {
       { host: 'h', sshAuth: 'Password' },
       { host: 'h', egress: 'directt' },
       { host: 'h', provision: 'pushing' },
+      { host: 'h', bind: 'wan' },
     ]) {
       const r = await req('POST', '/remote-instance', { op: 'add', payload })
       expect(r.status).toBe(400)
     }
+    // bind=lan 合法（显式 opt-in 的暴露面）
+    const ok = await req('POST', '/remote-instance', { op: 'add', payload: { host: 'h', bind: 'lan' } })
+    expect(ok.status).toBe(200)
   })
 
   it('实例记录落盘：服务重启后还在（面板重启不用重新添加）', async () => {

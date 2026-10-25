@@ -61,6 +61,7 @@ interface InstanceRow {
   hasSshPassword?: boolean
   provision?: 'push' | 'reuse'
   egress?: 'auto' | 'relay' | 'direct'
+  bind?: 'loopback' | 'lan'
   hasUiPassword: boolean
   /** 最近一次实测到的运行版本与时间——「此前在线」提示（冷状态识别）用它。 */
   observed?: { app?: string; at?: number; auth?: { sync: 'match' | 'drift' | 'unknown'; at: number } }
@@ -70,7 +71,8 @@ interface InstanceRow {
 interface PlanDetail {
   reachable: boolean
   sshError?: string
-  inspected?: { uname?: string; glibc?: string; home?: string }
+  inspected?: { uname?: string; glibc?: string; home?: string; ip?: string }
+  instancePort?: number
   runtime?: string
   app?: string
   engine?: { path: string; version: string }
@@ -80,6 +82,7 @@ interface PlanDetail {
   url: string
   egress?: { mode: string; relay: boolean; reason: string; probe?: string }
   provision?: 'push' | 'reuse'
+  bind?: 'loopback' | 'lan'
   tier?: string
   peerPort?: 'open' | 'closed' | 'unknown'
   /** 正在跑的实例自报版本（plan 顺带实测）。 */
@@ -99,7 +102,6 @@ interface Defaults {
   engineLatest?: { version?: string; error?: string }
   enginePin: string
   nodeRuntime: string
-  bind: string
   taken: number[]
 }
 
@@ -150,6 +152,7 @@ interface FormState {
   sshPassword: string
   provision: 'push' | 'reuse'
   egress: 'auto' | 'relay' | 'direct'
+  bind: 'loopback' | 'lan'
   instancePort: string
   localPort: string
   reconnect: boolean
@@ -159,7 +162,7 @@ interface FormState {
 const EMPTY_FORM: FormState = {
   name: '', host: '', user: '', port: '22',
   sshAuth: 'key', sshPassword: '',
-  provision: 'push', egress: 'auto',
+  provision: 'push', egress: 'auto', bind: 'loopback',
   instancePort: '2610', localPort: '4610',
   reconnect: true, restoreOnStart: true,
 }
@@ -572,6 +575,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
             sshPassword: '',
             provision: row.provision === 'reuse' ? 'reuse' : 'push',
             egress: row.egress ?? 'auto',
+            bind: row.bind === 'lan' ? 'lan' : 'loopback',
             instancePort: String(row.instancePort),
             localPort: String(row.localPort),
             reconnect: row.reconnect !== false,
@@ -595,6 +599,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
       sshAuth: form.sshAuth,
       provision: form.provision,
       egress: form.egress,
+      bind: form.bind,
       instancePort: Number(form.instancePort),
       localPort: Number(form.localPort),
       reconnect: form.reconnect,
@@ -847,6 +852,17 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
               />
             </div>
             <div className="oc-form-cell">
+              <KitSelect
+                label="访问范围"
+                value={form.bind}
+                options={[
+                  { id: 'loopback', label: '仅本机转发（默认）', hint: '实例只听远程机器的 127.0.0.1：走 ssh 隧道与官方 relay，不对外暴露' },
+                  { id: 'lan', label: '局域网直连', hint: '实例听 0.0.0.0：同一局域网的设备可直连 http://远程IP:端口。UI 密码是唯一门（无 TLS）——只在可信内网用；下次启动生效' },
+                ]}
+                onChange={(id) => setForm({ ...form, bind: id === 'lan' ? 'lan' : 'loopback' })}
+              />
+            </div>
+            <div className="oc-form-cell">
               <KitField
                 label="远程端口"
                 value={form.instancePort}
@@ -880,10 +896,10 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
           </div>
           <div className="oc-xs oc-muted">
             {defaults?.latestPack?.version
-              ? `OpenChamber pin：渠道最新 ${defaults.latestPack.version}（新增时装这版；升级随时可到渠道最新）　·　OpenCode：新增装 ${defaults.enginePin}${channelEngineLatest ? `，升级时跟随渠道（当前最新 ${channelEngineLatest}，只升不降）` : '，升级时跟随渠道（只升不降）'}　·　绑定：${defaults.bind}`
+              ? `OpenChamber pin：渠道最新 ${defaults.latestPack.version}（新增时装这版；升级随时可到渠道最新）　·　OpenCode：新增装 ${defaults.enginePin}${channelEngineLatest ? `，升级时跟随渠道（当前最新 ${channelEngineLatest}，只升不降）` : '，升级时跟随渠道（只升不降）'}`
               : defaults?.latestPack?.error
-                ? `OpenChamber pin：渠道最新未知（${defaults.latestPack.error}）——新增将用 ${defaults.appVersion} 兜底　·　OpenCode：新增装 ${defaults.enginePin}　·　绑定：${defaults.bind}`
-                : `OpenChamber pin：${defaults?.appVersion ?? '…'}　·　OpenCode：新增装 ${defaults?.enginePin ?? '…'}　·　绑定：${defaults?.bind ?? '…'}`}
+                ? `OpenChamber pin：渠道最新未知（${defaults.latestPack.error}）——新增将用 ${defaults.appVersion} 兜底　·　OpenCode：新增装 ${defaults.enginePin}`
+                : `OpenChamber pin：${defaults?.appVersion ?? '…'}　·　OpenCode：新增装 ${defaults?.enginePin ?? '…'}`}
           </div>
           <div className="oc-xs oc-muted">界面密码：添加时自动生成，只存在控制端；卡片里「界面密码」可看可复制（在浏览器里打开远程界面时要）。</div>
           <div className="oc-row">
@@ -1125,7 +1141,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
             {/* ⑥ 详情：事实 + 两个开关（配置项，不是动作）。 */}
             {detailsFor === row.id ? (
               <div className="oc-col">
-                <div className="oc-xs oc-muted">{`端口：远程 ${row.instancePort} → 本机 ${row.localPort}（绑定 127.0.0.1）`}</div>
+                <div className="oc-xs oc-muted">{`端口：远程 ${row.instancePort} → 本机 ${row.localPort}（${row.bind === 'lan' ? '绑定 0.0.0.0，对局域网暴露' : '仅绑定远程 127.0.0.1'}）`}</div>
                 {st?.engine ? <div className="oc-xs oc-muted oc-sdk-mono">{`OpenCode：${st.engine.path}`}</div> : null}
                 {st?.runtime ? <div className="oc-xs oc-muted">{`运行时：node ${st.runtime}`}</div> : null}
                 {st?.proxy?.enabled && st?.egress?.relay ? <div className="oc-xs oc-muted">{`本机转发：:${st.proxy.localPort} → :${st.proxy.remotePort}`}</div> : null}
@@ -1473,6 +1489,11 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                 <div className="oc-xs oc-muted">
                   {`兼容档：${tierLabel(planFor.reply.tier)}（按 glibc ${planFor.reply.inspected?.glibc ?? '?'}）　·　安装方式：${planFor.reply.provision === 'reuse' ? '复用已安装（不推字节）' : '推送安装'}`}
                 </div>
+                {planFor.reply.bind === 'lan' ? (
+                  <div className="oc-xs oc-muted">
+                    {`访问范围：局域网直连（绑定 0.0.0.0${planFor.reply.inspected?.ip ? `，http://${planFor.reply.inspected.ip}:${planFor.reply.instancePort ?? ''}` : ''}）——UI 密码是唯一门（无 TLS），只在可信内网用`}
+                  </div>
+                ) : null}
                 {planFor.reply.egress ? (
                   <div className="oc-xs oc-muted">
                     {`网络：${planFor.reply.egress.relay ? '经本机转发' : '直连'}（策略 ${planFor.reply.egress.mode}${planFor.reply.egress.probe ? `，探测 ${planFor.reply.egress.probe}` : ''}：${planFor.reply.egress.reason}）`}

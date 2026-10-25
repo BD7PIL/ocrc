@@ -102,6 +102,8 @@ USAGE:
                                    --open：拉起桌面版确认；确认后机器出现在「其他 OpenChamber 服务器」
   ocrc remote laninfo <id>         配对区地址菜单（终端形态）：对端全部地址 + 逐地址可达实测
                                    + 防火墙真相——选哪个地址是 pairlink --lan 的事
+  ocrc remote lan-close <id>       收回此前为实例端口开的防火墙规则（bind 拨回 loopback 的
+                                   收尾；只关我们开的实例端口；缺 sudo 时终端补一次密码）
   ocrc remote config-diff <id> [--component <src>]... [--with-components]
                                    本地 vs 对端配置差异（两个方向）+ 一次同步会做什么（只读）
   ocrc remote sync-config <id> [--delete a,b] [--delete-key provider:x,mcp.servers:y] [--dry-run]
@@ -913,6 +915,29 @@ export async function main(argv: string[]): Promise<void> {
     return
   }
 
+  if (sub === 'lan-close') {
+    // 0.11.3：bind 拨回 loopback 的收尾——收回此前为实例端口开的防火墙规则。
+    // 只关我们开的实例端口这一条；判定看防火墙侧复测，不看控制端连不连得上。
+    const instance = resolveInstance(args.slice(1), flags)
+    const m = manager()
+    let r = await m.closeLanPort(instance.id)
+    if (!r.ok && r.needsSudo) {
+      console.error(`需要 sudo：${r.detail}`)
+      const piped = process.stdin.isTTY ? null : (readFileSync(0, 'utf-8').split('\n')[0] ?? '')
+      const pw = piped !== null ? piped.trim() : await promptHidden('对端 sudo 密码')
+      if (!pw) {
+        console.error('FAIL 没给 sudo 密码——规则没收回')
+        m.dispose()
+        process.exit(1)
+      }
+      r = await m.closeLanPort(instance.id, { sudoPassword: pw })
+    }
+    m.dispose()
+    console.log(`${r.ok ? 'OK  ' : 'FAIL'} ${r.detail}`)
+    if (!r.ok) process.exit(1)
+    return
+  }
+
   if (sub === 'laninfo') {
     const instance = resolveInstance(args.slice(1), flags)
     const m = manager()
@@ -1012,7 +1037,8 @@ export async function main(argv: string[]): Promise<void> {
     if (egressFlag && !['auto', 'relay', 'direct'].includes(egressFlag)) throw new Error('--egress 只认 auto / relay / direct')
     if (!bindFlag && !egressFlag) throw new Error('set 至少要给一个字段：--bind / --egress')
     const s = store()
-    if (!s.get(id)) throw new Error(`没有这台服务器：${id}`)
+    const before = s.get(id)
+    if (!before) throw new Error(`没有这台服务器：${id}`)
     const updated = s.update(id, {
       ...(bindFlag ? { bind: bindFlag as 'loopback' | 'lan' } : {}),
       ...(egressFlag ? { egress: egressFlag as 'auto' | 'relay' | 'direct' } : {}),
@@ -1021,6 +1047,10 @@ export async function main(argv: string[]): Promise<void> {
     console.log(`  访问范围：${updated?.bind === 'lan' ? '局域网直连（绑定 0.0.0.0；UI 密码是唯一门）' : '仅本机转发（默认）'}`)
     console.log(`  联网方式：${updated?.egress ?? 'auto'}`)
     console.log('生效条件：实例（重）启动时读 serve 行——在跑的实例要重启才应用：ocrc remote down <id> && ocrc remote up <id>')
+    // 0.11.3：lan → loopback 时，此前为实例端口开的防火墙规则不会自己消失。
+    if (before.bind === 'lan' && updated?.bind !== 'lan') {
+      console.log(`注意：对端防火墙里为实例端口开的 ${updated?.instancePort ?? 2610}/tcp 规则还在——收回：ocrc remote lan-close ${id}`)
+    }
     return
   }
 

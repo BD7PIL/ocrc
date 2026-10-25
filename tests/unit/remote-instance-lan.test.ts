@@ -277,3 +277,98 @@ describe('lanInfo (bridge)', () => {
     }
   })
 })
+
+describe('closeLanPort (bridge, 0.11.3 bind→loopback 收尾)', () => {
+  function tempManager() {
+    const dir = mkdtempSync(join(tmpdir(), 'ocrc-lanclose-'))
+    const store = createRemoteInstancesStore(join(dir, 'remote-instances.json'), { flushOnExit: false })
+    const m = createRemoteInstanceManager({ store })
+    return { m, store, cleanup: () => { m.dispose(); rmSync(dir, { recursive: true, force: true }) } }
+  }
+
+  afterEach(() => {
+    sshScript.reply = null
+    stdinCalls.length = 0
+  })
+
+  it('opens→removes the rule with the password on stdin and verifies by re-probe', async () => {
+    const { m, store, cleanup } = tempManager()
+    try {
+      store.upsert({ host: 'peer', user: 'demo', instancePort: 26100 })
+      let probes = 0
+      sshScript.reply = (command) => {
+        if (command.includes('FIREWALL_BEGIN')) {
+          probes += 1
+          // 第一次探测：规则还在；收回后的复测：没了。
+          const block = probes === 1
+            ? firewallBlock({ HAS_FIREWALLD: '1', SUDO: 'needed', PORT: 'open' })
+            : firewallBlock({ HAS_FIREWALLD: '1', SUDO: 'needed', PORT: 'closed' })
+          return { code: 0, stdout: block, stderr: '' }
+        }
+        if (command.includes('--remove-port') || command.includes('FW_DONE')) return { code: 0, stdout: 'FW_DONE\n', stderr: '' }
+        throw new Error(`unexpected ssh: ${command.slice(0, 100)}`)
+      }
+      const r = await m.closeLanPort('demo@peer', { sudoPassword: 'hunter2' })
+      expect(r.ok).toBe(true)
+      expect(r.changed).toBe(true)
+      expect(r.detail).toMatch(/已收回 26100/)
+      expect(stdinCalls).toHaveLength(1)
+      expect(stdinCalls[0]!.input).toBe('hunter2\n')
+      expect(stdinCalls[0]!.command).toContain('--remove-port=26100/tcp')
+      expect(JSON.stringify(r)).not.toContain('hunter2')
+    } finally { cleanup() }
+  })
+
+  it('nothing to do when the rule is already gone; honest failure when the command errors', async () => {
+    const { m, store, cleanup } = tempManager()
+    try {
+      store.upsert({ host: 'peer', user: 'demo', instancePort: 26100 })
+      sshScript.reply = (command) => {
+        if (command.includes('FIREWALL_BEGIN')) {
+          return { code: 0, stdout: firewallBlock({ HAS_FIREWALLD: '1', SUDO: 'nopasswd', PORT: 'closed' }), stderr: '' }
+        }
+        throw new Error(`unexpected ssh: ${command.slice(0, 100)}`)
+      }
+      const idle = await m.closeLanPort('demo@peer')
+      expect(idle.ok).toBe(true)
+      expect(idle.changed).toBeUndefined()
+      expect(idle.detail).toMatch(/无事可做/)
+      expect(stdinCalls).toHaveLength(0)
+
+      // 规则在、免密 sudo 在，但 remove 命令本身失败（如 NOT_ENABLED）→ ok:false 带原文
+      let flip = false
+      sshScript.reply = (command) => {
+        if (command.includes('FIREWALL_BEGIN')) {
+          return { code: 0, stdout: firewallBlock({ HAS_FIREWALLD: '1', SUDO: 'nopasswd', PORT: 'open' }), stderr: '' }
+        }
+        if (command.includes('--remove-port')) {
+          flip = true
+          return { code: 1, stdout: '', stderr: 'Error: NOT_ENABLED\n' }
+        }
+        throw new Error(`unexpected ssh: ${command.slice(0, 100)}`)
+      }
+      const failed = await m.closeLanPort('demo@peer')
+      expect(failed.ok).toBe(false)
+      expect(failed.detail).toMatch(/NOT_ENABLED/)
+      expect(flip).toBe(true)
+    } finally { cleanup() }
+  })
+
+  it('asks for sudo first (needsSudo handshake), same as pairing', async () => {
+    const { m, store, cleanup } = tempManager()
+    try {
+      store.upsert({ host: 'peer', user: 'demo', instancePort: 26100 })
+      sshScript.reply = (command) => {
+        if (command.includes('FIREWALL_BEGIN')) {
+          return { code: 0, stdout: firewallBlock({ HAS_FIREWALLD: '1', SUDO: 'needed', PORT: 'open' }), stderr: '' }
+        }
+        throw new Error(`unexpected ssh: ${command.slice(0, 100)}`)
+      }
+      const r = await m.closeLanPort('demo@peer')
+      expect(r.ok).toBe(false)
+      expect(r.needsSudo).toBe(true)
+      expect(r.backend).toBe('firewalld')
+      expect(stdinCalls).toHaveLength(0)
+    } finally { cleanup() }
+  })
+})

@@ -219,6 +219,9 @@ export interface RemoteInstanceManager {
   /** 0.11.2：配对区的地址菜单——对端全部地址 + 逐地址控制端实测 + 防火墙真相。
    *  展示用：选哪个地址永远是用户的按钮，不是这里。 */
   lanInfo(id: string): Promise<{ ok: boolean; detail?: string; port?: number; bind?: BindMode; addresses?: string[]; reachable?: Record<string, boolean>; firewall?: FirewallState }>
+  /** 0.11.3：bind 拨回 loopback 的收尾——收回此前为实例端口开的防火墙规则。
+   *  只关我们开的实例端口；缺 sudo 回 `needsSudo`（同 pairlink 握手）。 */
+  closeLanPort(id: string, opts?: { sudoPassword?: string }): Promise<{ ok: boolean; detail: string; needsSudo?: boolean; backend?: FirewallBackend; changed?: boolean }>
   status(id: string): InstanceStatus | undefined
   statusAll(): InstanceStatus[]
   /** D1: decide (and cache) where this peer's egress goes. `status` reads the
@@ -1302,6 +1305,43 @@ export function createRemoteInstanceManager(opts: {
     return { ok: true, port: instance.instancePort, bind: instance.bind ?? 'loopback', addresses, reachable, firewall }
   }
 
+  /** bind 拨回 loopback 的收尾（0.11.3）：把此前为实例端口开的防火墙规则收回。
+   *  只关我们的实例端口这一条。关闭后的判定看**防火墙侧**（规则不在了），不看
+   *  控制端连不连得上——那可能只是实例没跑。sudo 密码纪律与放行同款：stdin 喂入，
+   *  即用即弃。 */
+  async function closeLanPort(
+    instance: RemoteInstance,
+    sudoPassword?: string,
+  ): Promise<{ state: 'closed' | 'needs-sudo' | 'failed'; changed?: boolean; firewall?: FirewallState; reason?: string }> {
+    const port = instance.instancePort
+    const firewall = parseFirewallProbe((await ssh(instance, buildFirewallProbeCommand(port), 30_000)).stdout)
+    if (firewall.backend === 'none') {
+      return { state: 'closed', firewall, reason: `远程机器没有识别到 firewalld/ufw——没有我们开的 ${port}/tcp 规则可收` }
+    }
+    if (firewall.backend === 'unknown') {
+      return { state: 'closed', firewall, reason: `防火墙后端判定不了——${port}/tcp 的规则请手工确认` }
+    }
+    if (firewall.portOpen === 'closed') {
+      return { state: 'closed', firewall, reason: `${port}/tcp 本来就没放行——无事可做` }
+    }
+    if (firewall.sudo === 'needed' && !sudoPassword) {
+      return { state: 'needs-sudo', firewall, reason: `收回 ${port}/tcp 规则需要 sudo（${firewall.backend}），且当前用户没有免密 sudo` }
+    }
+    const cmd = buildFirewallPortCommand(firewall.backend, port, false, !!sudoPassword)
+    const r = sudoPassword
+      ? await sshRunWithStdin(instance, cmd, `${sudoPassword}\n`, { timeoutMs: 60_000 })
+      : await ssh(instance, cmd, 60_000)
+    if (!r.stdout.includes('FW_DONE')) {
+      const why = (r.stderr || r.stdout).replace(/\s+/g, ' ').slice(-200)
+      return { state: 'failed', firewall, reason: `收回 ${port}/tcp 的命令没成功：${why}` }
+    }
+    const after = parseFirewallProbe((await ssh(instance, buildFirewallProbeCommand(port), 30_000)).stdout)
+    if (after.portOpen !== 'closed') {
+      return { state: 'failed', firewall: after, reason: `命令报成功，但复测 ${port}/tcp 仍是 ${after.portOpen}——请手工确认` }
+    }
+    return { state: 'closed', changed: true, firewall: after }
+  }
+
   /** Ask the peer's own CLI for a single-use pairing link and hand it back for
    *  the app to redeem. openchamber owns identity here: the link's secret is
    *  exchanged for a per-device, revocable client token, so nothing of ours
@@ -1928,6 +1968,25 @@ async probe(id) {
     },
     lanInfo(id) {
       return lanInfo(id)
+    },
+    async closeLanPort(id, closeOpts) {
+      const instance = opts.store.get(id)
+      if (!instance) return { ok: false, detail: `没有这个实例：${id}` }
+      const r = await closeLanPort(instance, closeOpts?.sudoPassword)
+      if (r.state === 'needs-sudo') {
+        return { ok: false, detail: r.reason ?? `收回 ${instance.instancePort}/tcp 需要 sudo`, needsSudo: true, backend: r.firewall?.backend }
+      }
+      if (r.state === 'failed') {
+        return { ok: false, detail: r.reason ?? `收回 ${instance.instancePort}/tcp 没成功`, backend: r.firewall?.backend }
+      }
+      if (r.changed) pushLog(id, `防火墙规则已收回：${instance.instancePort}/tcp 不再对局域网放行`)
+      return {
+        ok: true,
+        detail: r.reason ?? (r.changed
+          ? `已收回 ${instance.instancePort}/tcp——局域网直连立即断；实例监听要重启（down && up）才回到 127.0.0.1`
+          : `${instance.instancePort}/tcp 无事可做`),
+        changed: r.changed,
+      }
     },
 
     status(id) {

@@ -275,6 +275,8 @@ describe('cli remote — add / list', () => {
       expect(setCode).toBe(0)
       expect(logs.join('\n')).toContain('仅本机转发')
       expect(logs.join('\n')).toContain('重启才应用')
+      // 0.11.3：lan → loopback 时提示端口规则还在、指到 lan-close
+      expect(logs.join('\n')).toContain(`lan-close dev@peer.example`)
       // set 的落盘同样走 100ms 去抖（exit 钩子被 stub），等它写出再读
       await new Promise((r) => setTimeout(r, 250))
       logs = []

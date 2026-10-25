@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.0.0-alpha.20 — LAN 端口收尾：bind 拨回 loopback 时收回放行规则（2026-10-24，扩展 0.11.3）
+
+- **补齐 0.11.2 计划的最后一条**：bind 从 lan 拨回 loopback 时，此前为实例端口开的防火墙
+  规则不会自己消失。现在三条通道都会提示并同一通道收回：CLI `ocrc remote set <id> --bind
+  loopback` 输出指到 `lan-close`；新命令 `ocrc remote lan-close <id>`（缺 sudo 时终端补一次
+  不回显密码或 stdin 喂一行）；面板在保存表单检测到 lan→loopback 时摆「LAN 端口收尾」卡
+  （「关闭 LAN 端口」按钮 + needsSudo 内联密码框，即用即弃）。
+- `closeLanPort`（core）：同一探测闭集 → 只收回**我们的实例端口**这一条规则
+  （firewalld `--permanent --remove-port + --reload`；ufw `delete allow`）→ **防火墙侧复测**
+  判定（不看控制端连不连得上——那可能只是实例没跑）。命令失败/复测不过 = ok:false 带原文；
+  无事可做（本来就没放行）= ok:false=false 的成功态并说明。sudo 密码纪律与放行同款。
+- 测试 +4（bridge 收回/无事可做/命令失败/needsSudo 握手；ops lanclose payload；CLI set 提示）。
+
 ## 2.0.0-alpha.20 — LAN 直连成套：每地址一个配对按钮 + 防火墙 ocrc 来开（2026-10-24，扩展 0.11.2）
 
 - **更正 0.11.1 的「第一段」猜测（用户点名批评）**：bind=lan 的配对链接候选此前自动取

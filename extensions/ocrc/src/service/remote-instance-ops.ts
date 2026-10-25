@@ -93,6 +93,9 @@ export type RemoteInstanceOp =
   /** 0.11.2 配对区地址菜单：对端全部地址 + 逐地址可达实测 + 防火墙真相。
    *  A job（两次 ssh + 逐地址 TCP 探测）。选哪个地址是用户的事，这里只列菜单。 */
   | { op: 'laninfo'; id: string }
+  /** 0.11.3：收回此前为实例端口开的防火墙规则（bind 拨回 loopback 的收尾）。
+   *  A job（探测 + sudo + 复测）；缺 sudo 回 needsSudo，同 pairlink 握手。 */
+  | { op: 'lanclose'; id: string; payload?: { sudoPassword?: string } }
   | { op: 'delete'; id: string }
   | { op: 'job'; jobId: string }
 
@@ -339,6 +342,15 @@ export function createRemoteInstanceOps({
         case 'laninfo': {
           if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
           return start(() => manager.lanInfo(op.id), op.id)
+        }
+
+        case 'lanclose': {
+          if (!store.get(op.id)) return { status: 404, body: { error: '没有这台服务器' } }
+          const pw = op.payload?.sudoPassword
+          if (pw !== undefined && typeof pw !== 'string') {
+            return { status: 400, body: { error: 'sudoPassword must be a string' } }
+          }
+          return start(() => manager.closeLanPort(op.id, pw ? { sudoPassword: pw } : {}), op.id)
         }
 
         case 'defaults': {

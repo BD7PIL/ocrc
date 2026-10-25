@@ -4116,6 +4116,34 @@ ${err.message}` }));
     const firewall = parseFirewallProbe((await ssh(instance, buildFirewallProbeCommand(instance.instancePort), 3e4)).stdout);
     return { ok: true, port: instance.instancePort, bind: instance.bind ?? "loopback", addresses, reachable, firewall };
   }
+  async function closeLanPort(instance, sudoPassword) {
+    const port = instance.instancePort;
+    const firewall = parseFirewallProbe((await ssh(instance, buildFirewallProbeCommand(port), 3e4)).stdout);
+    if (firewall.backend === "none") {
+      return { state: "closed", firewall, reason: `\u8FDC\u7A0B\u673A\u5668\u6CA1\u6709\u8BC6\u522B\u5230 firewalld/ufw\u2014\u2014\u6CA1\u6709\u6211\u4EEC\u5F00\u7684 ${port}/tcp \u89C4\u5219\u53EF\u6536` };
+    }
+    if (firewall.backend === "unknown") {
+      return { state: "closed", firewall, reason: `\u9632\u706B\u5899\u540E\u7AEF\u5224\u5B9A\u4E0D\u4E86\u2014\u2014${port}/tcp \u7684\u89C4\u5219\u8BF7\u624B\u5DE5\u786E\u8BA4` };
+    }
+    if (firewall.portOpen === "closed") {
+      return { state: "closed", firewall, reason: `${port}/tcp \u672C\u6765\u5C31\u6CA1\u653E\u884C\u2014\u2014\u65E0\u4E8B\u53EF\u505A` };
+    }
+    if (firewall.sudo === "needed" && !sudoPassword) {
+      return { state: "needs-sudo", firewall, reason: `\u6536\u56DE ${port}/tcp \u89C4\u5219\u9700\u8981 sudo\uFF08${firewall.backend}\uFF09\uFF0C\u4E14\u5F53\u524D\u7528\u6237\u6CA1\u6709\u514D\u5BC6 sudo` };
+    }
+    const cmd = buildFirewallPortCommand(firewall.backend, port, false, !!sudoPassword);
+    const r = sudoPassword ? await sshRunWithStdin(instance, cmd, `${sudoPassword}
+`, { timeoutMs: 6e4 }) : await ssh(instance, cmd, 6e4);
+    if (!r.stdout.includes("FW_DONE")) {
+      const why = (r.stderr || r.stdout).replace(/\s+/g, " ").slice(-200);
+      return { state: "failed", firewall, reason: `\u6536\u56DE ${port}/tcp \u7684\u547D\u4EE4\u6CA1\u6210\u529F\uFF1A${why}` };
+    }
+    const after = parseFirewallProbe((await ssh(instance, buildFirewallProbeCommand(port), 3e4)).stdout);
+    if (after.portOpen !== "closed") {
+      return { state: "failed", firewall: after, reason: `\u547D\u4EE4\u62A5\u6210\u529F\uFF0C\u4F46\u590D\u6D4B ${port}/tcp \u4ECD\u662F ${after.portOpen}\u2014\u2014\u8BF7\u624B\u5DE5\u786E\u8BA4` };
+    }
+    return { state: "closed", changed: true, firewall: after };
+  }
   async function pairLink(id, linkOpts = {}) {
     const instance = opts.store.get(id);
     if (!instance) return { ok: false, detail: `\u6CA1\u6709\u8FD9\u4E2A\u5B9E\u4F8B\uFF1A${id}` };
@@ -4633,6 +4661,23 @@ ${err.message}` }));
     },
     lanInfo(id) {
       return lanInfo(id);
+    },
+    async closeLanPort(id, closeOpts) {
+      const instance = opts.store.get(id);
+      if (!instance) return { ok: false, detail: `\u6CA1\u6709\u8FD9\u4E2A\u5B9E\u4F8B\uFF1A${id}` };
+      const r = await closeLanPort(instance, closeOpts?.sudoPassword);
+      if (r.state === "needs-sudo") {
+        return { ok: false, detail: r.reason ?? `\u6536\u56DE ${instance.instancePort}/tcp \u9700\u8981 sudo`, needsSudo: true, backend: r.firewall?.backend };
+      }
+      if (r.state === "failed") {
+        return { ok: false, detail: r.reason ?? `\u6536\u56DE ${instance.instancePort}/tcp \u6CA1\u6210\u529F`, backend: r.firewall?.backend };
+      }
+      if (r.changed) pushLog(id, `\u9632\u706B\u5899\u89C4\u5219\u5DF2\u6536\u56DE\uFF1A${instance.instancePort}/tcp \u4E0D\u518D\u5BF9\u5C40\u57DF\u7F51\u653E\u884C`);
+      return {
+        ok: true,
+        detail: r.reason ?? (r.changed ? `\u5DF2\u6536\u56DE ${instance.instancePort}/tcp\u2014\u2014\u5C40\u57DF\u7F51\u76F4\u8FDE\u7ACB\u5373\u65AD\uFF1B\u5B9E\u4F8B\u76D1\u542C\u8981\u91CD\u542F\uFF08down && up\uFF09\u624D\u56DE\u5230 127.0.0.1` : `${instance.instancePort}/tcp \u65E0\u4E8B\u53EF\u505A`),
+        changed: r.changed
+      };
     },
     status(id) {
       const instance = opts.store.get(id);
@@ -5203,6 +5248,14 @@ function createRemoteInstanceOps({
         case "laninfo": {
           if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
           return start(() => manager.lanInfo(op.id), op.id);
+        }
+        case "lanclose": {
+          if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
+          const pw = op.payload?.sudoPassword;
+          if (pw !== void 0 && typeof pw !== "string") {
+            return { status: 400, body: { error: "sudoPassword must be a string" } };
+          }
+          return start(() => manager.closeLanPort(op.id, pw ? { sudoPassword: pw } : {}), op.id);
         }
         case "defaults": {
           const localPort = await firstFreeLocalPort();

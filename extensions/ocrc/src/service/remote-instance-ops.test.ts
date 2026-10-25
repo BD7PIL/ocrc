@@ -53,6 +53,7 @@ function makeManager(): RemoteInstanceManager {
       reachable: { '192.168.26.101': true, '192.168.22.202': false },
       firewall: { backend: 'firewalld', portOpen: 'closed', sudo: 'needed' },
     })),
+    closeLanPort: vi.fn(async () => ({ ok: true, detail: '已收回 2610/tcp——局域网直连立即断', changed: true })),
     configDiff: vi.fn(async () => ({
       localDir: '/home/u/.config/opencode', add: ['skill/a.md'], change: [], same: [], peerOnly: ['agent/old.md'],
       unknown: [], auth: { local: true, peer: false }, ignore: { patterns: ['**/__pycache__/'], filtered: 0 },
@@ -342,6 +343,20 @@ describe('remote-instance ops', () => {
     expect(manager.lanInfo).toHaveBeenCalledWith('user@h')
   })
 
+  it('lanclose passes the sudo password through and rejects non-strings', async () => {
+    const manager = makeManager()
+    const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager })
+    expect((await ops.handle({ op: 'lanclose', id: 'missing' })).status).toBe(404)
+    const bad = await ops.handle({ op: 'lanclose', id: 'user@h', payload: { sudoPassword: 42 } } as never)
+    expect(bad.status).toBe(400)
+    const started = await ops.handle({ op: 'lanclose', id: 'user@h', payload: { sudoPassword: 'pw' } })
+    expect(started.status).toBe(202)
+    const job = await waitJob(ops, (started.body as { jobId: string }).jobId)
+    expect(job.state).toBe('done')
+    expect(job.result).toMatchObject({ ok: true, changed: true })
+    expect(manager.closeLanPort).toHaveBeenCalledWith('user@h', { sudoPassword: 'pw' })
+  })
+
   /**
    * The switch used to fall through to a bare 400, so an op added to the union
    * but never to the switch answered "unknown op" — a feature that looks shipped
@@ -354,7 +369,7 @@ describe('remote-instance ops', () => {
       list: true, add: true, patch: true, plan: true, apply: true, upgrade: true, up: true, down: true, probe: true,
       status: true, logs: true, peerlog: true, url: true, defaults: true, uipassword: true,
       configdiff: true, syncconfig: true, pullfiles: true, ignoreadd: true, ignoreremove: true, syncauth: true, pairlink: true,
-      laninfo: true,
+      laninfo: true, lanclose: true,
       delete: true, job: true,
     }
     const ops = createRemoteInstanceOps({

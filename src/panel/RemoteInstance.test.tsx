@@ -547,6 +547,77 @@ describe('远程服务器卡片', () => {
     // syncResult 贴两处（卡内动作行 + 卡片下方），断言存在即可。
     expect(screen.getAllByText('OK 凭据已写到远程 0600').length).toBeGreaterThan(0)
   })
+
+  // ── 0.11.4 归属模型：每台服务器自己的卡自己的状态 ──────────────────────────
+
+  it('归属：两台机器各开日志卡互不顶掉（旧模型同类卡会静默搬家）', async () => {
+    const { request } = fakeRequest((call) => {
+      const body = call.body as { op?: string; id?: string } | undefined
+      if (body?.op === 'list') return { status: 200, body: { instances: [ROW, STOPPED] } }
+      if (body?.op === 'logs') {
+        return { status: 200, body: { lines: body.id === ROW.id ? ['ALPHA-CONTROL-LOG'] : ['BETA-CONTROL-LOG'] } }
+      }
+      if (body?.op === 'peerlog') return { status: 200, body: { ok: true, instance: [], app: [], paths: { instance: '', app: '' } } }
+      return { status: 200, body: {} }
+    })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
+    await waitFor(() => expect(screen.getByText('EL7 box')).toBeTruthy())
+
+    await act(async () => { screen.getAllByText('日志')[0]!.click() })
+    await waitFor(() => expect(screen.getByText(/ALPHA-CONTROL-LOG/)).toBeTruthy())
+    await act(async () => { screen.getAllByText('日志')[1]!.click() })
+    await waitFor(() => expect(screen.getByText(/BETA-CONTROL-LOG/)).toBeTruthy())
+    // 关键断言：B 开了自己的卡，A 的卡还在（旧模型 A 的会被覆盖消失）。
+    expect(screen.getByText(/ALPHA-CONTROL-LOG/)).toBeTruthy()
+  })
+
+  it('归属：移除服务器后其卡清空，重加同 id 不复活旧数据', async () => {
+    let listed: Array<Record<string, unknown>> = [ROW]
+    const { request } = fakeRequest((call) => {
+      const body = call.body as { op?: string; id?: string } | undefined
+      if (body?.op === 'list') return { status: 200, body: { instances: listed } }
+      if (body?.op === 'logs') return { status: 200, body: { lines: ['STALE-LOG-BEFORE-REMOVE'] } }
+      if (body?.op === 'peerlog') return { status: 200, body: { ok: true, instance: [], app: [], paths: { instance: '', app: '' } } }
+      if (body?.op === 'delete') { listed = []; return { status: 200, body: { ok: true, detail: '已停并移除' } } }
+      return { status: 200, body: {} }
+    })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
+    await waitFor(() => expect(screen.getByText('EL7 box')).toBeTruthy())
+    await act(async () => { screen.getByText('日志').click() })
+    await waitFor(() => expect(screen.getByText(/STALE-LOG-BEFORE-REMOVE/)).toBeTruthy())
+
+    await act(async () => { screen.getByText('更多').click() })
+    await act(async () => { screen.getByText('移除服务器').click() })
+    await act(async () => { screen.getByText('确认移除').click() })
+    await waitFor(() => expect(screen.queryByText('EL7 box')).toBeNull()) // 行没了，卡随行消失
+
+    // 重加同 id（同 user@host）：旧日志不许复活——归属键已随删除清空。
+    listed = [ROW]
+    await act(async () => { screen.getByText('刷新').click() })
+    await waitFor(() => expect(screen.getByText('EL7 box')).toBeTruthy())
+    expect(screen.queryByText(/STALE-LOG-BEFORE-REMOVE/)).toBeNull()
+  })
+
+  it('归属：动作结果行按服务器隔离（旧模型 syncResult 漏渲染到每一行）', async () => {
+    const { request } = fakeRequest((call) => {
+      const body = call.body as { op?: string; id?: string } | undefined
+      if (body?.op === 'list') return { status: 200, body: { instances: [ROW, STOPPED] } }
+      if (body?.op === 'configdiff') return { status: 200, body: DIFF_MIN }
+      if (body?.op === 'syncauth') return { status: 200, body: { ok: true, detail: '凭据已写到远程 0600' } }
+      return { status: 200, body: {} }
+    })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
+    await waitFor(() => expect(screen.getByText('EL7 box')).toBeTruthy())
+    // 只在 A 机开配置卡并同步凭据
+    await act(async () => { screen.getAllByText('更多')[0]!.click() })
+    await act(async () => { screen.getByText('配置差异与同步').click() })
+    await waitFor(() => expect(screen.getByText('同步凭据（auth.json）')).toBeTruthy())
+    await act(async () => { screen.getByText('同步凭据（auth.json）').click() })
+    await waitFor(() => expect(screen.getAllByText('OK 凭据已写到远程 0600').length).toBeGreaterThan(0))
+    // 归属断言：结果只属于 A（行内 + 配置卡内共 2 处）；旧模型会漏到 B 的卡下 = 3 处。
+    expect(screen.getAllByText('OK 凭据已写到远程 0600')).toHaveLength(2)
+    expect(screen.getByText('Ubuntu 26.04')).toBeTruthy()
+  })
 })
 
 describe('升级链路与操作台（0.10.0）', () => {

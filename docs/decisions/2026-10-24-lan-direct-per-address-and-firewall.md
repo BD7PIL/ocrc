@@ -35,6 +35,18 @@ EL7 的 demo 用户没有免密 sudo 是既成事实；免密 sudo 是机器主�
 代改（写 sudoers 比开一条端口危险得多）。needs-sudo 握手把决定权还给用户：要么当场输一次
 密码（即用即弃），要么自己去配免密——两条路 ocrc 都接着。
 
+## 验收结论（2026-10-25，EL7 真机）
+
+- `laninfo` 列出全量地址（192.168.26.101 + 192.168.22.202），无一自动挑选。
+- demo 用户无免密 sudo → needsSudo 握手真机触发；密码经 stdin（`sudo -S`）喂入后
+  `--permanent --add-port=2610/tcp + --reload` 实际生效。**关键实证**：demo 连
+  `firewall-cmd --query-port` 都被 polkit 拒（portOpen=unknown），「unknown 且后端已知
+  照走开火」的裁决是这条链路能通的唯一路径。
+- 放行后：`laninfo` 两地址徽章 ✓✓；控制端直连 `http://192.168.26.101:2610/health` 与
+  `http://192.168.22.202:2610/health` 均 200。
+- 两地址各生成一条链接并解码验证：候选分别为 `lan:http://192.168.26.101:2610` /
+  `lan:http://192.168.22.202:2610`（各带 relay 兜底）。端口按裁决保持开放。
+
 ## 关联
 
 - [2026-10-24-relay-off-conditional-and-lan-bind.md](2026-10-24-relay-off-conditional-and-lan-bind.md)

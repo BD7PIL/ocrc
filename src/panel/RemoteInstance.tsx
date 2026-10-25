@@ -128,6 +128,15 @@ interface LanInfo {
   firewall?: { backend: 'firewalld' | 'ufw' | 'none' | 'unknown'; portOpen: 'open' | 'closed' | 'unknown'; sudo: 'nopasswd' | 'needed' }
 }
 
+/** 0.11.3 关闭 LAN 端口的应答：needsSudo 握手与配对链接同款（密码即用即弃）。 */
+interface LanCloseReply {
+  ok: boolean
+  detail: string
+  needsSudo?: boolean
+  backend?: 'firewalld' | 'ufw' | 'none' | 'unknown'
+  changed?: boolean
+}
+
 /** C5：控制端 vs 远程机器的配置差异 + 一次同步会做什么（同一个 plan 就是 apply 用的那份）。 */
 interface ConfigDiff {
   localDir: string
@@ -432,6 +441,8 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
   const [sudoPw, setSudoPw] = useState('')
   /** needsSudo 时记住是哪个地址被拦的——「放行并生成链接」重发它。 */
   const [sudoRetryAddr, setSudoRetryAddr] = useState('')
+  /** 0.11.3：bind 拨回 loopback 后的端口收尾（保存表单时检测到 lan→loopback 才出现）。 */
+  const [lanCloseFor, setLanCloseFor] = useState<{ id: string; reply?: LanCloseReply } | null>(null)
   const [logFor, setLogFor] = useState<{ id: string; lines: string[]; peer?: PeerLogs } | null>(null)
   const [secretFor, setSecretFor] = useState<{ id: string; url: string; uiPassword: string } | null>(null)
   const [configFor, setConfigFor] = useState<{ id: string; diff: ConfigDiff } | null>(null)
@@ -633,8 +644,18 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
     if (form.sshAuth === 'key') payload.sshPassword = undefined
     if (form.id) await op({ op: 'patch', id: form.id, payload })
     else await op({ op: 'add', payload })
+    // 0.11.3：lan → loopback 时防火墙规则不会自己消失——摆出收尾卡（含关闭按钮）。
+    const prev = form.id ? rows.find((r) => r.id === form.id) : undefined
+    setLanCloseFor(form.id && prev?.bind === 'lan' && form.bind !== 'lan' ? { id: form.id } : null)
     setForm(null)
   }, form?.id ?? 'page')
+
+  /** 收回此前为实例端口开的防火墙规则（needsSudo 时带一次密码重试，即用即弃）。 */
+  const closeLanPort = (id: string, sudoPassword?: string) => run(`lanclose:${id}`, async () => {
+    const reply = await op<LanCloseReply>({ op: 'lanclose', id, payload: sudoPassword ? { sudoPassword } : undefined }, { id, label: '关闭 LAN 端口' })
+    setSudoPw('')
+    setLanCloseFor({ id, reply })
+  }, id)
 
   const plan = (id: string) => run(`plan:${id}`, async () => {
     const reply = await op<PlanDetail>({ op: 'plan', id }, { id, label: '检查更新' })
@@ -1220,6 +1241,53 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
 
             {/* 动作结果（同步/升级）就贴在这一行下面：卡片可能没打开，结果不能只活在卡片里。 */}
             {syncResult ? <div className="oc-xs oc-sdk-mono">{syncResult}</div> : null}
+
+            {/* 0.11.3 bind 拨回 loopback 的端口收尾：规则不会自己消失，摆出关闭通道。 */}
+            {lanCloseFor?.id === row.id ? (
+              <div className="oc-card">
+                <div className="oc-row oc-row-between">
+                  <span className="oc-card-title">LAN 端口收尾</span>
+                  <KitButton size="xs" variant="ghost" label="收起" onClick={() => setLanCloseFor(null)} />
+                </div>
+                {!lanCloseFor.reply ? (
+                  <>
+                    <div className="oc-muted oc-sm">
+                      {`访问范围已改回「仅本机转发」，但远程机器防火墙里为实例端口 ${row.instancePort}/tcp 开的规则还在——点下面收回（只动这一条规则，不碰别的；实例监听要重启才回到 127.0.0.1）。`}
+                    </div>
+                    <div className="oc-row">
+                      <KitButton
+                        size="sm"
+                        variant="outline"
+                        label="关闭 LAN 端口"
+                        loading={busy[row.id] === `lanclose:${row.id}`}
+                        onClick={() => void closeLanPort(row.id)}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <KitBanner
+                      tone={lanCloseFor.reply.ok ? 'success' : 'warning'}
+                      title={lanCloseFor.reply.ok ? (lanCloseFor.reply.changed ? '端口规则已收回' : '无事可做') : '没收回'}
+                      body={lanCloseFor.reply.detail}
+                    />
+                    {lanCloseFor.reply.needsSudo ? (
+                      <>
+                        <KitField label={`sudo 密码（${lanCloseFor.reply.backend === 'ufw' ? 'ufw' : 'firewalld'} 收回规则用，用完即弃）`} value={sudoPw} password placeholder="对端登录用户的 sudo 密码" onChange={setSudoPw} />
+                        <div className="oc-row">
+                          <KitButton
+                            size="sm"
+                            label="收回端口规则"
+                            loading={busy[row.id] === `lanclose:${row.id}`}
+                            onClick={() => void closeLanPort(row.id, sudoPw)}
+                          />
+                        </div>
+                      </>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            ) : null}
 
             {pairFor?.id === row.id ? (
               <div className="oc-card">

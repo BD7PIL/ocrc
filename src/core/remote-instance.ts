@@ -68,6 +68,11 @@ export interface RemoteInstance extends SshAuthSpec {
   /** Where this peer's egress goes; default `auto` (probe the peer, relay only
    *  if it cannot get out itself). */
   egress?: EgressMode
+  /** 实例在**对端**的绑定面（0.11.1）：`loopback`（默认）只听 127.0.0.1，一切访问
+   *  走 ssh 转发/官方 relay；`lan` 听 0.0.0.0，同一局域网的设备可以直连
+   *  `http://<对端IP>:<instancePort>`——代价是**单因子 UI 密码、无 TLS** 直接暴露
+   *  给对端局域网。显式 opt-in，绝不由 ocrc 默认开启。生效在下次启动。 */
+  bind?: BindMode
   /** 装机方式（A3）：
    *   · `push`（默认）—— 控制端备件推过去：运行时 + 我们 pin 的引擎 + 应用，
    *     对端零联网。对端只有 v1 引擎时这是唯一能跑的路（R12）。
@@ -152,6 +157,12 @@ export const PROXY_DEFAULTS: InstanceProxyConfig = { enabled: true, localPort: 4
 export type EgressMode = 'auto' | 'relay' | 'direct'
 
 export const EGRESS_DEFAULT: EgressMode = 'auto'
+
+/** 对端绑定面（0.11.1）。`loopback` = 只有转发/relay 能到达；`lan` = 对端局域网
+ *  可直连（单因子密码、无 TLS）。闭集：认不出的值等于未设（= loopback）。 */
+export type BindMode = 'loopback' | 'lan'
+
+export const BIND_DEFAULT: BindMode = 'loopback'
 
 /** What the probe found. DNS and TCP are separated because they fail differently
  *  and the operator's fix differs — and because a host with a resolver but no
@@ -536,6 +547,15 @@ export interface InstanceServeOptions {
   /** Absolute path on the remote; required (R12: pin, never PATH). */
   enginePath: string
   proxy?: { httpProxy?: string; httpsProxy?: string; noProxy?: string; caPath?: string }
+  /** 对端绑定面：`lan` 时 serve 听 0.0.0.0（默认 loopback）。lan 且没有 UI 密码
+   *  直接抛错——app 侧也拒，但我们在构造期更早失败。 */
+  bind?: BindMode
+  /** `OPENCHAMBER_RELAY_HOST` 的唯一取值 `'off'`（不被动担任 relay host）。
+   *  **条件注入**：只由 `relayHostFor` 在「对端确认出不了网且没有 R9 代理」时给出。
+   *  2026-10-24 事故：曾经无条件注入，EL7（出网正常）每次重拉都回 standby，
+   *  官方 relay 上的终端全部不可达——在线对端被注入 off 的代价远大于 air-gap
+   *  对端多几次无害拨号。 */
+  relayHost?: 'off'
   /** Build the log redirect + background `nohup` wrapper (CLI-style start). */
   detached?: boolean
   /** Extra env vars to export on the controlled host. The control side picks
@@ -545,11 +565,25 @@ export interface InstanceServeOptions {
   extraEnv?: Record<string, string>
 }
 
+/**
+ * relay off 的唯一判据（纯函数，单测钉死）：**只在「探测确认出不了网（none）
+ * 且没有注入 R9 出网代理」时**才注入。拿不准（unknown / dns-only / 显式 direct）
+ * 一律不注入——不对称代价：air-gap 对端多拨几次 relay 只是无害重试日志，在线
+ * 对端被 off 则 relay 全断。
+ */
+export function relayHostFor(probe: EgressProbe | undefined, relayInjected: boolean): 'off' | undefined {
+  return !relayInjected && probe === 'none' ? 'off' : undefined
+}
+
 /** Controlled host: the `serve` line. Engine and runtime are absolute; the
  *  proxy block reuses `buildProxyExports` so NO_PROXY keeps 127.0.0.1 off the
  *  corporate proxy (R9 reverse-forward territory). */
 export function buildInstanceServeCommand(o: InstanceServeOptions): string {
   const p = instancePaths(o.appVersion)
+  const host = o.bind === 'lan' ? '0.0.0.0' : '127.0.0.1'
+  if (o.bind === 'lan' && !(o.uiPassword && o.uiPassword.trim())) {
+    throw new Error('bind=lan 会把实例暴露到对端局域网，必须先设置 UI 密码（无 TLS，密码是唯一门）')
+  }
   // Imported lazily to keep this module free of a hard dependency cycle.
   const exports = renderExports({
     HTTP_PROXY: o.proxy?.httpProxy,
@@ -565,10 +599,11 @@ export function buildInstanceServeCommand(o: InstanceServeOptions): string {
     ...o.extraEnv,
     OPENCODE_BINARY: o.enginePath,
     OPENCHAMBER_UI_PASSWORD: o.uiPassword,
-    // Air-gapped hosts: never dial the hosted relay, and make that explicit.
-    OPENCHAMBER_RELAY_HOST: 'off',
+    // renderExports drops undefined: 没给 relayHost 就一个字都不注入，
+    // 跟随 app 默认（被动 hosting 允许，relay 状态由它自己的配置跨重启存活）。
+    OPENCHAMBER_RELAY_HOST: o.relayHost,
   })}`
-  const line = `${env}${p.node} ${p.cli} serve --hostname 127.0.0.1 --port ${o.port}`
+  const line = `${env}${p.node} ${p.cli} serve --hostname ${host} --port ${o.port}`
   // Detached: log to our file, stdin from /dev/null so the backgrounded server
   // does not hold the ssh channel open after the command returns.
   return o.detached ? `nohup sh -c ${q(line)} >> ${p.log} 2>&1 < /dev/null & echo started` : line
@@ -596,9 +631,14 @@ export function buildPairLinkCommand(o: {
   instancePort: number
   serverUrl: string
   label: string
+  /** bind=lan 时给上游追加 `--lan`：对端自己把自己的 LAN 地址加进候选
+   *  （它知道自己的 IP），ocrc 不替它拼；`--server`（控制端转发）保持不变——
+   *  控制端路径永远在候选里。 */
+  lan?: boolean
 }): string {
   const p = instancePaths(o.appVersion)
-  return `${p.node} ${p.cli} connect-url --port ${o.instancePort} --server ${q(o.serverUrl)} --name ${q(o.label)}`
+  const lan = o.lan ? ' --lan' : ''
+  return `${p.node} ${p.cli} connect-url --port ${o.instancePort} --server ${q(o.serverUrl)}${lan} --name ${q(o.label)}`
 }
 
 /** The `openchamber://connect?v=2&p=<base64url>` link out of `connect-url`'s boxed output. */
@@ -731,7 +771,7 @@ export function parsePortProbe(stdout: string): 'open' | 'closed' | 'unknown' {
  *
  * Two details that only a live run reveals:
  *   · The instance port is the discriminator, **not** the command shape. Our serve
- *     line is `<node> <cli.js> serve --hostname 127.0.0.1 --port 2610`, but the
+ *     line is `<node> <cli.js> serve --hostname <loopback|0.0.0.0> --port 2610`, but the
  *     process that ends up holding the listener is openchamber's own child,
  *     `.../server/index.js --port 2610 -`. Matching on `serve --hostname` found
  *     nothing (measured), so we match on `--port <instancePort>`.

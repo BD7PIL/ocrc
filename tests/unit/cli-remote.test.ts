@@ -250,6 +250,45 @@ describe('cli remote — add / list', () => {
     }
   })
 
+  it('--bind lan 落盘、拼错的值拒绝；set --bind 改字段并说明生效时机', async () => {
+    const home = tempHome()
+    const saved = process.env.OCRC_HOME
+    process.env.OCRC_HOME = home
+    try {
+      capture()
+      await expect(main(['add', '--host', 'peer', '--bind', 'wan'])).rejects.toThrow(/--bind 只认 loopback \/ lan/)
+      const code = await run(['add', '--host', 'peer.example', '--user', 'dev', '--bind', 'lan'])
+      expect(code).toBe(0)
+      expect(logs.join('\n')).toContain('局域网直连')
+      await new Promise((r) => setTimeout(r, 250))
+
+      logs = []
+      const listCode = await run(['list', '--json'])
+      const parsed = JSON.parse(logs.join('\n')!) as { instances: Array<{ bind?: string }> }
+      expect(listCode).toBe(0)
+      expect(parsed.instances[0]!.bind).toBe('lan')
+
+      // set：改回 loopback + 改 egress 一起；缺字段拒绝
+      logs = []
+      await expect(main(['set', 'dev@peer.example'])).rejects.toThrow(/至少要给一个字段/)
+      const setCode = await run(['set', 'dev@peer.example', '--bind', 'loopback', '--egress', 'direct'])
+      expect(setCode).toBe(0)
+      expect(logs.join('\n')).toContain('仅本机转发')
+      expect(logs.join('\n')).toContain('重启才应用')
+      // set 的落盘同样走 100ms 去抖（exit 钩子被 stub），等它写出再读
+      await new Promise((r) => setTimeout(r, 250))
+      logs = []
+      await run(['list', '--json'])
+      const after = JSON.parse(logs.join('\n')!) as { instances: Array<{ bind?: string; egress?: string }> }
+      expect(after.instances[0]!.bind).toBeUndefined() // loopback = 未设（normalize 收敛）
+      expect(after.instances[0]!.egress).toBe('direct')
+    } finally {
+      process.env.OCRC_HOME = saved
+      restore()
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
   it('--ssh-auth password reads one line from stdin when piped', async () => {
     const home = tempHome()
     const saved = process.env.OCRC_HOME

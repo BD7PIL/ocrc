@@ -30,6 +30,7 @@ import {
   buildPeerPortProbeCommand, parsePortProbe, provisionActions, buildPeerLogCommand, parsePeerLogs, type PeerLogs,
   buildInstanceProxyProbeCommand, parseInstanceProxyProbe, relayProxyUrl,
   buildPairLinkCommand, parsePairLink, describePairLink, buildEgressProbeCommand, parseEgressProbe, resolveEgressPolicy,
+  relayHostFor, type BindMode,
   EGRESS_DEFAULT, type EgressMode, type EgressProbe, type ProvisionMode,
   decideUpgrade,
   NODE_RUNTIME,
@@ -101,6 +102,8 @@ export interface InstanceInspection {
   uname?: string
   glibc?: string
   home?: string
+  /** 对端自己眼里的主局域网地址（hostname -I 第一段）——bind=lan 的提示用它。 */
+  ip?: string
 }
 
 export interface InstancePlan {
@@ -127,6 +130,8 @@ export interface InstancePlan {
   egress?: { mode: EgressMode; relay: boolean; reason: string; probe?: EgressProbe }
   /** A3: 推包 or 复用已有 — what the 装机 button will do. */
   provision?: ProvisionMode
+  /** 0.11.1：对端绑定面（plan 把它连同暴露面代价一起说出来）。 */
+  bind?: BindMode
   /** A3: which app pack this peer gets, decided by its glibc (legacy rebuilds
    *  node-pty). Shown read-only — it is derived, never a user choice. */
   tier?: AppPackTier
@@ -295,12 +300,14 @@ export function cleanSshNoise(text: string): string {
     .join('\n')
 }
 
-/** Remote: one round of environment facts (uname / glibc / HOME). */
+/** Remote: one round of environment facts (uname / glibc / HOME / LAN IP). */
 export function buildInstanceEnvProbeCommand(): string {
   return [
     'echo "UNAME=$(uname -s -m 2>/dev/null)"',
     'echo "LDD=$(ldd --version 2>/dev/null | head -1)"',
     'echo "HOME=$HOME"',
+    // bind=lan 的提示要用：对端自己眼里的局域网地址（第一个非空段）。
+    'echo "IP=$(hostname -I 2>/dev/null | awk \'{print $1}\')"',
   ].join('; ')
 }
 
@@ -324,6 +331,7 @@ export function parseEnvProbe(out: string): InstanceInspection {
     uname: kv.get('UNAME') || undefined,
     glibc: parseGlibcVersion(kv.get('LDD')),
     home: kv.get('HOME') || undefined,
+    ip: kv.get('IP') || undefined,
   }
 }
 
@@ -648,7 +656,8 @@ export function createRemoteInstanceManager(opts: {
     // The URL comes from `relayProxyUrl` on both sides (inject here, compare in
     // `up`): two spellings of the same string would look like a permanent
     // mismatch and restart the instance on every `up`.
-    const relay = (await egressFor(instance)).relay
+    const eg = await egressFor(instance)
+    const relay = eg.relay
       ? relayProxyUrl(proxyConfig(instance).remotePort)
       : undefined
     const script = `${prefix}${buildInstanceServeCommand({
@@ -656,6 +665,10 @@ export function createRemoteInstanceManager(opts: {
       port: instance.instancePort,
       uiPassword: instance.uiPassword,
       enginePath,
+      bind: instance.bind,
+      // 只在「探测确认出不了网且没走 R9」时注入 off（relayHostFor 钉死判据）；
+      // 其余对端跟随 app 默认，relay 状态由它自己的配置跨重启存活。
+      relayHost: relayHostFor(eg.probe, eg.relay),
       proxy: relay ? { httpProxy: relay, httpsProxy: relay } : undefined,
       extraEnv: passthroughEnv(),
       detached: true,
@@ -1231,11 +1244,21 @@ export function createRemoteInstanceManager(opts: {
     // panel reaches an instance through this call first, so start monitoring here.
     startExternalMonitor(id)
     const url = instanceUrl(instance.localPort)
+    // bind=lan：`--server`（链接里的 LAN 候选——上游没有独立的候选 flag，`--lan`
+    // 只是「启动时绑 0.0.0.0」）换成对端自己的 LAN 地址。局域网设备直连它，
+    // 到不了的设备回落 relay 候选；loopback 记录保持控制端转发不变。
+    let serverUrl = url
+    if (instance.bind === 'lan') {
+      const ipOut = await ssh(instance, "hostname -I 2>/dev/null | awk '{print $1}'", 15_000)
+      const ip = ipOut.stdout.trim()
+      if (ip) serverUrl = `http://${ip}:${instance.instancePort}`
+    }
     const r = await ssh(instance, buildPairLinkCommand({
       appVersion: instance.appVersion,
       instancePort: instance.instancePort,
-      serverUrl: url,
+      serverUrl,
       label: instance.name?.trim() || instance.id,
+      lan: instance.bind === 'lan',
     }), 45_000)
     const link = parsePairLink(r.stdout)
     if (!link) {
@@ -1406,9 +1429,14 @@ export function createRemoteInstanceManager(opts: {
         actions.push(`注意：终端暂不可用（${term.reason ?? '原因未知'}）——实例其余功能不受影响`)
       }
       actions.push(pick.ok
-        ? `启动实例：serve --hostname 127.0.0.1 --port ${instance.instancePort}（OpenCode ${pick.candidate.path} → ${pick.candidate.version}）`
+        ? `启动实例：serve --hostname ${instance.bind === 'lan' ? '0.0.0.0' : '127.0.0.1'} --port ${instance.instancePort}（OpenCode ${pick.candidate.path} → ${pick.candidate.version}）`
         : `启动实例前先装 OpenCode：opencode ${DEFAULT_ENGINE_PIN} → ~/.ocrc/remote/engine/opencode（远程机器现有 v1 一律不动）`)
       actions.push(`建转发：ssh -N -L 127.0.0.1:${instance.localPort}:127.0.0.1:${instance.instancePort} → 打开 ${url}`)
+      // bind=lan 是显式 opt-in 的暴露面：plan 必须把代价连着地址一次说清。
+      if (instance.bind === 'lan') {
+        const lanUrl = env.ip ? `http://${env.ip}:${instance.instancePort}` : `http://<对端IP>:${instance.instancePort}`
+        actions.push(`注意：实例绑定 0.0.0.0，对局域网暴露在 ${lanUrl}——UI 密码是唯一门（无 TLS）；确认远程机器防火墙放行 ${instance.instancePort}/tcp`)
+      }
       // A3: `auto` must show what it picked, and the probe costs an ssh round
       // trip we can afford here (this is the "look before you leap" step).
       const egress = await egressFor(instance)
@@ -1439,8 +1467,10 @@ export function createRemoteInstanceManager(opts: {
         engineCandidates: candidates,
         actions,
         url,
+        instancePort: instance.instancePort,
         egress: { mode: instance.egress ?? EGRESS_DEFAULT, relay: egress.relay, reason: egress.reason, probe: egress.probe },
         provision: instance.provision ?? 'push',
+        bind: instance.bind ?? 'loopback',
         tier: appPackTierForGlibc(env.glibc),
         peerPort,
       }

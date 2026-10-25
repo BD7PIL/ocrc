@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.0.0-alpha.20 — relay 按出网注入 + LAN bind 开关（2026-10-24，扩展 0.11.1）
+
+- **事故修复：官方 relay 全断的根因（用户报告「重拉后远程配置丢失、relay 终端全部不可达」）**：
+  EL7 真机取证——磁盘配置一个字节没丢（relay-identity/jwt-secret/配对会话全在），真凶是
+  ocrc 的 serve 行自第一天起**无条件注入 `OPENCHAMBER_RELAY_HOST=off`**（air-gap 注释，误伤）。
+  该变量的真实语义（app 源码 `index.js:2590`、`relay/service.js:197`）是「**永不被动担任
+  relay host**（allowPassiveHost=false）」：off 的实例每次启动都落在 standby，不建立到
+  relay.openchamber.dev 的 control socket，配对设备没有着落点；`/relay/enable` 持久化的
+  enabled=true 也救不了下次重启（boot 路径不走 force）。修复：注入改为**条件式**——纯谓词
+  `relayHostFor(probe, relayInjected)`，只在「探测确认出不了网（none）且没有 R9 出网代理」
+  时注入；拿不准（unknown/dns-only/显式 direct）一律不注入。不对称代价定标：air-gap 对端
+  多拨几次 relay 是无害重试日志，在线对端被 off 则 relay 全断。即时恢复走的是 app 自己的
+  显式路径（`POST /auth/session` + `/api/openchamber/relay/enable` force-claim）。
+- **LAN bind 开关（显式 opt-in）**：每实例 `bind: 'loopback'（默认）| 'lan'`——lan 时 serve 行
+  `--hostname 0.0.0.0`，同一局域网的设备可直连 `http://<对端IP>:<端口>`，不再吃 relay 延迟。
+  安全纪律：lan 且无 UI 密码在构造期直接抛错（app 侧同款拒绝）；plan 连同对端 IP（env probe
+  新增 `hostname -I`）把暴露面一次说清（单因子密码、无 TLS、防火墙自行放行）；bind=lan 时
+  pairlink 给上游追加 `--lan`（LAN 候选由对端自己生成，`--server` 控制端转发保持不变）。
+  闭集 normalize（认不出=未设=loopback）；ops 校验拒拼错值；面板「访问范围」select + 详情/
+  plan 卡动态展示；CLI `add/bootstrap --bind` + 新 `ocrc remote set <id> [--bind] [--egress]`
+  （下次 up 生效）。defaults 返回体里撞名的展示用 `bind` 字段删除。
+
 ## 2.0.0-alpha.20 — 配置差异真相修复 + 树状化 + 双向拉取 + 冷状态识别（2026-10-24，扩展 0.11.0）
 
 - **补链：14,064 个「对端独有」是幽灵（0.11.0 的起点，用户疑问直答）**：配置文件不是整目录被 git

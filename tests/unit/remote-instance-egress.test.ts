@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CURL_EXIT_MAP, EGRESS_PROBE_URL, WGET_EXIT_MAP,
   buildEgressProbeCommand, buildInstanceProxyProbeCommand, egressProbeFromAttempts, parseEgressProbe,
-  parseInstanceProxyProbe, relayProxyUrl, resolveEgressPolicy,
+  parseInstanceProxyProbe, relayHostFor, relayProxyUrl, resolveEgressPolicy,
 } from '../../src/core/remote-instance.js'
 
 /**
@@ -207,5 +207,17 @@ describe('egress probe v2', () => {
     // wget: 8 = the server answered with an error status, which still proves a route.
     expect(egressProbeFromAttempts([8, 4], WGET_EXIT_MAP)).toBe('direct')
     expect(egressProbeFromAttempts([4, 4], WGET_EXIT_MAP)).toBe('none')
+  })
+})
+
+describe('relayHostFor（0.11.1 条件注入判据）', () => {
+  it('只有「探测确认出不了网且没有 R9 代理」才注入 off', () => {
+    expect(relayHostFor('none', false)).toBe('off')
+    // 拿不准的一律不注入：在线对端被 off = relay 全断（代价不对称）
+    expect(relayHostFor('none', true)).toBeUndefined()
+    expect(relayHostFor('direct', false)).toBeUndefined()
+    expect(relayHostFor('dns-only', false)).toBeUndefined()
+    expect(relayHostFor('unknown', false)).toBeUndefined()
+    expect(relayHostFor(undefined, false)).toBeUndefined()
   })
 })

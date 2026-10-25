@@ -73,6 +73,9 @@ const PLAN = [
   { id: '32-config-tree', page: 'panel', scenario: 'one', note: '差异树（0.11）：目录级勾选 + 计数徽章 + 行内推/拉方向 + 忽略表 + 拉回按钮',
     steps: [click('更多'), click('配置差异与同步')], settle: 1200 },
   { id: '33-cold-online', page: 'panel', scenario: 'cold', note: '冷状态识别（0.11）：未检查但实测过在线 → 「此前在线——启动会复用不重启」' },
+  // 0.11.1：访问范围（bind）
+  { id: '34-bind-lan', page: 'panel', scenario: 'bindlan', note: '访问范围（0.11.1）：编辑表单回填「局域网直连」+ 暴露面提示（详情卡随 bind 变）',
+    steps: [click('更多'), click('编辑')] },
 ]
 
 const chrome = [

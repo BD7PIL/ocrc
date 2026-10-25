@@ -8,13 +8,14 @@
  */
 
 export {
-  DEFAULT_APP_VERSION, DEFAULT_ENGINE_PIN, DEFAULT_INSTANCE_PORT, DEFAULT_LOCAL_PORT,
+  BIND_DEFAULT, DEFAULT_APP_VERSION, DEFAULT_ENGINE_PIN, DEFAULT_INSTANCE_PORT, DEFAULT_LOCAL_PORT,
   NODE_RUNTIME, PROXY_DEFAULTS, RECONNECT_DEFAULTS,
   buildDesktopHandoff, buildForwardArgs, buildRelayForwardArgs, instanceIdFor, instancePaths,
   judgeEngineCompat, normalizeEngineVersion, parseTerminalProbe, quoteRemotePath, redactInstance,
+  relayHostFor,
 } from '../core/remote-instance.js'
 export type {
-  DesktopHandoff, EngineCompatPayload, ForwardSpec, InstanceProxyConfig,
+  BindMode, DesktopHandoff, EngineCompatPayload, ForwardSpec, InstanceProxyConfig,
   RemoteInstance, TerminalProbe,
 } from '../core/remote-instance.js'
 

@@ -1145,8 +1145,15 @@ function pickV2Engine(candidates) {
     seen: candidates
   };
 }
+function relayHostFor(probe, relayInjected) {
+  return !relayInjected && probe === "none" ? "off" : void 0;
+}
 function buildInstanceServeCommand(o) {
   const p = instancePaths(o.appVersion);
+  const host = o.bind === "lan" ? "0.0.0.0" : "127.0.0.1";
+  if (o.bind === "lan" && !(o.uiPassword && o.uiPassword.trim())) {
+    throw new Error("bind=lan \u4F1A\u628A\u5B9E\u4F8B\u66B4\u9732\u5230\u5BF9\u7AEF\u5C40\u57DF\u7F51\uFF0C\u5FC5\u987B\u5148\u8BBE\u7F6E UI \u5BC6\u7801\uFF08\u65E0 TLS\uFF0C\u5BC6\u7801\u662F\u552F\u4E00\u95E8\uFF09");
+  }
   const exports = renderExports({
     HTTP_PROXY: o.proxy?.httpProxy,
     http_proxy: o.proxy?.httpProxy,
@@ -1159,10 +1166,11 @@ function buildInstanceServeCommand(o) {
     ...o.extraEnv,
     OPENCODE_BINARY: o.enginePath,
     OPENCHAMBER_UI_PASSWORD: o.uiPassword,
-    // Air-gapped hosts: never dial the hosted relay, and make that explicit.
-    OPENCHAMBER_RELAY_HOST: "off"
+    // renderExports drops undefined: 没给 relayHost 就一个字都不注入，
+    // 跟随 app 默认（被动 hosting 允许，relay 状态由它自己的配置跨重启存活）。
+    OPENCHAMBER_RELAY_HOST: o.relayHost
   })}`;
-  const line = `${env}${p.node} ${p.cli} serve --hostname 127.0.0.1 --port ${o.port}`;
+  const line = `${env}${p.node} ${p.cli} serve --hostname ${host} --port ${o.port}`;
   return o.detached ? `nohup sh -c ${q(line)} >> ${p.log} 2>&1 < /dev/null & echo started` : line;
 }
 function renderExports(vars) {
@@ -1171,7 +1179,8 @@ function renderExports(vars) {
 }
 function buildPairLinkCommand(o) {
   const p = instancePaths(o.appVersion);
-  return `${p.node} ${p.cli} connect-url --port ${o.instancePort} --server ${q(o.serverUrl)} --name ${q(o.label)}`;
+  const lan = o.lan ? " --lan" : "";
+  return `${p.node} ${p.cli} connect-url --port ${o.instancePort} --server ${q(o.serverUrl)}${lan} --name ${q(o.label)}`;
 }
 function parsePairLink(output) {
   return output.match(/openchamber:\/\/connect\?v=2&p=[A-Za-z0-9_-]+/)?.[0];
@@ -1588,6 +1597,9 @@ function createRemoteInstancesStore(path, opts = {}) {
       // 出口策略是闭集：认不出来的值等于没设（= auto，由探测决定），
       // 不能让一个拼错的值悄悄变成"总是经控制端"。
       egress: i.egress === "relay" || i.egress === "direct" ? i.egress : void 0,
+      // 绑定面同款闭集纪律：认不出 = 未设 = loopback。lan 是显式 opt-in
+      // （对端局域网暴露），绝不能让一个拼错的值悄悄开过去。
+      bind: i.bind === "lan" ? "lan" : void 0,
       // C2b: per-peer provider URL rewrites — only non-empty strings survive, so
       // a half-filled form cannot write `baseURL: undefined` into the peer.
       providerBaseUrl: (() => {
@@ -1658,6 +1670,7 @@ function createRemoteInstancesStore(path, opts = {}) {
         enabled: instance.enabled ?? true,
         provision: instance.provision,
         egress: instance.egress,
+        bind: instance.bind,
         providerBaseUrl: instance.providerBaseUrl,
         reconnect: instance.reconnect,
         restoreOnStart: instance.restoreOnStart,
@@ -3308,7 +3321,9 @@ function buildInstanceEnvProbeCommand() {
   return [
     'echo "UNAME=$(uname -s -m 2>/dev/null)"',
     'echo "LDD=$(ldd --version 2>/dev/null | head -1)"',
-    'echo "HOME=$HOME"'
+    'echo "HOME=$HOME"',
+    // bind=lan 的提示要用：对端自己眼里的局域网地址（第一个非空段）。
+    `echo "IP=$(hostname -I 2>/dev/null | awk '{print $1}')"`
   ].join("; ");
 }
 function buildRemoteHealthCommand(appVersion, port) {
@@ -3325,7 +3340,8 @@ function parseEnvProbe(out) {
   return {
     uname: kv.get("UNAME") || void 0,
     glibc: parseGlibcVersion(kv.get("LDD")),
-    home: kv.get("HOME") || void 0
+    home: kv.get("HOME") || void 0,
+    ip: kv.get("IP") || void 0
   };
 }
 function ownerRoleFor(detachedForwards) {
@@ -3538,12 +3554,17 @@ ${err.message}` }));
   }
   async function startInstance(instance, enginePath, guard = false) {
     const prefix = guard ? buildOfflineGuardExports() : opts.serveEnvPrefix?.(instance) ?? "";
-    const relay = (await egressFor(instance)).relay ? relayProxyUrl(proxyConfig(instance).remotePort) : void 0;
+    const eg = await egressFor(instance);
+    const relay = eg.relay ? relayProxyUrl(proxyConfig(instance).remotePort) : void 0;
     const script = `${prefix}${buildInstanceServeCommand({
       appVersion: instance.appVersion,
       port: instance.instancePort,
       uiPassword: instance.uiPassword,
       enginePath,
+      bind: instance.bind,
+      // 只在「探测确认出不了网且没走 R9」时注入 off（relayHostFor 钉死判据）；
+      // 其余对端跟随 app 默认，relay 状态由它自己的配置跨重启存活。
+      relayHost: relayHostFor(eg.probe, eg.relay),
       proxy: relay ? { httpProxy: relay, httpsProxy: relay } : void 0,
       extraEnv: passthroughEnv(),
       detached: true
@@ -4013,11 +4034,18 @@ ${err.message}` }));
     await ensureExternalRelayAsync(instance);
     startExternalMonitor(id);
     const url = instanceUrl(instance.localPort);
+    let serverUrl = url;
+    if (instance.bind === "lan") {
+      const ipOut = await ssh(instance, "hostname -I 2>/dev/null | awk '{print $1}'", 15e3);
+      const ip = ipOut.stdout.trim();
+      if (ip) serverUrl = `http://${ip}:${instance.instancePort}`;
+    }
     const r = await ssh(instance, buildPairLinkCommand({
       appVersion: instance.appVersion,
       instancePort: instance.instancePort,
-      serverUrl: url,
-      label: instance.name?.trim() || instance.id
+      serverUrl,
+      label: instance.name?.trim() || instance.id,
+      lan: instance.bind === "lan"
     }), 45e3);
     const link = parsePairLink(r.stdout);
     if (!link) {
@@ -4163,8 +4191,12 @@ ${err.message}` }));
       if (term && term.ok === false) {
         actions.push(`\u6CE8\u610F\uFF1A\u7EC8\u7AEF\u6682\u4E0D\u53EF\u7528\uFF08${term.reason ?? "\u539F\u56E0\u672A\u77E5"}\uFF09\u2014\u2014\u5B9E\u4F8B\u5176\u4F59\u529F\u80FD\u4E0D\u53D7\u5F71\u54CD`);
       }
-      actions.push(pick.ok ? `\u542F\u52A8\u5B9E\u4F8B\uFF1Aserve --hostname 127.0.0.1 --port ${instance.instancePort}\uFF08OpenCode ${pick.candidate.path} \u2192 ${pick.candidate.version}\uFF09` : `\u542F\u52A8\u5B9E\u4F8B\u524D\u5148\u88C5 OpenCode\uFF1Aopencode ${DEFAULT_ENGINE_PIN} \u2192 ~/.ocrc/remote/engine/opencode\uFF08\u8FDC\u7A0B\u673A\u5668\u73B0\u6709 v1 \u4E00\u5F8B\u4E0D\u52A8\uFF09`);
+      actions.push(pick.ok ? `\u542F\u52A8\u5B9E\u4F8B\uFF1Aserve --hostname ${instance.bind === "lan" ? "0.0.0.0" : "127.0.0.1"} --port ${instance.instancePort}\uFF08OpenCode ${pick.candidate.path} \u2192 ${pick.candidate.version}\uFF09` : `\u542F\u52A8\u5B9E\u4F8B\u524D\u5148\u88C5 OpenCode\uFF1Aopencode ${DEFAULT_ENGINE_PIN} \u2192 ~/.ocrc/remote/engine/opencode\uFF08\u8FDC\u7A0B\u673A\u5668\u73B0\u6709 v1 \u4E00\u5F8B\u4E0D\u52A8\uFF09`);
       actions.push(`\u5EFA\u8F6C\u53D1\uFF1Assh -N -L 127.0.0.1:${instance.localPort}:127.0.0.1:${instance.instancePort} \u2192 \u6253\u5F00 ${url}`);
+      if (instance.bind === "lan") {
+        const lanUrl = env.ip ? `http://${env.ip}:${instance.instancePort}` : `http://<\u5BF9\u7AEFIP>:${instance.instancePort}`;
+        actions.push(`\u6CE8\u610F\uFF1A\u5B9E\u4F8B\u7ED1\u5B9A 0.0.0.0\uFF0C\u5BF9\u5C40\u57DF\u7F51\u66B4\u9732\u5728 ${lanUrl}\u2014\u2014UI \u5BC6\u7801\u662F\u552F\u4E00\u95E8\uFF08\u65E0 TLS\uFF09\uFF1B\u786E\u8BA4\u8FDC\u7A0B\u673A\u5668\u9632\u706B\u5899\u653E\u884C ${instance.instancePort}/tcp`);
+      }
       const egress = await egressFor(instance);
       actions.push(`\u8054\u7F51\u65B9\u5F0F\uFF1A${egress.relay ? "\u7ECF\u672C\u673A\u8F6C\u53D1" : "\u76F4\u8FDE"}\uFF08${egress.reason}\uFF09`);
       const portOut = await ssh(instance, buildPeerPortProbeCommand(instance.appVersion, instance.instancePort), 2e4);
@@ -4191,8 +4223,10 @@ ${err.message}` }));
         engineCandidates: candidates,
         actions,
         url,
+        instancePort: instance.instancePort,
         egress: { mode: instance.egress ?? EGRESS_DEFAULT, relay: egress.relay, reason: egress.reason, probe: egress.probe },
         provision: instance.provision ?? "push",
+        bind: instance.bind ?? "loopback",
         tier: appPackTierForGlibc(env.glibc),
         peerPort
       };
@@ -4892,6 +4926,10 @@ function validateInstancePayload(payload) {
   if (provision !== void 0 && provision !== null && provision !== "push" && provision !== "reuse") {
     return `\u5B89\u88C5\u65B9\u5F0F\u4E0D\u5408\u6CD5\uFF1A${String(provision)}\uFF08\u53EA\u63A5\u53D7 push / reuse\uFF09`;
   }
+  const bind = payload?.bind;
+  if (bind !== void 0 && bind !== null && bind !== "loopback" && bind !== "lan") {
+    return `\u8BBF\u95EE\u8303\u56F4\u4E0D\u5408\u6CD5\uFF1A${String(bind)}\uFF08\u53EA\u63A5\u53D7 loopback / lan\uFF09`;
+  }
   return void 0;
 }
 var withStatus = (manager) => (i) => ({
@@ -5057,7 +5095,6 @@ function createRemoteInstanceOps({
               enginePin: DEFAULT_ENGINE_PIN,
               engineLatest: engineLatest.ok ? { version: engineLatest.version } : { error: engineLatest.error },
               nodeRuntime: NODE_RUNTIME.version,
-              bind: "127.0.0.1",
               // Two records must not share the control-side forward port, so the
               // suggestion also avoids what the store already claims.
               taken: store.list().map((i) => i.localPort)

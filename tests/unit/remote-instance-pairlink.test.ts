@@ -21,6 +21,17 @@ describe('buildPairLinkCommand', () => {
     expect(cmd).toContain('connect-url --port 2610')
     expect(cmd).toContain("--server 'http://127.0.0.1:4610'")
     expect(cmd).toContain("--name 'EL7 box'")
+    // loopback（默认）不带 --lan：对端不加 LAN 候选
+    expect(cmd).not.toContain('--lan')
+  })
+
+  it('bind=lan 追加 --lan：LAN 候选由对端自己生成，--server 仍是控制端转发', () => {
+    const cmd = buildPairLinkCommand({
+      appVersion: '2.3.3', instancePort: 2610, serverUrl: 'http://127.0.0.1:4610', label: 'EL7 box', lan: true,
+    })
+    expect(cmd).toContain('connect-url --port 2610 --server')
+    expect(cmd).toContain('--lan')
+    expect(cmd).toContain("--server 'http://127.0.0.1:4610'")
   })
 
   it('quotes a label that would otherwise break the remote shell', () => {

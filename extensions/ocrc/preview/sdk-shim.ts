@@ -58,7 +58,7 @@ if (scenario === 'upgrade') {
         body: JSON.stringify({
           localPort: 4614, instancePort: 2610, appVersion: '2.3.3', latestPack: { version: '2.5.0' },
           engineLatest: { version: '2.1.4' },
-          enginePin: '2.0.27', nodeRuntime: '24.22.0', bind: '127.0.0.1', taken: [4610, 4612],
+          enginePin: '2.0.27', nodeRuntime: '24.22.0', taken: [4610, 4612],
         }),
       })
     }

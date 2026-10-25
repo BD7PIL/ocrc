@@ -67,14 +67,18 @@ ocrc remote — 远程 openchamber 实例（对端能力）
 USAGE:
   ocrc remote add --host H [--user U] [--port 22] [--name N]
                   [--ssh-auth key|password] [--ssh-password P]
-                  [--egress auto|relay|direct] [--provision push|reuse] [--provider-baseurl id=url,...]
+                  [--egress auto|relay|direct] [--provision push|reuse] [--bind loopback|lan] [--provider-baseurl id=url,...]
                   [--instance-port ${DEFAULT_INSTANCE_PORT}] [--local-port ${DEFAULT_LOCAL_PORT}]
                   [--engine-path /abs/path] [--app-version ${DEFAULT_APP_VERSION}]
                   --ssh-auth password：不写 --ssh-password 时从终端（不回显）或 stdin 读一行
                   --egress：auto（默认，探测对端）| relay（强制经控制端）| direct（强制直连）
                   --provision：push（默认，推备件）| reuse（不推字节，只检查 + pin 引擎）
+                  --bind：loopback（默认，仅 ssh 隧道/relay 可达）| lan（实例听 0.0.0.0，对端局域网可直连；
+                          单因子密码无 TLS，只在可信内网用；下次 up 生效）
                   --provider-baseurl：同步配置时改写这些 provider 的 baseURL（无外网对端经内网网关，C2b；
                                   同时覆盖 v2 的 providers.<id>.settings.baseURL 与旧 provider.<id>.options.baseURL）
+  ocrc remote set <id> [--bind loopback|lan] [--egress auto|relay|direct]
+                                   改闭集字段（下次 up 生效；改动即时落盘）
   环境变量 OCRC_INSTANCE_ENV=TAVILY_API_KEY[,OTHER]
                   把控制端的这些变量透传进对端实例的 serve 行（让配置里的 {env:…} 能解析；
                   密钥仍然只在控制端的进程环境里，不写进任何配置文件）
@@ -124,7 +128,7 @@ USAGE:
   ocrc remote bootstrap [<id> | --target user@host[:port]]
                   [--host H --user U] [--port 22] [--name N]
                   [--ssh-auth key|password] [--ssh-password P]
-                  [--egress auto|relay|direct] [--provision push|reuse]
+                  [--egress auto|relay|direct] [--provision push|reuse] [--bind loopback|lan]
                   [--instance-port ${DEFAULT_INSTANCE_PORT}] [--local-port ${DEFAULT_LOCAL_PORT}]
                   [--app-version V] [--engine-path P]
                   [--component <dir|tgz|npm-spec>]... [--with-components]
@@ -387,6 +391,9 @@ async function runBootstrap(args: string[], flags: Map<string, string | true>, a
   const provision = flagStr(flags, 'provision')
   if (provision && !['push', 'reuse'].includes(provision)) throw new UsageError('--provision 只认 push / reuse')
   if (provision) input.provision = provision as 'push' | 'reuse'
+  const bind = flagStr(flags, 'bind')
+  if (bind && !['loopback', 'lan'].includes(bind)) throw new UsageError('--bind 只认 loopback / lan')
+  if (bind) input.bind = bind as 'loopback' | 'lan'
   const sshAuth = flagStr(flags, 'ssh-auth')
   if (sshAuth && sshAuth !== 'key' && sshAuth !== 'password') throw new UsageError('--ssh-auth 只认 key / password')
   if (sshAuth === 'password') {
@@ -567,6 +574,8 @@ export async function main(argv: string[]): Promise<void> {
     if (egressFlag && !['auto', 'relay', 'direct'].includes(egressFlag)) throw new Error('--egress 只认 auto / relay / direct')
     const provisionFlag = flagStr(flags, 'provision')
     if (provisionFlag && !['push', 'reuse'].includes(provisionFlag)) throw new Error('--provision 只认 push / reuse')
+    const bindFlag = flagStr(flags, 'bind')
+    if (bindFlag && !['loopback', 'lan'].includes(bindFlag)) throw new Error('--bind 只认 loopback / lan')
     // C2b: per-peer provider URL rewrites, `id=url,id=url`. A peer without its
     // own egress may only reach a provider through our relay or an internal
     // gateway, so the URL the control side uses is not always the peer's.
@@ -588,6 +597,7 @@ export async function main(argv: string[]): Promise<void> {
       sshPassword,
       egress: egressFlag as 'auto' | 'relay' | 'direct' | undefined,
       provision: provisionFlag as 'push' | 'reuse' | undefined,
+      bind: bindFlag as 'loopback' | 'lan' | undefined,
       providerBaseUrl,
       instancePort: flagNum(flags, 'instance-port', DEFAULT_INSTANCE_PORT),
       localPort: flagNum(flags, 'local-port', DEFAULT_LOCAL_PORT),
@@ -599,6 +609,7 @@ export async function main(argv: string[]): Promise<void> {
     console.log(`登录方式：${saved.sshAuth === 'password' ? '密码（askpass 喂 ssh，密码只落 0600 文件，接口不回显）' : '密钥（BatchMode=yes，用本机 ~/.ssh 与 agent）'}`)
     console.log(`联网方式：${saved.egress ?? 'auto（探测：能直连就直连，不能才经本机转发）'}`)
     console.log(`安装方式：${saved.provision === 'reuse' ? '复用已安装（一个字节都不推，只检查 + pin OpenCode）' : '推送安装（控制端备件推过去，远程机器零联网）'}`)
+    console.log(`访问范围：${saved.bind === 'lan' ? '局域网直连（绑定 0.0.0.0；UI 密码是唯一门，只在可信内网用；下次 up 生效）' : '仅本机转发（默认；ssh 隧道与官方 relay 可达）'}`)
     console.log(`界面密码：${saved.uiPassword}（只存在 ~/.ocrc/remote-instances.json，0600；接口不回显）`)
     console.log(`下一步：ocrc remote plan ${saved.id}`)
     return
@@ -942,6 +953,28 @@ export async function main(argv: string[]): Promise<void> {
     const url = `http://127.0.0.1:${instance.localPort}`
     console.log(url)
     await openUrl(url)
+    return
+  }
+
+  if (sub === 'set') {
+    // 闭集字段的修改通道（0.11.1）：即时落盘，serve 行在下次 up 才重读。
+    const id = args[1]
+    if (!id) throw new Error('用法：ocrc remote set <id> [--bind loopback|lan] [--egress auto|relay|direct]')
+    const bindFlag = flagStr(flags, 'bind')
+    if (bindFlag && !['loopback', 'lan'].includes(bindFlag)) throw new Error('--bind 只认 loopback / lan')
+    const egressFlag = flagStr(flags, 'egress')
+    if (egressFlag && !['auto', 'relay', 'direct'].includes(egressFlag)) throw new Error('--egress 只认 auto / relay / direct')
+    if (!bindFlag && !egressFlag) throw new Error('set 至少要给一个字段：--bind / --egress')
+    const s = store()
+    if (!s.get(id)) throw new Error(`没有这台服务器：${id}`)
+    const updated = s.update(id, {
+      ...(bindFlag ? { bind: bindFlag as 'loopback' | 'lan' } : {}),
+      ...(egressFlag ? { egress: egressFlag as 'auto' | 'relay' | 'direct' } : {}),
+    })
+    console.log(`已更新 ${id}：`)
+    console.log(`  访问范围：${updated?.bind === 'lan' ? '局域网直连（绑定 0.0.0.0；UI 密码是唯一门）' : '仅本机转发（默认）'}`)
+    console.log(`  联网方式：${updated?.egress ?? 'auto'}`)
+    console.log('生效条件：实例（重）启动时读 serve 行——在跑的实例要重启才应用：ocrc remote down <id> && ocrc remote up <id>')
     return
   }
 

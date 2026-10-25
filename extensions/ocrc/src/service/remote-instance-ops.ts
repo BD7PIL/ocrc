@@ -116,6 +116,10 @@ export function validateInstancePayload(payload: Partial<RemoteInstance> | undef
   if (provision !== undefined && provision !== null && provision !== 'push' && provision !== 'reuse') {
     return `安装方式不合法：${String(provision)}（只接受 push / reuse）`
   }
+  const bind = payload?.bind
+  if (bind !== undefined && bind !== null && bind !== 'loopback' && bind !== 'lan') {
+    return `访问范围不合法：${String(bind)}（只接受 loopback / lan）`
+  }
   return undefined
 }
 
@@ -332,7 +336,6 @@ export function createRemoteInstanceOps({
               enginePin: DEFAULT_ENGINE_PIN,
               engineLatest: engineLatest.ok ? { version: engineLatest.version } : { error: engineLatest.error },
               nodeRuntime: NODE_RUNTIME.version,
-              bind: '127.0.0.1',
               // Two records must not share the control-side forward port, so the
               // suggestion also avoids what the store already claims.
               taken: store.list().map((i) => i.localPort),

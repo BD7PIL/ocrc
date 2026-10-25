@@ -170,6 +170,14 @@ describe('启动/停止脚本与 R9 代理注入', () => {
     expect(line).not.toContain('export PATH=')
   })
 
+  it('bind=lan 听 0.0.0.0；没有 UI 密码直接拒绝（暴露面必须带门）', () => {
+    expect(buildInstanceServeCommand({ ...base, bind: 'lan' })).toContain('serve --hostname 0.0.0.0 --port 2610')
+    const { uiPassword, ...noPassword } = base
+    expect(() => buildInstanceServeCommand({ ...noPassword, bind: 'lan' })).toThrow(/UI 密码/)
+    // loopback 显式给出与缺省同形
+    expect(buildInstanceServeCommand({ ...base, bind: 'loopback' })).toContain('serve --hostname 127.0.0.1')
+  })
+
   it('配了代理就注入 HTTPS_PROXY，且 NO_PROXY 永远带上 127.0.0.1/localhost（隧道流量不被劫持）', () => {
     const line = buildInstanceServeCommand({ ...base, proxy: { httpsProxy: 'http://127.0.0.1:7890', noProxy: '10.0.0.0/8' } })
     expect(line).toContain("HTTPS_PROXY='http://127.0.0.1:7890'")
@@ -188,8 +196,12 @@ describe('启动/停止脚本与 R9 代理注入', () => {
     expect(line).not.toContain('NODE_EXTRA_CA_CERTS')
   })
 
-  it('R9 的离线前提：默认关掉对上游 relay 的外联', () => {
-    expect(buildInstanceServeCommand(base)).toContain("OPENCHAMBER_RELAY_HOST='off'")
+  it('RELAY_HOST=off 只按 relayHostFor 判据注入（2026-10-24 事故：无条件 off 让在线对端 relay 全断）', () => {
+    // 默认（在线对端）：一个字都不注入，跟随 app 默认——relay 状态由它自己的
+    // 配置跨重启存活。
+    expect(buildInstanceServeCommand(base)).not.toContain('OPENCHAMBER_RELAY_HOST')
+    // 真正出不了网且没有 R9 代理（拨了也是白拨）才注入。
+    expect(buildInstanceServeCommand({ ...base, relayHost: 'off' })).toContain("OPENCHAMBER_RELAY_HOST='off'")
   })
 
   it('detached 形态写日志并后台化（面板/CLI 用）', () => {

@@ -23,6 +23,7 @@ export interface PreviewRow {
   hasSshPassword?: boolean
   provision?: 'push' | 'reuse'
   egress?: 'auto' | 'relay' | 'direct'
+  bind?: 'loopback' | 'lan'
   hasUiPassword: boolean
   /** 最近一次实测：observed.app 在 → 冷识别的「此前在线」提示（0.11）。 */
   observed?: { app?: string; at?: number }
@@ -97,6 +98,11 @@ export const SCENARIOS: Record<string, PreviewRow[]> = {
       detail: '还没有检查过（service 重启后内存态归零；冷探测会自动实测）',
     },
   }],
+  /** 访问范围 bind=lan（0.11.1）：表单 select + 详情/检查卡把暴露面连对端 IP 说清。 */
+  bindlan: [{
+    ...ONLINE,
+    bind: 'lan' as const,
+  }],
 }
 
 export const rows = (scenario: string): PreviewRow[] =>
@@ -110,7 +116,7 @@ export const rows = (scenario: string): PreviewRow[] =>
  */
 export const opRoutes = () => ({
   'POST /remote-instance#defaults': {
-    body: { localPort: 4614, instancePort: 2610, appVersion: '2.3.3', enginePin: '2.0.27', nodeRuntime: '24.22.0', bind: '127.0.0.1', taken: [4610, 4612] },
+    body: { localPort: 4614, instancePort: 2610, appVersion: '2.3.3', enginePin: '2.0.27', nodeRuntime: '24.22.0', taken: [4610, 4612] },
   },
   'POST /remote-instance#plan': {
     body: {

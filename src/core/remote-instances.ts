@@ -119,6 +119,9 @@ export function createRemoteInstancesStore(path: string, opts: { flushOnExit?: b
       // 出口策略是闭集：认不出来的值等于没设（= auto，由探测决定），
       // 不能让一个拼错的值悄悄变成"总是经控制端"。
       egress: i.egress === 'relay' || i.egress === 'direct' ? i.egress : undefined,
+      // 绑定面同款闭集纪律：认不出 = 未设 = loopback。lan 是显式 opt-in
+      // （对端局域网暴露），绝不能让一个拼错的值悄悄开过去。
+      bind: i.bind === 'lan' ? 'lan' as const : undefined,
       // C2b: per-peer provider URL rewrites — only non-empty strings survive, so
       // a half-filled form cannot write `baseURL: undefined` into the peer.
       providerBaseUrl: (() => {
@@ -194,6 +197,7 @@ export function createRemoteInstancesStore(path: string, opts: { flushOnExit?: b
         enabled: instance.enabled ?? true,
         provision: instance.provision,
         egress: instance.egress,
+        bind: instance.bind,
         providerBaseUrl: instance.providerBaseUrl,
         reconnect: instance.reconnect,
         restoreOnStart: instance.restoreOnStart,

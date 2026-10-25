@@ -48,6 +48,11 @@ function makeManager(): RemoteInstanceManager {
     pairLink: vi.fn(async () => ({
       ok: true, detail: '配对链接已生成', link: 'openchamber://connect?v=2&p=abc', expiresAt: '2026-10-17T12:00:00Z',
     })),
+    lanInfo: vi.fn(async () => ({
+      ok: true, port: 2610, bind: 'lan', addresses: ['192.168.26.101', '192.168.22.202'],
+      reachable: { '192.168.26.101': true, '192.168.22.202': false },
+      firewall: { backend: 'firewalld', portOpen: 'closed', sudo: 'needed' },
+    })),
     configDiff: vi.fn(async () => ({
       localDir: '/home/u/.config/opencode', add: ['skill/a.md'], change: [], same: [], peerOnly: ['agent/old.md'],
       unknown: [], auth: { local: true, peer: false }, ignore: { patterns: ['**/__pycache__/'], filtered: 0 },
@@ -311,7 +316,30 @@ describe('remote-instance ops', () => {
     const job = await waitJob(ops, (started.body as { jobId: string }).jobId)
     expect(job.state).toBe('done')
     expect(job.result).toMatchObject({ ok: true, link: expect.stringContaining('openchamber://connect') })
-    expect(manager.pairLink).toHaveBeenCalledWith('user@h')
+    expect(manager.pairLink).toHaveBeenCalledWith('user@h', {})
+  })
+
+  it('pairlink passes the named LAN address + sudo password through, type-checks both', async () => {
+    const manager = makeManager()
+    const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager })
+    const bad = await ops.handle({ op: 'pairlink', id: 'user@h', payload: { address: 42 } } as never)
+    expect(bad.status).toBe(400)
+    const started = await ops.handle({ op: 'pairlink', id: 'user@h', payload: { address: ' 192.168.26.101 ', sudoPassword: 'pw' } })
+    expect(started.status).toBe(202)
+    await waitJob(ops, (started.body as { jobId: string }).jobId)
+    expect(manager.pairLink).toHaveBeenCalledWith('user@h', { address: '192.168.26.101', sudoPassword: 'pw' })
+  })
+
+  it('laninfo is a job that returns the address menu', async () => {
+    const manager = makeManager()
+    const ops = createRemoteInstanceOps({ store: makeStore([instance()]), manager })
+    expect((await ops.handle({ op: 'laninfo', id: 'missing' })).status).toBe(404)
+    const started = await ops.handle({ op: 'laninfo', id: 'user@h' })
+    expect(started.status).toBe(202)
+    const job = await waitJob(ops, (started.body as { jobId: string }).jobId)
+    expect(job.state).toBe('done')
+    expect(job.result).toMatchObject({ ok: true, addresses: ['192.168.26.101', '192.168.22.202'] })
+    expect(manager.lanInfo).toHaveBeenCalledWith('user@h')
   })
 
   /**
@@ -326,6 +354,7 @@ describe('remote-instance ops', () => {
       list: true, add: true, patch: true, plan: true, apply: true, upgrade: true, up: true, down: true, probe: true,
       status: true, logs: true, peerlog: true, url: true, defaults: true, uipassword: true,
       configdiff: true, syncconfig: true, pullfiles: true, ignoreadd: true, ignoreremove: true, syncauth: true, pairlink: true,
+      laninfo: true,
       delete: true, job: true,
     }
     const ops = createRemoteInstanceOps({

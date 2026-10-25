@@ -103,6 +103,11 @@ export const SCENARIOS: Record<string, PreviewRow[]> = {
     ...ONLINE,
     bind: 'lan' as const,
   }],
+  /** LAN 配对成套（0.11.2）：同 bindlan 的记录；laninfo/pairlink 应答在 sdk-shim。 */
+  lanpair: [{
+    ...ONLINE,
+    bind: 'lan' as const,
+  }],
 }
 
 export const rows = (scenario: string): PreviewRow[] =>

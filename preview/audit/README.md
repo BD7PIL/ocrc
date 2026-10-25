@@ -4,7 +4,7 @@
 按它驱动预览（真面板 + 真 kit + 假宿主），把图写到本目录。
 
 ```bash
-node extensions/ocrc/scripts/audit.mjs            # 全套 34 张
+node extensions/ocrc/scripts/audit.mjs            # 全套 35 张
 node extensions/ocrc/scripts/audit.mjs --only 15  # 只跑序号含 15 的项
 node extensions/ocrc/scripts/audit.mjs --no-serve # 复用已在跑的预览
 ```
@@ -47,6 +47,7 @@ node extensions/ocrc/scripts/audit.mjs --no-serve # 复用已在跑的预览
 | 32 | 差异树 + 双向拉取（0.11.0） | pass | 目录级勾选级联 + 计数徽章 + 行内「推/拉」方向 + 忽略表（可移除）+ 试运行拉取/两段确认拉回 |
 | 33 | 冷状态识别（0.11.0） | pass | 未检查但 observed 有实测 → 「此前在线——启动会复用不重启」，不再是「下一步：启动」 |
 | 34 | 访问范围 bind（0.11.1） | pass | 表单「局域网直连」select 回填 + 暴露面提示；详情端口行随 bind 明说暴露 |
+| 35 | LAN 配对成套（0.11.2） | pass | 每地址一行（直连 URL + 可达徽章 + 生成按钮，两地址都不自动选）；防火墙真相一行；needsSudo 内联密码框（标注即用即弃）+「放行并生成链接」 |
 
 ## 这一轮（第三轮）抓到并修掉的
 

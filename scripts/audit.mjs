@@ -76,6 +76,9 @@ const PLAN = [
   // 0.11.1：访问范围（bind）
   { id: '34-bind-lan', page: 'panel', scenario: 'bindlan', note: '访问范围（0.11.1）：编辑表单回填「局域网直连」+ 暴露面提示（详情卡随 bind 变）',
     steps: [click('更多'), click('编辑')] },
+  // 0.11.2：LAN 直连成套——每地址一个按钮 + needsSudo 密码框
+  { id: '35-lan-pairing', page: 'panel', scenario: 'lanpair', note: 'LAN 配对（0.11.2）：每地址一行（可达徽章 + 生成按钮，不自动选）+ needsSudo 密码框（即用即弃）',
+    steps: [click('创建配对链接'), click('生成此地址的配对链接', 1)], settle: 1000 },
 ]
 
 const chrome = [

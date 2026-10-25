@@ -1177,6 +1177,47 @@ function renderExports(vars) {
   const out = Object.keys(vars).sort().filter((k) => vars[k] !== void 0 && vars[k] !== "").map((k) => `${k}=${q(String(vars[k]))}`);
   return out.length ? `export ${out.join(" ")}; ` : "";
 }
+function isLanAddress(s) {
+  return /^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(s) && s.length <= 253;
+}
+function buildFirewallProbeCommand(port) {
+  return [
+    "echo FIREWALL_BEGIN",
+    "command -v firewall-cmd >/dev/null 2>&1 && echo HAS_FIREWALLD=1",
+    "command -v ufw >/dev/null 2>&1 && echo HAS_UFW=1",
+    "if sudo -n true 2>/dev/null; then echo SUDO=nopasswd; else echo SUDO=needed; fi",
+    `st=$(firewall-cmd --state 2>/dev/null || sudo -n firewall-cmd --state 2>/dev/null)`,
+    '[ -n "$st" ] && echo FW_STATE=$st || echo FW_STATE=unknown',
+    `pq=$(firewall-cmd --query-port=${port}/tcp 2>/dev/null || sudo -n firewall-cmd --query-port=${port}/tcp 2>/dev/null)`,
+    'if [ -n "$pq" ]; then [ "$pq" = yes ] && echo PORT=open || echo PORT=closed; else echo PORT=unknown; fi',
+    `uf=$(ufw status 2>/dev/null)`,
+    'echo "$uf" | grep -q "Status: active" && echo UFW=active || echo UFW=inactive',
+    'echo "$uf" | grep -qE "^' + port + '/tcp[ \\t]" && echo UFW_PORT=open || echo UFW_PORT=closed',
+    "echo FIREWALL_END"
+  ].join("\n");
+}
+function parseFirewallProbe(stdout) {
+  const block = /FIREWALL_BEGIN\r?\n([\s\S]*?)\r?\nFIREWALL_END/.exec(stdout)?.[1] ?? "";
+  const kv = /* @__PURE__ */ new Map();
+  for (const line of block.split("\n")) {
+    const i = line.indexOf("=");
+    if (i > 0) kv.set(line.slice(0, i).trim(), line.slice(i + 1).trim());
+  }
+  let backend = "none";
+  if (kv.get("HAS_FIREWALLD")) backend = "firewalld";
+  else if (kv.get("HAS_UFW") && kv.get("UFW") === "active") backend = "ufw";
+  else if (kv.get("HAS_UFW")) backend = "none";
+  const portOpen = backend === "firewalld" ? kv.get("PORT") ?? "unknown" : backend === "ufw" ? kv.get("UFW_PORT") ?? "unknown" : "unknown";
+  return { backend, portOpen, sudo: kv.get("SUDO") === "nopasswd" ? "nopasswd" : "needed" };
+}
+function buildFirewallPortCommand(backend, port, open, useSudoPassword) {
+  const s = open ? "add-port" : "remove-port";
+  const sudo = useSudoPassword ? "sudo -S -p '' " : "sudo -n ";
+  if (backend === "firewalld") {
+    return `${sudo}firewall-cmd --permanent --${s}=${port}/tcp && sudo firewall-cmd --reload && echo FW_DONE`;
+  }
+  return `${sudo}ufw ${open ? "allow" : "delete allow"} ${port}/tcp && echo FW_DONE`;
+}
 function buildPairLinkCommand(o) {
   const p = instancePaths(o.appVersion);
   const lan = o.lan ? " --lan" : "";
@@ -3322,8 +3363,8 @@ function buildInstanceEnvProbeCommand() {
     'echo "UNAME=$(uname -s -m 2>/dev/null)"',
     'echo "LDD=$(ldd --version 2>/dev/null | head -1)"',
     'echo "HOME=$HOME"',
-    // bind=lan 的提示要用：对端自己眼里的局域网地址（第一个非空段）。
-    `echo "IP=$(hostname -I 2>/dev/null | awk '{print $1}')"`
+    // bind=lan 的地址菜单用：对端全部地址（只展示，永不自动替用户选）。
+    'echo "IPS=$(hostname -I 2>/dev/null)"'
   ].join("; ");
 }
 function buildRemoteHealthCommand(appVersion, port) {
@@ -3341,7 +3382,7 @@ function parseEnvProbe(out) {
     uname: kv.get("UNAME") || void 0,
     glibc: parseGlibcVersion(kv.get("LDD")),
     home: kv.get("HOME") || void 0,
-    ip: kv.get("IP") || void 0
+    ips: (kv.get("IPS") ?? "").split(/\s+/).map((s) => s.trim()).filter(Boolean)
   };
 }
 function ownerRoleFor(detachedForwards) {
@@ -4024,9 +4065,78 @@ ${err.message}` }));
     }
     return (await probeThroughForward(instance)).ok;
   }
-  async function pairLink(id) {
+  async function lanReachable(address, port, timeoutMs = 4e3) {
+    return new Promise((resolve) => {
+      const socket = net2.connect({ host: address, port, timeout: timeoutMs });
+      const done = (ok) => {
+        socket.destroy();
+        resolve(ok);
+      };
+      socket.once("connect", () => done(true));
+      socket.once("timeout", () => done(false));
+      socket.once("error", () => done(false));
+    });
+  }
+  async function ensureLanPort(instance, address, sudoPassword) {
+    const port = instance.instancePort;
+    if (await lanReachable(address, port)) return { state: "open" };
+    const fp = await ssh(instance, buildFirewallProbeCommand(port), 3e4);
+    const firewall = parseFirewallProbe(fp.stdout);
+    if (firewall.backend === "none") {
+      return { state: "closed", firewall, reason: `${address}:${port} \u8FDE\u4E0D\u4E0A\uFF0C\u8FDC\u7A0B\u673A\u5668\u6CA1\u6709\u8BC6\u522B\u5230 firewalld/ufw\u2014\u2014\u9700\u8981\u624B\u5DE5\u653E\u884C ${port}/tcp` };
+    }
+    if (firewall.backend === "unknown") {
+      return { state: "closed", firewall, reason: `${address}:${port} \u8FDE\u4E0D\u4E0A\uFF0C\u9632\u706B\u5899\u540E\u7AEF\u5224\u5B9A\u4E0D\u4E86\u2014\u2014\u9700\u8981\u624B\u5DE5\u653E\u884C ${port}/tcp` };
+    }
+    if (firewall.portOpen === "open") {
+      return { state: "closed", firewall, reason: `${address}:${port} \u8FDE\u4E0D\u4E0A\uFF0C\u4F46\u8FDC\u7A0B\u673A\u5668\u5DF2\u653E\u884C ${port}/tcp\u2014\u2014\u68C0\u67E5\u5B9E\u4F8B\u662F\u5426\u4EE5\u300C\u8BBF\u95EE\u8303\u56F4=\u5C40\u57DF\u7F51\u300D\u91CD\u542F\u8FC7` };
+    }
+    if (firewall.sudo === "needed" && !sudoPassword) {
+      return { state: "needs-sudo", firewall, reason: `${firewall.backend === "firewalld" ? "firewalld" : "ufw"} \u62E6\u7740 ${port}/tcp\uFF0C\u4E14\u5F53\u524D\u7528\u6237\u6CA1\u6709\u514D\u5BC6 sudo` };
+    }
+    const cmd = buildFirewallPortCommand(firewall.backend, port, true, !!sudoPassword);
+    const r = sudoPassword ? await sshRunWithStdin(instance, cmd, `${sudoPassword}
+`, { timeoutMs: 6e4 }) : await ssh(instance, cmd, 6e4);
+    if (!r.stdout.includes("FW_DONE")) {
+      const why = (r.stderr || r.stdout).replace(/\s+/g, " ").slice(-200);
+      return { state: "closed", firewall, reason: `\u653E\u884C ${port}/tcp \u7684\u547D\u4EE4\u6CA1\u6210\u529F\uFF1A${why}` };
+    }
+    if (await lanReachable(address, port)) return { state: "open", opened: true, firewall };
+    return { state: "closed", firewall, reason: `\u5DF2\u653E\u884C ${port}/tcp \u5E76\u91CD\u8F7D\uFF0C\u4F46 ${address}:${port} \u4ECD\u8FDE\u4E0D\u4E0A\u2014\u2014\u786E\u8BA4\u5B9E\u4F8B\u76D1\u542C 0.0.0.0 \u4E0E\u8DEF\u7531\u53EF\u8FBE\u6027` };
+  }
+  async function lanInfo(id) {
     const instance = opts.store.get(id);
     if (!instance) return { ok: false, detail: `\u6CA1\u6709\u8FD9\u4E2A\u5B9E\u4F8B\uFF1A${id}` };
+    const env = await probeEnv(instance);
+    if (!env) return { ok: false, detail: "ssh \u4E0D\u53EF\u8FBE\uFF0C\u62FF\u4E0D\u5230\u5730\u5740\u5217\u8868" };
+    const addresses = env.ips ?? [];
+    if (!addresses.length) return { ok: true, port: instance.instancePort, bind: instance.bind ?? "loopback", addresses, reachable: {}, detail: "\u8FDC\u7A0B\u673A\u5668\u6CA1\u62A5\u544A\u4EFB\u4F55\u5730\u5740\uFF08hostname -I \u4E3A\u7A7A\uFF09" };
+    const reachable = {};
+    for (const a of addresses) reachable[a] = await lanReachable(a, instance.instancePort);
+    const firewall = parseFirewallProbe((await ssh(instance, buildFirewallProbeCommand(instance.instancePort), 3e4)).stdout);
+    return { ok: true, port: instance.instancePort, bind: instance.bind ?? "loopback", addresses, reachable, firewall };
+  }
+  async function pairLink(id, linkOpts = {}) {
+    const instance = opts.store.get(id);
+    if (!instance) return { ok: false, detail: `\u6CA1\u6709\u8FD9\u4E2A\u5B9E\u4F8B\uFF1A${id}` };
+    const address = linkOpts.address?.trim();
+    let serverUrl;
+    if (address) {
+      if (instance.bind !== "lan") {
+        return { ok: false, detail: "\u5B9E\u4F8B\u4E0D\u662F\u300C\u8BBF\u95EE\u8303\u56F4=\u5C40\u57DF\u7F51\u300D\u2014\u2014\u5148\u628A bind \u8BBE\u4E3A lan \u5E76\u91CD\u542F\u5B9E\u4F8B\uFF0CLAN \u5730\u5740\u5019\u9009\u624D\u6709\u610F\u4E49" };
+      }
+      if (!isLanAddress(address)) {
+        return { ok: false, detail: `\u5730\u5740\u4E0D\u5408\u6CD5\uFF1A${address}` };
+      }
+      const lan = await ensureLanPort(instance, address, linkOpts.sudoPassword);
+      if (lan.state === "needs-sudo") {
+        return { ok: false, detail: lan.reason ?? `\u9700\u8981 sudo \u624D\u80FD\u653E\u884C ${instance.instancePort}/tcp`, needsSudo: true, backend: lan.firewall?.backend };
+      }
+      if (lan.state !== "open") {
+        return { ok: false, detail: lan.reason ?? `${address}:${instance.instancePort} \u8FDE\u4E0D\u4E0A\u2014\u2014\u4E0D\u751F\u6210\u5230\u4E0D\u4E86\u7684\u94FE\u63A5` };
+      }
+      serverUrl = `http://${address}:${instance.instancePort}`;
+    }
     const forwarded = await ensurePairingForwardAsync(instance);
     if (!forwarded) {
       return { ok: false, detail: `\u672C\u5730\u8F6C\u53D1 127.0.0.1:${instance.localPort} \u8D77\u4E0D\u6765\u6216\u8FDC\u7A0B\u673A\u5668\u4E0D\u53EF\u8FBE\u2014\u2014\u5148\u542F\u52A8\u5B9E\u4F8B\uFF08\u914D\u5BF9\u94FE\u63A5\u8981\u6C42\u5B83\u5728\u8DD1\uFF09` };
@@ -4034,16 +4144,10 @@ ${err.message}` }));
     await ensureExternalRelayAsync(instance);
     startExternalMonitor(id);
     const url = instanceUrl(instance.localPort);
-    let serverUrl = url;
-    if (instance.bind === "lan") {
-      const ipOut = await ssh(instance, "hostname -I 2>/dev/null | awk '{print $1}'", 15e3);
-      const ip = ipOut.stdout.trim();
-      if (ip) serverUrl = `http://${ip}:${instance.instancePort}`;
-    }
     const r = await ssh(instance, buildPairLinkCommand({
       appVersion: instance.appVersion,
       instancePort: instance.instancePort,
-      serverUrl,
+      serverUrl: serverUrl ?? url,
       label: instance.name?.trim() || instance.id,
       lan: instance.bind === "lan"
     }), 45e3);
@@ -4052,8 +4156,8 @@ ${err.message}` }));
       return { ok: false, detail: `\u8FDC\u7A0B\u673A\u5668\u6CA1\u7ED9\u51FA\u914D\u5BF9\u94FE\u63A5\uFF1A${(r.stdout + r.stderr).replace(/\s+/g, " ").slice(-200)}` };
     }
     const info = describePairLink(link);
-    pushLog(id, `\u914D\u5BF9\u94FE\u63A5\u5DF2\u751F\u6210\uFF08\u4E00\u6B21\u6027${info?.expiresAt ? `\uFF0C${info.expiresAt} \u8FC7\u671F` : ""}\uFF0C${info?.candidates ?? 0} \u6761\u8DEF\u7531\uFF09`);
-    return { ok: true, detail: "\u914D\u5BF9\u94FE\u63A5\u5DF2\u751F\u6210\u2014\u2014\u5728\u684C\u9762\u7248\u91CC\u6253\u5F00\u5B83\uFF0C\u6216\u590D\u5236\u5230\u300C\u5BFC\u5165\u94FE\u63A5\u300D", link, ...info?.expiresAt ? { expiresAt: info.expiresAt } : {}, url };
+    pushLog(id, serverUrl ? `\u914D\u5BF9\u94FE\u63A5\u5DF2\u751F\u6210\uFF08\u76F4\u8FDE\u5019\u9009 ${serverUrl}\uFF09` : `\u914D\u5BF9\u94FE\u63A5\u5DF2\u751F\u6210\uFF08\u4E00\u6B21\u6027${info?.expiresAt ? `\uFF0C${info.expiresAt} \u8FC7\u671F` : ""}\uFF0C${info?.candidates ?? 0} \u6761\u8DEF\u7531\uFF09`);
+    return { ok: true, detail: serverUrl ? `\u914D\u5BF9\u94FE\u63A5\u5DF2\u751F\u6210\u2014\u2014\u76F4\u8FDE\u5019\u9009 ${serverUrl}\uFF0C\u5728\u684C\u9762\u7248\u91CC\u6253\u5F00\u5B83\uFF0C\u6216\u590D\u5236\u5230\u300C\u5BFC\u5165\u94FE\u63A5\u300D` : "\u914D\u5BF9\u94FE\u63A5\u5DF2\u751F\u6210\u2014\u2014\u5728\u684C\u9762\u7248\u91CC\u6253\u5F00\u5B83\uFF0C\u6216\u590D\u5236\u5230\u300C\u5BFC\u5165\u94FE\u63A5\u300D", link, ...info?.expiresAt ? { expiresAt: info.expiresAt } : {}, url };
   }
   function ensureExternalRelay(instance) {
     void ensureExternalRelayAsync(instance);
@@ -4194,8 +4298,9 @@ ${err.message}` }));
       actions.push(pick.ok ? `\u542F\u52A8\u5B9E\u4F8B\uFF1Aserve --hostname ${instance.bind === "lan" ? "0.0.0.0" : "127.0.0.1"} --port ${instance.instancePort}\uFF08OpenCode ${pick.candidate.path} \u2192 ${pick.candidate.version}\uFF09` : `\u542F\u52A8\u5B9E\u4F8B\u524D\u5148\u88C5 OpenCode\uFF1Aopencode ${DEFAULT_ENGINE_PIN} \u2192 ~/.ocrc/remote/engine/opencode\uFF08\u8FDC\u7A0B\u673A\u5668\u73B0\u6709 v1 \u4E00\u5F8B\u4E0D\u52A8\uFF09`);
       actions.push(`\u5EFA\u8F6C\u53D1\uFF1Assh -N -L 127.0.0.1:${instance.localPort}:127.0.0.1:${instance.instancePort} \u2192 \u6253\u5F00 ${url}`);
       if (instance.bind === "lan") {
-        const lanUrl = env.ip ? `http://${env.ip}:${instance.instancePort}` : `http://<\u5BF9\u7AEFIP>:${instance.instancePort}`;
-        actions.push(`\u6CE8\u610F\uFF1A\u5B9E\u4F8B\u7ED1\u5B9A 0.0.0.0\uFF0C\u5BF9\u5C40\u57DF\u7F51\u66B4\u9732\u5728 ${lanUrl}\u2014\u2014UI \u5BC6\u7801\u662F\u552F\u4E00\u95E8\uFF08\u65E0 TLS\uFF09\uFF1B\u786E\u8BA4\u8FDC\u7A0B\u673A\u5668\u9632\u706B\u5899\u653E\u884C ${instance.instancePort}/tcp`);
+        const ips = env.ips?.length ? env.ips : [];
+        const lanHint = ips.length ? ips.map((ip) => `http://${ip}:${instance.instancePort}`).join(" / ") : `http://<\u5BF9\u7AEFIP>:${instance.instancePort}`;
+        actions.push(`\u6CE8\u610F\uFF1A\u5B9E\u4F8B\u7ED1\u5B9A 0.0.0.0\uFF0C\u5BF9\u5C40\u57DF\u7F51\u66B4\u9732\u5728 ${lanHint}\u2014\u2014UI \u5BC6\u7801\u662F\u552F\u4E00\u95E8\uFF08\u65E0 TLS\uFF09\uFF1B\u70B9\u54EA\u4E2A\u5730\u5740\u751F\u6210\u94FE\u63A5\uFF0C\u9632\u706B\u5899\u5C31\u653E\u884C\u54EA\u4E2A\uFF08\u7AEF\u53E3 ${instance.instancePort}/tcp\uFF09`);
       }
       const egress = await egressFor(instance);
       actions.push(`\u8054\u7F51\u65B9\u5F0F\uFF1A${egress.relay ? "\u7ECF\u672C\u673A\u8F6C\u53D1" : "\u76F4\u8FDE"}\uFF08${egress.reason}\uFF09`);
@@ -4523,8 +4628,11 @@ ${err.message}` }));
       }
       return { online: false, detail: probe.error };
     },
-    pairLink(id) {
-      return pairLink(id);
+    pairLink(id, linkOpts) {
+      return pairLink(id, linkOpts);
+    },
+    lanInfo(id) {
+      return lanInfo(id);
     },
     status(id) {
       const instance = opts.store.get(id);
@@ -5079,7 +5187,22 @@ function createRemoteInstanceOps({
         }
         case "pairlink": {
           if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
-          return start(() => manager.pairLink(op.id), op.id);
+          for (const field of ["address", "sudoPassword"]) {
+            const v = op.payload?.[field];
+            if (v !== void 0 && typeof v !== "string") {
+              return { status: 400, body: { error: `${field} must be a string` } };
+            }
+          }
+          const address = op.payload?.address?.trim();
+          const sudoPassword = op.payload?.sudoPassword;
+          return start(() => manager.pairLink(op.id, {
+            ...address ? { address } : {},
+            ...sudoPassword ? { sudoPassword } : {}
+          }), op.id);
+        }
+        case "laninfo": {
+          if (!store.get(op.id)) return { status: 404, body: { error: "\u6CA1\u6709\u8FD9\u53F0\u670D\u52A1\u5668" } };
+          return start(() => manager.lanInfo(op.id), op.id);
         }
         case "defaults": {
           const localPort = await firstFreeLocalPort();

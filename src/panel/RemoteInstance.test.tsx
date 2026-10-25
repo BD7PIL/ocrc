@@ -223,6 +223,55 @@ describe('远程服务器卡片', () => {
     await waitFor(() => expect(calls.filter((c) => (c.body as { op?: string })?.op === 'pairlink')).toHaveLength(2))
   })
 
+  it('bind=lan 配对卡：每地址一行（不自动选）+ 可达徽章 + needsSudo 收一次密码重试', async () => {
+    const LINK = 'openchamber://connect?v=2&p=lanCandidate'
+    const LAN_ROW = { ...ROW, bind: 'lan' as const }
+    const pairPayloads: Array<{ address?: string; sudoPassword?: string }> = []
+    const { request } = fakeRequest((call) => {
+      const body = call.body as { op?: string; payload?: { address?: string; sudoPassword?: string } } | undefined
+      if (body?.op === 'list') return { status: 200, body: { instances: [LAN_ROW] } }
+      if (body?.op === 'laninfo') {
+        return {
+          status: 200,
+          body: {
+            ok: true, port: 2610, bind: 'lan', addresses: ['192.168.26.101', '192.168.22.202'],
+            reachable: { '192.168.26.101': true, '192.168.22.202': false },
+            firewall: { backend: 'firewalld', portOpen: 'closed', sudo: 'needed' },
+          },
+        }
+      }
+      if (body?.op === 'pairlink') {
+        pairPayloads.push(body.payload ?? {})
+        if (body.payload?.sudoPassword) {
+          return { status: 200, body: { ok: true, detail: '配对链接已生成——直连候选 http://192.168.22.202:2610', link: LINK } }
+        }
+        return { status: 200, body: { ok: false, detail: 'firewalld 拦着 2610/tcp，且当前用户没有免密 sudo', needsSudo: true, backend: 'firewalld' } }
+      }
+      return { status: 200, body: {} }
+    })
+    await act(async () => { render(<RemoteInstance request={request} host={STUB_HOST} />) })
+    await waitFor(() => expect(screen.getByText('创建配对链接')).toBeTruthy())
+
+    await act(async () => { screen.getByText('创建配对链接').click() })
+    // 两个地址各一行、各有按钮——多网卡第一段不再是自动候选（0.11.1 的错，这里钉死）
+    await waitFor(() => expect(screen.getByText(/http:\/\/192\.168\.26\.101:2610/)).toBeTruthy())
+    expect(screen.getByText(/http:\/\/192\.168\.22\.202:2610/)).toBeTruthy()
+    expect(screen.getAllByText('生成此地址的配对链接')).toHaveLength(2)
+    expect(screen.getByText(/端口可达/)).toBeTruthy()
+    expect(screen.getByText(/防火墙：firewalld/)).toBeTruthy()
+
+    // 点不可达的第二个地址 → needsSudo → 内联密码框（不存），放行并重试
+    await act(async () => { screen.getAllByText('生成此地址的配对链接')[1]!.click() })
+    await waitFor(() => expect(screen.getByPlaceholderText('对端登录用户的 sudo 密码')).toBeTruthy())
+    await act(async () => { fireEvent.input(screen.getByPlaceholderText('对端登录用户的 sudo 密码'), { target: { value: 'hunter2' } }) })
+    await act(async () => { screen.getByText('放行并生成链接').click() })
+    await waitFor(() => expect(screen.getByText(LINK)).toBeTruthy())
+    expect(pairPayloads[0]).toEqual({ address: '192.168.22.202' })
+    expect(pairPayloads[1]).toEqual({ address: '192.168.22.202', sudoPassword: 'hunter2' })
+    // 密码用完即弃：成功后输入框连同它的值一起消失
+    expect(screen.queryByPlaceholderText('对端登录用户的 sudo 密码')).toBeNull()
+  })
+
   it('配置差异：树状三区、方向切换、拉回两段确认、删除要勾选、同步前可试运行', async () => {
     const DIFF = {
       localDir: '/home/u/.config/opencode',

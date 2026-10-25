@@ -132,6 +132,43 @@ if (scenario === 'jobdone') {
 
 if (scenario === 'slow') client.serviceRequest = () => new Promise(() => { /* 永远不答 */ })
 
+/** `?scenario=lanpair`：bind=lan 的配对卡（0.11.2）——laninfo 地址菜单（两地址，
+ *  一真一假）+ needsSudo 密码框。点任一「生成此地址的配对链接」先回 needsSudo；
+ *  带密码的重试回链接。 */
+if (scenario === 'lanpair') {
+  const original = client.serviceRequest as (r: { body?: string }) => Promise<unknown>
+  client.serviceRequest = (request: { body?: string }) => {
+    const body = typeof request.body === 'string' ? request.body : ''
+    if (body.includes('"op":"laninfo"')) {
+      return Promise.resolve({
+        status: 200,
+        body: JSON.stringify({
+          ok: true, port: 2610, bind: 'lan', addresses: ['192.168.26.101', '192.168.22.202'],
+          reachable: { '192.168.26.101': true, '192.168.22.202': false },
+          firewall: { backend: 'firewalld', portOpen: 'closed', sudo: 'needed' },
+        }),
+      })
+    }
+    if (body.includes('"op":"pairlink"')) {
+      if (body.includes('"sudoPassword"')) {
+        return Promise.resolve({
+          status: 200,
+          body: JSON.stringify({
+            ok: true, detail: '配对链接已生成——直连候选 http://192.168.22.202:2610（防火墙已放行 2610/tcp）',
+            link: 'openchamber://connect?v=2&p=eyJ2IjoyLCJzZXJ2ZXIiOiJodHRwOi8vMTkyLjE2OC4yMi4yMDI6MjYxMCJ9',
+            url: 'http://127.0.0.1:4610',
+          }),
+        })
+      }
+      return Promise.resolve({
+        status: 200,
+        body: JSON.stringify({ ok: false, detail: 'firewalld 拦着 2610/tcp，且当前用户没有免密 sudo', needsSudo: true, backend: 'firewalld' }),
+      })
+    }
+    return original(request)
+  }
+}
+
 export function connectHost(): typeof host.client {
   return host.client
 }

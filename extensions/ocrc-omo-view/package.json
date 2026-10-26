@@ -33,7 +33,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@openchamber/sdk": "^2.3.2",
+    "@openchamber/sdk": "^2.5.1",
     "@remixicon/react": "^4.9.0"
   },
   "devDependencies": {
@@ -42,8 +42,8 @@
     "@types/react-dom": "^19.1.8",
     "@vitejs/plugin-react": "^4.5.2",
     "jsdom": "^26.1.0",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "typescript": "~5.8.3",
     "vite": "^7.0.0",
     "vitest": "^3.2.4"

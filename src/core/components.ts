@@ -208,10 +208,26 @@ function tarBinary(): string {
     : 'tar'
 }
 
+/** npm 的版本权威是 `package.json`；`provision.json` 只是安装契约，它的 version 会漂。
+ * 真实事故（reeve 0.2.9）：契约里还写着 0.2.8，于是 `ocrc remote apply` 装的是 0.2.9、
+ * 日志与缓存名却报 0.2.8 —— 运维据此反复重装。这里以 package.json 为准。 */
+function reconcileVersion(manifest: ComponentManifest, packageJsonText: string | null): ComponentManifest {
+  if (!packageJsonText) return manifest
+  try {
+    const v = (JSON.parse(packageJsonText) as { version?: unknown }).version
+    if (typeof v === 'string' && v.length > 0 && v !== manifest.version) return { ...manifest, version: v }
+  } catch {
+    /* package.json 坏了就沿用契约的版本，不挡安装 */
+  }
+  return manifest
+}
+
 export function readManifestFromDir(dir: string): ComponentManifest {
   const file = join(dir, 'provision.json')
   if (!existsSync(file)) throw new Error(`${dir}: 没有 provision.json（组件必须自带安装契约）`)
-  return parseComponentManifest(JSON.parse(readFileSync(file, 'utf8')), file)
+  const manifest = parseComponentManifest(JSON.parse(readFileSync(file, 'utf8')), file)
+  const pkgFile = join(dir, 'package.json')
+  return reconcileVersion(manifest, existsSync(pkgFile) ? readFileSync(pkgFile, 'utf8') : null)
 }
 
 export function readManifestFromTarball(tarball: string): ComponentManifest {
@@ -221,7 +237,14 @@ export function readManifestFromTarball(tarball: string): ComponentManifest {
   } catch {
     throw new Error(`${tarball}: 包里没有 package/provision.json`)
   }
-  return parseComponentManifest(JSON.parse(text), `${tarball}:package/provision.json`)
+  const manifest = parseComponentManifest(JSON.parse(text), `${tarball}:package/provision.json`)
+  let pkgText: string | null = null
+  try {
+    pkgText = execFileSync(tarBinary(), ['-xOf', tarball, 'package/package.json'], { encoding: 'utf8' })
+  } catch {
+    /* 没有 package.json：沿用契约版本 */
+  }
+  return reconcileVersion(manifest, pkgText)
 }
 
 // ── preparation (control side) ──────────────────────────────────────────────

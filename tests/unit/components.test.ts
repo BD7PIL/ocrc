@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import {
   buildArtifactProbeCommand, buildArtifactPushScript, buildComponentUnpackScript,
   buildExtensionInstallScript, defaultComponentSources, parseComponentManifest, pluginEntryFor,
-  prepareComponent, sourcesFromPins,
+  prepareComponent, readManifestFromDir, readManifestFromTarball, sourcesFromPins,
 } from '../../src/core/components.js'
 
 const base = {
@@ -154,6 +154,44 @@ describe('component pins', () => {
     expect(sourcesFromPins({ components: { hollow: {} } }, {})).toEqual([])
     expect(sourcesFromPins({}, {})).toEqual([])
     expect(defaultComponentSources({})[0]).toBeTruthy()
+  })
+})
+
+describe('manifest version authority', () => {
+  // 真实事故：reeve 0.2.9 的 provision.json 还写 0.2.8，ocrc 报"安装 0.2.8"而实际推
+  // 0.2.9 —— 日志与缓存名说谎，运维反复重装。package.json 是 npm 的版本权威。
+  it('takes the version from package.json when the contract drifted (directory)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ocrc-ver-dir-'))
+    try {
+      writeFileSync(join(dir, 'provision.json'), JSON.stringify({ ...base, version: '0.2.8' }))
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'reeve', version: '0.2.9' }))
+      expect(readManifestFromDir(dir).version).toBe('0.2.9')
+      // 没有 package.json 时沿用契约版本（老组件/裸目录）
+      rmSync(join(dir, 'package.json'))
+      expect(readManifestFromDir(dir).version).toBe('0.2.8')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('takes the version from package.json when the contract drifted (tarball)', async () => {
+    const work = mkdtempSync(join(tmpdir(), 'ocrc-ver-tar-'))
+    try {
+      const staging = join(work, 'stage')
+      const pkgDir = join(staging, 'package')
+      mkdirSync(pkgDir, { recursive: true })
+      writeFileSync(join(pkgDir, 'provision.json'), JSON.stringify({ ...base, version: '0.2.8' }))
+      writeFileSync(join(pkgDir, 'package.json'), JSON.stringify({ name: 'reeve', version: '0.2.9' }))
+      const tar = process.platform === 'win32'
+        ? join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe')
+        : 'tar'
+      const { execFileSync } = await import('node:child_process')
+      const tarball = join(work, 'packed.tgz')
+      execFileSync(tar, ['-czf', tarball, '-C', staging, 'package'])
+      expect(readManifestFromTarball(tarball).version).toBe('0.2.9')
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
   })
 })
 

@@ -2,12 +2,12 @@
   "schema": 1,
   "components": {
     "reeve": {
-      "version": "0.2.8",
-      "spec": "@bd7pil/reeve@0.2.8"
+      "version": "0.2.9",
+      "spec": "@bd7pil/reeve@0.2.9"
     },
     "opencode-deep-memory": {
-      "version": "0.16.10",
-      "spec": "@bd7pil/opencode-deep-memory@0.16.10"
+      "version": "0.16.14",
+      "spec": "@bd7pil/opencode-deep-memory@0.16.14"
     }
   }
 }

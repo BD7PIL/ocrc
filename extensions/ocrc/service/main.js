@@ -2935,10 +2935,21 @@ function parseComponentManifest(raw, source = "provision.json") {
 function tarBinary() {
   return process.platform === "win32" ? join9(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
 }
+function reconcileVersion(manifest, packageJsonText) {
+  if (!packageJsonText) return manifest;
+  try {
+    const v = JSON.parse(packageJsonText).version;
+    if (typeof v === "string" && v.length > 0 && v !== manifest.version) return { ...manifest, version: v };
+  } catch {
+  }
+  return manifest;
+}
 function readManifestFromDir(dir) {
   const file = join9(dir, "provision.json");
   if (!existsSync6(file)) throw new Error(`${dir}: \u6CA1\u6709 provision.json\uFF08\u7EC4\u4EF6\u5FC5\u987B\u81EA\u5E26\u5B89\u88C5\u5951\u7EA6\uFF09`);
-  return parseComponentManifest(JSON.parse(readFileSync5(file, "utf8")), file);
+  const manifest = parseComponentManifest(JSON.parse(readFileSync5(file, "utf8")), file);
+  const pkgFile = join9(dir, "package.json");
+  return reconcileVersion(manifest, existsSync6(pkgFile) ? readFileSync5(pkgFile, "utf8") : null);
 }
 function readManifestFromTarball(tarball) {
   let text;
@@ -2947,7 +2958,13 @@ function readManifestFromTarball(tarball) {
   } catch {
     throw new Error(`${tarball}: \u5305\u91CC\u6CA1\u6709 package/provision.json`);
   }
-  return parseComponentManifest(JSON.parse(text), `${tarball}:package/provision.json`);
+  const manifest = parseComponentManifest(JSON.parse(text), `${tarball}:package/provision.json`);
+  let pkgText = null;
+  try {
+    pkgText = execFileSync(tarBinary(), ["-xOf", tarball, "package/package.json"], { encoding: "utf8" });
+  } catch {
+  }
+  return reconcileVersion(manifest, pkgText);
 }
 function componentCacheDir() {
   const home = process.env.OCRC_HOME ?? join9(homedir3(), ".ocrc");

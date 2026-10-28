@@ -1,5 +1,5 @@
 {
-  "opencodePin": "2.1.4",
-  "minOpenCodeVersion": "2.1.4",
+  "opencodePin": "2.2.0",
+  "minOpenCodeVersion": "2.2.0",
   "note": "Declarative V2 pin (PRODUCT 第零点六条 / AGENTS.md pin: manifest > OCRC_V2_PIN > dynamic-follow). CI's ocrc-follow.yml bump-pin job rewrites this file + the repo variable together; the installed runtime copies it to <OCRC_HOME>/bin-cache/manifest.json where src/core/bin-cache.ts readManifest() picks it up. Keep in sync with env.OCRC_V2_PIN in .github/workflows/ocrc-follow.yml."
 }

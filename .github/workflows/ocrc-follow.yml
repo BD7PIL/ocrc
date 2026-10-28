@@ -145,12 +145,17 @@ jobs:
             fs.writeFileSync(p, JSON.stringify(m, null, 2) + "\n");
           '
           git add ops/v2-pin-manifest.json
-          # ...and the repo variable consumed by the next bundle run.
-          gh variable set OCRC_V2_PIN --body "$MIN"
           git commit -m "follow: upstream MINIMUM_OPENCODE_VERSION=$MIN exceeds pin ${{ env.OCRC_V2_PIN }} — pin bumped (bundle rerun required)"
           git push origin "$BRANCH"
           gh pr create --title "follow: bump opencode pin to $MIN" \
             --body "Upstream openchamber ${{ needs.upstream-check.outputs.openchamber_latest }} requires OpenCode >= $MIN. Bundles are gated until this pin lands." || true
+          # Repo variable is the OVERRIDE layer only (runtime precedence:
+          # manifest > OCRC_V2_PIN). GITHUB_TOKEN has been observed 403ing on
+          # the Actions-variables API even with actions:write — the manifest
+          # PR above is the authority, so a failed variable write must not
+          # kill the bump (real incident: 3 days red, pin stuck at 2.1.4).
+          gh variable set OCRC_V2_PIN --body "$MIN" \
+            || echo "::warning::gh variable set failed (403) — manifest PR is authoritative; sync the variable manually"
         env:
           GH_TOKEN: ${{ github.token }}
           MIN: ${{ needs.upstream-check.outputs.min_engine }}

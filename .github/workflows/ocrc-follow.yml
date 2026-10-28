@@ -145,6 +145,13 @@ jobs:
             fs.writeFileSync(p, JSON.stringify(m, null, 2) + "\n");
           '
           git add ops/v2-pin-manifest.json
+          # Idempotency: when the manifest already carries MIN (e.g. the bump
+          # landed on main manually before this job ran), commit is a no-op —
+          # treat "nothing to commit" as success, not a red run.
+          if git diff --cached --quiet -- ops/v2-pin-manifest.json; then
+            echo "::notice::manifest already at $MIN — nothing to bump"
+            exit 0
+          fi
           git commit -m "follow: upstream MINIMUM_OPENCODE_VERSION=$MIN exceeds pin ${{ env.OCRC_V2_PIN }} — pin bumped (bundle rerun required)"
           git push origin "$BRANCH"
           gh pr create --title "follow: bump opencode pin to $MIN" \

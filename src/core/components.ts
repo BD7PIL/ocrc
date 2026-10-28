@@ -70,7 +70,13 @@ export interface ComponentManifest {
   extension?: ComponentExtension
   configSync?: string[]
   verify?: ComponentVerify[]
+  /** 组件声明：写进对端 plugins 数组条目的 options（对象条目形式）。
+   *  reeve 用它给对端带 `agents.hideBuiltins`——选项跟组件契约走，ocrc 不硬编码组件细节。 */
+  pluginOptions?: Record<string, unknown>
 }
+
+/** 对端 plugins 数组的一个条目：裸路径字符串，或带 options 的对象形式。 */
+export type PeerPluginEntry = string | { package: string; options: Record<string, unknown> }
 
 export interface PreparedComponent {
   manifest: ComponentManifest
@@ -172,6 +178,12 @@ export function parseComponentManifest(raw: unknown, source = 'provision.json'):
   if (doc.configSync !== undefined) {
     if (!Array.isArray(doc.configSync)) fail(source, 'configSync 必须是数组')
     manifest.configSync = doc.configSync.map((v) => requireString(source, v, 'configSync[]'))
+  }
+  if (doc.pluginOptions !== undefined) {
+    if (typeof doc.pluginOptions !== 'object' || doc.pluginOptions === null || Array.isArray(doc.pluginOptions)) {
+      fail(source, 'pluginOptions 必须是对象')
+    }
+    manifest.pluginOptions = doc.pluginOptions as Record<string, unknown>
   }
   if (doc.verify !== undefined) {
     if (!Array.isArray(doc.verify)) fail(source, 'verify 必须是数组')
@@ -439,8 +451,8 @@ export function buildExtensionInstallScript(o: {
 export interface ComponentInstallResult {
   ok: boolean
   details: string[]
-  /** Values to put into the engine's v2 `plugins` array. */
-  plugins: string[]
+  /** Entries to put into the engine's v2 `plugins` array（对象条目可带组件声明的 options）。 */
+  plugins: PeerPluginEntry[]
   extensionInstalled: boolean
 }
 
@@ -479,7 +491,7 @@ export async function installPreparedComponent(
   opts: { log?: (line: string) => void; uiPassword?: string; instancePort: number; remoteHome: string; instanceRunning: boolean },
 ): Promise<ComponentInstallResult> {
   const details: string[] = []
-  const plugins: string[] = []
+  const plugins: PeerPluginEntry[] = []
   const { manifest } = component
   const dir = componentRemoteDir(manifest)
   const tarballName = `${manifest.name}-${manifest.version}.tgz`
@@ -502,8 +514,8 @@ export async function installPreparedComponent(
     // air-gapped host cannot resolve a registry package name.
     const spec = pluginEntryFor(manifest, opts.remoteHome, 'directory')
     if (spec) {
-      plugins.push(spec)
-      details.push(`插件条目：${spec}`)
+      plugins.push(manifest.pluginOptions ? { package: spec, options: manifest.pluginOptions } : spec)
+      details.push(manifest.pluginOptions ? `插件条目（带 options）：${spec}` : `插件条目：${spec}`)
     }
   }
 
@@ -587,12 +599,64 @@ export async function installPreparedComponent(
 
 // ── config registration ─────────────────────────────────────────────────────
 
+const entryKey = (v: unknown) => JSON.stringify(v)
+
+/** 我们组件的旧条目（字符串或对象形式）都算 stale——重建时换成最新形态（含新 options）。 */
+const entryPackage = (v: unknown): string | null => {
+  if (typeof v === 'string') return v
+  if (v && typeof v === 'object' && typeof (v as { package?: unknown }).package === 'string') {
+    return (v as { package: string }).package
+  }
+  return null
+}
+
+/** 纯函数：把我们的组件条目并进对端现有 plugins 数组。
+ * 只增不删我们自己的旧形态（升级即**原位**替换：字符串 → 对象、旧 options → 新 options）；
+ * 非我们的条目（用户自己的 npm 插件等）一个字节都不碰。 */
+export function mergePeerPluginEntries(
+  current: readonly unknown[],
+  additions: readonly PeerPluginEntry[],
+  isStale: (pkg: string) => boolean,
+): { merged: unknown[]; changed: boolean } {
+  const pending = new Map<string, PeerPluginEntry>()
+  for (const a of additions) {
+    const pkg = entryPackage(a)
+    if (pkg !== null && !pending.has(pkg)) pending.set(pkg, a)
+  }
+  const consumed = new Set<string>()
+  const merged: unknown[] = []
+  let changed = false
+  for (const v of current) {
+    const pkg = entryPackage(v)
+    if (pkg !== null && isStale(pkg)) {
+      const repl = pkg !== null ? pending.get(pkg) : undefined
+      if (repl !== undefined && !consumed.has(pkg)) {
+        if (entryKey(repl) !== entryKey(v)) changed = true
+        merged.push(repl)
+        consumed.add(pkg)
+      } else {
+        changed = true // 我们的旧条目且无对应新条目：删除
+      }
+      continue
+    }
+    merged.push(v)
+  }
+  for (const a of additions) {
+    const pkg = entryPackage(a)
+    if (pkg !== null && consumed.has(pkg)) continue
+    if (merged.some((v) => entryKey(v) === entryKey(a))) continue
+    merged.push(a)
+    changed = true
+  }
+  return { merged, changed }
+}
+
 /** Merge plugin entries into the peer's effective user config (the `.jsonc`
  *  wins when it exists). Comments in a rewritten `.jsonc` are lost; the file is
  *  backed up first and the loss is reported, never silent. */
 export async function registerPeerPlugins(
   target: SshTargetRef,
-  specs: readonly string[],
+  entries: readonly PeerPluginEntry[],
   opts: { readScript: string; log?: (line: string) => void; componentNames?: readonly string[] },
 ): Promise<{ ok: boolean; detail: string }> {
   const log = opts.log ?? (() => {})
@@ -609,13 +673,11 @@ export async function registerPeerPlugins(
     ? (JSON.parse(JSON.stringify(layer.parsed ?? {})) as Record<string, unknown>)
     : { $schema: 'https://opencode.ai/config.json' }
   const names = opts.componentNames ?? []
-  const stale = (entry: string) => names.some((name) =>
-    entry.includes(`@bd7pil/${name}`) || entry.includes(`/.ocrc/components/${name}/`))
-  const current = Array.isArray(doc.plugins)
-    ? (doc.plugins as unknown[]).filter((v): v is string => typeof v === 'string' && !stale(v))
-    : []
-  const merged = [...new Set([...current, ...specs])]
-  if (merged.length === current.length && merged.every((v, i) => v === current[i])) {
+  const stale = (pkg: string) => names.some((name) =>
+    pkg.includes(`@bd7pil/${name}`) || pkg.includes(`/.ocrc/components/${name}/`))
+  const current = Array.isArray(doc.plugins) ? (doc.plugins as unknown[]) : []
+  const { merged, changed } = mergePeerPluginEntries(current, entries, stale)
+  if (!changed) {
     return { ok: true, detail: `plugins 已是并集（${merged.length} 条）` }
   }
   doc.plugins = merged

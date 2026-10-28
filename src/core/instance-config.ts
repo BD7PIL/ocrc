@@ -30,6 +30,7 @@ import { gunzipSync } from 'node:zlib'
 import { dirname, join, relative, sep } from 'node:path'
 import { parseConfig, stripJsonc } from '../utils/jsonc.js'
 import { hasChanges, mergeSticky, stripLiteralSecrets } from './config-merge.js'
+import type { PeerPluginEntry } from './components.js'
 
 /** The peer's user-level config dir — the one the instance's engine reads. */
 export const PEER_CONFIG_DIR = '$HOME/.config/opencode'
@@ -290,8 +291,9 @@ export interface SyncPlan {
   configChanged: boolean
   /** The v1 `plugin` key, preserved from the peer (openchamber owns it). */
   preservedPluginKey: boolean
-  /** v2 `plugins` entries ocrc is responsible for (from component manifests). */
-  managedPlugins: string[]
+  /** v2 `plugins` entries ocrc is responsible for (from component manifests;
+   *  object entries carry the component-declared options). */
+  managedPlugins: PeerPluginEntry[]
   /** Legacy: keys dropped because a peer-owned layer manages them. */
   droppedManagedKeys: string[]
   /** Literal secrets replaced by `{env:VAR}` (MCP environment only). */
@@ -468,7 +470,7 @@ export function planConfigSync(
     keyDeletes?: readonly string[]
     providerBaseUrl?: Record<string, string>
     /** v2 `plugins` entries required by the components being installed. */
-    componentPlugins?: readonly string[]
+    componentPlugins?: readonly PeerPluginEntry[]
     /** Component names whose local plugin entries must not travel as package
      *  specs: the peer loads them from the directory this sync installs. */
     componentNames?: readonly string[]
@@ -588,7 +590,7 @@ export function planConfigSync(
     else delete merged.plugins
     plan.managedPlugins = [...(opts.componentPlugins ?? [])]
     if (plan.preservedPluginKey) notes.push('对端的 v1 plugin 键由它自己的 openchamber 管理，原样保留')
-    if (plan.managedPlugins.length > 0) notes.push(`组件插件条目：${plan.managedPlugins.join('、')}`)
+    if (plan.managedPlugins.length > 0) notes.push(`组件插件条目：${plan.managedPlugins.map((e) => (typeof e === 'string' ? e : `${e.package}（带 options）`)).join('、')}`)
     plan.merged = merged
     plan.configChanged = hasChanges(peer.effective, merged)
     if (plan.configChanged) plan.files.unshift(plan.basename)

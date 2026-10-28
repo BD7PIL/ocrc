@@ -808,7 +808,7 @@ export async function main(argv: string[]): Promise<void> {
       console.log(`  远程机器独有的配置项（要删用 --delete-key）：${d.plan.keyDeleteCandidates.map((c) => (c.collection ? `${c.collection}:${c.key}` : c.key)).join(', ')}`)
     }
     if (d.plan.shadowed.length > 0) console.log(`  会被远程覆盖层压住的键：${d.plan.shadowed.join('、')}`)
-    if (d.plan.managedPlugins.length > 0) console.log(`  组件插件条目：${d.plan.managedPlugins.join('、')}`)
+    if (d.plan.managedPlugins.length > 0) console.log(`  组件插件条目：${d.plan.managedPlugins.map((e) => (typeof e === 'string' ? e : `${e.package}（带 options）`)).join('、')}`)
     for (const n of d.plan.notes) console.log(`  · ${n}`)
     return
   }

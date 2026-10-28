@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import {
   buildArtifactProbeCommand, buildArtifactPushScript, buildComponentUnpackScript,
-  buildExtensionInstallScript, defaultComponentSources, parseComponentManifest, pluginEntryFor,
+  buildExtensionInstallScript, defaultComponentSources, mergePeerPluginEntries, parseComponentManifest, pluginEntryFor,
   prepareComponent, readManifestFromDir, readManifestFromTarball, sourcesFromPins,
 } from '../../src/core/components.js'
 
@@ -192,6 +192,45 @@ describe('manifest version authority', () => {
     } finally {
       rmSync(work, { recursive: true, force: true })
     }
+  })
+})
+
+describe('peer plugin entries (0.2.11)', () => {
+  const STALE = (pkg: string) => pkg.includes('/.ocrc/components/reeve/')
+
+  it('upgrades our string entry to an object entry with options (and back)', () => {
+    const current = ['/home/u/.ocrc/components/reeve/package', '/home/u/.ocrc/components/opencode-deep-memory/package']
+    const { merged, changed } = mergePeerPluginEntries(
+      current,
+      [{ package: '/home/u/.ocrc/components/reeve/package', options: { agents: { hideBuiltins: false } } }, '/home/u/.ocrc/components/opencode-deep-memory/package'],
+      STALE,
+    )
+    expect(changed).toBe(true)
+    expect(merged).toHaveLength(2)
+    expect(merged[0]).toEqual({ package: '/home/u/.ocrc/components/reeve/package', options: { agents: { hideBuiltins: false } } })
+    expect(merged[1]).toBe('/home/u/.ocrc/components/opencode-deep-memory/package')
+
+    // 幂等：再跑一次不再变化
+    const again = mergePeerPluginEntries(merged, [{ package: '/home/u/.ocrc/components/reeve/package', options: { agents: { hideBuiltins: false } } }, '/home/u/.ocrc/components/opencode-deep-memory/package'], STALE)
+    expect(again.changed).toBe(false)
+    expect(again.merged).toEqual(merged)
+  })
+
+  it('never touches foreign entries, and replaces stale object entries with new options', () => {
+    const foreign = [{ package: 'oh-my-openagent', options: { a: 1 } }, 'some-npm-spec']
+    const { merged, changed } = mergePeerPluginEntries(
+      [...foreign, { package: '/home/u/.ocrc/components/reeve/package', options: { agents: { hideBuiltins: true } } }],
+      [{ package: '/home/u/.ocrc/components/reeve/package', options: { agents: { hideBuiltins: false } } }],
+      STALE,
+    )
+    expect(changed).toBe(true)
+    expect(merged).toEqual([...foreign, { package: '/home/u/.ocrc/components/reeve/package', options: { agents: { hideBuiltins: false } } }])
+  })
+
+  it('parses pluginOptions from the contract and requires it to be an object', () => {
+    const m = parseComponentManifest({ schema: 1, name: 'x', version: '1', enginePlugin: { spec: 'x@1', kind: 'package' }, pluginOptions: { agents: { hideBuiltins: false } } })
+    expect(m.pluginOptions).toEqual({ agents: { hideBuiltins: false } })
+    expect(() => parseComponentManifest({ schema: 1, name: 'x', version: '1', pluginOptions: ['nope'] })).toThrow(/pluginOptions/)
   })
 })
 

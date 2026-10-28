@@ -52,6 +52,7 @@ import {
 } from './instance-config.js'
 import { compileIgnoreMatcher, DEFAULT_IGNORE_PATHS } from '../utils/ignore-patterns.js'
 import { defaultComponentSources, installPreparedComponent, pluginEntryFor, prepareComponent, registerPeerPlugins } from './components.js'
+import type { PeerPluginEntry } from './components.js'
 import { renderConfig } from './config-merge.js'
 import { askpassEnv } from './ssh-askpass.js'
 import { clearForwardMarker, describeHolders, findHolder, writeForwardMarker, type ForwardKind } from './forward-ownership.js'
@@ -164,7 +165,7 @@ export interface InstanceConfigDiff {
     keyDeletes: { requested: string[]; removed: string[] }
     keyDeleteCandidates: Array<{ collection: string; key: string }>
     /** v2 `plugins` entries the components being installed require. */
-    managedPlugins: string[]
+    managedPlugins: PeerPluginEntry[]
     droppedManagedKeys: string[]
     secretsReplaced: Array<{ path: string; env: string }>
     baseUrlRewrites: Array<{ provider: string; from?: string; to: string }>
@@ -729,7 +730,7 @@ export function createRemoteInstanceManager(opts: {
     instance: RemoteInstance,
     sources: readonly string[],
     onLog?: (line: string) => void,
-  ): Promise<{ ok: boolean; details: string[]; plugins: string[] }> {
+  ): Promise<{ ok: boolean; details: string[]; plugins: PeerPluginEntry[] }> {
     const log = (line: string) => { pushLog(instance.id, line); onLog?.(line) }
     const prepared = []
     for (const source of sources) {
@@ -740,7 +741,7 @@ export function createRemoteInstanceManager(opts: {
     if (!home) return { ok: false, details: ['读不到对端的 $HOME'], plugins: [] }
     const running = (await remoteHealth(instance)) === '200'
     const details: string[] = []
-    const plugins: string[] = []
+    const plugins: PeerPluginEntry[] = []
     let ok = true
     let extensionInstalled = false
     for (const component of prepared) {
@@ -806,7 +807,7 @@ export function createRemoteInstanceManager(opts: {
   async function installComponentsIfRequested(
     instance: RemoteInstance,
     applyOpts: { components?: string[]; componentsFromPins?: boolean; onLog?: (line: string) => void },
-  ): Promise<{ ok: boolean; details: string[]; plugins: string[] } | undefined> {
+  ): Promise<{ ok: boolean; details: string[]; plugins: PeerPluginEntry[] } | undefined> {
     const sources = [
       ...(applyOpts.components ?? []),
       ...(applyOpts.componentsFromPins ? defaultComponentSources() : []),
@@ -821,16 +822,16 @@ export function createRemoteInstanceManager(opts: {
   async function componentPluginsFor(
     instance: RemoteInstance,
     sources: readonly string[] | undefined,
-  ): Promise<{ plugins: string[]; names: string[] }> {
+  ): Promise<{ plugins: PeerPluginEntry[]; names: string[] }> {
     if (!sources || sources.length === 0) return { plugins: [], names: [] }
     const home = (await ssh(instance, 'printf %s "$HOME"', 20_000)).stdout.trim()
     if (!home) throw new Error('读不到对端的 $HOME')
-    const plugins: string[] = []
+    const plugins: PeerPluginEntry[] = []
     const names: string[] = []
     for (const source of sources) {
       const prepared = await prepareComponent(source)
       const entry = pluginEntryFor(prepared.manifest, home, 'directory')
-      if (entry) plugins.push(entry)
+      if (entry) plugins.push(prepared.manifest.pluginOptions ? { package: entry, options: prepared.manifest.pluginOptions } : entry)
       names.push(prepared.manifest.name)
     }
     return { plugins, names }

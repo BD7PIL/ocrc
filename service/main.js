@@ -478,7 +478,7 @@ function planConfigSync(local, peer, opts = {}) {
     else delete merged.plugins;
     plan.managedPlugins = [...opts.componentPlugins ?? []];
     if (plan.preservedPluginKey) notes.push("\u5BF9\u7AEF\u7684 v1 plugin \u952E\u7531\u5B83\u81EA\u5DF1\u7684 openchamber \u7BA1\u7406\uFF0C\u539F\u6837\u4FDD\u7559");
-    if (plan.managedPlugins.length > 0) notes.push(`\u7EC4\u4EF6\u63D2\u4EF6\u6761\u76EE\uFF1A${plan.managedPlugins.join("\u3001")}`);
+    if (plan.managedPlugins.length > 0) notes.push(`\u7EC4\u4EF6\u63D2\u4EF6\u6761\u76EE\uFF1A${plan.managedPlugins.map((e) => typeof e === "string" ? e : `${e.package}\uFF08\u5E26 options\uFF09`).join("\u3001")}`);
     plan.merged = merged;
     plan.configChanged = hasChanges(peer.effective, merged);
     if (plan.configChanged) plan.files.unshift(plan.basename);
@@ -2907,6 +2907,12 @@ function parseComponentManifest(raw, source = "provision.json") {
     if (!Array.isArray(doc.configSync)) fail(source, "configSync \u5FC5\u987B\u662F\u6570\u7EC4");
     manifest.configSync = doc.configSync.map((v) => requireString(source, v, "configSync[]"));
   }
+  if (doc.pluginOptions !== void 0) {
+    if (typeof doc.pluginOptions !== "object" || doc.pluginOptions === null || Array.isArray(doc.pluginOptions)) {
+      fail(source, "pluginOptions \u5FC5\u987B\u662F\u5BF9\u8C61");
+    }
+    manifest.pluginOptions = doc.pluginOptions;
+  }
   if (doc.verify !== void 0) {
     if (!Array.isArray(doc.verify)) fail(source, "verify \u5FC5\u987B\u662F\u6570\u7EC4");
     manifest.verify = doc.verify.map((entry, i) => {
@@ -3157,8 +3163,8 @@ async function installPreparedComponent(target, component, opts) {
   if (manifest.enginePlugin) {
     const spec = pluginEntryFor(manifest, opts.remoteHome, "directory");
     if (spec) {
-      plugins.push(spec);
-      details.push(`\u63D2\u4EF6\u6761\u76EE\uFF1A${spec}`);
+      plugins.push(manifest.pluginOptions ? { package: spec, options: manifest.pluginOptions } : spec);
+      details.push(manifest.pluginOptions ? `\u63D2\u4EF6\u6761\u76EE\uFF08\u5E26 options\uFF09\uFF1A${spec}` : `\u63D2\u4EF6\u6761\u76EE\uFF1A${spec}`);
     }
   }
   for (const artifact of manifest.artifacts ?? []) {
@@ -3235,7 +3241,48 @@ ${cmd}`,
   }
   return { ok: true, details, plugins, extensionInstalled };
 }
-async function registerPeerPlugins(target, specs, opts) {
+var entryKey = (v) => JSON.stringify(v);
+var entryPackage = (v) => {
+  if (typeof v === "string") return v;
+  if (v && typeof v === "object" && typeof v.package === "string") {
+    return v.package;
+  }
+  return null;
+};
+function mergePeerPluginEntries(current, additions, isStale) {
+  const pending = /* @__PURE__ */ new Map();
+  for (const a of additions) {
+    const pkg = entryPackage(a);
+    if (pkg !== null && !pending.has(pkg)) pending.set(pkg, a);
+  }
+  const consumed = /* @__PURE__ */ new Set();
+  const merged = [];
+  let changed = false;
+  for (const v of current) {
+    const pkg = entryPackage(v);
+    if (pkg !== null && isStale(pkg)) {
+      const repl = pkg !== null ? pending.get(pkg) : void 0;
+      if (repl !== void 0 && !consumed.has(pkg)) {
+        if (entryKey(repl) !== entryKey(v)) changed = true;
+        merged.push(repl);
+        consumed.add(pkg);
+      } else {
+        changed = true;
+      }
+      continue;
+    }
+    merged.push(v);
+  }
+  for (const a of additions) {
+    const pkg = entryPackage(a);
+    if (pkg !== null && consumed.has(pkg)) continue;
+    if (merged.some((v) => entryKey(v) === entryKey(a))) continue;
+    merged.push(a);
+    changed = true;
+  }
+  return { merged, changed };
+}
+async function registerPeerPlugins(target, entries, opts) {
   const log6 = opts.log ?? (() => {
   });
   const { parsePeerConfigRead: parsePeerConfigRead2 } = await Promise.resolve().then(() => (init_instance_config(), instance_config_exports));
@@ -3246,10 +3293,10 @@ async function registerPeerPlugins(target, specs, opts) {
   const layer = peer.layers.find((l) => l.basename === file);
   const doc = layer ? JSON.parse(JSON.stringify(layer.parsed ?? {})) : { $schema: "https://opencode.ai/config.json" };
   const names = opts.componentNames ?? [];
-  const stale = (entry) => names.some((name) => entry.includes(`@bd7pil/${name}`) || entry.includes(`/.ocrc/components/${name}/`));
-  const current = Array.isArray(doc.plugins) ? doc.plugins.filter((v) => typeof v === "string" && !stale(v)) : [];
-  const merged = [.../* @__PURE__ */ new Set([...current, ...specs])];
-  if (merged.length === current.length && merged.every((v, i) => v === current[i])) {
+  const stale = (pkg) => names.some((name) => pkg.includes(`@bd7pil/${name}`) || pkg.includes(`/.ocrc/components/${name}/`));
+  const current = Array.isArray(doc.plugins) ? doc.plugins : [];
+  const { merged, changed } = mergePeerPluginEntries(current, entries, stale);
+  if (!changed) {
     return { ok: true, detail: `plugins \u5DF2\u662F\u5E76\u96C6\uFF08${merged.length} \u6761\uFF09` };
   }
   doc.plugins = merged;
@@ -3743,7 +3790,7 @@ ${err.message}` }));
     for (const source of sources) {
       const prepared = await prepareComponent(source);
       const entry = pluginEntryFor(prepared.manifest, home, "directory");
-      if (entry) plugins.push(entry);
+      if (entry) plugins.push(prepared.manifest.pluginOptions ? { package: entry, options: prepared.manifest.pluginOptions } : entry);
       names.push(prepared.manifest.name);
     }
     return { plugins, names };

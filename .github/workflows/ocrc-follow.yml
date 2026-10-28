@@ -66,7 +66,10 @@ jobs:
           if [ -z "$MIN" ]; then
             echo "crossed=unknown" >> "$GITHUB_OUTPUT"
             echo "::warning::MINIMUM_OPENCODE_VERSION not found upstream — manual review"
-          elif [ "$(printf '%s\n%s\n' "$MIN" "$PIN" | sort -V | head -1)" = "$PIN" ]; then
+          elif [ "$(printf '%s\n%s\n' "$MIN" "$PIN" | sort -V | head -1)" = "$PIN" ] && [ "$MIN" != "$PIN" ]; then
+            # crossed iff MIN > PIN strictly. Equality satisfies the minimum —
+            # the old test counted MIN == PIN as crossed, which skipped the
+            # bundle job forever once the pin caught up (real incident).
             echo "crossed=true" >> "$GITHUB_OUTPUT"
             echo "::error::upstream MINIMUM_OPENCODE_VERSION ($MIN) exceeds our pin ($PIN) — bump the pin before the next panel update"
           else

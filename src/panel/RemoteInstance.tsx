@@ -1146,6 +1146,17 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
                   onClick={() => void upNow(row.id)}
                 />
               ) : null}
+              {/* 在线也有升级入口：升级流程自带「升级后自动重启」。此前在线实例
+                  的升级动作只存在于头部徽章（不可点），用户得先停机才能看到按钮。 */}
+              {isUp && upgradeTo ? (
+                <KitButton
+                  size="sm"
+                  variant="outline"
+                  label={`升级到 ${upgradeTo}`}
+                  loading={busy[row.id] === `upgrade:${row.id}`}
+                  onClick={() => patchCard(row.id, { confirmUpgrade: !c.confirmUpgrade, confirmInstall: false })}
+                />
+              ) : null}
               {provisioned && !isUp ? (
                 <KitButton
                   size="sm"

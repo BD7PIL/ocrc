@@ -5,7 +5,7 @@
 # server/lib/guests/install.js, which requires the path to end in `.zip`).
 #
 # Naming, and why:
-#   asset  ocrc.zip / ocrc-omo-view.zip   constant — no version, no kind
+#   asset  ocrc.zip                        constant — no version, no kind
 #                                                token. The container says what
 #                                                it is (.zip = openchamber
 #                                                extension), the tag carries the
@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        ext: [ocrc, ocrc-omo-view]
+        ext: [ocrc]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -141,7 +141,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          for EXT in ocrc ocrc-omo-view; do
+          for EXT in ocrc; do
             VER="$(node -p "require('./extensions/$EXT/package.json').version")"
             PIN="$EXT-$VER"
             CHANNEL="$EXT-latest"
@@ -204,7 +204,7 @@ jobs:
           set -euo pipefail
           git config user.name "ocrc-extension"
           git config user.email "ocrc-extension@users.noreply.github.com"
-          for EXT in ocrc ocrc-omo-view; do
+          for EXT in ocrc; do
             BRANCH="$EXT"
             git subtree split --prefix="extensions/$EXT" -b "split-$EXT" HEAD >/dev/null
             git push --force "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" \

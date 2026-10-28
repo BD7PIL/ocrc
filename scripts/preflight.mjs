@@ -23,15 +23,12 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const steps = [
   ['文档链接', 'npm run check:links'],
   ['重建 ocrc 扩展', 'npm --prefix extensions/ocrc run build'],
-  ['重建 ocrc-omo-view 扩展', 'npm --prefix extensions/ocrc-omo-view run build'],
   ['typecheck（cli）', 'npm run typecheck'],
   ['typecheck（测试树）', 'npm run typecheck:tests'],
   ['typecheck（ocrc 扩展）', 'npm --prefix extensions/ocrc run typecheck'],
-  ['typecheck（omo-view 扩展）', 'npm --prefix extensions/ocrc-omo-view run typecheck'],
   ['测试（cli）', 'npm test'],
   ['覆盖率门槛（cli）', 'npm run test:coverage && npm run check:coverage'],
   ['测试（ocrc 扩展）', 'npm --prefix extensions/ocrc test'],
-  ['测试（omo-view 扩展）', 'npm --prefix extensions/ocrc-omo-view test'],
   ['guest bundle 不变量', 'node scripts/check-guest-bundles.mjs'],
   ['样式令牌门禁', 'node scripts/check-style-tokens.mjs'],
   [
@@ -39,7 +36,7 @@ const steps = [
     // CI 在干净检出上跑 `git diff --exit-code`：那等价于"提交进仓库的产物 == 重新构建的结果"。
     // 本机无法在提交前证明这一点（"忘了重建"和"还没提交"看起来一样），所以这里只保证
     // 构建结果已经进暂存区并列出它们；一致性由 CI 和提交后再跑一次 preflight 兜底。
-    'git add -- extensions/ocrc/panel extensions/ocrc/status extensions/ocrc/service extensions/ocrc-omo-view/panel && git diff --cached --name-only -- extensions/ocrc/panel extensions/ocrc/status extensions/ocrc/service extensions/ocrc-omo-view/panel | sed "s/^/  待提交：/" || true',
+    'git add -- extensions/ocrc/panel extensions/ocrc/status extensions/ocrc/service && git diff --cached --name-only -- extensions/ocrc/panel extensions/ocrc/status extensions/ocrc/service | sed "s/^/  待提交：/" || true',
   ],
 ]
 

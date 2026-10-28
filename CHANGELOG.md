@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.0.0-alpha.21 — 跟随链修复 + 在线升级入口（2026-10-29，扩展 0.11.5）
+
+- **面板：在线实例补「升级到 X」按钮**。动作行的 primary 槽位此前按状态推进，在线时
+  被「打开界面」占住、升级动作整个不渲染（只剩头部不可点徽章）——必须先停机才能升级。
+  升级流程本就支持在线升级后自动重启，现补为在线分支的 secondary 按钮。
+- **ocrc-follow 三处修复**（对端卡 2.5.1/2.1.4 三天的根因）：bump-pin 的
+  `gh variable set` 403 断链（改 best-effort 移到 PR 后，manifest 才是权威）；
+  crossed 比较的相等边界（MIN==PIN 是满足不是越界，旧比较让 bundle 永久跳过）；
+  幂等守卫（manifest 已是目标版本时按 notice 收场）。
+- **对端插件对象条目**：provision.json 可声明 `pluginOptions`，ocrc 原位升级对端
+  plugins 数组的字符串条目（reeve 0.2.12 的 `agents.hideBuiltins` 由此到达对端）。
+- 引擎/面板版本跟随：双机已实测 2.5.3 / 2.2.0（pin manifest 2.2.0，见
+  `ocrc-follow`）。
+- **删除 `ocrc-omo-view` 扩展**：omo 引擎侧已被 reeve 取代并退役，编排树视图的
+  数据源不复存在（残留扩展只会渲染空，还让 preflight/发布矩阵白养一条线）。
+  仓库全链路移除；**装过它的宿主在扩展管理里卸载**。
+
 ## 2.0.0-alpha.20 — 面板归属模型：每台服务器自己的卡自己的状态（2026-10-25，扩展 0.11.4）
 
 - **15 个附属卡状态合并为 `Record<serverId, ServerCards>`**（此前各是全局单例，只靠渲染

@@ -32,21 +32,6 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
-  - package-ecosystem: "npm"
-    directory: "/extensions/ocrc-omo-view"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-    groups:
-      minor-and-patch:
-        update-types:
-          - "minor"
-          - "patch"
-    commit-message:
-      prefix: "chore(deps)"
-      include: "scope"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

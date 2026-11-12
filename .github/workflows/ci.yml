@@ -36,7 +36,6 @@ jobs:
         run: |
           npm ci
           npm --prefix extensions/ocrc ci
-          npm --prefix extensions/ocrc-omo-view ci
 
       - name: Lint (biome, lint-only — formatting is not enforced)
         run: npm run lint
@@ -71,9 +70,6 @@ jobs:
           npm --prefix extensions/ocrc run typecheck
           npm --prefix extensions/ocrc test
           npm --prefix extensions/ocrc run build
-          npm --prefix extensions/ocrc-omo-view run typecheck
-          npm --prefix extensions/ocrc-omo-view test
-          npm --prefix extensions/ocrc-omo-view run build
 
       # The extensions' install artifacts (panel/ status/ service/ shared/) are
       # committed for zero-build folder installs — CI rebuilds from src and
@@ -81,7 +77,6 @@ jobs:
       - name: Extension dist consistency (staged artifacts match src)
         run: |
           git diff --exit-code -- extensions/ocrc/panel extensions/ocrc/status extensions/ocrc/service extensions/ocrc/shared
-          git diff --exit-code -- extensions/ocrc-omo-view/panel extensions/ocrc-omo-view/service extensions/ocrc-omo-view/shared
           echo "extension artifacts in sync with src"
 
       # What a unit test cannot see: these bundles run inside a sandboxed frame

@@ -156,9 +156,27 @@ jobs:
             exit 0
           fi
           git commit -m "follow: upstream MINIMUM_OPENCODE_VERSION=$MIN exceeds pin ${{ env.OCRC_V2_PIN }} — pin bumped (bundle rerun required)"
-          git push origin "$BRANCH"
-          gh pr create --title "follow: bump opencode pin to $MIN" \
-            --body "Upstream openchamber ${{ needs.upstream-check.outputs.openchamber_latest }} requires OpenCode >= $MIN. Bundles are gated until this pin lands." || true
+          # Idempotency (2): the branch is machine-generated and can survive from
+          # an earlier run whose PR never landed. Real incident 2026-11-01:
+          # follow/bump-opencode-2.2.4 was pushed once, then every daily run died
+          # on a non-fast-forward push — the pin stayed at 2.2.0 and bundles were
+          # gated for 11 straight days. Overwriting a follow/* branch is safe by
+          # construction: its content is derived from main + MIN every run.
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "::notice::branch $BRANCH already exists upstream — refreshing it"
+            git push --force origin "$BRANCH"
+          else
+            git push origin "$BRANCH"
+          fi
+          # Idempotency (3): don't rely on `gh pr create` failing for an already
+          # open PR — check first, and never let a PR hiccup mask the push.
+          if [ -n "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' 2>/dev/null)" ]; then
+            echo "::notice::PR for $BRANCH is already open"
+          else
+            gh pr create --title "follow: bump opencode pin to $MIN" \
+              --body "Upstream openchamber ${{ needs.upstream-check.outputs.openchamber_latest }} requires OpenCode >= $MIN. Bundles are gated until this pin lands." \
+              || echo "::warning::gh pr create failed — branch $BRANCH is pushed, open the PR manually"
+          fi
           # Repo variable is the OVERRIDE layer only (runtime precedence:
           # manifest > OCRC_V2_PIN). GITHUB_TOKEN has been observed 403ing on
           # the Actions-variables API even with actions:write — the manifest

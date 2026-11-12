@@ -104,6 +104,20 @@ describe('remote scripts', () => {
 })
 
 describe('component pins', () => {
+  it('keeps version and spec in sync in ops/components.json', () => {
+    // 只改 version 不改 spec 会静默装旧版（sourcesFromPins 的优先级是 tarball > spec > version，
+    // 见 components.ts 的 sourcesFromPins）。这条钉住两者一致。
+    const pins = JSON.parse(readFileSync(new URL('../../ops/components.json', import.meta.url), 'utf-8')) as {
+      components: Record<string, { version?: string; spec?: string; tarball?: string }>
+    }
+    for (const [name, pin] of Object.entries(pins.components)) {
+      if (!pin.version || !pin.spec) continue
+      const at = pin.spec.lastIndexOf('@')
+      const specVersion = at > 0 ? pin.spec.slice(at + 1) : ''
+      expect(specVersion, `${name}: version ${pin.version} vs spec ${pin.spec}`).toBe(pin.version)
+    }
+  })
+
   it('reads ops/components.json and lets OCRC_<NAME>_PIN win', () => {
     // Derive the expectation from the pin file: bumping a component version
     // must not require touching this test.
@@ -225,6 +239,25 @@ describe('peer plugin entries (0.2.11)', () => {
     )
     expect(changed).toBe(true)
     expect(merged).toEqual([...foreign, { package: '/home/u/.ocrc/components/reeve/package', options: { agents: { hideBuiltins: false } } }])
+  })
+
+  it('keeps peer-only options (deployment facts like gate.port) when the contract only carries package defaults', () => {
+    // 真实事故面：provision.json 的 pluginOptions 只有 agents.hideBuiltins，
+    // 而 ubuntu 的 gate 端口是 18080（部署事实）。整块替换会把 18080 抹成默认 8080，
+    // 于是 GATE 监听 8080、providers.reeve.baseURL 指 18080 —— 代理全断。
+    const peer = {
+      package: '/home/u/.ocrc/components/reeve/package',
+      options: { gate: { enabled: true, port: 18080 }, agents: { hideBuiltins: true } },
+    }
+    const { merged, changed } = mergePeerPluginEntries(
+      [peer],
+      [{ package: '/home/u/.ocrc/components/reeve/package', options: { agents: { hideBuiltins: false } } }],
+      STALE,
+    )
+    expect(changed).toBe(true)
+    expect(merged).toEqual([
+      { package: '/home/u/.ocrc/components/reeve/package', options: { gate: { enabled: true, port: 18080 }, agents: { hideBuiltins: false } } },
+    ])
   })
 
   it('parses pluginOptions from the contract and requires it to be an object', () => {

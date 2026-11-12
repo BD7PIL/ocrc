@@ -610,6 +610,27 @@ const entryPackage = (v: unknown): string | null => {
   return null
 }
 
+const entryOptions = (v: unknown): Record<string, unknown> | null => {
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    const o = (v as { options?: unknown }).options
+    if (o && typeof o === 'object' && !Array.isArray(o)) return o as Record<string, unknown>
+  }
+  return null
+}
+
+/** 深合并 options：新值覆盖同名键，**旧条目独有的键保留**。
+ * 对端的 `gate.port` 是部署事实（EL7 用默认 8080、ubuntu 是 18080），
+ * provision.json 的 pluginOptions 只是包级默认值，不能把它抹掉。 */
+const mergeOptionsDeep = (prev: unknown, next: unknown): unknown => {
+  if (!prev || !next || typeof prev !== 'object' || typeof next !== 'object') return next
+  if (Array.isArray(prev) || Array.isArray(next)) return next
+  const out: Record<string, unknown> = { ...(prev as Record<string, unknown>) }
+  for (const [k, v] of Object.entries(next as Record<string, unknown>)) {
+    out[k] = mergeOptionsDeep((prev as Record<string, unknown>)[k], v)
+  }
+  return out
+}
+
 /** 纯函数：把我们的组件条目并进对端现有 plugins 数组。
  * 只增不删我们自己的旧形态（升级即**原位**替换：字符串 → 对象、旧 options → 新 options）；
  * 非我们的条目（用户自己的 npm 插件等）一个字节都不碰。 */
@@ -631,8 +652,11 @@ export function mergePeerPluginEntries(
     if (pkg !== null && isStale(pkg)) {
       const repl = pkg !== null ? pending.get(pkg) : undefined
       if (repl !== undefined && !consumed.has(pkg)) {
-        if (entryKey(repl) !== entryKey(v)) changed = true
-        merged.push(repl)
+        const prevOpts = entryOptions(v)
+        const nextOpts = entryOptions(repl)
+        const entry = prevOpts && nextOpts ? { ...(repl as Record<string, unknown>), options: mergeOptionsDeep(prevOpts, nextOpts) } : repl
+        if (entryKey(entry) !== entryKey(v)) changed = true
+        merged.push(entry)
         consumed.add(pkg)
       } else {
         changed = true // 我们的旧条目且无对应新条目：删除

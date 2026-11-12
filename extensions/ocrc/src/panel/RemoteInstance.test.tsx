@@ -424,7 +424,7 @@ describe('远程服务器卡片', () => {
     await act(async () => { screen.getByText('保存').click() })
     await waitFor(() => expect(calls.some((c) => (c.body as { op?: string })?.op === 'patch')).toBe(true))
     const patch = calls.find((c) => (c.body as { op?: string })?.op === 'patch')
-    expect((patch?.body as { payload: { bind?: string } }).payload.bind).toBe('lan')
+    expect((patch?.body as { payload: { bind?: string } } | undefined)?.payload.bind).toBe('lan')
   })
 
   it('启动/停止：STOPPED 卡发 up，在线卡发 down（带实例 id）', async () => {

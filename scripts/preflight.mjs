@@ -21,6 +21,10 @@ import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const steps = [
+  // Lint first: CI runs it as its own step right after install, and it was the
+  // one gate this script did not mirror — 0.11.5 shipped a panel change with
+  // three lint errors that preflight happily passed.
+  ['Lint（biome，只拦 error）', 'npm run lint'],
   ['文档链接', 'npm run check:links'],
   ['重建 ocrc 扩展', 'npm --prefix extensions/ocrc run build'],
   ['typecheck（cli）', 'npm run typecheck'],

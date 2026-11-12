@@ -598,6 +598,7 @@ export function RemoteInstance(props: { request: RequestFn; host: HostClient | n
   // 成功 → 3 秒后收起成结果 chip；失败保持展开。按机器签名依赖：哪台的台到了
   // done，哪台的收 chip，别的卡不动。
   const consoleSig = Object.values(cards).map((c) => (c.console ? `${c.console.phase}:${c.console.chip ? 1 : 0}` : '-')).join('|')
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 按 consoleSig 签名触发——cards 每帧都是新引用，依赖它会让 3 秒定时器每帧重建；due 的判定在 effect 内取一次快照
   useEffect(() => {
     const due = Object.entries(cards).filter(([, c]) => c.console?.phase === 'done' && !c.console.chip).map(([id]) => id)
     if (!due.length) return

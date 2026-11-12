@@ -3249,6 +3249,22 @@ var entryPackage = (v) => {
   }
   return null;
 };
+var entryOptions = (v) => {
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    const o = v.options;
+    if (o && typeof o === "object" && !Array.isArray(o)) return o;
+  }
+  return null;
+};
+var mergeOptionsDeep = (prev, next) => {
+  if (!prev || !next || typeof prev !== "object" || typeof next !== "object") return next;
+  if (Array.isArray(prev) || Array.isArray(next)) return next;
+  const out = { ...prev };
+  for (const [k, v] of Object.entries(next)) {
+    out[k] = mergeOptionsDeep(prev[k], v);
+  }
+  return out;
+};
 function mergePeerPluginEntries(current, additions, isStale) {
   const pending = /* @__PURE__ */ new Map();
   for (const a of additions) {
@@ -3263,8 +3279,11 @@ function mergePeerPluginEntries(current, additions, isStale) {
     if (pkg !== null && isStale(pkg)) {
       const repl = pkg !== null ? pending.get(pkg) : void 0;
       if (repl !== void 0 && !consumed.has(pkg)) {
-        if (entryKey(repl) !== entryKey(v)) changed = true;
-        merged.push(repl);
+        const prevOpts = entryOptions(v);
+        const nextOpts = entryOptions(repl);
+        const entry = prevOpts && nextOpts ? { ...repl, options: mergeOptionsDeep(prevOpts, nextOpts) } : repl;
+        if (entryKey(entry) !== entryKey(v)) changed = true;
+        merged.push(entry);
         consumed.add(pkg);
       } else {
         changed = true;

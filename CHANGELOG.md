@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.0.0-alpha.22 — 扩展 0.11.6：面板 service 带上 options deep merge（2026-11-16，扩展 0.11.6）
+
+- **面板 service 重建进 deep merge**：`src/core/components.ts` 的对端插件 options
+  深合并（新值覆盖同名键、旧条目独有键保留——对端的 `gate.port` 是部署事实，
+  provision.json 只带包级默认值）此前只活在开发机本地 CLI；镜像分支上的 service
+  还是 0.11.5 的整块替换旧逻辑。本次重建产物并补发，面板侧 `remote apply`
+  不再抹掉对端部署事实键。
+- **面板 3 个 lint error 清零**（0.11.5 带病发布：RemoteInstance 的
+  exhaustive-deps 误报压制与测试里的 any 断言），preflight 把 lint 补为第一步——
+  CI 拦的东西提交前先拦。
+- **ocrc-follow 断供 11 天的病灶**：bump-pin 的 push 对已存在分支改 force
+  （11-01 推过一次 `follow/bump-opencode-2.2.4` 之后每天 non-fast-forward 全红）、
+  CI 删掉 ocrc-omo-view 的三处残留步骤、dependabot 删对应条目。
+- **V2 pin 2.2.0 → 2.2.4**：上游 MINIMUM_OPENCODE_VERSION 已越过旧 pin
+  （三层 pin 的 manifest 层手工补上），EL7 引擎升 2.2.4 实测生效。
+- **发布通道补齐**：镜像分支上次手工推停在 0.11.5、zip 通道 `ocrc-latest`
+  停在 0.9.4；本次起两通道统一由 `ocrc-extension.yml` 发布（dispatch），
+  新装/自更新拿到的 service 与 main 一致。
+
 ## 2.0.0-alpha.21 — 跟随链修复 + 在线升级入口（2026-10-29，扩展 0.11.5）
 
 - **面板：在线实例补「升级到 X」按钮**。动作行的 primary 槽位此前按状态推进，在线时

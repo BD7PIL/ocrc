@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.0.0-alpha.23 — reeve 0.4.1：v4.3 轮落地（2026-11-26，扩展 0.11.7）
+
+- **reeve pin 0.4.0 → 0.4.1**（`ops/components.json` 双写 version+spec）。上游 v4.3 轮
+  五条线进包：done 判据重设计（idle 收敛条目才算终态，中段叙事不再假完成）、声明步
+  产出校验（schema 接线 + outputs 盘上存在，窄域可重试 + 固定 cooldown）、步间数据面
+  一期（`{{outputs.<stepId>}}` 引用注入，32KiB 上限）、补段通路（buildPatchContext）、
+  TS 脚本前端（esbuild 0.28.2 进 plugin dependencies）。
+- **reeve 发布链一处修复（本轮实证）**：`publish.yml` 此前不装插件依赖——0.4.0 及
+  以前零运行时依赖裸跑成立，esbuild 进依赖后 CI 首发红（Cannot find package
+  'esbuild'）；补 `npm --prefix plugin ci` 后重发成功。tag v0.4.1 随修复 commit 移动
+  （registry 尚无 0.4.1，移动无损）。
+- **扩展 0.11.7**：面板无功能变更，随发布通道走（dispatch `ocrc-extension.yml` 重建
+  zip + 镜像分支）；README 台账同步（Bundled components 停在 reeve 0.3.0 的旧账
+  一并补齐）。
+
 ## 2.0.0-alpha.22 — 扩展 0.11.6：面板 service 带上 options deep merge（2026-11-16，扩展 0.11.6）
 
 - **面板 service 重建进 deep merge**：`src/core/components.ts` 的对端插件 options
